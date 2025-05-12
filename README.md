@@ -3,6 +3,7 @@
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-beta-orange)
+[![Kode on Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=964499&theme=light)](https://www.producthunt.com/posts/kode-3?utm_source=badge-featured&utm_medium=badge&utm_souce=badge-kode-3)
 
 > A modern, interpretable programming language with C-style syntax and functional capabilities
 
