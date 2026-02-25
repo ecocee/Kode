@@ -13,7 +13,7 @@ func newRunCmd() *cobra.Command {
 		Use:   "run <file>",
 		Short: "Run a Kode file",
 		Long:  "Compile and execute a Kode source file",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireArgs(1, "a Kode file to run (e.g., 'kode run main.kode')"),
 		Run: func(cmd *cobra.Command, args []string) {
 			file := args[0]
 

@@ -13,7 +13,7 @@ func newNewCmd() *cobra.Command {
 		Use:   "new <project-name>",
 		Short: "Create a new project",
 		Long:  "Create a new Kode project with standard directory structure",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireArgs(1, "a project name (e.g., 'kode new myapp')"),
 		Run: func(cmd *cobra.Command, args []string) {
 			projectName := args[0]
 

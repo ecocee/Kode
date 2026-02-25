@@ -11,7 +11,7 @@ func newFmtCmd() *cobra.Command {
 		Use:   "fmt <file>",
 		Short: "Format source files",
 		Long:  "Format Kode source files according to standard style",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireArgs(1, "a Kode file to format (e.g., 'kode fmt main.kode')"),
 		Run: func(cmd *cobra.Command, args []string) {
 			file := args[0]
 

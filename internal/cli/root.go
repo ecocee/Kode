@@ -55,3 +55,16 @@ func Execute() {
 		os.Exit(1)
 	}
 }
+
+// requireArgs creates a custom Args function with user-friendly error messages
+func requireArgs(count int, usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) != count {
+			if count == 1 {
+				return fmt.Errorf("please provide %s\n\nUsage:\n  %s", usage, cmd.UseLine())
+			}
+			return fmt.Errorf("expected %d arguments, got %d\n\nUsage:\n  %s", count, len(args), cmd.UseLine())
+		}
+		return nil
+	}
+}

@@ -15,7 +15,7 @@ func newBuildCmd() *cobra.Command {
 		Use:   "build <file>",
 		Short: "Compile a Kode file",
 		Long:  "Compile a Kode source file to an executable",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireArgs(1, "a Kode file to build (e.g., 'kode build main.kode')"),
 		Run: func(cmd *cobra.Command, args []string) {
 			file := args[0]
 

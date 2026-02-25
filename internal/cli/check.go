@@ -11,7 +11,7 @@ func newCheckCmd() *cobra.Command {
 		Use:   "check <file>",
 		Short: "Type-check only",
 		Long:  "Type-check a Kode source file without generating output",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireArgs(1, "a Kode file to check (e.g., 'kode check main.kode')"),
 		Run: func(cmd *cobra.Command, args []string) {
 			file := args[0]
 
