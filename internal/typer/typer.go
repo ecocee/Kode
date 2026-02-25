@@ -173,11 +173,11 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			// Determine result type based on operands
 			leftIsNumeric := t.isNumericType(leftType)
 			rightIsNumeric := t.isNumericType(rightType)
-			
+
 			if !leftIsNumeric || !rightIsNumeric {
 				return nil, fmt.Errorf("non-numeric operands for arithmetic")
 			}
-			
+
 			// If either is float, result is float
 			if _, isFloat := leftType.(ast.FloatType); isFloat {
 				return ast.FloatType{}, nil
@@ -199,7 +199,7 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Special handling for built-in functions
 		if idExpr, ok := e.Callee.(ast.IdentifierExpr); ok {
 			if idExpr.Name == "print" {
@@ -213,7 +213,7 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 				return ast.VoidType{}, nil
 			}
 		}
-		
+
 		if fnType, ok := calleeType.(ast.FunctionType); ok {
 			if len(fnType.ParamTypes) != len(e.Arguments) {
 				return nil, fmt.Errorf("wrong number of arguments")
@@ -311,6 +311,7 @@ func (t *Typer) unify(a, b ast.Type) bool {
 	}
 	return false
 }
+
 // isNumericType checks if a type is numeric (int or float)
 func (t *Typer) isNumericType(typ ast.Type) bool {
 	switch typ.(type) {
