@@ -31,11 +31,19 @@ type Typer struct {
 
 // NewTyper creates a new type checker
 func NewTyper() *Typer {
-	return &Typer{
+	typer := &Typer{
 		nextVarID:   0,
 		env:         make(map[string]ast.Type),
 		constraints: []Constraint{},
 	}
+
+	// Add built-in functions
+	typer.env["print"] = ast.FunctionType{
+		ParamTypes: []ast.Type{ast.StringType{}},
+		ReturnType: ast.VoidType{},
+	}
+
+	return typer
 }
 
 // CheckProgram type checks a program
@@ -161,8 +169,22 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 		}
 		switch e.Op {
 		case ast.OpAdd, ast.OpSubtract, ast.OpMultiply, ast.OpDivide:
-			t.addConstraint(leftType, ast.IntType{})
-			t.addConstraint(rightType, ast.IntType{})
+			// Allow both int and float for arithmetic
+			// Determine result type based on operands
+			leftIsNumeric := t.isNumericType(leftType)
+			rightIsNumeric := t.isNumericType(rightType)
+			
+			if !leftIsNumeric || !rightIsNumeric {
+				return nil, fmt.Errorf("non-numeric operands for arithmetic")
+			}
+			
+			// If either is float, result is float
+			if _, isFloat := leftType.(ast.FloatType); isFloat {
+				return ast.FloatType{}, nil
+			}
+			if _, isFloat := rightType.(ast.FloatType); isFloat {
+				return ast.FloatType{}, nil
+			}
 			return ast.IntType{}, nil
 		case ast.OpEqual, ast.OpNotEqual, ast.OpLessThan, ast.OpGreaterThan, ast.OpLessThanOrEqual, ast.OpGreaterThanOrEqual:
 			t.addConstraint(leftType, rightType)
@@ -177,6 +199,21 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 		if err != nil {
 			return nil, err
 		}
+		
+		// Special handling for built-in functions
+		if idExpr, ok := e.Callee.(ast.IdentifierExpr); ok {
+			if idExpr.Name == "print" {
+				// print accepts any type
+				for _, arg := range e.Arguments {
+					_, err := t.inferExpression(arg)
+					if err != nil {
+						return nil, err
+					}
+				}
+				return ast.VoidType{}, nil
+			}
+		}
+		
 		if fnType, ok := calleeType.(ast.FunctionType); ok {
 			if len(fnType.ParamTypes) != len(e.Arguments) {
 				return nil, fmt.Errorf("wrong number of arguments")
@@ -273,4 +310,13 @@ func (t *Typer) unify(a, b ast.Type) bool {
 		return true
 	}
 	return false
+}
+// isNumericType checks if a type is numeric (int or float)
+func (t *Typer) isNumericType(typ ast.Type) bool {
+	switch typ.(type) {
+	case ast.IntType, ast.FloatType:
+		return true
+	default:
+		return false
+	}
 }

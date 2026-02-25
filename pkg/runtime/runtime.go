@@ -2,7 +2,11 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"sync"
+
+	"github.com/ecocee/kode-go/pkg/ast"
+	"github.com/ecocee/kode-go/pkg/ir"
 )
 
 // Scheduler manages goroutines
@@ -68,6 +72,8 @@ func (c *Channel) Close() {
 type Runtime struct {
 	Scheduler *Scheduler
 	Channels  map[string]*Channel
+	globals   map[string]interface{}
+	locals    map[string]interface{}
 }
 
 // NewRuntime creates a new runtime
@@ -75,11 +81,219 @@ func NewRuntime() *Runtime {
 	return &Runtime{
 		Scheduler: NewScheduler(),
 		Channels:  make(map[string]*Channel),
+		globals:   make(map[string]interface{}),
+		locals:    make(map[string]interface{}),
 	}
 }
 
-// Execute runs the program (placeholder)
-func (r *Runtime) Execute(ir interface{}) error {
-	// Placeholder for IR execution
+// Execute runs the program
+func (r *Runtime) Execute(irProgram interface{}) error {
+	program, ok := irProgram.(*ir.IR)
+	if !ok {
+		return fmt.Errorf("invalid IR program")
+	}
+
+	// Process globals
+	for _, g := range program.Program.Globals {
+		r.globals[g.Name] = r.evaluateValue(g.Value)
+	}
+
+	// Execute main function if it exists
+	for _, fn := range program.Program.Functions {
+		if fn.Name == "main" {
+			return r.executeFunction(fn, []interface{}{})
+		}
+	}
+
+	return nil
+}
+
+// executeFunction executes a function
+func (r *Runtime) executeFunction(fn *ir.IRFunction, args []interface{}) error {
+	// Create local scope
+	oldLocals := r.locals
+	r.locals = make(map[string]interface{})
+
+	// Bind arguments to parameters
+	for i, param := range fn.Params {
+		if i < len(args) {
+			r.locals[param] = args[i]
+		}
+	}
+
+	// Execute blocks
+	for _, block := range fn.Body {
+		if err := r.executeBlock(block); err != nil {
+			r.locals = oldLocals
+			return err
+		}
+	}
+
+	r.locals = oldLocals
+	return nil
+}
+
+// executeBlock executes a block
+func (r *Runtime) executeBlock(block *ir.IRBlock) error {
+	for _, instr := range block.Instructions {
+		switch i := instr.(type) {
+		case ir.IRBinaryOp:
+			left := r.evaluateValue(i.Left)
+			right := r.evaluateValue(i.Right)
+			result := r.evaluateBinaryOp(i.Op, left, right)
+			r.locals[i.Result] = result
+		case ir.IRCall:
+			if err := r.executeCall(&i); err != nil {
+				return err
+			}
+		case ir.IRReturn:
+			// Return for now (simplified)
+			return nil
+		}
+	}
+	return nil
+}
+
+// executeCall executes a function call
+func (r *Runtime) executeCall(call *ir.IRCall) error {
+	args := make([]interface{}, len(call.Args))
+	for i, arg := range call.Args {
+		args[i] = r.evaluateValue(arg)
+	}
+
+	switch call.Function {
+	case "print":
+		if len(args) > 0 {
+			fmt.Println(args[0])
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown function: %s", call.Function)
+	}
+}
+
+// evaluateValue evaluates an IR value
+func (r *Runtime) evaluateValue(val ir.IRValue) interface{} {
+	switch v := val.(type) {
+	case ir.IRConstant:
+		return v.Value
+	case ir.IRVariable:
+		if val, ok := r.locals[v.Name]; ok {
+			return val
+		}
+		if val, ok := r.globals[v.Name]; ok {
+			return val
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
+// evaluateBinaryOp evaluates a binary operation
+func (r *Runtime) evaluateBinaryOp(op ast.BinaryOp, left, right interface{}) interface{} {
+	switch op {
+	case ast.OpAdd:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l + r
+			}
+			if r, ok := right.(float64); ok {
+				return float64(l) + r
+			}
+		}
+		if l, ok := left.(float64); ok {
+			if r, ok := right.(float64); ok {
+				return l + r
+			}
+			if r, ok := right.(int64); ok {
+				return l + float64(r)
+			}
+		}
+		if l, ok := left.(string); ok {
+			if r, ok := right.(string); ok {
+				return l + r
+			}
+		}
+	case ast.OpSubtract:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l - r
+			}
+			if r, ok := right.(float64); ok {
+				return float64(l) - r
+			}
+		}
+		if l, ok := left.(float64); ok {
+			if r, ok := right.(float64); ok {
+				return l - r
+			}
+			if r, ok := right.(int64); ok {
+				return l - float64(r)
+			}
+		}
+	case ast.OpMultiply:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l * r
+			}
+			if r, ok := right.(float64); ok {
+				return float64(l) * r
+			}
+		}
+		if l, ok := left.(float64); ok {
+			if r, ok := right.(float64); ok {
+				return l * r
+			}
+			if r, ok := right.(int64); ok {
+				return l * float64(r)
+			}
+		}
+	case ast.OpDivide:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				if r == 0 {
+					return nil
+				}
+				return l / r
+			}
+			if r, ok := right.(float64); ok {
+				if r == 0 {
+					return nil
+				}
+				return float64(l) / r
+			}
+		}
+		if l, ok := left.(float64); ok {
+			if r, ok := right.(float64); ok {
+				if r == 0 {
+					return nil
+				}
+				return l / r
+			}
+			if r, ok := right.(int64); ok {
+				if r == 0 {
+					return nil
+				}
+				return l / float64(r)
+			}
+		}
+	case ast.OpEqual:
+		return left == right
+	case ast.OpNotEqual:
+		return left != right
+	case ast.OpLessThan:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l < r
+			}
+		}
+	case ast.OpGreaterThan:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l > r
+			}
+		}
+	}
 	return nil
 }

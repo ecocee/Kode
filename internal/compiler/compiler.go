@@ -30,9 +30,55 @@ func (c *Compiler) Compile(program ast.Program) (*ir.IR, error) {
 		return nil, err
 	}
 
+	// Create an implicit entry point for top-level statements
+	entryBlock := &ir.IRBlock{Label: "entry", Instructions: []ir.IRInstruction{}}
+	hasTopLevelStatements := false
+
 	for _, stmt := range program.Statements {
-		if err := c.compileStatement(stmt); err != nil {
-			return nil, err
+		switch stmt.(type) {
+		case ast.FunctionDefStmt:
+			// Function definitions are handled separately
+			if err := c.compileStatement(stmt); err != nil {
+				return nil, err
+			}
+		default:
+			// Top-level statements go into the entry block
+			hasTopLevelStatements = true
+			if err := c.compileStatementToBlock(stmt, entryBlock); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// If there are top-level statements, create a main function for them
+	if hasTopLevelStatements && len(entryBlock.Instructions) > 0 {
+		// Check if main already exists
+		mainExists := false
+		var mainFn *ir.IRFunction
+		for i, fn := range c.ir.Program.Functions {
+			if fn.Name == "main" {
+				mainExists = true
+				mainFn = c.ir.Program.Functions[i]
+				break
+			}
+		}
+
+		if !mainExists {
+			newMainFn := &ir.IRFunction{
+				Name:       "main",
+				Params:     []string{},
+				ReturnType: ast.VoidType{},
+				Body:       []*ir.IRBlock{entryBlock},
+			}
+			c.ir.Program.Functions = append(c.ir.Program.Functions, newMainFn)
+		} else {
+			// Merge top-level statements with existing main function
+			// Add top-level instructions at the beginning of the first block
+			if len(mainFn.Body) > 0 {
+				mainFn.Body[0].Instructions = append(entryBlock.Instructions, mainFn.Body[0].Instructions...)
+			} else {
+				mainFn.Body = []*ir.IRBlock{entryBlock}
+			}
 		}
 	}
 
@@ -76,6 +122,8 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 			Value: c.compileExpression(s.Value),
 		}
 		c.ir.Program.Globals = append(c.ir.Program.Globals, global)
+	case ast.ExprStmt:
+		c.compileExpression(s.Expr)
 	}
 	return nil
 }
@@ -84,35 +132,72 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 func (c *Compiler) compileStatementToBlock(stmt ast.Statement, block *ir.IRBlock) error {
 	switch s := stmt.(type) {
 	case ast.ReturnStmt:
-		val := c.compileExpression(s.Value)
+		val := c.compileExpressionWithBlock(s.Value, block)
 		block.Instructions = append(block.Instructions, ir.IRReturn{Value: val})
 	case ast.ExprStmt:
-		c.compileExpression(s.Expr) // Ignore result
+		c.compileExpressionWithBlock(s.Expr, block)
 	}
 	return nil
 }
 
-// compileExpression compiles an expression
-func (c *Compiler) compileExpression(expr ast.Expression) ir.IRValue {
+// compileExpressionWithBlock compiles an expression with a specific block context
+func (c *Compiler) compileExpressionWithBlock(expr ast.Expression, block *ir.IRBlock) ir.IRValue {
 	switch e := expr.(type) {
 	case ast.NumberExpr:
 		return ir.IRConstant{Type: ast.IntType{}, Value: e.Value}
+	case ast.StringExpr:
+		return ir.IRConstant{Type: ast.StringType{}, Value: e.Value}
+	case ast.FloatExpr:
+		return ir.IRConstant{Type: ast.FloatType{}, Value: e.Value}
+	case ast.BoolExpr:
+		return ir.IRConstant{Type: ast.BoolType{}, Value: e.Value}
 	case ast.IdentifierExpr:
 		return ir.IRVariable{Name: e.Name, Type: ast.IntType{}} // Simplified
-	case ast.BinaryExpr:
-		left := c.compileExpression(e.Left)
-		right := c.compileExpression(e.Right)
+	case ast.CallExpr:
+		// Handle function calls
+		fnName := ""
+		if idExpr, ok := e.Callee.(ast.IdentifierExpr); ok {
+			fnName = idExpr.Name
+		}
+
+		args := make([]ir.IRValue, len(e.Arguments))
+		for i, arg := range e.Arguments {
+			args[i] = c.compileExpressionWithBlock(arg, block)
+		}
+
 		result := c.newVar()
-		block := c.currentBlock()
-		block.Instructions = append(block.Instructions, ir.IRBinaryOp{
-			Op:     e.Op,
-			Left:   left,
-			Right:  right,
-			Result: result,
-		})
+		call := ir.IRCall{
+			Function: fnName,
+			Args:     args,
+			Result:   result,
+		}
+
+		// Add call instruction to the provided block
+		if block != nil {
+			block.Instructions = append(block.Instructions, call)
+		}
+
+		return ir.IRVariable{Name: result, Type: ast.VoidType{}}
+	case ast.BinaryExpr:
+		left := c.compileExpressionWithBlock(e.Left, block)
+		right := c.compileExpressionWithBlock(e.Right, block)
+		result := c.newVar()
+		if block != nil {
+			block.Instructions = append(block.Instructions, ir.IRBinaryOp{
+				Op:     e.Op,
+				Left:   left,
+				Right:  right,
+				Result: result,
+			})
+		}
 		return ir.IRVariable{Name: result, Type: ast.IntType{}}
 	}
 	return ir.IRConstant{Type: ast.IntType{}, Value: 0}
+}
+
+// compileExpression compiles an expression
+func (c *Compiler) compileExpression(expr ast.Expression) ir.IRValue {
+	return c.compileExpressionWithBlock(expr, nil)
 }
 
 // newVar generates a new variable name
