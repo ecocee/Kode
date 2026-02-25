@@ -4,11 +4,19 @@
     "fileTypes": ["kode"],
     "patterns": [
       {
-        "match": "\\b(let|return|if|else|while|for|fn|try|catch|import|print)\\b",
+        "match": "\\b(let|fn|return|if|else|for|while|break|continue|match|struct|enum|impl|trait|use|mod|pub|const|async|await|spawn|select|channel|import|service|defer|go|main|in|catch)\\b",
         "name": "keyword.control.kode"
       },
       {
-        "match": "\\b(true|false|null)\\b",
+        "match": "\\b(int|string|bool|float)\\b",
+        "name": "storage.type.kode"
+      },
+      {
+        "match": "\\b(true|false)\\b",
+        "name": "constant.language.kode"
+      },
+      {
+        "match": "\\b(null)\\b",
         "name": "constant.language.kode"
       },
       {
@@ -24,12 +32,18 @@
         "name": "constant.numeric.float.kode"
       },
       {
-        "match": "\\+|-|\\*|/|==|!=|<=|>=|<|>|=|&&|\\|\\|",
+        "match": "\\+|-|\\*|/|%|==|!=|<=|>=|<|>|=|&&|\\|\\||&|\\||\\^|<<|>>|->",
         "name": "keyword.operator.kode"
       },
       {
         "match": "//.*$",
         "name": "comment.line.double-slash.kode"
+      },
+      {
+        "match": "/\\*",
+        "name": "comment.block.kode",
+        "begin": "/\\*",
+        "end": "\\*/"
       },
       {
         "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b",
