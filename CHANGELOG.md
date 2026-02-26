@@ -4,6 +4,11 @@ All notable changes to the Kode Programming Language are documented in this file
 
 ---
 
+## [Unreleased] - 2026-02-26
+
+### ⚠️ Breaking
+- Removed `repl` command and interactive REPL support from CLI
+
 ## [0.1.0] - 2025-05-03
 
 ### ✨ Added
