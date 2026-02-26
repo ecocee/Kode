@@ -1,296 +1,109 @@
-# 📚 Kode Programming Language Wiki
+# 📚 Kode Language Wiki
 
-> A comprehensive guide to the Kode programming language
+> A complete guide to the Kode programming language (2026 edition)
 
-**Created by Sreeraj V Rajesh**
-
----
-
-## 📋 Table of Contents
-
-- [Introduction](#-introduction)
-- [Installation](#-installation)
-- [Language Version](#-language-version)
-- [Running Kode Programs](#-running-kode-programs)
-- [Language Syntax](#-language-syntax)
-- [Standard Library](#-standard-library)
-- [Examples](#-examples)
-- [Language Comparisons](#-language-comparisons)
-- [Current Limitations](#-current-limitations)
-- [Future Development](#-future-development)
+**Maintained by the Kode project**
 
 ---
 
-## 🌟 Introduction
+## 🧩 What is Kode?
 
-Kode is a modern, interpreted programming language designed with simplicity and readability in mind. It features a C-like syntax with influences from JavaScript, Python, and Rust, making it easy to pick up for developers familiar with these languages.
-
-The language supports essential programming concepts like variables, functions, arrays, closures, control flow structures, and a basic module system. It's implemented in Rust, making it memory-safe and relatively fast for an interpreted language.
-
----
+Kode is a concurrency‑first, statically typed compiled language that generates
+idiomatic Go code. It targets backend services, microservices, and distributed
+systems with a focus on predictable performance, strong type inference, and
+built-in channels & goroutines.
 
 ## 🛠️ Installation
 
-To use Kode, you need to compile the Rust source code:
+Install the CLI with the Go toolchain:
 
 ```bash
-# Clone the repository
-git clone https://github.com/cyberkutti-iedc/kode
-cd kode
-
-# Build with Cargo
-cargo build --release
-
-# Optional: Add to your PATH
-echo 'export PATH="$PATH:$(pwd)/target/release"' >> ~/.bashrc
-source ~/.bashrc
-
-# Verify installation
-kode version
+go install github.com/ecocee/kode-go/cmd/kode@latest
 ```
 
----
+The `kode` command will then be available in your `PATH`.
 
-## 📊 Language Version
-
-**Current Version: 0.2.0**
-
-Check your installed version with:
+## 🚀 Getting Started
 
 ```bash
-kode version
+kode new myproject      # scaffold a new project
+cd myproject
+kode build .            # generate Go code and compile
+./myproject             # run the binary
 ```
 
----
-
-## 🚀 Running Kode Programs
-
-### Command Line Interface
-
-Kode offers several command line options for running and building programs:
+## 📦 CLI Reference
 
 ```bash
-# Run a Kode program
-kode run myprogram.kode
+kode run path/to/file.kode       # type check, compile and execute
+kode build path/to/file.kode     # compile to Go + go build
+kode fmt path/to/file.kode       # format source code
+kode check path/to/file.kode     # type check only
+kode clean                       # remove generated artifacts
+kode version                     # show version and build info
+``` 
 
-# Compile a Kode program to bytecode
-kode build myprogram.kode
+> See [docs/cli.md](./cli.md) for the full command reference and options.
 
-# Run compiled bytecode
-kode run myprogram.kdc
+## 📘 Language Overview
 
-# Start REPL mode
-kode repl
+### Syntax
 
-# Display version information
-kode version
-
-# Show help
-kode help
-```
-
-#### Command Line Options
-
-- `--verbose`: Enable verbose output
-- `--optimize`: Enable optimization (for build command)
-- `--time`: Show execution time
-- `--no-run`: Build only, don't run (for build command)
-
-Examples:
-```bash
-kode run myprogram.kode --verbose
-kode build myprogram.kode --optimize --no-run
-kode run myprogram.kode --time
-```
-
-### REPL Mode
-
-The Read-Eval-Print Loop (REPL) allows for interactive programming:
-
-```bash
-kode repl
-```
-
-```
-Kode Programming Language v0.2.0 REPL
-Type 'exit' or press Ctrl+C to quit
-Type 'help' for available commands
-> let x = 5;
-> let y = 10;
-> print x + y;
-15
-> exit
-```
-
-REPL Commands:
-- `help`: Show available commands
-- `exit`: Exit the REPL
-- `clear`: Clear the screen
-
----
-
-## 📝 Language Syntax
-
-### Comments
+Kode uses a clean, familiar syntax with C‑inspired braces and semicolons.
+Statements end with `;` and blocks use `{}`.
 
 ```kode
-// This is a single-line comment
-
-/* This is a 
-   multi-line comment */
-
-/* Comments can be /* nested */ if needed */
-```
-
-### Variables
-
-```kode
-let name = "John";
-let age = 30;
-let pi = 3.14;
-let isActive = true;
-
-// Reassignment
-age = 31;
-```
-
-### Data Types
-
-- **Integer**: `let x = 42;`
-- **Float**: `let pi = 3.14;`
-- **Boolean**: `let isReady = true;`
-- **String**: `let name = "Alice";`
-- **Array**: `let numbers = [1, 2, 3, 4, 5];`
-- **Function/Closure**: `let add = fn(a, b) { return a + b; };`
-
-### Operators
-
-#### Arithmetic Operators
-- `+`: Addition
-- `-`: Subtraction
-- `*`: Multiplication
-- `/`: Division
-- `%`: Modulo (remainder)
-
-#### Comparison Operators
-- `==`: Equal to
-- `!=`: Not equal to
-- `<`: Less than
-- `>`: Greater than
-- `<=`: Less than or equal to
-- `>=`: Greater than or equal to
-
-#### Logical Operators
-- `&&`: Logical AND
-- `||`: Logical OR
-- `!`: Logical NOT
-
-### Control Flow
-
-#### If-Else Statements
-```kode
-if (condition) {
-    // code to execute if condition is true
-} else if (anotherCondition) {
-    // code to execute if anotherCondition is true
-} else {
-    // code to execute if all conditions are false
-}
-```
-
-#### While Loops
-```kode
-while (condition) {
-    // code to execute while condition is true
-}
-```
-
-#### For Loops
-```kode
-for (let i = 0; i < 5; i = i + 1) {
-    print i;
-}
-```
-
-### Functions
-
-```kode
-fn add(a, b) {
-    return a + b;
-}
-
-// Main function (entry point)
 fn main() {
-    let result = add(5, 3);
-    print result;  // 8
+    let x = 10;
+    print x;
 }
 ```
 
-### Arrays
+### Types & Inference
+
+The static type system employs Hindley‑Milner inference; you rarely need to
+annotate types unless distinguishing channel element types or generics.
+
+### Concurrency
+
+Concurrency is first class:
+
+- `go` launches lightweight goroutines
+- `chan<T>` is a typed channel
+- `select` multiplexes channel operations
+
+Example:
 
 ```kode
-let fruits = ["apple", "banana", "cherry"];
-print fruits[0];  // "apple"
-fruits[1] = "blueberry";  // Modify element
+let ch: chan<int> = chan.new();
+go fn() { ch <- 42; }();
+let v = <-ch;
 ```
 
-### Closures
+### Standard Library (v0.3)
 
-```kode
-let add = fn(a, b) {
-    return a + b;
-};
+The standard library currently includes HTTP server/client helpers, basic
+collections, and I/O utilities. More packages are added each release.
 
-let result = add(5, 3);  // 8
-```
+## 📚 Examples
 
-### Error Handling
+See the `examples/` directory for ready‑made code snippets on concurrency,
+services, error handling and more.
 
-```kode
-try {
-    // code that might cause an error
-    riskyOperation();
-} catch {
-    // error handling code
-    print "An error occurred";
-}
-```
+## 📅 Roadmap & Development
 
-### Modules and Imports
+The project follows a phased roadmap: core language (v0.2), concurrency & stdlib
+(v0.3), optimization & packages (v0.4), then long‑term features such as a JIT
+and cloud SDKs. Full details are in [docs/roadmap.md](./roadmap.md).
 
-```kode
-// In math.kode
-fn square(x) {
-    return x * x;
-}
+## 🙌 Contributing
 
-// In main.kode
-import math;
-print math.square(5);  // 25
-```
+Contributions, bug reports and documentation updates are welcome. Please read
+[CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
 
 ---
 
-## 📦 Standard Library
-
-The Kode standard library provides built-in functions for common operations:
-
-| Function | Description |
-|----------|-------------|
-| `print(value)` | Outputs a value to the console |
-| `len(array)` | Returns the length of an array |
-| `type(value)` | Returns the type of a value as a string |
-| `parse_int(string)` | Converts a string to an integer |
-| `parse_float(string)` | Converts a string to a float |
-| `to_string(value)` | Converts a value to its string representation |
-
-*Note: The standard library is still under development and more functions will be added in future versions.*
-
----
-
-## 📝 Examples
-
-### Hello World
+*Documentation generated 2026 — stay tuned for updates!*
 
 ```kode
 fn main() {
