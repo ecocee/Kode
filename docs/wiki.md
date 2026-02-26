@@ -12,6 +12,7 @@ Kode is a modern programming language designed for high-performance systems. It 
 
 - **Bytecode compilation** to portable `.kbc` format with stack-based VM execution (default)
 - **Go code generation backend** option for native performance and ecosystem interop (legacy)
+- **Module system** (v0.4+) - Import/export for code organization and reusability
 - **Complete operator support** including arithmetic, bitwise, logical, and comparison operators
 - **Full control flow** with if-else, for loops, while loops, and functions
 - **Static type system** with type inference
@@ -171,7 +172,51 @@ kode version                  # Show version info
 
 ---
 
-## 📘 Language Overview
+## � Module System (v0.4+)
+
+Kode's module system allows code organization through import and export statements. Reuse functions, structs, and constants across files.
+
+### Quick Example
+
+**math.kode:**
+```kode
+export fn add(a: int, b: int) -> int {
+    a + b
+}
+
+export const PI = 3
+```
+
+**main.kode:**
+```kode
+import { add, PI } from "math"
+
+fn main() {
+    print(add(5, 3))        // 8
+    print(PI)               // 3
+}
+```
+
+### Import Styles
+
+- **Simple import:** `import "module"`
+- **Aliased import:** `import "module" as m`
+- **Destructuring:** `import { item1, item2 } from "module"`
+- **Namespace import:** `import * as m from "module"`
+
+### Export Syntax
+
+- **Function:** `export fn name() { ... }`
+- **Variable:** `export let value = 0`
+- **Constant:** `export const MAX = 100`
+- **Struct:** `export struct Name { ... }`
+- **Enum:** `export enum Color { ... }`
+
+For complete details, see [docs/MODULES.md](./MODULES.md).
+
+---
+
+## �📘 Language Overview
 
 Kode uses clean, familiar syntax inspired by C. Code is organized as:
 - Statements ending with semicolons

@@ -106,6 +106,7 @@ type Statement interface {
 
 // Concrete statements
 type LetStmt struct {
+	Line  int        `json:"line"`
 	Name  string     `json:"name"`
 	Type  Type       `json:"type,omitempty"`
 	Value Expression `json:"value"`
@@ -114,6 +115,7 @@ type LetStmt struct {
 func (s LetStmt) statement() {}
 
 type AssignStmt struct {
+	Line  int        `json:"line"`
 	Name  string     `json:"name"`
 	Value Expression `json:"value"`
 }
@@ -121,6 +123,7 @@ type AssignStmt struct {
 func (s AssignStmt) statement() {}
 
 type FunctionDefStmt struct {
+	Line       int         `json:"line"`
 	FilePrefix string      `json:"file_prefix"`
 	IsMain     bool        `json:"is_main"`
 	Name       string      `json:"name"`
@@ -138,12 +141,14 @@ type Param struct {
 }
 
 type ReturnStmt struct {
+	Line  int        `json:"line"`
 	Value Expression `json:"value"`
 }
 
 func (s ReturnStmt) statement() {}
 
 type IfStmt struct {
+	Line       int         `json:"line"`
 	Condition  Expression  `json:"condition"`
 	ThenBranch []Statement `json:"then_branch"`
 	ElseBranch []Statement `json:"else_branch,omitempty"`
@@ -152,6 +157,7 @@ type IfStmt struct {
 func (s IfStmt) statement() {}
 
 type WhileStmt struct {
+	Line      int         `json:"line"`
 	Condition Expression  `json:"condition"`
 	Body      []Statement `json:"body"`
 }
@@ -159,6 +165,7 @@ type WhileStmt struct {
 func (s WhileStmt) statement() {}
 
 type ForStmt struct {
+	Line      int         `json:"line"`
 	Init      interface{} `json:"init,omitempty"`
 	Condition Expression  `json:"condition,omitempty"`
 	Incr      Expression  `json:"incr,omitempty"`
@@ -168,30 +175,46 @@ type ForStmt struct {
 func (s ForStmt) statement() {}
 
 type ExprStmt struct {
+	Line int        `json:"line"`
 	Expr Expression `json:"expr"`
 }
 
 func (s ExprStmt) statement() {}
 
 type BlockStmt struct {
+	Line       int         `json:"line"`
 	Statements []Statement `json:"statements"`
 }
 
 func (s BlockStmt) statement() {}
 
 type PrintStmt struct {
+	Line  int        `json:"line"`
 	Value Expression `json:"value"`
 }
 
 func (s PrintStmt) statement() {}
 
 type ImportStmt struct {
-	Path string `json:"path"`
+	Line    int      `json:"line"`
+	Path    string   `json:"path"`
+	Alias   string   `json:"alias,omitempty"`
+	Items   []string `json:"items,omitempty"`
+	IsNamed bool     `json:"isNamed"`
 }
 
 func (s ImportStmt) statement() {}
 
+type ExportStmt struct {
+	Line      int       `json:"line"`
+	Statement Statement `json:"statement"`
+	IsBlock   bool      `json:"isBlock"`
+}
+
+func (s ExportStmt) statement() {}
+
 type TryStmt struct {
+	Line  int         `json:"line"`
 	Body  []Statement `json:"body"`
 	Catch []Statement `json:"catch"`
 }
@@ -200,12 +223,14 @@ func (s TryStmt) statement() {}
 
 // Concurrency statements
 type GoStmt struct {
+	Line int        `json:"line"`
 	Call Expression `json:"call"`
 }
 
 func (s GoStmt) statement() {}
 
 type SelectStmt struct {
+	Line  int          `json:"line"`
 	Cases []SelectCase `json:"cases"`
 }
 
@@ -220,6 +245,7 @@ type SelectCase struct {
 
 // HTTP statements
 type HttpStmt struct {
+	Line    int        `json:"line"`
 	Method  string     `json:"method"`
 	Path    string     `json:"path"`
 	Handler Expression `json:"handler"`
@@ -228,6 +254,7 @@ type HttpStmt struct {
 func (s HttpStmt) statement() {}
 
 type RouteStmt struct {
+	Line   int         `json:"line"`
 	Method string      `json:"method"`
 	Path   string      `json:"path"`
 	Body   []Statement `json:"body"`
@@ -236,27 +263,34 @@ type RouteStmt struct {
 func (s RouteStmt) statement() {}
 
 // New statements
-type BreakStmt struct{}
+type BreakStmt struct {
+	Line int `json:"line"`
+}
 
 func (s BreakStmt) statement() {}
 
-type ContinueStmt struct{}
+type ContinueStmt struct {
+	Line int `json:"line"`
+}
 
 func (s ContinueStmt) statement() {}
 
 type SpawnStmt struct {
-	Call Expression
+	Line int        `json:"line"`
+	Call Expression `json:"call"`
 }
 
 func (s SpawnStmt) statement() {}
 
 type DeferStmt struct {
-	Call Expression
+	Line int        `json:"line"`
+	Call Expression `json:"call"`
 }
 
 func (s DeferStmt) statement() {}
 
 type MatchStmt struct {
+	Line  int `json:"line"`
 	Expr  Expression
 	Cases []MatchCase
 }
@@ -269,6 +303,7 @@ type MatchCase struct {
 }
 
 type ConstDeclStmt struct {
+	Line  int `json:"line"`
 	Name  string
 	Type  Type
 	Value Expression
@@ -277,6 +312,7 @@ type ConstDeclStmt struct {
 func (s ConstDeclStmt) statement() {}
 
 type StructDeclStmt struct {
+	Line   int `json:"line"`
 	Name   string
 	Fields []Field
 }
@@ -289,6 +325,7 @@ type Field struct {
 }
 
 type EnumDeclStmt struct {
+	Line     int `json:"line"`
 	Name     string
 	Variants []string
 }
@@ -296,6 +333,7 @@ type EnumDeclStmt struct {
 func (s EnumDeclStmt) statement() {}
 
 type TraitDeclStmt struct {
+	Line       int `json:"line"`
 	Name       string
 	Signatures []FunctionSignature
 }
@@ -309,22 +347,25 @@ type FunctionSignature struct {
 }
 
 type ImplDeclStmt struct {
-	Trait   string
-	Type    string
-	Methods []FunctionDefStmt
+	Line    int               `json:"line"`
+	Trait   string            `json:"trait"`
+	Type    string            `json:"type"`
+	Methods []FunctionDefStmt `json:"methods"`
 }
 
 func (s ImplDeclStmt) statement() {}
 
 type ServiceDeclStmt struct {
-	Name   string
-	Routes []RouteStmt
+	Line   int         `json:"line"`
+	Name   string      `json:"name"`
+	Routes []RouteStmt `json:"routes"`
 }
 
 func (s ServiceDeclStmt) statement() {}
 
 type ModuleDeclStmt struct {
-	Name string
+	Line int    `json:"line"`
+	Name string `json:"name"`
 }
 
 func (s ModuleDeclStmt) statement() {}
@@ -335,36 +376,42 @@ type Expression interface {
 
 // Concrete expressions
 type NumberExpr struct {
+	Line  int   `json:"line"`
 	Value int64 `json:"value"`
 }
 
 func (e NumberExpr) expression() {}
 
 type FloatExpr struct {
+	Line  int     `json:"line"`
 	Value float64 `json:"value"`
 }
 
 func (e FloatExpr) expression() {}
 
 type BoolExpr struct {
+	Line  int  `json:"line"`
 	Value bool `json:"value"`
 }
 
 func (e BoolExpr) expression() {}
 
 type StringExpr struct {
+	Line  int    `json:"line"`
 	Value string `json:"value"`
 }
 
 func (e StringExpr) expression() {}
 
 type IdentifierExpr struct {
+	Line int    `json:"line"`
 	Name string `json:"name"`
 }
 
 func (e IdentifierExpr) expression() {}
 
 type BinaryExpr struct {
+	Line  int        `json:"line"`
 	Left  Expression `json:"left"`
 	Op    BinaryOp   `json:"op"`
 	Right Expression `json:"right"`
@@ -373,6 +420,7 @@ type BinaryExpr struct {
 func (e BinaryExpr) expression() {}
 
 type UnaryExpr struct {
+	Line int        `json:"line"`
 	Op   UnaryOp    `json:"op"`
 	Expr Expression `json:"expr"`
 }
@@ -380,6 +428,7 @@ type UnaryExpr struct {
 func (e UnaryExpr) expression() {}
 
 type CallExpr struct {
+	Line      int          `json:"line"`
 	Callee    Expression   `json:"callee"`
 	Arguments []Expression `json:"arguments"`
 }
@@ -387,12 +436,14 @@ type CallExpr struct {
 func (e CallExpr) expression() {}
 
 type ArrayExpr struct {
+	Line     int          `json:"line"`
 	Elements []Expression `json:"elements"`
 }
 
 func (e ArrayExpr) expression() {}
 
 type ArrayAccessExpr struct {
+	Line  int        `json:"line"`
 	Array Expression `json:"array"`
 	Index Expression `json:"index"`
 }
@@ -400,6 +451,7 @@ type ArrayAccessExpr struct {
 func (e ArrayAccessExpr) expression() {}
 
 type MemberAccessExpr struct {
+	Line   int        `json:"line"`
 	Object Expression `json:"object"`
 	Member string     `json:"member"`
 }
@@ -407,21 +459,24 @@ type MemberAccessExpr struct {
 func (e MemberAccessExpr) expression() {}
 
 type StructLiteralExpr struct {
-	StructName string
-	Fields     map[string]Expression
+	Line       int                   `json:"line"`
+	StructName string                `json:"struct_name"`
+	Fields     map[string]Expression `json:"fields"`
 }
 
 func (e StructLiteralExpr) expression() {}
 
 type EnumVariantExpr struct {
-	EnumName string
-	Variant  string
-	Value    Expression
+	Line     int        `json:"line"`
+	EnumName string     `json:"enum_name"`
+	Variant  string     `json:"variant"`
+	Value    Expression `json:"value"`
 }
 
 func (e EnumVariantExpr) expression() {}
 
 type ClosureExpr struct {
+	Line   int         `json:"line"`
 	Params []Param     `json:"params"`
 	Body   []Statement `json:"body"`
 }
@@ -430,6 +485,7 @@ func (e ClosureExpr) expression() {}
 
 // Channel expression
 type ChanExpr struct {
+	Line int  `json:"line"`
 	Type Type `json:"type"`
 }
 

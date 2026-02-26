@@ -1,0 +1,6 @@
+// test - Main entry point
+print("Hello from test!")
+
+func main() {
+    print("Welcome to Kode!")
+}

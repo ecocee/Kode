@@ -35,6 +35,8 @@ const (
 	TokenUse
 	TokenMod
 	TokenPub
+	TokenExport
+	TokenAs
 	TokenConst
 	TokenAsync
 	TokenAwait
@@ -58,6 +60,7 @@ const (
 	TokenGo
 	TokenMain
 	TokenIn
+	TokenFrom
 	TokenCatch
 	TokenUnderscore
 	TokenTrue
@@ -150,6 +153,8 @@ var keywords = map[string]TokenKind{
 	"use":      TokenUse,
 	"mod":      TokenMod,
 	"pub":      TokenPub,
+	"export":   TokenExport,
+	"as":       TokenAs,
 	"const":    TokenConst,
 	"async":    TokenAsync,
 	"await":    TokenAwait,
@@ -158,6 +163,7 @@ var keywords = map[string]TokenKind{
 	"chan":     TokenChan,
 	"defer":    TokenDefer,
 	"import":   TokenImport,
+	"from":     TokenFrom,
 	"service":  TokenService,
 	"entry":    TokenEntry,
 	"int":      TokenInt,
@@ -529,9 +535,10 @@ func (l *Lexer) readIdentifierOrKeyword() Token {
 	}
 
 	var value interface{}
-	if kind == TokenBool {
+	switch kind {
+	case TokenBool:
 		value = ident == "true"
-	} else if kind == TokenIdentifier {
+	case TokenIdentifier:
 		value = ident
 	}
 

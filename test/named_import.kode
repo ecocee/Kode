@@ -1,0 +1,8 @@
+// Test named imports
+import { add } from "math";
+
+func main() {
+    print("OK");
+}
+
+main();

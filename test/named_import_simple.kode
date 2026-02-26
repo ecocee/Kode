@@ -1,0 +1,6 @@
+// Test simple import
+import { add };
+
+func main() {
+    print("OK");
+}

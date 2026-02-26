@@ -1,0 +1,5 @@
+import "config" as cfg;
+
+func main() {
+    print("With import");
+}

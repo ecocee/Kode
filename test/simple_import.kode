@@ -1,0 +1,8 @@
+// Simple import test
+import "math";
+
+func main() {
+    print("test");
+}
+
+main();

@@ -64,6 +64,8 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 	switch s := stmt.(type) {
 	case ast.LetStmt:
 		return c.compileLetStatement(&s)
+	case ast.ConstDeclStmt:
+		return c.compileConstStatement(&s)
 	case ast.ExprStmt:
 		return c.compileExpressionStatement(&s)
 	case ast.AssignStmt:
@@ -84,6 +86,12 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 	case ast.ContinueStmt:
 		c.buf.Emit(OpContinue)
 		return nil
+	case ast.ImportStmt:
+		// Imports are for module organization, no runtime code needed yet
+		return nil
+	case ast.ExportStmt:
+		// Export wraps another statement, compile the wrapped statement
+		return c.compileStatement(s.Statement)
 	case ast.StructDeclStmt:
 		// Structs are type definitions, no runtime code needed
 		return nil
@@ -117,6 +125,20 @@ func (c *Compiler) compileLetStatement(stmt *ast.LetStmt) error {
 	}
 
 	// Store to variable
+	varIdx := c.buf.AddGlobal(stmt.Name)
+	c.buf.Emit(OpStoreGlobal, varIdx)
+
+	return nil
+}
+
+// compileConstStatement compiles a const statement
+func (c *Compiler) compileConstStatement(stmt *ast.ConstDeclStmt) error {
+	// Compile the value expression
+	if err := c.compileExpression(stmt.Value); err != nil {
+		return err
+	}
+
+	// Store to variable (constants are stored like regular variables at runtime)
 	varIdx := c.buf.AddGlobal(stmt.Name)
 	c.buf.Emit(OpStoreGlobal, varIdx)
 
@@ -335,7 +357,7 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 }
 
 // compileFunctionDeclaration compiles a function declaration
-func (c *Compiler) compileFunctionDeclaration(stmt *ast.FunctionDefStmt) error {
+func (c *Compiler) compileFunctionDeclaration(_ *ast.FunctionDefStmt) error {
 	// Store function reference
 	return nil
 }

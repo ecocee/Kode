@@ -3,8 +3,12 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"sync"
 
+	"github.com/ecocee/kode-go/internal/parser"
 	"github.com/ecocee/kode-go/pkg/ast"
 	"github.com/ecocee/kode-go/pkg/ir"
 )
@@ -12,14 +16,6 @@ import (
 // enable runtime debug tracing (set to true during debugging)
 // exported for tests or external control
 var VerboseRuntime = false
-
-// internal alias used by code to avoid changing numerous references
-var verboseRuntime = VerboseRuntime
-
-// keep sync between variables whenever modified
-func init() {
-	// periodically sync if necessary
-}
 
 // Scheduler manages goroutines
 type Scheduler struct {
@@ -80,32 +76,125 @@ func (c *Channel) Close() {
 	close(c.ch)
 }
 
+// KodeError represents an error with file and line information
+type KodeError struct {
+	File    string
+	Line    int
+	Message string
+	Cause   error
+}
+
+func (e KodeError) Error() string {
+	msg := e.Message
+	if e.Cause != nil {
+		msg = fmt.Sprintf("%s: %v", e.Message, e.Cause)
+	}
+	if e.Line > 0 {
+		return fmt.Sprintf("%s:%d: %s", e.File, e.Line, msg)
+	}
+	return fmt.Sprintf("%s: %s", e.File, msg)
+}
+
+func (e KodeError) Unwrap() error {
+	return e.Cause
+}
+
 // Runtime holds the execution environment
 type Runtime struct {
-	Scheduler *Scheduler
-	Channels  map[string]*Channel
-	globals   map[string]interface{}
-	locals    map[string]interface{}
-	functions map[string]ast.FunctionDefStmt
+	Scheduler   *Scheduler
+	Channels    map[string]*Channel
+	globals     map[string]interface{}
+	locals      map[string]interface{}
+	functions   map[string]ast.FunctionDefStmt
+	currentFile string
+}
+
+// wrapError wraps an error with file context
+func wrapRuntimeError(file string, line int, message string, cause error) error {
+	return KodeError{
+		File:    file,
+		Line:    line,
+		Message: message,
+		Cause:   cause,
+	}
 }
 
 // NewRuntime creates a new runtime
 func NewRuntime() *Runtime {
 	return &Runtime{
-		Scheduler: NewScheduler(),
-		Channels:  make(map[string]*Channel),
-		globals:   make(map[string]interface{}),
-		locals:    make(map[string]interface{}),
-		functions: make(map[string]ast.FunctionDefStmt),
+		Scheduler:   NewScheduler(),
+		Channels:    make(map[string]*Channel),
+		globals:     make(map[string]interface{}),
+		locals:      make(map[string]interface{}),
+		functions:   make(map[string]ast.FunctionDefStmt),
+		currentFile: "",
+	}
+}
+
+// getLineFromNode extracts the line number from any AST node
+func getLineFromNode(node interface{}) int {
+	switch n := node.(type) {
+	case ast.LetStmt:
+		return n.Line
+	case ast.AssignStmt:
+		return n.Line
+	case ast.FunctionDefStmt:
+		return n.Line
+	case ast.ReturnStmt:
+		return n.Line
+	case ast.IfStmt:
+		return n.Line
+	case ast.WhileStmt:
+		return n.Line
+	case ast.ForStmt:
+		return n.Line
+	case ast.ExprStmt:
+		return n.Line
+	case ast.BlockStmt:
+		return n.Line
+	case ast.PrintStmt:
+		return n.Line
+	case ast.ImportStmt:
+		return n.Line
+	case ast.ExportStmt:
+		return n.Line
+	case ast.TryStmt:
+		return n.Line
+	case ast.GoStmt:
+		return n.Line
+	case ast.SelectStmt:
+		return n.Line
+	case ast.HttpStmt:
+		return n.Line
+	case ast.RouteStmt:
+		return n.Line
+	case ast.BreakStmt:
+		return n.Line
+	case ast.ContinueStmt:
+		return n.Line
+	case ast.SpawnStmt:
+		return n.Line
+	case ast.DeferStmt:
+		return n.Line
+	case ast.ImplDeclStmt:
+		return n.Line
+	case ast.ServiceDeclStmt:
+		return n.Line
+	case ast.ModuleDeclStmt:
+		return n.Line
+	default:
+		return 0
 	}
 }
 
 // Execute runs the program
-func (r *Runtime) Execute(irProgram interface{}) error {
+func (r *Runtime) Execute(irProgram interface{}, fileName string) error {
 	program, ok := irProgram.(*ir.IR)
 	if !ok {
 		return fmt.Errorf("invalid IR program")
 	}
+	// Set current file for error reporting
+	r.currentFile = fileName
 	// Always use AST interpreter for execution
 	return r.executeAST(program.AST)
 }
@@ -126,13 +215,13 @@ func (r *Runtime) executeStatement(stmt ast.Statement) error {
 	case ast.LetStmt:
 		val, err := r.evaluateExpression(s.Value)
 		if err != nil {
-			return err
+			return wrapRuntimeError(r.currentFile, getLineFromNode(s), "error in let statement", err)
 		}
 		r.globals[s.Name] = val
 	case ast.AssignStmt:
 		val, err := r.evaluateExpression(s.Value)
 		if err != nil {
-			return err
+			return wrapRuntimeError(r.currentFile, getLineFromNode(s), "error in assignment", err)
 		}
 		if _, ok := r.locals[s.Name]; ok {
 			r.locals[s.Name] = val
@@ -142,13 +231,13 @@ func (r *Runtime) executeStatement(stmt ast.Statement) error {
 	case ast.PrintStmt:
 		val, err := r.evaluateExpression(s.Value)
 		if err != nil {
-			return err
+			return wrapRuntimeError(r.currentFile, getLineFromNode(s), "error in print statement", err)
 		}
 		fmt.Println(val)
 	case ast.IfStmt:
 		cond, err := r.evaluateExpression(s.Condition)
 		if err != nil {
-			return err
+			return wrapRuntimeError(r.currentFile, getLineFromNode(s), "error in if condition", err)
 		}
 		if cond.(bool) {
 			for _, st := range s.ThenBranch {
@@ -222,6 +311,20 @@ func (r *Runtime) executeStatement(stmt ast.Statement) error {
 	case ast.EnumDeclStmt:
 		// Enum declarations don't need runtime code, just type definitions
 		return nil
+	case ast.ImportStmt:
+		// Load and execute the module
+		return r.loadAndExecuteModule(s)
+	case ast.ExportStmt:
+		// Export wraps another statement, execute the wrapped statement
+		return r.executeStatement(s.Statement)
+	case ast.ConstDeclStmt:
+		// Const declarations are like let declarations at runtime
+		val, err := r.evaluateExpression(s.Value)
+		if err != nil {
+			return err
+		}
+		r.globals[s.Name] = val
+		return nil
 	case ast.ExprStmt:
 		_, err := r.evaluateExpression(s.Expr)
 		return err
@@ -245,7 +348,7 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 		if val, ok := r.globals[e.Name]; ok {
 			return val, nil
 		}
-		return nil, fmt.Errorf("undefined variable: %s", e.Name)
+		return nil, wrapRuntimeError(r.currentFile, 0, fmt.Sprintf("undefined variable: %s", e.Name), nil)
 	case ast.BinaryExpr:
 		if e.Op == ast.OpAssign {
 			// Special handling for assignment
@@ -271,7 +374,7 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		return r.evaluateBinaryOp(e.Op, left, right)
+		return r.evaluateBinaryOp(e.Op, left, right, e.Line)
 	case ast.UnaryExpr:
 		operand, err := r.evaluateExpression(e.Expr)
 		if err != nil {
@@ -437,7 +540,7 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 		}
 		fn, ok := r.functions[callee.Name]
 		if !ok {
-			return nil, fmt.Errorf("undefined function: %s", callee.Name)
+			return nil, wrapRuntimeError(r.currentFile, 0, fmt.Sprintf("undefined function: %s", callee.Name), nil)
 		}
 		// Evaluate args
 		args := make([]interface{}, len(e.Arguments))
@@ -457,7 +560,9 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 // callFunction calls a function
 func (r *Runtime) callFunction(fn ast.FunctionDefStmt, args []interface{}) (interface{}, error) {
 	oldLocals := r.locals
+	oldFile := r.currentFile
 	r.locals = make(map[string]interface{})
+	r.currentFile = fn.FilePrefix // Set current file to function's source file
 	for i, param := range fn.Params {
 		r.locals[param.Name] = args[i]
 	}
@@ -467,6 +572,7 @@ func (r *Runtime) callFunction(fn ast.FunctionDefStmt, args []interface{}) (inte
 		result, err = r.evaluateExpression(fn.Body.(ast.Expression))
 		if err != nil {
 			r.locals = oldLocals
+			r.currentFile = oldFile
 			return nil, err
 		}
 	} else {
@@ -476,6 +582,7 @@ func (r *Runtime) callFunction(fn ast.FunctionDefStmt, args []interface{}) (inte
 				result, err = r.evaluateExpression(ret.Value)
 				if err != nil {
 					r.locals = oldLocals
+					r.currentFile = oldFile
 					return nil, err
 				}
 				break
@@ -483,38 +590,16 @@ func (r *Runtime) callFunction(fn ast.FunctionDefStmt, args []interface{}) (inte
 			err = r.executeStatement(stmt)
 			if err != nil {
 				r.locals = oldLocals
+				r.currentFile = oldFile
 				return nil, err
 			}
 		}
 	}
 	r.locals = oldLocals
+	r.currentFile = oldFile
 	return result, nil
 }
 
-// executeFunction executes a function
-func (r *Runtime) executeFunction(fn *ir.IRFunction, args []interface{}) error {
-	// Create local scope
-	oldLocals := r.locals
-	r.locals = make(map[string]interface{})
-
-	// Bind arguments to parameters
-	for i, param := range fn.Params {
-		if i < len(args) {
-			r.locals[param] = args[i]
-		}
-	}
-
-	// Execute blocks
-	for _, block := range fn.Body {
-		if err := r.executeBlock(block); err != nil {
-			r.locals = oldLocals
-			return err
-		}
-	}
-
-	r.locals = oldLocals
-	return nil
-}
 
 // executeBlock executes a block
 func (r *Runtime) executeBlock(block *ir.IRBlock) error {
@@ -523,7 +608,7 @@ func (r *Runtime) executeBlock(block *ir.IRBlock) error {
 		case ir.IRBinaryOp:
 			left := r.evaluateValue(i.Left)
 			right := r.evaluateValue(i.Right)
-			result, err := r.evaluateBinaryOp(i.Op, left, right)
+			result, err := r.evaluateBinaryOp(i.Op, left, right, 0)
 			if err != nil {
 				return err
 			}
@@ -586,7 +671,7 @@ func (r *Runtime) evaluateValue(val ir.IRValue) interface{} {
 }
 
 // evaluateBinaryOp evaluates a binary operation
-func (r *Runtime) evaluateBinaryOp(op ast.BinaryOp, left, right interface{}) (interface{}, error) {
+func (r *Runtime) evaluateBinaryOp(op ast.BinaryOp, left, right interface{}, line int) (interface{}, error) {
 	if VerboseRuntime {
 		fmt.Printf("binary op %v with left=%#v (%T) right=%#v (%T)\n", op, left, left, right, right)
 	}
@@ -705,5 +790,159 @@ func (r *Runtime) evaluateBinaryOp(op ast.BinaryOp, left, right interface{}) (in
 			}
 		}
 	}
-	return nil, fmt.Errorf("unsupported binary operation: %v", op)
+	return nil, wrapRuntimeError(r.currentFile, line, fmt.Sprintf("unsupported binary operation: %v", op), nil)
+}
+
+// resolveModulePath resolves an import path to an actual file path
+func (r *Runtime) resolveModulePath(importPath string) (string, error) {
+	// If the path has an extension, use it as-is
+	if filepath.Ext(importPath) != "" {
+		if _, err := os.Stat(importPath); err == nil {
+			return importPath, nil
+		}
+	}
+
+	// Try with .kode extension
+	kodePath := importPath + ".kode"
+	if _, err := os.Stat(kodePath); err == nil {
+		return kodePath, nil
+	}
+
+	// Try in examples directory
+	examplesPath := filepath.Join("examples", importPath+".kode")
+	if _, err := os.Stat(examplesPath); err == nil {
+		return examplesPath, nil
+	}
+
+	// Try in current directory
+	currentPath := filepath.Join(".", importPath+".kode")
+	if _, err := os.Stat(currentPath); err == nil {
+		return currentPath, nil
+	}
+
+	return "", fmt.Errorf("module not found: %s", importPath)
+}
+
+// extractExportedSymbols extracts exported functions and constants from module AST
+func (r *Runtime) extractExportedSymbols(statements []ast.Statement) map[string]interface{} {
+	exports := make(map[string]interface{})
+
+	for _, stmt := range statements {
+		switch s := stmt.(type) {
+		case ast.ExportStmt:
+			// Extract the wrapped statement
+			switch wrapped := s.Statement.(type) {
+			case ast.FunctionDefStmt:
+				exports[wrapped.Name] = wrapped
+			case ast.ConstDeclStmt:
+				// Evaluate the constant value and add to exports
+				if val, err := r.evaluateExpression(wrapped.Value); err == nil {
+					exports[wrapped.Name] = val
+				}
+			}
+		}
+	}
+
+	return exports
+}
+
+// loadAndExecuteModule loads and executes a module, making exported symbols available
+func (r *Runtime) loadAndExecuteModule(stmt ast.ImportStmt) error {
+	// Resolve the module path
+	modulePath, err := r.resolveModulePath(stmt.Path)
+	if err != nil {
+		return wrapRuntimeError("", 0, fmt.Sprintf("module not found: %s", stmt.Path), err)
+	}
+
+	// Read the module file
+	content, err := ioutil.ReadFile(modulePath)
+	if err != nil {
+		return wrapRuntimeError(modulePath, 0, "failed to read module file", err)
+	}
+
+	// Parse the module
+	p, err := parser.NewParser(modulePath, string(content))
+	if err != nil {
+		return wrapRuntimeError(modulePath, 0, "failed to create parser for module", err)
+	}
+
+	statements, err := p.Parse()
+	if err != nil {
+		// Try to extract line number from parser error
+		line := r.extractLineFromRuntimeError()
+		return wrapRuntimeError(modulePath, line, "parse error in imported module", err)
+	}
+
+	// Create a temporary runtime for the module to collect exports
+	moduleRuntime := NewRuntime()
+	moduleRuntime.currentFile = modulePath
+
+	// Execute the module to populate its functions and constants
+	for i, s := range statements {
+		if err := moduleRuntime.executeStatement(s); err != nil {
+			// Try to extract line number from execution error
+			line := r.extractLineFromRuntimeError()
+			if line == 0 {
+				line = i + 1 // Fallback to statement index
+			}
+			return wrapRuntimeError(modulePath, line, "execution error in imported module", err)
+		}
+	}
+
+	// Extract exported symbols
+	exports := moduleRuntime.extractExportedSymbols(statements)
+
+	// Also need to get exported functions from moduleRuntime.functions
+	for name, fn := range moduleRuntime.functions {
+		// Check if this function was exported
+		for _, stmt := range statements {
+			if expStmt, ok := stmt.(ast.ExportStmt); ok {
+				if fnStmt, ok := expStmt.Statement.(ast.FunctionDefStmt); ok && fnStmt.Name == name {
+					exports[name] = fn
+					break
+				}
+			}
+		}
+	}
+
+	// Add exported symbols to current runtime based on import style
+	if stmt.IsNamed {
+		// Named import: import { add, subtract } from "math"
+		for _, item := range stmt.Items {
+			if val, ok := exports[item]; ok {
+				r.globals[item] = val
+				// If it's a function, also add to functions map
+				if fn, ok := val.(ast.FunctionDefStmt); ok {
+					r.functions[item] = fn
+				}
+			} else {
+				return wrapRuntimeError("", 0, fmt.Sprintf("exported symbol '%s' not found in module %s", item, stmt.Path), nil)
+			}
+		}
+	} else if stmt.Alias != "" {
+		// Namespace import: import math from "math" -> creates math object
+		namespace := make(map[string]interface{})
+		for name, val := range exports {
+			namespace[name] = val
+		}
+		r.globals[stmt.Alias] = namespace
+	} else {
+		// Wildcard import: import * from "math"
+		for name, val := range exports {
+			r.globals[name] = val
+			if fn, ok := val.(ast.FunctionDefStmt); ok {
+				r.functions[name] = fn
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractLineFromRuntimeError attempts to extract line number from error message
+func (r *Runtime) extractLineFromRuntimeError() int {
+	// Look for patterns like "at line X" or "line X"
+	// For now, return 0 if we can't determine the line
+	// This is a basic implementation - could be improved with better parsing
+	return 0
 }

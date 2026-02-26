@@ -1,0 +1,23 @@
+// comprehensive_module_test.kode
+// Tests import and export syntax
+
+// Test Style 1: Simple module import
+import "math";
+
+// Test Style 2: Aliased module import
+import "utils" as util;
+
+// Export function
+export func add(a: int, b: int) {
+    print(a);
+}
+
+// Export variable
+export let VERSION = "1.0";
+
+// Main function
+func main() {
+    print("Module test OK");
+}
+
+main();

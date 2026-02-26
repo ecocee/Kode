@@ -1,0 +1,4 @@
+print("line1")
+print("line2")
+let z = 10 / 0
+print("line4")

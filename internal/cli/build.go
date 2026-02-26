@@ -65,7 +65,7 @@ func newBuildCmd() *cobra.Command {
 			statements, err := p.Parse()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\033[1;31m✗ Parser Error\033[0m in %s\n", file)
-				fmt.Fprintf(os.Stderr, "  \033[1;33m→\033[0m %v\n", err)
+				displayError(err)
 				os.Exit(1)
 			}
 
@@ -74,7 +74,7 @@ func newBuildCmd() *cobra.Command {
 			ir, err := c.Compile(ast.Program{Statements: statements})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\033[1;31m✗ Compiler Error\033[0m in %s\n", file)
-				fmt.Fprintf(os.Stderr, "  \033[1;33m→\033[0m %v\n", err)
+				displayError(err)
 				os.Exit(1)
 			}
 
@@ -208,7 +208,7 @@ func buildWithGo(irProg *ir.IR, output string, sourceFile string, verbose bool) 
 }
 
 // buildWithLLVM compiles using the LLVM backend
-func buildWithLLVM(irProg *ir.IR, output string, sourceFile string, verbose bool) {
+func buildWithLLVM(irProg *ir.IR, output string, _ string, verbose bool) {
 	// Generate LLVM IR
 	llvmGen := codegen.NewLLVMCodeGenerator(irProg)
 	llvmCode, err := llvmGen.Generate()

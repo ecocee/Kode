@@ -228,13 +228,4 @@ func (c *Compiler) newVar() string {
 	return fmt.Sprintf("v%d", c.nextVar)
 }
 
-// currentBlock gets the current block (simplified)
-func (c *Compiler) currentBlock() *ir.IRBlock {
-	if len(c.ir.Program.Functions) > 0 {
-		fn := c.ir.Program.Functions[len(c.ir.Program.Functions)-1]
-		if len(fn.Body) > 0 {
-			return fn.Body[len(fn.Body)-1]
-		}
-	}
-	return nil
-}
+

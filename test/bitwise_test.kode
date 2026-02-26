@@ -1,0 +1,16 @@
+// Test bitwise operators
+print("Bitwise Operators Test")
+let a = 12
+let b = 5
+print("a = 12")
+print("b = 5")
+print("a & b:")
+print(a & b)
+print("a | b:")
+print(a | b)
+print("a ^ b:")
+print(a ^ b)
+print("a << 1:")
+print(a << 1)
+print("a >> 1:")
+print(a >> 1)

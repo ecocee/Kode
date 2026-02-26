@@ -1,0 +1,23 @@
+// Comprehensive array test for runtime path
+
+// Basic arrays
+let nums = [10, 20, 30, 40, 50]
+print(nums[0])
+print(nums[4])
+
+// String arrays
+let words = ["hello", "world", "kode"]
+print(words[0])
+print(words[2])
+
+// Expression arrays
+let results = [5+5, 10*2, 100-40]
+print(results[0])
+print(results[1])
+print(results[2])
+
+// Arrays in loops
+let arr = [1, 2, 3, 4, 5]
+for (let i = 0; i < 5; i++) {
+  print(arr[i])
+}

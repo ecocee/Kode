@@ -1,0 +1,10 @@
+// Test array.len() method
+let nums = [10, 20, 30, 40, 50]
+print(nums.len)
+
+let words = ["hello", "world", "kode"]
+print(words.len)
+
+let arr = [1, 2, 3]
+let length = arr.len
+print(length)

@@ -35,6 +35,10 @@ servers, microservices and distributed applications. It provides:
 - **Member access with dot notation** (v0.3.1+) - foundation for methods and fields
 - **First‑class concurrency** primitives (`spawn`, `chan`, `select`) - planning
 - **Bytecode VM execution** - portable, no Go compiler needed (default)
+- **Module system** (v0.4+) - Import/export for code reusability and organization
+  - Multiple import styles: `import "module"`, `import { items } from "module"`
+  - Export declarations: `export fn`, `export let`, `export struct`, `export enum`
+  - Module namespacing and aliasing
 - **Full operator support** - arithmetic (5), bitwise (6), logical (3), comparison (6)
 - **Complete control flow** - if/else, for/while loops, break/continue, functions
 - **Modern CLI** with colored output, helpful error messages, and verbose modes
@@ -51,9 +55,9 @@ Kode is released under a semantic‑versioned roadmap:
    - ✅ v0.3.1: Array methods (.len), member access (dot notation)
    - ✅ v0.3.2: Structs with field access
    - ✅ v0.3.3: Enums with pattern matching
-3. **v0.4 – Methods & Concurrency** (planned): method definitions on types, channels, goroutines
-4. **v0.5 – LLVM Backend & Performance** (planned): LLVM backend option, optimization
-5. **v0.6 – Standard Library** (planned): package manager, modules, stdlib collections
+3. **v0.4 – Module System & Methods** (2026 - CURRENT): import/export, module resolution, method definitions
+4. **v0.5 – Concurrency & Channels** (planned): goroutines, channels, select statements, LLVM backend option
+5. **v0.6 – Standard Library** (planned): package manager, standard library collections, performance tuning
 6. **Future phases**: distributed computing, cloud-native features, web framework
 
 ### Platform Support
