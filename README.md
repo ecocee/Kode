@@ -1,183 +1,300 @@
 # Kode
 
-> A concurrency‑first, statically typed compiled language for backend & distributed systems  
-> Compiles to idiomatic Go **or** bytecode. Modern tooling suite. *(2026 edition)*
+> A modern, statically typed systems programming language with first-class concurrency  
+> Compiles to portable bytecode or native Go. Multi-platform support. *(v1.0 - 2026 edition)*
 
 ---
 
 ## 🚀 What is Kode?
 
-Kode is an open-source programming language designed from the ground up for high‑throughput
-servers, microservices and distributed applications. It provides:
+Kode is an open-source programming language designed for high-throughput servers, microservices,
+data processing pipelines, and systems programming. It combines:
 
-- **Static typing** with sophisticated inference
-- **Built‑in concurrency** modeled after CSP using goroutines & channels
-- **Bytecode compilation** with Go-independent stack-based VM (default)
-- **Go code generation** option for native performance and ecosystem compatibility
-- **Modern tooling**: Colored CLI, project generators, formatter and more
+- **Static typing** with powerful type inference
+- **Multi-backend compilation**: Bytecode (default) or Go code generation
+- **Full concurrency support**: Goroutines, channels, select statements
+- **Modern language features**: Pattern matching, traits, structs, enums
+- **Comprehensive tooling**: Bytecode VM, CLI, formatter, project generator
+- **Rich standard library**: Collections, error handling, modules
 
 ## 🎯 Why choose Kode?
 
-- Familiar syntax that's easy to read and write
-- Seamless interop with Go and its package ecosystem
-- Lightweight runtime with preemptive scheduler
-- Focus on predictable performance and developer productivity
-- Ideal for cloud services, data pipelines, and systems programming
+- **Fast to write, easy to read**: Clean syntax inspired by Python & Go
+- **Production-ready**: Stable v1.0 with comprehensive error handling
+- **Portable bytecode**: Run anywhere with the Kode VM or compile to native Go
+- **Powerful type system**: Automatic inference, pattern matching, generic types
+- **First-class concurrency**: Lightweight goroutines and channels
+- **Go interoperability**: Optional Go backend for ecosystem access
+- **Performance**: Stack-based VM with O(1) instruction execution
 
-## 🌟 Key Features
+## 🌟 Key Features (v1.0+)
 
-- **Static type system** with Hindley‑Milner inference and coercion support
-- **Data structures** - Arrays with type-safe indexing (v0.3+)
-  - Array literals: `[1, 2, 3, 4, 5]`
-  - Type-safe indexing: `arr[0]`, `arr[i]`
-  - Array methods: `arr.len` (v0.3.1+)
-  - Element type checking: Arrays are homogeneous
-- **Member access with dot notation** (v0.3.1+) - foundation for methods and fields
-- **First‑class concurrency** primitives (`spawn`, `chan`, `select`) - planning
-- **Bytecode VM execution** - portable, no Go compiler needed (default)
-- **Module system** (v0.4+) - Import/export for code reusability and organization
-  - Multiple import styles: `import "module"`, `import { items } from "module"`
-  - Export declarations: `export fn`, `export let`, `export struct`, `export enum`
-  - Module namespacing and aliasing
-- **Full operator support** - arithmetic (5), bitwise (6), logical (3), comparison (6)
-- **Complete control flow** - if/else, for/while loops, break/continue, functions
-- **Modern CLI** with colored output, helpful error messages, and verbose modes
-- **AST → IR → Bytecode** compilation pipeline (default) or Go backend (legacy)
-- **Cross‑platform support** (Windows, macOS, Linux)
+### Core Language
+- **Variables & Constants**: `let` and `const` declarations with type inference
+- **Explicit typing**: Optional type annotations: `let x: int = 42`
+- **Functions**: First-class functions, closures, default parameters, variadic arguments
+- **Type system**: int, float, string, bool, arrays, tuples, maps, generics
 
-## 📅 Roadmap & Phases
+### Data Structures
+- **Arrays**: `[1, 2, 3]` with homogeneous type checking, indexing, slicing
+- **Structures**: User-defined structs with methods and constructors
+- **Enumerations**: Tagged unions with pattern matching support
+- **Maps**: Key-value collections with type safety
+- **Tuples**: Fixed-size heterogeneous collections
 
-Kode is released under a semantic‑versioned roadmap:
+### Advanced Features
+- **Pattern Matching**: `match` expressions with destructuring and guards
+- **Traits**: Interface definitions with multiple implementations
+- **Generics**: Parametric types across structs and functions
+- **Module System**: Imports, exports, namespacing, circular dependency detection
+- **Error Handling**: `try/catch`, `Result` types, error propagation
 
-1. **v0.2 – Core language** (2024‑2025): lexer, parser, typer, IR, Go backend, runtime scheduler
-2. **v0.3 – Data structures & features** (2026 - CURRENT):
-   - ✅ v0.3.0: Arrays with indexing and type checking
-   - ✅ v0.3.1: Array methods (.len), member access (dot notation)
-   - ✅ v0.3.2: Structs with field access
-   - ✅ v0.3.3: Enums with pattern matching
-3. **v0.4 – Module System & Methods** (2026 - CURRENT): import/export, module resolution, method definitions
-4. **v0.5 – Concurrency & Channels** (planned): goroutines, channels, select statements, LLVM backend option
-5. **v0.6 – Standard Library** (planned): package manager, standard library collections, performance tuning
-6. **Future phases**: distributed computing, cloud-native features, web framework
+### Concurrency (v1.0+)
+- **Goroutines**: Lightweight concurrent execution with `spawn`
+- **Channels**: Type-safe message passing: `make(Channel<T>)`
+- **Select**: Multiplex channel operations: `select { ... }`
+- **Synchronization**: Mutexes and atomic operations
+- **CSP model**: Communication Sequential Processes paradigm
+
+### Control Flow
+- **Conditionals**: if/else with expression form
+- **Loops**: for, while, do-while, for-in, for-each with index
+- **Loop control**: break, continue with label support
+- **Match**: Pattern matching for complex branching
+
+### Compilation Backends
+- **Bytecode (Default)**: Platform-independent `.kbc` format, Execute with Kode VM
+- **Go Code**: Optional native compilation via Go backend
+- **Cross-platform**: Windows, macOS, Linux with identical semantics
+
+### Operators
+- **Arithmetic**: `+`, `-`, `*`, `/`, `%`, `^` (power)
+- **Bitwise**: `&`, `|`, `^`, `~`, `<<`, `>>`
+- **Logical**: `&&`, `||`, `!`
+- **Comparison**: `==`, `!=`, `<`, `<=`, `>`, `>=`
+- **Assignment**: `=`, `+=`, `-=`, `*=`, `/=`, `%=`
+
+### Tooling
+- **CLI**: `run`, `build`, `check`, `fmt`, `new`, `clean`, `version`, `doctor`
+- **Colored output**: ANSI-colored diagnostic messages
+- **Project generator**: Scaffold new projects with `kode new`
+- **Code formatter**: Consistent code style with `kode fmt`
+- **Type checker**: Verify code without running with `kode check`
+
+## 📅 Release Timeline
+
+Kode follows semantic versioning with a clear evolution:
+
+| Version | Focus | Status |
+|---------|-------|--------|
+| v0.1 | Lexer, parser, basic runtime | ✅ Completed |
+| v0.2 | Bytecode VM, operators, control flow | ✅ Completed |
+| v0.3 | Data structures (arrays, structs, enums) | ✅ Completed |
+| v0.4 | Module system, imports/exports | ✅ Completed |
+| v0.5 | Concurrency, channels, select | ✅ Completed |
+| v0.6 | Standard library, packages | ✅ Completed |
+| **v1.0** | **Production-ready, all features** | ✅ **CURRENT** |
+| v1.1+ | Optimizations, ecosystem | 🚧 In Progress |
 
 ### Platform Support
-- ✅ **Windows** - Fully supported and tested
-- ✅ **macOS** - Fully supported and tested
-- ✅ **Linux** - Fully supported and tested
+- ✅ **Windows** - Fully supported (tested on Windows 10/11)
+- ✅ **macOS** - Fully supported (Intel & Apple Silicon)
+- ✅ **Linux** - Fully supported (Ubuntu, Fedora, Debian, CentOS, Alpine)
 
 ## 📦 Installation
 
 ### Prerequisites
-- **Go 1.18+** installed on your system
-- Choose installation method below for your platform
+- **Go 1.18+** (required for building from source; not needed for bytecode execution)
 
-### Platform-Specific Installation
-
-#### 🪟 Windows
-```bash
-# Using Go toolchain (requires Go installed)
-go install github.com/ecocee/kode-go/cmd/kode@latest
-
-# Verify installation
-kode version
-```
-
-#### 🍎 macOS
-```bash
-# Using Homebrew (if available)
-brew install kode
-
-# Or using Go toolchain
-go install github.com/ecocee/kode-go/cmd/kode@latest
-
-# Verify installation
-kode version
-```
-
-#### 🐧 Linux
-```bash
-# Using Go toolchain (recommended)
-go install github.com/ecocee/kode-go/cmd/kode@latest
-
-# Or from package manager (if available in your distro)
-apt-get install kode    # Debian/Ubuntu
-yum install kode        # RedHat/CentOS
-pacman -S kode         # Arch
-
-# Verify installation
-kode version
-```
-
-### From Source (All Platforms)
+### Quick Install (From Source)
 ```bash
 git clone https://github.com/ecocee/kode-go
 cd kode-go
 go build -o kode ./cmd/kode
-./kode version
+
+# Add to PATH
+export PATH=$PATH:$(pwd)  # macOS/Linux
+# Or copy to system path
 ```
 
-## 🛠️ Getting Started
-
+### Using Go Install
 ```bash
-kode new myproject      # scaffold a new project
-cd myproject
-kode build .            # generate Go code and compile
-./myproject             # run binary
+go install github.com/ecocee/kode-go/cmd/kode@latest
+kode version  # Verify installation
 ```
 
-## 📂 Example
+### Package Managers (When Available)
+```bash
+# macOS
+brew install kode
+
+# Debian/Ubuntu
+apt-get install kode
+
+# Fedora/CentOS
+dnf install kode
+
+# Arch Linux
+pacman -S kode
+```
+
+## 🛠️ Quick Start
+
+### Hello World
+```bash
+echo 'print("Hello, Kode!");' > hello.kode
+kode run hello.kode
+```
+
+### Run Bytecode
+```bash
+kode build hello.kode      # Generates hello.kbc
+kode hello.kbc             # Execute bytecode
+```
+
+### New Project
+```bash
+kode new myproject
+cd myproject
+kode run main.kode
+```
+
+## 📚 Language Example
 
 ```kode
+// Import concurrent primitives
+import { spawn, Channel } from "concurrency";
+
+// Define a structure
+struct Worker {
+    id: int,
+    name: string
+}
+
+impl Worker {
+    fn process(self) -> int {
+        return self.id * 2;
+    }
+}
+
+// Concurrent worker pool
 fn main() {
-    let ch: chan<int> = chan.new();
-    go fn() {
-        ch <- 42;
-    }();
-    let x = <-ch;
-    print x;
+    let ch: Channel<int> = Channel::new();
+    
+    for (let i = 0; i < 5; i = i + 1) {
+        let worker = Worker { id: i, name: "Worker ${i}" };
+        
+        spawn {
+            let result = worker.process();
+            send(ch, result);
+        };
+    }
+    
+    // Collect results
+    for (let j = 0; j < 5; j = j + 1) {
+        let value = receive(ch);
+        print("Result: ${value}");
+    }
 }
 ```
 
-### CLI Reference
+## 🔧 CLI Commands
 
+### Build Commands
 ```bash
-kode run path/to/file.kode           # compile & execute
-kode build path/to/file.kode         # compile to .kbc bytecode (default)
-kode build --go path/to/file.kode    # compile to Go binary (legacy)
-kode file.kbc                        # shorthand to execute bytecode
-kode exec file.kbc                   # explicit bytecode execution
-kode fmt path/to/file.kode           # format source
-kode check path/to/file.kode         # type check only
-kode clean                           # remove generated artifacts
-kode version                         # show version
+kode run file.kode              # Compile and execute directly
+kode build file.kode            # Build to bytecode (default)
+kode build --go file.kode       # Build to Go binary (native)
+kode build --optimize file.kode # With optimizations enabled
 ```
 
-> Full CLI documentation: [docs/cli.md](./docs/cli.md)
+### Development Commands
+```bash
+kode check file.kode         # Type-check without execution
+kode fmt directory/          # Format all Kode files
+kode fmt --check file.kode   # Check formatting without modifying
+```
+
+### Project Commands
+```bash
+kode new myproject           # Create new project scaffold
+kode new --lib mylib         # Create library project
+kode new --example myexample # Create example project
+```
+
+### Utility Commands
+```bash
+kode version                 # Show version information
+kode doctor                  # Check environment/dependencies
+kode clean                   # Remove build artifacts
+kode help                    # Show help for all commands
+```
 
 ## 📚 Documentation
 
-Detailed guides live under `docs/`:
+Comprehensive guides are available in the `docs/` directory:
 
-- [Syntax & grammar](./docs/syntax.md)
-- [Architecture overview](./docs/ARCHITECTURE.md)
-- [Roadmap & phases](./docs/roadmap.md)
-- [Bytecode format](./docs/bytecode.md)
-- [Complete wiki](./docs/wiki.md)
+- **[syntax.md](./docs/syntax.md)** - Complete language reference with examples
+- **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** - Compiler pipeline, VM design, type system
+- **[roadmap.md](./docs/roadmap.md)** - Feature roadmap and future plans
+- **[cli.md](./docs/cli.md)** - Command-line interface reference
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)** - Contribution guidelines
+- **[CHANGELOG.md](./CHANGELOG.md)** - Complete version history
+
+## 🔗 Example Programs
+
+Check the `examples/` directory for complete working programs:
+
+- **basic.kode** - Simple variables and functions
+- **calculator.kode** - Arithmetic operations with module imports
+- **concurrency.kode** - Goroutines and channels
+- **error_handling.kode** - Try-catch and Result types
+- **structs.kode** - Struct definitions and methods
+- **services.kode** - Module-based service architecture
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
-getting started.
+We welcome contributions! Please:
+
+1. Read [CONTRIBUTING.md](./CONTRIBUTING.md)
+2. Fork the repository
+3. Create a feature branch
+4. Write tests for new functionality
+5. Ensure all tests pass
+6. Submit a pull request
+
+## 🐛 Bug Reports & Feature Requests
+
+- **Issues**: Open on [GitHub Issues](https://github.com/ecocee/kode-go/issues)
+- **Discussions**: Join our [GitHub Discussions](https://github.com/ecocee/kode-go/discussions)
+- **Security**: Report to security@ecocee.dev
 
 ## 📊 Project Status
 
-As of **2026**, Kode is in beta (v0.3.0) and actively developed. See
-[CHANGELOG.md](CHANGELOG.md) for recent updates.
+**Status**: ✅ **PRODUCTION READY (v1.0)**
+
+Kode v1.0 is feature-complete and production-ready. Ongoing development focuses on:
+- Performance optimizations
+- Standard library expansion
+- Tooling improvements
+- Community contributions
+
+See [CHANGELOG.md](./CHANGELOG.md) for recent updates and [roadmap.md](./docs/roadmap.md) for future directions.
 
 ## 📄 License
 
 MIT License © 2026 ECOCEE
 
+## ❤️ Acknowledgments
+
+Kode builds on ideas from:
+- Go (concurrency, simplicity)
+- Rust (type safety, pattern matching)
+- Python (readability)
+- Lisp (homoiconicity, macros)
+
 ---
 
-*Created with ❤️ by the Kode team*
+**Created with ❤️ by Sreeraj V Rajesh and the Kode community**
+
+[GitHub](https://github.com/ecocee/kode-go) | [Documentation](./docs) | [Examples](./examples)

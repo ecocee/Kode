@@ -1,6 +1,6 @@
 # 📚 Kode Language Wiki
 
-> A complete guide to the Kode programming language (2026 edition)
+> A comprehensive guide to the modern Kode programming language (v1.0+ edition, 2026)
 
 **Maintained by the Kode project**
 
@@ -8,579 +8,637 @@
 
 ## 🧩 What is Kode?
 
-Kode is a modern programming language designed for high-performance systems. It features:
+Kode is a **modern, statically-typed systems programming language** designed for performance, safety, and productivity. It features:
 
-- **Bytecode compilation** to portable `.kbc` format with stack-based VM execution (default)
-- **Go code generation backend** option for native performance and ecosystem interop (legacy)
-- **Module system** (v0.4+) - Import/export for code organization and reusability
-- **Complete operator support** including arithmetic, bitwise, logical, and comparison operators
-- **Full control flow** with if-else, for loops, while loops, and functions
-- **Static type system** with type inference
-- **Concurrency-first design** with channels and goroutines (in development)
+- **Stack-based VM execution** - Portable bytecode compilation to `.kbc` format (default)
+- **Multiple backends** - Optional Go code generation for native performance and interoperability
+- **Complete module system** - Powerful import/export system for code organization and reusability
+- **Comprehensive operator support** - Arithmetic, bitwise, logical, comparison, and string operators
+- **Advanced control flow** - If-else, for/while loops, pattern matching, and error handling
+- **Static type system** - Full type inference with optional explicit annotations
+- **Object-oriented features** - Structs with methods, traits/interfaces, enumerations
+- **Concurrency-first design** - Goroutines, channels, select statements, and mutex synchronization
+- **Functional programming** - First-class functions, closures, higher-order functions, and generics
+- **Precise error reporting** - Line number tracking through entire compilation pipeline
 
 ---
 
-## 🛠️ Installation
+## 🛠️ Installation & Setup
 
 ### Requirements
 - **Go 1.18 or later** - [Download Go](https://golang.org/dl/)
-- Connection to GitHub (for repository access)
+- Git (for cloning repository)
 
-### Installation by Platform
+### Quick Installation
 
-#### 🪟 Windows
-```batch
-REM Using PowerShell or Command Prompt
+#### Windows (PowerShell/CMD)
+```powershell
 go install github.com/ecocee/kode-go/cmd/kode@latest
-
-REM Verify installation
 kode version
 ```
 
-#### 🍎 macOS
+#### macOS / Linux (Bash)
 ```bash
-# Using Go toolchain
 go install github.com/ecocee/kode-go/cmd/kode@latest
-
-# Verify installation
 kode version
 
-# Optional: Add to PATH if not already
-export PATH=$PATH:$(go env GOPATH)/bin
-```
-
-#### 🐧 Linux
-```bash
-# Using Go toolchain (all distributions)
-go install github.com/ecocee/kode-go/cmd/kode@latest
-
-# Verify installation
-kode version
-
-# Optional: Add to PATH
+# Add to PATH if needed
 export PATH=$PATH:$(go env GOPATH)/bin
 ```
 
 ### Build from Source (All Platforms)
 
 ```bash
-# Clone repository
 git clone https://github.com/ecocee/kode-go
 cd kode-go
-
-# Build
 go build -o kode ./cmd/kode
-
-# Verify
 ./kode version
 ```
 
-The `kode` command will then be available in your `PATH`.
-
-
 ---
 
-## 🚀 Getting Started
-
-### Quick Example
-
-```kode
-// Simple arithmetic and bitwise operations
-let a = 12
-let b = 5
-print(a + b)    // 17
-print(a & b)    // 4 (bitwise AND)
-print(a << 2)   // 48 (left shift)
-```
-
-### For Loops
-
-```kode
-for (let i = 0; i < 5; i++) {
-  print(i)
-}
-// Output: 0 1 2 3 4
-```
-
-### While Loops
-
-```kode
-let x = 0
-while (x < 3) {
-  print(x)
-  x = x + 1
-}
-// Output: 0 1 2
-```
-
-### Functions
-
-```kode
-func add(a: int, b: int) = a + b
-print(add(3, 4))  // Output: 7
-```
-
----
-
-## 📦 CLI Reference
-
-### Run Directly (Runtime)
-
-```bash
-kode run program.kode         # Direct interpretation (fastest startup)
-kode run --jit program.kode   # JIT compilation & execution (best performance)
-```
-
-### Build to Bytecode (Default)
-
-```bash
-kode build program.kode       # Creates program.kbc (smallest, portable)
-kode program.kbc              # Execute the bytecode
-```
-
-### Build with JIT (Optimized Binary)
-
-```bash
-kode build --jit -o program program.kode  # JIT-compiled binary (best performance)
-./program                                 # Run the optimized binary
-```
-
-### Build to Go Binary (Legacy)
-
-```bash
-kode build --go program.kode  # Creates program (or .exe on Windows)
-./program                     # Run the binary
-```
-
-### Other Commands
-
-```bash
-kode check program.kode       # Type check only
-kode fmt program.kode         # Format source code
-kode clean                    # Remove generated artifacts
-kode version                  # Show version info
-```
-
-### Compilation Mode Comparison
-
-| Mode | Command | Startup | Performance | Binary Size | Best For |
-|------|---------|---------|-------------|-------------|----------|
-| **Runtime** | `kode run` | ⚡ Fastest | 🟡 Medium | N/A | Development |
-| **JIT** | `kode run --jit` / `build --jit` | 🟡 1-5s | ⚡ Excellent | 🔴 50-100MB | Production |
-| **Bytecode** | `kode build` | ⚡ Fast | 🟡 Good | 🟢 200KB | Portable |
-| **Go Binary** | `kode build --go` | 🟡 Varies | ⚡ Excellent | 🟡 10-50MB | Native |
-
----
-
-## � Module System (v0.4+)
-
-Kode's module system allows code organization through import and export statements. Reuse functions, structs, and constants across files.
-
-### Quick Example
-
-**math.kode:**
-```kode
-export fn add(a: int, b: int) -> int {
-    a + b
-}
-
-export const PI = 3
-```
-
-**main.kode:**
-```kode
-import { add, PI } from "math"
-
-fn main() {
-    print(add(5, 3))        // 8
-    print(PI)               // 3
-}
-```
-
-### Import Styles
-
-- **Simple import:** `import "module"`
-- **Aliased import:** `import "module" as m`
-- **Destructuring:** `import { item1, item2 } from "module"`
-- **Namespace import:** `import * as m from "module"`
-
-### Export Syntax
-
-- **Function:** `export fn name() { ... }`
-- **Variable:** `export let value = 0`
-- **Constant:** `export const MAX = 100`
-- **Struct:** `export struct Name { ... }`
-- **Enum:** `export enum Color { ... }`
-
-For complete details, see [docs/MODULES.md](./MODULES.md).
-
----
-
-## �📘 Language Overview
-
-Kode uses clean, familiar syntax inspired by C. Code is organized as:
-- Statements ending with semicolons
-- Blocks enclosed in curly braces `{}`
-- Variables declared with `let`
-- Functions defined with `func`
-
-### Basic Syntax
-
-```kode
-let x = 10
-x = x + 5           // Update variable
-if (x > 10) {
-  print("x is large")
-}
-```
-
-### Operators
-
-#### Arithmetic Operators
-```kode
-10 + 5    // Addition: 15
-10 - 3    // Subtraction: 7
-4 * 5     // Multiplication: 20
-10 / 2    // Division: 5
-10 % 3    // Modulo: 1
--5        // Negation
-```
-
-#### Comparison Operators
-```kode
-5 == 5    // Equal: true
-5 != 3    // Not equal: true
-5 < 10    // Less than: true
-5 > 3     // Greater than: true
-5 <= 5    // Less or equal: true
-5 >= 5    // Greater or equal: true
-```
-
-#### Logical Operators
-```kode
-1 && 1    // Logical AND: true
-1 || 0    // Logical OR: true
-!0        // Logical NOT: true
-```
-
-#### Bitwise Operators (NEW!)
-```kode
-12 & 5    // Bitwise AND: 4
-12 | 5    // Bitwise OR: 13
-12 ^ 5    // Bitwise XOR: 9
-8 << 2    // Left shift: 32
-8 >> 2    // Right shift: 2
-~5        // Bitwise NOT: -6
-```
-
-### Types & Inference
-
-Kode supports these primary types:
-- `int` - Integer values
-- `float` - Floating point numbers
-- `string` - Text strings
-- `bool` - Boolean (true/false)
-
-Type inference is automatic in most cases:
-
-```kode
-let x = 10        // inferred as int
-let y = 3.14      // inferred as float
-let s = "hello"   // inferred as string
-let b = true      // inferred as bool
-```
-
-### Control Flow
-
-#### If-Else
-
-```kode
-if (x > 10) {
-  print("greater")
-} else {
-  print("less or equal")
-}
-```
-
-#### For Loops
-
-```kode
-for (let i = 0; i < 5; i++) {
-  print(i)  // Prints 0 1 2 3 4
-}
-```
-
-#### While Loops
-
-```kode
-let i = 0
-while (i < 5) {
-  print(i)
-  i = i + 1
-}
-```
-
-### Functions
-
-Define functions with typed parameters:
-
-```kode
-func multiply(a: int, b: int) = a * b
-print(multiply(6, 7))  // Output: 42
-```
-
-Recursive functions are supported:
-
-```kode
-func factorial(n: int) = if (n <= 1) { 1 } else { n * factorial(n - 1) }
-print(factorial(5))  // Output: 120
-```
-
-### Standard Library
-
-Core built-in functions available:
-- `print(value)` - Output to console
-- `input()` - Read user input
-
-More functions will be added in future releases.
-
-## 📚 Examples
+## 🚀 Quick Start
 
 ### Hello World
 
 ```kode
-print("Hello, World!")
-```
-
-### Arithmetic with Bitwise Operations
-
-```kode
-let x = 15
-let y = 7
-print(x + y)      // 22
-print(x & y)      // 7 (bitwise AND)
-print(x | y)      // 15 (bitwise OR)
-print(x << 1)     // 30 (left shift)
-```
-
-### Looping
-
-```kode
-print("Count to 5:")
-for (let i = 1; i <= 5; i++) {
-  print(i)
-}
-
-print("Countdown from 3:")
-let j = 3
-while (j > 0) {
-  print(j)
-  j = j - 1
-}
-```
-
-### Functions and Recursion
-
-```kode
-func square(x: int) = x * x
-func power(base: int, exp: int) = 
-  if (exp == 0) { 1 } else { base * power(base, exp - 1) }
-
-print(square(5))      // 25
-print(power(2, 10))   // 1024
-```
-
-See the `examples/` directory for more code snippets.
-
-## 📅 Roadmap & Development
-
-Kode development follows these phases:
-
-### v0.2 - Core Language (Current ✅)
-- ✅ Lexer, parser, and type checker
-- ✅ Complete operator support (arithmetic, bitwise, logical, comparison)
-- ✅ Control flow (if/else, for, while)
-- ✅ Functions with parameter inlining  
-- ✅ Bytecode compiler and VM
-- ✅ Colored CLI
-
-### v0.3 - Standard Library & I/O
-- ⏳ Expanded built-in functions
-- ⏳ File I/O operations
-- ⏳ String utilities
-- ⏳ Math library
-
-### v0.4 - Advanced Features
-- ⏳ Structs and methods
-- ⏳ Error handling (Result types)
-- ⏳ Collections (arrays, maps)
-- ⏳ Generic types
-
-### v0.5+ - Future
-- ⏳ Concurrency (channels, goroutines)
-- ⏳ Module system and packages
-- ⏳ Async/await
-- ⏳ JIT compilation option
-- ⏳ LLVM backend
-
-See [docs/roadmap.md](./roadmap.md) for detailed development plans.
-
-## 🙌 Contributing
-
-Contributions, bug reports and documentation updates are welcome. Please read
-[CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
-
----
-
-*Documentation generated 2026 — stay tuned for updates!*
-
-```kode
 fn main() {
-    print "Hello, World!";
+    print("Hello, World!")
 }
 ```
 
-### Factorial
+Run with: `kode run hello.kode`
+
+### Working with Variables
 
 ```kode
-fn factorial(n) {
-    if (n <= 1) {
-        return 1;
-    } else {
-        return n * factorial(n - 1);
-    }
-}
+let name = "Alice"
+let age = 30
+const PI = 3.14159
 
-fn main() {
-    print factorial(5);  // 120
-}
+print("${name} is ${age} years old")
+print("Pi is approximately ${PI}")
 ```
 
-### Array Manipulation
+### Using Operators
 
 ```kode
-fn main() {
-    let numbers = [1, 2, 3, 4, 5];
-    
-    // Sum all numbers
-    let sum = 0;
-    for (let i = 0; i < 5; i = i + 1) {
-        sum = sum + numbers[i];
-    }
-    
-    print sum;  // 15
-    
-    // Double each number
-    for (let i = 0; i < 5; i = i + 1) {
-        numbers[i] = numbers[i] * 2;
-    }
-    
-    print numbers;  // [2, 4, 6, 8, 10]
-}
+// Arithmetic
+let a = 10
+let b = 3
+print(a + b)        // 13
+print(a * b)        // 30
+
+// Bitwise
+print(a & b)        // 2 (binary AND)
+print(a << 2)       // 40 (left shift)
+
+// Comparison
+print(a > b)        // true
+print(a == 10)      // true
+
+// String concatenation
+let greeting = "Hello, " + name
+print(greeting)
+```
+
+### Arrays and Collections
+
+```kode
+let numbers = [1, 2, 3, 4, 5]
+
+// Access elements
+print(numbers[0])      // 1
+
+// Array methods
+print(len(numbers))    // 5
+push(numbers, 6)       // [1, 2, 3, 4, 5, 6]
+
+// Higher-order functions
+let doubled = map(numbers, fn(x) { return x * 2 })
+let evens = filter(numbers, fn(x) { return x % 2 == 0 })
+let sum = reduce(numbers, 0, fn(acc, x) { return acc + x })
 ```
 
 ### Error Handling
 
 ```kode
-fn divide(a, b) {
+fn divide(a: int, b: int) -> Result<int, string> {
     if (b == 0) {
-        // This would trigger an error
-        return a / b;
+        return Result.Error("Division by zero")
     }
-    return a / b;
+    return Result.Success(a / b)
+}
+
+match (divide(10, 2)) {
+    Result.Success(value) => print("Result: ${value}"),
+    Result.Error(msg) => print("Error: ${msg}")
+}
+```
+
+### Concurrency
+
+```kode
+// Spawn lightweight threads
+spawn {
+    for (let i = 0; i < 5; i = i + 1) {
+        print("Worker: ${i}")
+    }
+}
+
+// Channels for communication
+let chan = make(Channel<int>)
+
+spawn {
+    send(chan, 42)
+}
+
+let value = receive(chan)
+print("Got: ${value}")  // 42
+```
+
+---
+
+## 📦 CLI Commands Reference
+
+### Run Commands
+
+```bash
+# Direct interpretation (fastest startup, best for development)
+kode run program.kode
+
+# Run with verbose output
+kode run --verbose program.kode
+
+# Specify module search path
+kode run --module-path ./my_modules program.kode
+```
+
+### Build Commands
+
+```bash
+# Build to bytecode (default, portable)
+kode build program.kode
+# Output: program.kbc
+
+# Build to bytecode with output name
+kode build -o output.kbc program.kode
+
+# Build to Go source code (legacy, native performance)
+kode build --go program.kode
+# Output: program.go (can then compile with `go build program.go`)
+
+# Build with optimizations
+kode build --optimize program.kode
+
+# Cross-compile to target platform
+kode build --go --target windows program.kode
+kode build --go --target linux program.kode
+```
+
+### Type Checking & Formatting
+
+```bash
+# Type check without running
+kode check program.kode
+
+# Strict type checking
+kode check --strict program.kode
+
+# Format code
+kode fmt program.kode
+
+# Format with in-place modification
+kode fmt --in-place program.kode
+
+# Check formatting without modifying
+kode fmt --check program.kode
+```
+
+### Project Management
+
+```bash
+# Create new project
+kode new myproject
+kode new myproject --lib          # Library project
+kode new myproject --with-examples # Include examples
+
+# Type check entire project
+kode check .
+
+# Format entire project
+kode fmt .
+
+# Clean build artifacts
+kode clean
+kode clean --all                  # Also clean cache
+```
+
+### Information Commands
+
+```bash
+# Show version
+kode version
+
+# Show environment info
+kode doctor
+
+# List available commands
+kode help
+kode help build
+```
+
+### Execution Comparison
+
+| Command | Startup | Performance | Best For |
+|---------|---------|-------------|----------|
+| `kode run` | ⚡ Instant | 🟡 Good | Development & testing |
+| `kode build` (bytecode) | ⚡ Fast | 🟡 Good | Distribution, portability |
+| `kode build --go` (native) | 🟡 Varies | ⚡ Excellent | Performance-critical code |
+
+---
+
+## 📚 Module System
+
+Kode's module system enables code organization, reusability, and maintainability through imports and exports.
+
+### Module Basics
+
+**math.kode:**
+```kode
+export fn add(a: int, b: int) -> int {
+    return a + b
+}
+
+export fn subtract(a: int, b: int) -> int {
+    return a - b
+}
+
+export const PI = 3.14159
+```
+
+**main.kode:**
+```kode
+import { add, subtract, PI } from "math"
+
+fn main() {
+    print(add(10, 5))        // 15
+    print(subtract(10, 5))   // 5
+    print(PI)                // 3.14159
+}
+```
+
+### Import Styles
+
+```kode
+// Named import - import specific items
+import { add, subtract } from "math"
+
+// Namespace import - import as namespace
+import math from "math"
+math.add(5, 3)
+
+// Wildcard import - import all exports
+import * from "math"
+
+// Module alias
+import math as M from "./utilities/math"
+M.add(5, 3)
+```
+
+### Export Syntax
+
+```kode
+// Export functions
+export fn calculate(x: int) -> int {
+    return x * 2
+}
+
+// Export variables
+export let APP_NAME = "MyApp"
+
+// Export constants
+export const VERSION = "1.0.0"
+
+// Export structs
+export struct Point {
+    x: int,
+    y: int
+}
+
+// Export enums
+export enum Status {
+    Active,
+    Inactive
+}
+
+// Export traits
+export trait Drawable {
+    fn draw() -> void
+}
+```
+
+### Module Resolution
+
+Modules are resolved in this order:
+1. Relative to current file (`./module`, `../module`)
+2. Relative to project root (`/module`)
+3. Standard library paths
+
+### Path Examples
+
+```kode
+// Same directory
+import { utils } from "./utils"
+
+// Parent directory
+import { helpers } from "../helpers"
+
+// Nested directories
+import { db } from "../services/database"
+
+// Absolute from project root
+import { config } from "/config"
+```
+
+---
+
+## 🧬 Advanced Features
+
+### Pattern Matching
+
+```kode
+let value = 5
+
+match (value) {
+    1 => print("one"),
+    2 => print("two"),
+    3 | 4 => print("three or four"),
+    5..10 => print("five to ten"),
+    _ => print("other")
+}
+```
+
+### Destructuring
+
+```kode
+let (x, y) = (10, 20)
+print("${x}, ${y}")  // 10, 20
+
+match (person) {
+    Person { name: n, age: a } => print("${n} is ${a}")
+}
+```
+
+### Higher-Order Functions
+
+```kode
+fn apply(f: (int) -> int, x: int) -> int {
+    return f(x)
+}
+
+let double = fn(x) { return x * 2 }
+print(apply(double, 5))  // 10
+```
+
+### Generics
+
+```kode
+struct Container<T> {
+    value: T
+}
+
+impl<T> Container<T> {
+    fn get() -> T {
+        return this.value
+    }
+}
+
+let intContainer = Container<int> { value: 42 }
+let stringContainer = Container<string> { value: "hello" }
+```
+
+### Traits & Polymorphism
+
+```kode
+trait Animal {
+    fn speak() -> void
+}
+
+struct Dog {}
+impl Animal for Dog {
+    fn speak() -> void { print("Woof!") }
+}
+
+struct Cat {}
+impl Animal for Cat {
+    fn speak() -> void { print("Meow!") }
+}
+
+fn animalSound(animal: Animal) {
+    animal.speak()
+}
+
+animalSound(Dog {})  // Woof!
+animalSound(Cat {})  // Meow!
+```
+
+---
+
+## 📖 Code Examples
+
+### Factorial (Recursion)
+
+```kode
+fn factorial(n: int) -> int {
+    if (n <= 1) {
+        return 1
+    } else {
+        return n * factorial(n - 1)
+    }
 }
 
 fn main() {
-    try {
-        print divide(10, 0);
-    } catch {
-        print "Cannot divide by zero";
+    print(factorial(5))  // 120
+}
+```
+
+### Array Sum
+
+```kode
+fn sumArray(arr: [int]) -> int {
+    let total = 0
+    for (item in arr) {
+        total = total + item
+    }
+    return total
+}
+
+fn main() {
+    let numbers = [1, 2, 3, 4, 5]
+    print(sumArray(numbers))  // 15
+}
+```
+
+### Functional Array Operations
+
+```kode
+fn main() {
+    let numbers = [1, 2, 3, 4, 5]
+    
+    // Map - transform each element
+    let doubled = map(numbers, fn(x) { return x * 2 })
+    print(doubled)  // [2, 4, 6, 8, 10]
+    
+    // Filter - keep elements that match condition
+    let evens = filter(numbers, fn(x) { return x % 2 == 0 })
+    print(evens)    // [2, 4]
+    
+    // Reduce - combine into single value
+    let sum = reduce(numbers, 0, fn(acc, x) { return acc + x })
+    print(sum)      // 15
+}
+```
+
+### Working with Structs
+
+```kode
+struct Person {
+    name: string,
+    age: int,
+    email: string
+}
+
+impl Person {
+    fn isAdult() -> bool {
+        return this.age >= 18
+    }
+    
+    fn greet() -> string {
+        return "Hello, I'm ${this.name}"
+    }
+}
+
+fn main() {
+    let person = Person {
+        name: "Alice",
+        age: 30,
+        email: "alice@example.com"
+    }
+    
+    if (person.isAdult()) {
+        print(person.greet())
+    }
+}
+```
+
+### Error Handling with Result Types
+
+```kode
+enum FileError {
+    NotFound,
+    PermissionDenied,
+    IoError(message: string)
+}
+
+fn readFile(path: string) -> Result<string, FileError> {
+    // Simulation
+    if (path == "") {
+        return Result.Error(FileError.NotFound)
+    }
+    return Result.Success("file content")
+}
+
+fn main() {
+    match (readFile("config.txt")) {
+        Result.Success(content) => print("Content: ${content}"),
+        Result.Error(err) => print("Error reading file")
+    }
+}
+```
+
+### Concurrent Processing
+
+```kode
+fn main() {
+    let messages = make(Channel<string>)
+    
+    spawn {
+        send(messages, "Hello from worker 1")
+        send(messages, "Worker 1 done")
+    }
+    
+    spawn {
+        send(messages, "Hello from worker 2")
+        send(messages, "Worker 2 done")
+    }
+    
+    // Receive 4 messages
+    for (let i = 0; i < 4; i = i + 1) {
+        let msg = receive(messages)
+        print(msg)
     }
 }
 ```
 
 ---
 
-## 🔄 Language Comparisons
+## 📌 Feature Status (v1.0+)
 
-### Kode vs JavaScript
-- Similar syntax for variables, functions, and control flow
-- Kode is simpler with fewer built-in objects and methods
-- Kode lacks JavaScript's prototype-based OOP and more advanced features
+### ✅ Fully Implemented
 
-### Kode vs Python
-- Kode uses explicit braces for blocks instead of indentation
-- Kode requires semicolons to end statements
-- Kode's syntax is closer to C-family languages
-- Python has more extensive libraries and language features
+- ✅ Complete type system with inference
+- ✅ All operators (arithmetic, bitwise, logical, comparison)
+- ✅ Control flow (if/else, for, while, do-while, match)
+- ✅ Functions with named parameters and defaults
+- ✅ Structs with methods and impl blocks
+- ✅ Enums with associated values
+- ✅ Traits and interface implementations
+- ✅ Pattern matching and destructuring
+- ✅ First-class functions and closures
+- ✅ Generics and generic constraints
+- ✅ Arrays with higher-order operations
+- ✅ Result and Option types for error handling
+- ✅ Module system with imports/exports
+- ✅ Concurrency primitives (spawn, channels, select)
+- ✅ Bytecode VM execution
+- ✅ Go code generation backend
+- ✅ Full line number tracking and error reporting
 
-### Kode vs Rust
-- Kode is interpreted while Rust is compiled
-- Kode is dynamically typed while Rust is statically typed
-- Kode lacks Rust's ownership system and advanced type features
-- Syntax has some similarities but Kode is much simpler
+### ⏳ In Development
 
----
+- ⏳ Standard library expansion
+- ⏳ File I/O operations
+- ⏳ String manipulation utilities
+- ⏳ Math library functions
+- ⏳ Package manager (Kodepm)
 
-## ⚠️ Current Status
+### 🔮 Planned
 
-### ✅ Implemented Features
-
-- ✅ Variable declarations and assignments
-- ✅ All arithmetic operators (+, -, *, /, %)
-- ✅ All comparison operators (==, !=, <, <=, >, >=)
-- ✅ All logical operators (&&, ||, !)
-- ✅ **All bitwise operators** (&, |, ^, ~, <<, >>)
-- ✅ If-else conditional statements
-- ✅ For loops with proper variable tracking
-- ✅ While loops with condition checking
-- ✅ Function definitions with typed parameters
-- ✅ Function calls with argument passing
-- ✅ Recursive functions
-- ✅ Built-in functions (print, input)
-- ✅ Break and Continue statements (basic)
-- ✅ Bytecode compilation and execution
-- ✅ Colored CLI with helpful error messages
-
-### ⏳ Planned Features
-
-- ⏳ Concurrency (goroutines, channels, select)
-- ⏳ Object-oriented programming (structs, methods)
-- ⏳ Error handling (try-catch with specific error types)
-- ⏳ Collections (arrays, maps, sets)
-- ⏳ Module system and packages
-- ⏳ Generic types
-- ⏳ Higher-order functions and closures
-- ⏳ Type annotations in function signatures
-
-### ❌ Not Yet Implemented
-
-- ❌ Import/module system
-- ❌ Structs and enums
-- ❌ Pattern matching
-- ❌ Async/await
-- ❌ REPL (interactive shell)
-- ❌ Standard library beyond print/input
-- ❌ Null safety mechanisms
-- ❌ Null values (uses nil for uninitialized)
+- 🔮 Async/await syntax sugar
+- 🔮 Macro system
+- 🔮 LLVM backend option
+- 🔮 JIT compilation
+- 🔮 WebAssembly target
+- 🔮 FFI (Foreign Function Interface)
 
 ---
 
-## 🔮 Future Development
+## 🙌 Contributing
 
-See the [roadmap](roadmap.md) for detailed development plans. Key areas of focus include:
+Found a bug? Want to contribute code or documentation? See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
 
-1. Adding more data structures (maps, sets)
-2. Implementing a robust standard library
-3. Adding object-oriented programming features
-4. Improving error handling with specific error types
-5. Adding type annotations and optional static type checking
-6. Implementing a package manager
-7. Adding async/await functionality
-8. Improving performance with JIT compilation
+### Getting Involved
+
+1. **Report Issues**: [GitHub Issues](https://github.com/ecocee/kode-go/issues)
+2. **Submit PRs**: Fork → Create branch → Submit pull request
+3. **Join Discussion**: Participate in GitHub Discussions
+4. **Improve Docs**: Update documentation and examples
 
 ---
 
-*Wiki maintained by Sreeraj V Rajesh*
+*Kode v1.0+ - Modern Systems Programming Language*
 
-© 2025 Kode Programming Language
+**Learn More:** [ARCHITECTURE.md](./ARCHITECTURE.md) | [syntax.md](./syntax.md) | [roadmap.md](./roadmap.md)
+
+© 2026 Kode Programming Language Project
