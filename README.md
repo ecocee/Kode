@@ -1,53 +1,53 @@
-# 🚀 Kode Programming Language
+# Kode
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Status](https://img.shields.io/badge/status-beta-orange)
-[![Kode on Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=964499&theme=light)](https://www.producthunt.com/posts/kode-3?utm_source=badge-featured&utm_medium=badge&utm_souce=badge-kode-3)
+Kode is a statically typed, concurrency-first compiled language for backend and distributed systems development.
 
-> A modern, interpretable programming language with C-style syntax and functional capabilities
+## Features
 
-**Created by Sreeraj V Rajesh**
+- Static typing with type inference
+- Built-in concurrency model with goroutines and channels
+- HTTP server primitives
+- Clean, idiomatic Go-based compilation
 
-## 📋 Overview
-
-Kode is a lightweight, interpreted programming language designed with readability and simplicity in mind. It features a clean C-like syntax with influences from JavaScript, Python, and Rust, making it approachable for developers from various backgrounds.
-
-### Key Features
-
-- **Familiar Syntax**: C-style syntax that feels natural to most programmers
-- **Dynamic Typing**: Flexible variable handling without type declarations
-- **First-Class Functions**: Supports closures and function passing
-- **Bytecode Compilation**: Compile to `.kdc` bytecode for faster execution
-- **Interactive REPL**: Experiment with code in real-time
-- **Module System**: Import and use code from other files
-- **Error Handling**: Built-in try/catch mechanism
-
-## 🛠️ Installation
+## Installation
 
 ```bash
-# Clone repository
-git clone https://github.com/cyberkutti-iedc/kode
-cd kode
-
-# Build with Cargo
-cargo build --release
-
-# Run a sample program
-./target/release/kode run examples/hello.kode
+go install github.com/ecocee/kode-go/cmd/kode@latest
 ```
 
-## 🚀 Getting Started
+## Usage
 
-### Hello World
+### Run a Kode program
 
-```kode
-fn main() {
-    print "Hello, World!";
-}
+```bash
+kode run examples/concurrency.kode
 ```
 
-### Run Your First Program
+### Build to Go code
+
+```bash
+kode build examples/concurrency.kode
+```
+
+### Create a new project
+
+```bash
+kode new myproject
+```
+
+## Architecture
+
+Kode compiles to Go code via an AST → IR → Go code generation pipeline. The runtime provides a lightweight scheduler and channel abstractions.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md).
 
 ```bash
 kode run hello.kode
@@ -88,6 +88,6 @@ Kode is released under the MIT License.
 
 ---
 
-*Created with ❤️ by Sreeraj V Rajesh*
+*Created with ❤️ by ECOCEE*
 
 © 2025 Kode Programming Language

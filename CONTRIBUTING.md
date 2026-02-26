@@ -1,52 +1,31 @@
-# 🤝 Contributing to Kode
+# Contributing to Kode
 
-First off, thank you for considering contributing to **Kode** — your help makes this language better for everyone!
+## Development Setup
 
-Kode is a fast, interpreted programming language written in Rust. Whether you're fixing bugs, improving documentation, or adding new features, you're welcome here.
+1. Clone the repository
+2. Install Go 1.21+
+3. Run `go mod tidy`
+4. Build with `make build`
+5. Test with `make test`
 
-## 🧰 Project Setup
+## Code Style
 
-To get started:
+- Follow Go conventions
+- Use `go fmt`
+- Pass `go vet` and `golangci-lint`
 
-1. **Fork** the repository
-2. **Clone** your fork
+## Testing
 
-```bash
-git clone https://github.com/cyberkutti-iedc/kode
-cd kode
-```
+- Add unit tests for new features
+- Use table-driven tests
+- Ensure integration tests pass
 
-3. **Build the project**
+## Submitting Changes
 
-```bash
-cargo build
-```
-
-4. **Run the CLI**
-
-```bash
-./target/debug/kode run examples/hello.kode
-```
-
-## 🧪 Running Tests
-
-Run the test suite with:
-
-```bash
-cargo test
-```
-
-If you're adding new features, please include appropriate tests in the `tests/` directory.
-
-## 💡 Submitting a Pull Request
-
-When you're ready:
-
-1. Create a new branch for your change:
-
-```bash
-git checkout -b feature/my-new-feature
-```
+1. Create a feature branch
+2. Write tests
+3. Ensure CI passes
+4. Submit PR
 
 2. Make your changes and commit them:
 
@@ -74,7 +53,7 @@ git push origin feature/my-new-feature
 
 ## 🧭 Where to Contribute
 
-* **Bug fixes**: Check the [issues](https://github.com/sreerajvr/kode/issues) for reported bugs
+* **Bug fixes**: Check the [issues](https://github.com/ecoceevr/kode/issues) for reported bugs
 * **Documentation**: Improve README, docs, or inline code comments
 * **Examples**: Add example programs to showcase language features
 * **Language features**: Implement items from the [roadmap](docs/roadmap.md)
