@@ -62,7 +62,7 @@ func newRunCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			// Execute
+			// Direct runtime execution
 			rt := runtime.NewRuntime()
 			if err := rt.Execute(ir); err != nil {
 				fmt.Fprintf(os.Stderr, "\033[1;31m✗ Execution Error\033[0m\n")

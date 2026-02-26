@@ -13,7 +13,7 @@
 ## v1.0.0 (Long term goal)
 - Production-ready stability guarantee
 - Cloud-native integrations and SDKs
-- JIT compiler and actors model
+- Actors model and advanced concurrency
 
 ### Future Vision
 - Web-based playground and interactive learning

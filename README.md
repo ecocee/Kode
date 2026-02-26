@@ -38,7 +38,7 @@ servers, microservices and distributed applications. It provides:
 - **Full operator support** - arithmetic (5), bitwise (6), logical (3), comparison (6)
 - **Complete control flow** - if/else, for/while loops, break/continue, functions
 - **Modern CLI** with colored output, helpful error messages, and verbose modes
-- **AST → IR → Bytecode** compilation pipeline (or legacy Go backend)
+- **AST → IR → Bytecode** compilation pipeline (default) or Go backend (legacy)
 - **Cross‑platform support** (Windows, macOS, Linux)
 
 ## 📅 Roadmap & Phases
@@ -51,9 +51,10 @@ Kode is released under a semantic‑versioned roadmap:
    - ✅ v0.3.1: Array methods (.len), member access (dot notation)
    - ✅ v0.3.2: Structs with field access
    - ✅ v0.3.3: Enums with pattern matching
-3. **v0.4 – Concurrency & stdlib** (planned): full channel select, HTTP, collections, modules
-4. **v0.5 – Optimization & packages** (planned): LLVM backend option, package manager, tooling
-5. **Future phases**: JIT, actors, cloud‑native SDKs, web playground
+3. **v0.4 – Methods & Concurrency** (planned): method definitions on types, channels, goroutines
+4. **v0.5 – LLVM Backend & Performance** (planned): LLVM backend option, optimization
+5. **v0.6 – Standard Library** (planned): package manager, modules, stdlib collections
+6. **Future phases**: distributed computing, cloud-native features, web framework
 
 ### Platform Support
 - ✅ **Windows** - Fully supported and tested

@@ -123,11 +123,25 @@ print(add(3, 4))  // Output: 7
 
 ## 📦 CLI Reference
 
+### Run Directly (Runtime)
+
+```bash
+kode run program.kode         # Direct interpretation (fastest startup)
+kode run --jit program.kode   # JIT compilation & execution (best performance)
+```
+
 ### Build to Bytecode (Default)
 
 ```bash
-kode build program.kode       # Creates program.kbc
+kode build program.kode       # Creates program.kbc (smallest, portable)
 kode program.kbc              # Execute the bytecode
+```
+
+### Build with JIT (Optimized Binary)
+
+```bash
+kode build --jit -o program program.kode  # JIT-compiled binary (best performance)
+./program                                 # Run the optimized binary
 ```
 
 ### Build to Go Binary (Legacy)
@@ -140,12 +154,20 @@ kode build --go program.kode  # Creates program (or .exe on Windows)
 ### Other Commands
 
 ```bash
-kode run program.kode         # Compile and execute in one step
 kode check program.kode       # Type check only
 kode fmt program.kode         # Format source code
 kode clean                    # Remove generated artifacts
 kode version                  # Show version info
 ```
+
+### Compilation Mode Comparison
+
+| Mode | Command | Startup | Performance | Binary Size | Best For |
+|------|---------|---------|-------------|-------------|----------|
+| **Runtime** | `kode run` | ⚡ Fastest | 🟡 Medium | N/A | Development |
+| **JIT** | `kode run --jit` / `build --jit` | 🟡 1-5s | ⚡ Excellent | 🔴 50-100MB | Production |
+| **Bytecode** | `kode build` | ⚡ Fast | 🟡 Good | 🟢 200KB | Portable |
+| **Go Binary** | `kode build --go` | 🟡 Varies | ⚡ Excellent | 🟡 10-50MB | Native |
 
 ---
 
