@@ -1,5 +1,7 @@
 # Kode Architecture
 
+*Last updated 2026*
+
 ## Design Philosophy
 
 Kode is designed as a concurrency-first, statically typed language for backend and distributed systems. It emphasizes simplicity, safety, and performance through compilation to Go code.

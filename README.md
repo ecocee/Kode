@@ -1,93 +1,113 @@
 # Kode
 
-Kode is a statically typed, concurrency-first compiled language for backend and distributed systems development.
+> A concurrency‑first, statically typed compiled language for backend & distributed systems  
+> Compiles to idiomatic Go with a modern tooling suite. *(2026 edition)*
 
-## Features
+---
 
-- Static typing with type inference
-- Built-in concurrency model with goroutines and channels
-- HTTP server primitives
-- Clean, idiomatic Go-based compilation
+## 🚀 What is Kode?
 
-## Installation
+Kode is an open-source programming language designed from the ground up for high‑throughput
+servers, microservices and distributed applications. It provides:
+
+- **Static typing** with sophisticated inference
+- **Built‑in concurrency** modeled after CSP using goroutines & channels
+- **Go code generation** so you get native performance and ecosystem compatibility
+- **Modern tooling**: CLI, project generators, formatter and more
+
+## 🎯 Why choose Kode?
+
+- Familiar syntax that's easy to read and write
+- Seamless interop with Go and its package ecosystem
+- Lightweight runtime with preemptive scheduler
+- Focus on predictable performance and developer productivity
+- Ideal for cloud services, data pipelines, and systems programming
+
+## 🌟 Key Features
+
+- Static type system with Hindley‑Milner inference
+- First‑class concurrency primitives (`go`, `chan`, `select`)
+- HTTP server primitives & standard library in development
+- AST → IR → Go compilation pipeline
+- Portable binaries via the Go toolchain
+- Cross‑platform support (Windows, macOS, Linux)
+
+## 📅 Roadmap & Phases
+
+Kode is released under a semantic‑versioned roadmap:
+
+1. **v0.2 – Core language** (2024‑2025): lexer, parser, typer, IR, Go backend, runtime scheduler
+2. **v0.3 – Concurrency & stdlib** (current, 2026): full channel select, HTTP, collections
+3. **v0.4 – Optimization & packages**: LLVM backend option, package manager, tooling
+4. **Future phases**: JIT, actors, cloud‑native SDKs, web playground
+
+For details see [docs/roadmap.md](./docs/roadmap.md).
+
+## 📦 Installation
 
 ```bash
 go install github.com/ecocee/kode-go/cmd/kode@latest
 ```
 
-## Usage
-
-### Run a Kode program
+## 🛠️ Getting Started
 
 ```bash
-kode run examples/concurrency.kode
+kode new myproject      # scaffold a new project
+cd myproject
+kode build .            # generate Go code and compile
+./myproject             # run binary
 ```
 
-### Build to Go code
+## 📂 Example
+
+```kode
+fn main() {
+    let ch: chan<int> = chan.new();
+    go fn() {
+        ch <- 42;
+    }();
+    let x = <-ch;
+    print x;
+}
+```
+
+### CLI Reference
 
 ```bash
-kode build examples/concurrency.kode
+kode run path/to/file.kode           # compile & execute
+kode build path/to/file.kode         # compile to Go + go build
+kode fmt path/to/file.kode           # format source
+kode check path/to/file.kode         # type check only
+kode clean                           # remove generated artifacts
+kode version                         # show version
 ```
 
-### Create a new project
-
-```bash
-kode new myproject
-```
-
-## Architecture
-
-Kode compiles to Go code via an AST → IR → Go code generation pipeline. The runtime provides a lightweight scheduler and channel abstractions.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md).
-
-```bash
-kode run hello.kode
-```
-
-### Interactive REPL
-
-```bash
-kode repl
-
-> let x = 5;
-> let y = 10;
-> print x + y;
-15
-```
+> Full CLI documentation: [docs/cli.md](./docs/cli.md)
 
 ## 📚 Documentation
 
-For more detailed information, check out these resources:
+Detailed guides live under `docs/`:
 
-- [Language Syntax](./docs/syntax.md)
-- [CLI Reference](./docs/cli.md)
-- [Complete Wiki](./docs/wiki.md)
-- [Development Roadmap](./docs/roadmap.md)
-- [Bytecode Format](./docs/bytecode.md)
+- [Syntax & grammar](./docs/syntax.md)
+- [Architecture overview](./docs/ARCHITECTURE.md)
+- [Roadmap & phases](./docs/roadmap.md)
+- [Bytecode format](./docs/bytecode.md)
+- [Complete wiki](./docs/wiki.md)
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please check our [contribution guidelines](CONTRIBUTING.md) before getting started.
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
+getting started.
 
 ## 📊 Project Status
 
-Kode is currently in beta (v0.1.0). See the [changelog](CHANGELOG.md) for recent updates and our [roadmap](./docs/roadmap.md) for future plans.
+As of **2026**, Kode is in beta (v0.3.0) and actively developed. See
+[CHANGELOG.md](CHANGELOG.md) for recent updates.
 
 ## 📄 License
 
-Kode is released under the MIT License.
+MIT License © 2026 ECOCEE
 
 ---
 
-*Created with ❤️ by ECOCEE*
-
-© 2025 Kode Programming Language
+*Created with ❤️ by the Kode team*

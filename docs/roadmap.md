@@ -1,36 +1,30 @@
-# Kode Roadmap
+# Kode Roadmap (updated 2026)
 
-## v0.2.0 (Current)
-- Basic compiler skeleton
-- Lexer, parser, AST, type checker
-- IR and Go code generation
-- Runtime with scheduler and channels
-- CLI tooling
+## v0.3.0 (Current - 2026)
+- Full concurrency features with selects and buffered channels
+- HTTP server primitives and basic standard library
+- Improved error diagnostics and CLI tooling
 
-## v0.3.0
-- Full concurrency features
-- HTTP server primitives
-- Standard library
-- Improved error messages
+## v0.4.0 (Upcoming)
+- LLVM backend option for aggressive optimization
+- Package manager and module system
+- Performance tuning and benchmarking tools
 
-## v0.4.0
-- LLVM backend option
-- Optimizations
-- Package management
+## v1.0.0 (Long term goal)
+- Production-ready stability guarantee
+- Cloud-native integrations and SDKs
+- JIT compiler and actors model
 
-## Future
-- JIT compilation
-- Advanced concurrency (actors)
-- Cloud-native integrations
-- [ ] **Object System**: Lightweight class-like constructs
-
----
+### Future Vision
+- Web-based playground and interactive learning
+- Community-driven standard library expansion
+- CI/CD tooling, benchmarking suite, and language services
 
 ## 📦 Ecosystem Expansion
 
 - [ ] **Web Playground**: Browser-based WASM interpreter
-- [ ] **Documentation Site**: Comprehensive language reference
-- [ ] **Learning Resources**: Tutorials and example projects
+- [ ] **Documentation Site**: Professional website with examples
+- [ ] **Learning Resources**: Tutorials, books, and video guides
 - [ ] **Community Forum**: Discussion space for users and contributors
 - [ ] **CI/CD Integration**: Testing and deployment workflows
 - [ ] **Benchmarking Suite**: Performance measurement tools

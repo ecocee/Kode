@@ -25,7 +25,7 @@
 
 ## 📝 Basic Syntax
 
-Kode follows a C-style syntax with these core rules:
+Kode uses a clean, familiar syntax with these core rules:
 
 - Each statement ends with a semicolon (`;`)
 - Code blocks are enclosed in curly braces (`{}`)

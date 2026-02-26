@@ -1,9 +1,0 @@
-// testapp - Main entry point
-print("Hello from testapp!")
-
-//func main() {
-//    print("Welcome to Kode!")
-//}
-
-
-print(true)
