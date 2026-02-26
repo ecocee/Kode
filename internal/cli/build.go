@@ -105,6 +105,7 @@ func newBuildCmd() *cobra.Command {
 func buildWithGo(irProg *ir.IR, output string, sourceFile string, verbose bool) {
 	// Generate Go code from IR
 	codeGen := codegen.NewGoCodeGenerator(irProg)
+	codeGen.SetSourceFile(sourceFile)
 	goCode, err := codeGen.Generate()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating code: %v\n", err)
@@ -177,8 +178,30 @@ func buildWithGo(irProg *ir.IR, output string, sourceFile string, verbose bool) 
 		}
 	}
 
+	// Copy the source file to the same directory as the executable
+	// so it can be executed at runtime
+	outputDir := filepath.Dir(outputFile)
+	if outputDir == "" {
+		outputDir = "."
+	}
+	sourceFileName := filepath.Base(sourceFile)
+	destSourceFile := filepath.Join(outputDir, sourceFileName)
+
+	sourceData, err := os.ReadFile(sourceFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading source file: %v\n", err)
+		os.Exit(1)
+	}
+
+	err = os.WriteFile(destSourceFile, sourceData, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error copying source file: %v\n", err)
+		os.Exit(1)
+	}
+
 	if verbose {
 		fmt.Printf("Successfully built executable: %s\n", outputFile)
+		fmt.Printf("Copied source file to: %s\n", destSourceFile)
 	} else {
 		fmt.Printf("Successfully built: %s\n", outputFile)
 	}
