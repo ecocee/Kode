@@ -1133,6 +1133,16 @@ func (p *Parser) call() (ast.Expression, error) {
 				return nil, err
 			}
 			expr = ast.ArrayAccessExpr{Array: expr, Index: index}
+		} else if p.match(lexer.TokenDot) {
+			// Member access: obj.member or arr.len()
+			if !p.check(lexer.TokenIdentifier) {
+				return nil, fmt.Errorf("Expected member name after '.'")
+			}
+			if val, ok := p.advance().Value.(string); ok {
+				expr = ast.MemberAccessExpr{Object: expr, Member: val}
+			} else {
+				return nil, fmt.Errorf("Invalid member name")
+			}
 		} else {
 			break
 		}

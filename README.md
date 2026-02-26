@@ -26,12 +26,18 @@ servers, microservices and distributed applications. It provides:
 
 ## 🌟 Key Features
 
-- **Static type system** with Hindley‑Milner inference
-- **First‑class concurrency** primitives (`go`, `chan`, `select`)
+- **Static type system** with Hindley‑Milner inference and coercion support
+- **Data structures** - Arrays with type-safe indexing (v0.3+)
+  - Array literals: `[1, 2, 3, 4, 5]`
+  - Type-safe indexing: `arr[0]`, `arr[i]`
+  - Array methods: `arr.len` (v0.3.1+)
+  - Element type checking: Arrays are homogeneous
+- **Member access with dot notation** (v0.3.1+) - foundation for methods and fields
+- **First‑class concurrency** primitives (`spawn`, `chan`, `select`) - planning
 - **Bytecode VM execution** - portable, no Go compiler needed (default)
-- **Full operator support** - arithmetic, bitwise, logical, comparison
-- **Complete control flow** - if/else, for/while loops, functions
-- **Modern CLI** with colored output and helpful error messages
+- **Full operator support** - arithmetic (5), bitwise (6), logical (3), comparison (6)
+- **Complete control flow** - if/else, for/while loops, break/continue, functions
+- **Modern CLI** with colored output, helpful error messages, and verbose modes
 - **AST → IR → Bytecode** compilation pipeline (or legacy Go backend)
 - **Cross‑platform support** (Windows, macOS, Linux)
 
@@ -40,16 +46,69 @@ servers, microservices and distributed applications. It provides:
 Kode is released under a semantic‑versioned roadmap:
 
 1. **v0.2 – Core language** (2024‑2025): lexer, parser, typer, IR, Go backend, runtime scheduler
-2. **v0.3 – Concurrency & stdlib** (current, 2026): full channel select, HTTP, collections
-3. **v0.4 – Optimization & packages**: LLVM backend option, package manager, tooling
-4. **Future phases**: JIT, actors, cloud‑native SDKs, web playground
+2. **v0.3 – Data structures & features** (2026 - CURRENT):
+   - ✅ v0.3.0: Arrays with indexing and type checking
+   - ✅ v0.3.1: Array methods (.len), member access (dot notation)
+   - ⏳ v0.3.2: Structs with field access
+   - ⏳ v0.3.3: Enums with pattern matching
+3. **v0.4 – Concurrency & stdlib** (planned): full channel select, HTTP, collections, modules
+4. **v0.5 – Optimization & packages** (planned): LLVM backend option, package manager, tooling
+5. **Future phases**: JIT, actors, cloud‑native SDKs, web playground
 
-For details see [docs/roadmap.md](./docs/roadmap.md).
+### Platform Support
+- ✅ **Windows** - Fully supported and tested
+- ✅ **macOS** - Fully supported and tested
+- ✅ **Linux** - Fully supported and tested
 
 ## 📦 Installation
 
+### Prerequisites
+- **Go 1.18+** installed on your system
+- Choose installation method below for your platform
+
+### Platform-Specific Installation
+
+#### 🪟 Windows
 ```bash
+# Using Go toolchain (requires Go installed)
 go install github.com/ecocee/kode-go/cmd/kode@latest
+
+# Verify installation
+kode version
+```
+
+#### 🍎 macOS
+```bash
+# Using Homebrew (if available)
+brew install kode
+
+# Or using Go toolchain
+go install github.com/ecocee/kode-go/cmd/kode@latest
+
+# Verify installation
+kode version
+```
+
+#### 🐧 Linux
+```bash
+# Using Go toolchain (recommended)
+go install github.com/ecocee/kode-go/cmd/kode@latest
+
+# Or from package manager (if available in your distro)
+apt-get install kode    # Debian/Ubuntu
+yum install kode        # RedHat/CentOS
+pacman -S kode         # Arch
+
+# Verify installation
+kode version
+```
+
+### From Source (All Platforms)
+```bash
+git clone https://github.com/ecocee/kode-go
+cd kode-go
+go build -o kode ./cmd/kode
+./kode version
 ```
 
 ## 🛠️ Getting Started

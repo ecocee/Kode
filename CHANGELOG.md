@@ -4,9 +4,73 @@ All notable changes to the Kode Programming Language are documented in this file
 
 ---
 
-## [Unreleased] - 2026-02-26
+## [v0.3.1] - 2026-02-26
 
-### ⚠️ Breaking
+### ✨ Added - Array Methods & Member Access
+
+#### Member Access (Dot Notation)
+- Dot notation for member/method access: `obj.member`
+- Parser support for member access in postfix expressions
+- Type checking for array methods
+- Bytecode opcode: `OpMemberAccess`
+- Runtime and bytecode VM support
+
+#### Array Methods
+- `.len` property - Get array length
+  - Syntax: `arr.len` returns integer
+  - Works with arrays of any element type
+  - Constant time O(1) operation
+  - Example: `let length = [1,2,3].len  // 3`
+
+#### Platform Support
+- ✅ **Windows** - Fully tested and working
+- ✅ **macOS** - Fully tested and working
+- ✅ **Linux** - Fully tested and working
+
+#### Examples
+- New: `examples/array_methods.kode` - Array method usage examples
+- Test files: `test/array_methods_test.kode`
+
+---
+
+## [v0.3.0] - 2026-02-26
+
+### ✨ Added - Data Structures
+
+#### Arrays
+- Array literal syntax: `[1, 2, 3]`
+- Array indexing support: `arr[0]`, `arr[i]`
+- Proper array type checking with element type validation
+- Type-safe array operations in bytecode VM
+- Array support for integers, floats, strings, and mixed types
+- Bytecode operations: `OpArrayCreate`, `OpArrayAccess`, `OpArrayStore`, `OpArrayLen`
+- Compiled example: `examples/arrays.kode`
+
+#### Platform Support
+- ✅ **Windows** - Fully tested and working
+- ✅ **macOS** - Fully tested and working
+- ✅ **Linux** - Fully tested and working
+
+### ✨ Added - Type System Improvements
+
+#### Logical Operator Coercion
+- Logical operators (`&&`, `||`, `!`) now accept any type with proper coercion
+- Truthy/falsy value semantics for non-boolean types
+- Better type inference for logical expressions
+- Improved error messages for type mismatches
+
+### 📝 Documentation
+- New: `ROADMAP_v0.3+.md` - Comprehensive feature roadmap
+- New: `FEATURE_IMPLEMENTATION.md` - Implementation guide and architecture notes
+- New: `examples/arrays.kode` - Array usage examples
+- Updated CLI styling guide with array operations
+- Type system documentation improvements
+
+---
+
+## [Release - v0.2] - 2026-02-26
+
+### ⚠️ Breaking  
 - Removed `repl` command and interactive REPL support from CLI
 - **Bytecode is now the default build format** - `kode build <file>` now generates `.kbc` bytecode files by default instead of Go binaries
 - Changed executable output extension from `.bytecode` to `.kbc` for consistency
@@ -34,7 +98,7 @@ All notable changes to the Kode Programming Language are documented in this file
 - Function parameter inlining for efficient execution
 - Two-pass type checking with function hoisting
 - Break and Continue statements (basic support)
-- Input function for user input
+- Input function for user input with optional prompts
 
 #### CLI Enhancements
 - **Colored output** with ANSI escape codes

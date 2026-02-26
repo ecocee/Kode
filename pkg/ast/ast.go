@@ -399,6 +399,28 @@ type ArrayAccessExpr struct {
 
 func (e ArrayAccessExpr) expression() {}
 
+type MemberAccessExpr struct {
+	Object Expression `json:"object"`
+	Member string     `json:"member"`
+}
+
+func (e MemberAccessExpr) expression() {}
+
+type StructLiteralExpr struct {
+	StructName string
+	Fields     map[string]Expression
+}
+
+func (e StructLiteralExpr) expression() {}
+
+type EnumVariantExpr struct {
+	EnumName string
+	Variant  string
+	Value    Expression
+}
+
+func (e EnumVariantExpr) expression() {}
+
 type ClosureExpr struct {
 	Params []Param     `json:"params"`
 	Body   []Statement `json:"body"`

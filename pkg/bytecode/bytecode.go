@@ -61,6 +61,13 @@ const (
 	OpReturn      // Return from function
 	OpReturnValue // Return with value
 
+	// Arrays
+	OpArrayCreate  // Create array from stack values (arg: element count)
+	OpArrayAccess  // Access array element (pops index, pops array, pushes element)
+	OpArrayStore   // Store to array element (pops value, pops index, pops array)
+	OpArrayLen     // Get array length (pops array, pushes length)
+	OpMemberAccess // Member access (arg: member name; pops object, pushes member value)
+
 	// Other
 	OpPrint           // Print stack top
 	OpInput           // Read input from user

@@ -326,6 +326,89 @@ func (vm *VM) Run() error {
 				vm.stack = append(vm.stack, result)
 			}
 
+		case OpArrayCreate:
+			if len(instr.Args) > 0 {
+				if count, ok := instr.Args[0].(int); ok {
+					// Pop 'count' elements from stack and create array
+					if len(vm.stack) >= count {
+						arr := make([]interface{}, count)
+						// Pop in reverse order (LIFO)
+						for i := count - 1; i >= 0; i-- {
+							arr[i] = vm.pop()
+						}
+						vm.stack = append(vm.stack, arr)
+					}
+				}
+			}
+
+		case OpArrayAccess:
+			if len(vm.stack) >= 2 {
+				index := vm.pop()
+				array := vm.pop()
+				if arr, ok := array.([]interface{}); ok {
+					if idx, ok := index.(int64); ok && idx >= 0 && idx < int64(len(arr)) {
+						vm.stack = append(vm.stack, arr[idx])
+					} else if idx, ok := index.(int); ok && idx >= 0 && idx < len(arr) {
+						vm.stack = append(vm.stack, arr[idx])
+					} else {
+						vm.stack = append(vm.stack, nil) // Out of bounds
+					}
+				}
+			}
+
+		case OpArrayStore:
+			if len(vm.stack) >= 3 {
+				value := vm.pop()
+				index := vm.pop()
+				array := vm.pop()
+				if arr, ok := array.([]interface{}); ok {
+					if idx, ok := index.(int64); ok && idx >= 0 && idx < int64(len(arr)) {
+						arr[int(idx)] = value
+					} else if idx, ok := index.(int); ok && idx >= 0 && idx < len(arr) {
+						arr[idx] = value
+					}
+				}
+				vm.stack = append(vm.stack, array)
+			}
+
+		case OpArrayLen:
+			if len(vm.stack) > 0 {
+				array := vm.pop()
+				if arr, ok := array.([]interface{}); ok {
+					vm.stack = append(vm.stack, int64(len(arr)))
+				} else {
+					vm.stack = append(vm.stack, int64(0))
+				}
+			}
+
+		case OpMemberAccess:
+			// Member access: get a member from object
+			if len(instr.Args) > 0 && len(vm.stack) > 0 {
+				memberIdx := instr.Args[0].(int)
+				member := vm.program.Constants[memberIdx].(string)
+				obj := vm.pop()
+
+				// Handle array methods
+				if arr, ok := obj.([]interface{}); ok {
+					switch member {
+					case "len":
+						// Push a callable that returns array length
+						// For now, return the length directly
+						vm.stack = append(vm.stack, int64(len(arr)))
+					case "push":
+						// Create a push method (needs to be called)
+						vm.stack = append(vm.stack, map[string]interface{}{"_method": "push", "_array": arr})
+					case "pop":
+						// Return method reference
+						vm.stack = append(vm.stack, map[string]interface{}{"_method": "pop", "_array": arr})
+					default:
+						return fmt.Errorf("array has no method: %s", member)
+					}
+				} else {
+					return fmt.Errorf("cannot access member of non-array type")
+				}
+			}
+
 		case OpBreak:
 			// Break: set pc to after loop (handled by loop jump patching)
 			// For now, just halt execution (improve later for nested loops)

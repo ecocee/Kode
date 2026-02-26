@@ -261,8 +261,17 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			t.addConstraint(leftType, rightType)
 			return ast.BoolType{}, nil
 		case ast.OpAnd, ast.OpOr:
-			t.addConstraint(leftType, ast.BoolType{})
-			t.addConstraint(rightType, ast.BoolType{})
+			// Allow any types for logical operators with coercion semantics
+			// But still type-check the operands
+			_, leftErr := t.inferExpression(e.Left)
+			if leftErr != nil {
+				return nil, leftErr
+			}
+			_, rightErr := t.inferExpression(e.Right)
+			if rightErr != nil {
+				return nil, rightErr
+			}
+			// Logical operators always return bool
 			return ast.BoolType{}, nil
 		}
 	case ast.CallExpr:
@@ -339,6 +348,66 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			return operandType, nil
 		}
 		return operandType, nil // For other unary ops, return operand type
+	case ast.ArrayAccessExpr:
+		// Type check array and index
+		arrayType, err := t.inferExpression(e.Array)
+		if err != nil {
+			return nil, err
+		}
+		indexType, err := t.inferExpression(e.Index)
+		if err != nil {
+			return nil, err
+		}
+
+		// Index must be numeric
+		if !t.isNumericType(indexType) {
+			return nil, fmt.Errorf("array index must be numeric, got %s", indexType)
+		}
+
+		// Array must be array type
+		if arrType, ok := arrayType.(ast.ArrayType); ok {
+			return arrType.ElementType, nil
+		}
+		return nil, fmt.Errorf("cannot index non-array type: %s", arrayType)
+	case ast.MemberAccessExpr:
+		// Type check member access (arr.len, obj.field, etc.)
+		objType, err := t.inferExpression(e.Object)
+		if err != nil {
+			return nil, err
+		}
+
+		// Handle array methods/properties
+		if arrType, ok := objType.(ast.ArrayType); ok {
+			switch e.Member {
+			case "len":
+				// arr.len is a property that returns int
+				return ast.IntType{}, nil
+			case "push":
+				// arr.push is a method taking element type
+				return ast.FunctionType{
+					ParamTypes: []ast.Type{arrType.ElementType},
+					ReturnType: ast.VoidType{},
+				}, nil
+			case "pop":
+				// arr.pop is a method returning element type
+				return ast.FunctionType{
+					ParamTypes: []ast.Type{},
+					ReturnType: arrType.ElementType,
+				}, nil
+			default:
+				return nil, fmt.Errorf("array has no member: %s", e.Member)
+			}
+		}
+
+		// Handle struct field access
+		if structType, ok := objType.(ast.StructType); ok {
+			if fieldType, ok := structType.Fields[e.Member]; ok {
+				return fieldType, nil
+			}
+			return nil, fmt.Errorf("struct %s has no field: %s", structType.Name, e.Member)
+		}
+
+		return nil, fmt.Errorf("cannot access member of type: %s", objType)
 		// Add more cases
 	}
 	return t.newTypeVar(), nil // Default to type var

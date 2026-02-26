@@ -358,6 +358,12 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 		return c.compileUnaryExpression(&e)
 	case ast.CallExpr:
 		return c.compileCallExpression(&e)
+	case ast.ArrayExpr:
+		return c.compileArrayExpr(&e)
+	case ast.ArrayAccessExpr:
+		return c.compileArrayAccessExpr(&e)
+	case ast.MemberAccessExpr:
+		return c.compileMemberAccessExpr(&e)
 	default:
 		return fmt.Errorf("unknown expression type: %T", expr)
 	}
@@ -656,5 +662,45 @@ func (c *Compiler) compileExpressionWithSubstitution(expr ast.Expression, paramM
 	default:
 		return fmt.Errorf("unknown expression type: %T", expr)
 	}
+	return nil
+}
+
+// compileArrayExpr compiles array literal: [1, 2, 3]
+func (c *Compiler) compileArrayExpr(expr *ast.ArrayExpr) error {
+	// Compile each element onto the stack
+	for _, elem := range expr.Elements {
+		if err := c.compileExpression(elem); err != nil {
+			return err
+		}
+	}
+	// Emit instruction to create array with element count
+	c.buf.Emit(OpArrayCreate, len(expr.Elements))
+	return nil
+}
+
+// compileArrayAccessExpr compiles array access: arr[index]
+func (c *Compiler) compileArrayAccessExpr(expr *ast.ArrayAccessExpr) error {
+	// Compile array expression
+	if err := c.compileExpression(expr.Array); err != nil {
+		return err
+	}
+	// Compile index expression
+	if err := c.compileExpression(expr.Index); err != nil {
+		return err
+	}
+	// Emit array access instruction
+	c.buf.Emit(OpArrayAccess)
+	return nil
+}
+
+// compileMemberAccessExpr compiles member access: obj.member
+func (c *Compiler) compileMemberAccessExpr(expr *ast.MemberAccessExpr) error {
+	// Compile object expression
+	if err := c.compileExpression(expr.Object); err != nil {
+		return err
+	}
+	// Emit member access instruction
+	memberIdx := c.buf.AddConstant(expr.Member)
+	c.buf.Emit(OpMemberAccess, memberIdx)
 	return nil
 }

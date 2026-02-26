@@ -301,6 +301,66 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 			return nil, fmt.Errorf("operand of -- must be an integer variable")
 		}
 		return operand, nil
+	case ast.ArrayExpr:
+		// Array literal [1, 2, 3, ...]
+		arr := make([]interface{}, len(e.Elements))
+		for i, elem := range e.Elements {
+			val, err := r.evaluateExpression(elem)
+			if err != nil {
+				return nil, err
+			}
+			arr[i] = val
+		}
+		return arr, nil
+	case ast.ArrayAccessExpr:
+		// Array indexing arr[index]
+		arrayVal, err := r.evaluateExpression(e.Array)
+		if err != nil {
+			return nil, err
+		}
+		indexVal, err := r.evaluateExpression(e.Index)
+		if err != nil {
+			return nil, err
+		}
+		arr, ok := arrayVal.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("cannot index non-array type")
+		}
+		idx, ok := indexVal.(int64)
+		if !ok {
+			// Try to convert float to int
+			if f, ok := indexVal.(float64); ok {
+				idx = int64(f)
+			} else {
+				return nil, fmt.Errorf("array index must be a number")
+			}
+		}
+		if idx < 0 || idx >= int64(len(arr)) {
+			return nil, fmt.Errorf("array index out of bounds: %d", idx)
+		}
+		return arr[idx], nil
+	case ast.MemberAccessExpr:
+		// Member access: obj.member or arr.len
+		objVal, err := r.evaluateExpression(e.Object)
+		if err != nil {
+			return nil, err
+		}
+
+		// Handle array methods
+		if arr, ok := objVal.([]interface{}); ok {
+			switch e.Member {
+			case "len":
+				// Return the length as an integer
+				return int64(len(arr)), nil
+			case "push", "pop":
+				// Return a method reference (would be called later)
+				return map[string]interface{}{"_method": e.Member, "_array": arr}, nil
+			default:
+				return nil, fmt.Errorf("array has no method: %s", e.Member)
+			}
+		}
+
+		return nil, fmt.Errorf("cannot access member of non-array type")
 	case ast.CallExpr:
 		// Assume callee is identifier
 		callee := e.Callee.(ast.IdentifierExpr)

@@ -21,13 +21,61 @@ Kode is a modern programming language designed for high-performance systems. It 
 
 ## 🛠️ Installation
 
-Install the CLI with the Go toolchain:
+### Requirements
+- **Go 1.18 or later** - [Download Go](https://golang.org/dl/)
+- Connection to GitHub (for repository access)
+
+### Installation by Platform
+
+#### 🪟 Windows
+```batch
+REM Using PowerShell or Command Prompt
+go install github.com/ecocee/kode-go/cmd/kode@latest
+
+REM Verify installation
+kode version
+```
+
+#### 🍎 macOS
+```bash
+# Using Go toolchain
+go install github.com/ecocee/kode-go/cmd/kode@latest
+
+# Verify installation
+kode version
+
+# Optional: Add to PATH if not already
+export PATH=$PATH:$(go env GOPATH)/bin
+```
+
+#### 🐧 Linux
+```bash
+# Using Go toolchain (all distributions)
+go install github.com/ecocee/kode-go/cmd/kode@latest
+
+# Verify installation
+kode version
+
+# Optional: Add to PATH
+export PATH=$PATH:$(go env GOPATH)/bin
+```
+
+### Build from Source (All Platforms)
 
 ```bash
-go install github.com/ecocee/kode-go/cmd/kode@latest
+# Clone repository
+git clone https://github.com/ecocee/kode-go
+cd kode-go
+
+# Build
+go build -o kode ./cmd/kode
+
+# Verify
+./kode version
 ```
 
 The `kode` command will then be available in your `PATH`.
+
 
 ---
 
