@@ -49,8 +49,8 @@ Kode is released under a semantic‑versioned roadmap:
 2. **v0.3 – Data structures & features** (2026 - CURRENT):
    - ✅ v0.3.0: Arrays with indexing and type checking
    - ✅ v0.3.1: Array methods (.len), member access (dot notation)
-   - ⏳ v0.3.2: Structs with field access
-   - ⏳ v0.3.3: Enums with pattern matching
+   - ✅ v0.3.2: Structs with field access
+   - ✅ v0.3.3: Enums with pattern matching
 3. **v0.4 – Concurrency & stdlib** (planned): full channel select, HTTP, collections, modules
 4. **v0.5 – Optimization & packages** (planned): LLVM backend option, package manager, tooling
 5. **Future phases**: JIT, actors, cloud‑native SDKs, web playground

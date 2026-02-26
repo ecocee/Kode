@@ -198,6 +198,18 @@ func (t *Typer) checkStatement(stmt ast.Statement) error {
 				return err
 			}
 		}
+	case ast.StructDeclStmt:
+		// Register struct type
+		fields := make(map[string]ast.Type)
+		for _, field := range s.Fields {
+			fields[field.Name] = field.Type
+		}
+		structType := ast.StructType{Name: s.Name, Fields: fields}
+		t.env[s.Name] = structType
+	case ast.EnumDeclStmt:
+		// Register enum type
+		enumType := ast.EnumType{Name: s.Name, Variants: s.Variants}
+		t.env[s.Name] = enumType
 	case ast.PrintStmt:
 		_, err := t.inferExpression(s.Value)
 		return err
@@ -408,6 +420,35 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 		}
 
 		return nil, fmt.Errorf("cannot access member of type: %s", objType)
+	case ast.StructLiteralExpr:
+		// Type check struct literal
+		structType, ok := t.env[e.StructName]
+		if !ok {
+			return nil, fmt.Errorf("undefined struct: %s", e.StructName)
+		}
+
+		if sType, ok := structType.(ast.StructType); ok {
+			// Check all fields are provided and have correct types
+			for fieldName, fieldType := range sType.Fields {
+				if val, ok := e.Fields[fieldName]; ok {
+					valType, err := t.inferExpression(val)
+					if err != nil {
+						return nil, err
+					}
+					t.addConstraint(fieldType, valType)
+				} else {
+					return nil, fmt.Errorf("missing field %s in struct literal %s", fieldName, e.StructName)
+				}
+			}
+			// Check no extra fields provided
+			for providedField := range e.Fields {
+				if _, ok := sType.Fields[providedField]; !ok {
+					return nil, fmt.Errorf("struct %s has no field %s", e.StructName, providedField)
+				}
+			}
+			return sType, nil
+		}
+		return nil, fmt.Errorf("%s is not a struct type", e.StructName)
 		// Add more cases
 	}
 	return t.newTypeVar(), nil // Default to type var

@@ -84,6 +84,12 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 	case ast.ContinueStmt:
 		c.buf.Emit(OpContinue)
 		return nil
+	case ast.StructDeclStmt:
+		// Structs are type definitions, no runtime code needed
+		return nil
+	case ast.EnumDeclStmt:
+		// Enums are type definitions, no runtime code needed
+		return nil
 	default:
 		return fmt.Errorf("unknown statement type: %T", stmt)
 	}
@@ -364,6 +370,10 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 		return c.compileArrayAccessExpr(&e)
 	case ast.MemberAccessExpr:
 		return c.compileMemberAccessExpr(&e)
+	case ast.StructLiteralExpr:
+		return c.compileStructLiteralExpr(&e)
+	case ast.EnumVariantExpr:
+		return c.compileEnumVariantExpr(&e)
 	default:
 		return fmt.Errorf("unknown expression type: %T", expr)
 	}
@@ -702,5 +712,39 @@ func (c *Compiler) compileMemberAccessExpr(expr *ast.MemberAccessExpr) error {
 	// Emit member access instruction
 	memberIdx := c.buf.AddConstant(expr.Member)
 	c.buf.Emit(OpMemberAccess, memberIdx)
+	return nil
+}
+
+// compileStructLiteralExpr compiles struct literal: StructName { field1: value1, ... }
+func (c *Compiler) compileStructLiteralExpr(expr *ast.StructLiteralExpr) error {
+	// For each field in the struct, compile the value and push to stack
+	for fieldName, fieldVal := range expr.Fields {
+		if err := c.compileExpression(fieldVal); err != nil {
+			return err
+		}
+		// Add field name as constant
+		fieldIdx := c.buf.AddConstant(fieldName)
+		c.buf.Emit(OpPush, fieldIdx)
+	}
+	
+	// Emit struct create instruction
+	structIdx := c.buf.AddConstant(expr.StructName)
+	fieldCount := len(expr.Fields)
+	c.buf.Emit(OpStructCreate, structIdx, fieldCount)
+	return nil
+}
+// compileEnumVariantExpr compiles enum variant: EnumName::Variant(value)
+func (c *Compiler) compileEnumVariantExpr(expr *ast.EnumVariantExpr) error {
+	// Compile the enum variant value if provided
+	if expr.Value != nil {
+		if err := c.compileExpression(expr.Value); err != nil {
+			return err
+		}
+	}
+	
+	// Emit enum variant instruction
+	enumIdx := c.buf.AddConstant(expr.EnumName)
+	variantIdx := c.buf.AddConstant(expr.Variant)
+	c.buf.Emit(OpEnumVariant, enumIdx, variantIdx)
 	return nil
 }

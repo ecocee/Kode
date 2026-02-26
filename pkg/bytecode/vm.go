@@ -404,9 +404,70 @@ func (vm *VM) Run() error {
 					default:
 						return fmt.Errorf("array has no method: %s", member)
 					}
+				} else if structVal, ok := obj.(map[string]interface{}); ok {
+					// Handle struct field access
+					if val, ok := structVal[member]; ok {
+						vm.stack = append(vm.stack, val)
+					} else {
+						return fmt.Errorf("struct has no field: %s", member)
+					}
 				} else {
-					return fmt.Errorf("cannot access member of non-array type")
+					return fmt.Errorf("cannot access member of type %T", obj)
 				}
+			}
+
+		case OpStructCreate:
+			// Create struct from stack values
+			if len(instr.Args) >= 2 {
+				structIdx := instr.Args[0].(int)
+				fieldCount := instr.Args[1].(int)
+				structName := vm.program.Constants[structIdx].(string)
+				
+				// Pop field values and names from stack
+				fields := make(map[string]interface{})
+				for i := 0; i < fieldCount; i++ {
+					if len(vm.stack) < 2 {
+						return fmt.Errorf("not enough values on stack for struct creation")
+					}
+					fieldName := vm.pop().(string)
+					fieldValue := vm.pop()
+					fields[fieldName] = fieldValue
+				}
+				
+				// Create struct as a map with metadata
+				structData := map[string]interface{}{
+					"_type": structName,
+				}
+				for k, v := range fields {
+					structData[k] = v
+				}
+				
+				vm.stack = append(vm.stack, structData)
+			}
+
+		case OpEnumVariant:
+			// Create enum variant
+			if len(instr.Args) >= 2 {
+				enumIdx := instr.Args[0].(int)
+				variantIdx := instr.Args[1].(int)
+				enumName := vm.program.Constants[enumIdx].(string)
+				variantName := vm.program.Constants[variantIdx].(string)
+				
+				// Pop value from stack if present
+				var value interface{} = nil
+				if len(vm.stack) > 0 {
+					// Check if there's a value to pop
+					// For now, we'll keep the stack as is
+				}
+				
+				// Create enum variant as a map with metadata
+				variantData := map[string]interface{}{
+					"_type":    enumName,
+					"_variant": variantName,
+					"_value":   value,
+				}
+				
+				vm.stack = append(vm.stack, variantData)
 			}
 
 		case OpBreak:

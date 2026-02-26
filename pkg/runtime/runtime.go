@@ -215,6 +215,13 @@ func (r *Runtime) executeStatement(stmt ast.Statement) error {
 		}
 	case ast.FunctionDefStmt:
 		r.functions[s.Name] = s
+	case ast.StructDeclStmt:
+		// Struct declarations don't need runtime code, just type definitions
+		// In a full implementation, we'd store struct metadata here
+		return nil
+	case ast.EnumDeclStmt:
+		// Enum declarations don't need runtime code, just type definitions
+		return nil
 	case ast.ExprStmt:
 		_, err := r.evaluateExpression(s.Expr)
 		return err
@@ -360,7 +367,46 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 			}
 		}
 
-		return nil, fmt.Errorf("cannot access member of non-array type")
+		// Handle struct field access
+		if structVal, ok := objVal.(map[string]interface{}); ok {
+			if val, ok := structVal[e.Member]; ok {
+				return val, nil
+			}
+			return nil, fmt.Errorf("struct has no field: %s", e.Member)
+		}
+
+		return nil, fmt.Errorf("cannot access member of type %T", objVal)
+	case ast.StructLiteralExpr:
+		// Struct literal: StructName { field1: value1, field2: value2, ... }
+		fields := make(map[string]interface{})
+		for fieldName, fieldExpr := range e.Fields {
+			val, err := r.evaluateExpression(fieldExpr)
+			if err != nil {
+				return nil, err
+			}
+			fields[fieldName] = val
+		}
+		// Add struct type metadata
+		fields["_type"] = e.StructName
+		return fields, nil
+	case ast.EnumVariantExpr:
+		// Enum variant: EnumName::Variant(value)
+		var value interface{} = nil
+		if e.Value != nil {
+			val, err := r.evaluateExpression(e.Value)
+			if err != nil {
+				return nil, err
+			}
+			value = val
+		}
+		
+		// Create enum variant as a map with metadata
+		variant := map[string]interface{}{
+			"_type":    e.EnumName,
+			"_variant": e.Variant,
+			"_value":   value,
+		}
+		return variant, nil
 	case ast.CallExpr:
 		// Assume callee is identifier
 		callee := e.Callee.(ast.IdentifierExpr)

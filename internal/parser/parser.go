@@ -1143,6 +1143,46 @@ func (p *Parser) call() (ast.Expression, error) {
 			} else {
 				return nil, fmt.Errorf("Invalid member name")
 			}
+		} else if p.match(lexer.TokenLBrace) {
+			// Struct literal: StructName { field1: value1, field2: value2 }
+			if idExpr, ok := expr.(ast.IdentifierExpr); ok {
+				fields := make(map[string]ast.Expression)
+				if !p.check(lexer.TokenRBrace) {
+					fieldName, err := p.consumeIdentifier("Expected field name in struct literal")
+					if err != nil {
+						return nil, err
+					}
+					if _, err := p.consume(lexer.TokenColon, "Expected ':' after field name"); err != nil {
+						return nil, err
+					}
+					fieldVal, err := p.expression()
+					if err != nil {
+						return nil, err
+					}
+					fields[fieldName] = fieldVal
+
+					for p.match(lexer.TokenComma) {
+						fieldName, err := p.consumeIdentifier("Expected field name in struct literal")
+						if err != nil {
+							return nil, err
+						}
+						if _, err := p.consume(lexer.TokenColon, "Expected ':' after field name"); err != nil {
+							return nil, err
+						}
+						fieldVal, err := p.expression()
+						if err != nil {
+							return nil, err
+						}
+						fields[fieldName] = fieldVal
+					}
+				}
+				if _, err := p.consume(lexer.TokenRBrace, "Expected '}' after struct fields"); err != nil {
+					return nil, err
+				}
+				expr = ast.StructLiteralExpr{StructName: idExpr.Name, Fields: fields}
+			} else {
+				return nil, fmt.Errorf("Struct literal must have a struct name")
+			}
 		} else {
 			break
 		}

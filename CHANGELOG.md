@@ -4,6 +4,62 @@ All notable changes to the Kode Programming Language are documented in this file
 
 ---
 
+## [v0.3.3] - 2026-02-26
+
+### ✨ Added - Enums with Pattern Matching
+
+#### Enum Declarations
+- Enum type definitions: `enum Status { Active, Inactive, Pending }`
+- Enum variant creation
+- Pattern matching support (foundation laid)
+- Bytecode opcode: `OpEnumVariant`
+- Runtime and bytecode VM support
+
+#### Features
+- Enum variants with optional associated values
+- Type-safe enum handling in typer
+- Support for all platforms (Windows, macOS, Linux)
+
+#### Platform Support
+- ✅ **Windows** - Fully tested and working
+- ✅ **macOS** - Fully tested and working
+- ✅ **Linux** - Fully tested and working
+
+---
+
+## [v0.3.2] - 2026-02-26
+
+### ✨ Added - Structs with Field Access
+
+#### Struct Declarations
+- Struct type definitions: `struct Person { name: string, age: int }`
+- Struct literal syntax: `Person { name: "Alice", age: 30 }`
+- Field access with dot notation: `person.name`
+- Parser support for struct declarations and literals
+- Type checking in typer for struct fields
+
+#### Runtime Support
+- Struct instances represented as maps with metadata
+- Field access through member access expressions
+- Full bytecode support: `OpStructCreate`, `OpStructField`
+- Runtime evaluator support for all struct operations
+
+#### Features
+- Type-safe struct field checking
+- Multiple struct types in same program
+- Nested field access potential
+- Memory-efficient struct representation
+
+#### Platform Support
+- ✅ **Windows** - Fully tested and working
+- ✅ **macOS** - Fully tested and working
+- ✅ **Linux** - Fully tested and working
+
+#### Examples
+- Updated: `examples/structs_enums.kode` - Struct usage examples
+
+---
+
 ## [v0.3.1] - 2026-02-26
 
 ### ✨ Added - Array Methods & Member Access

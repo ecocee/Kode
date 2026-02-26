@@ -68,6 +68,13 @@ const (
 	OpArrayLen     // Get array length (pops array, pushes length)
 	OpMemberAccess // Member access (arg: member name; pops object, pushes member value)
 
+	// Structs
+	OpStructCreate // Create struct (arg: struct name, field count)
+	OpStructField  // Access struct field (arg: field name; pops struct, pushes field value)
+
+	// Enums
+	OpEnumVariant // Create enum variant (arg: enum name, variant name)
+
 	// Other
 	OpPrint           // Print stack top
 	OpInput           // Read input from user
