@@ -227,5 +227,3 @@ func (c *Compiler) newVar() string {
 	c.nextVar++
 	return fmt.Sprintf("v%d", c.nextVar)
 }
-
-

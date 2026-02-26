@@ -600,7 +600,6 @@ func (r *Runtime) callFunction(fn ast.FunctionDefStmt, args []interface{}) (inte
 	return result, nil
 }
 
-
 // executeBlock executes a block
 func (r *Runtime) executeBlock(block *ir.IRBlock) error {
 	for _, instr := range block.Instructions {
