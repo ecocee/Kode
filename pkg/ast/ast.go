@@ -431,6 +431,11 @@ const (
 	OpGreaterThanOrEqual
 	OpAnd
 	OpOr
+	OpBitAnd
+	OpBitOr
+	OpBitXor
+	OpBitShl
+	OpBitShr
 )
 
 func (op BinaryOp) String() string {
@@ -463,6 +468,16 @@ func (op BinaryOp) String() string {
 		return "&&"
 	case OpOr:
 		return "||"
+	case OpBitAnd:
+		return "&"
+	case OpBitOr:
+		return "|"
+	case OpBitXor:
+		return "^"
+	case OpBitShl:
+		return "<<"
+	case OpBitShr:
+		return ">>"
 	}
 	return ""
 }
@@ -472,6 +487,7 @@ type UnaryOp int
 const (
 	OpNegate UnaryOp = iota
 	OpNot
+	OpBitNot
 	OpPostInc
 	OpPostDec
 )

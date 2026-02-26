@@ -8,10 +8,16 @@
 
 ## 🧩 What is Kode?
 
-Kode is a concurrency‑first, statically typed compiled language that generates
-idiomatic Go code. It targets backend services, microservices, and distributed
-systems with a focus on predictable performance, strong type inference, and
-built-in channels & goroutines.
+Kode is a modern programming language designed for high-performance systems. It features:
+
+- **Bytecode compilation** to portable `.kbc` format with stack-based VM execution (default)
+- **Go code generation backend** option for native performance and ecosystem interop (legacy)
+- **Complete operator support** including arithmetic, bitwise, logical, and comparison operators
+- **Full control flow** with if-else, for loops, while loops, and functions
+- **Static type system** with type inference
+- **Concurrency-first design** with channels and goroutines (in development)
+
+---
 
 ## 🛠️ Installation
 
@@ -23,78 +29,286 @@ go install github.com/ecocee/kode-go/cmd/kode@latest
 
 The `kode` command will then be available in your `PATH`.
 
+---
+
 ## 🚀 Getting Started
 
-```bash
-kode new myproject      # scaffold a new project
-cd myproject
-kode build .            # generate Go code and compile
-./myproject             # run the binary
+### Quick Example
+
+```kode
+// Simple arithmetic and bitwise operations
+let a = 12
+let b = 5
+print(a + b)    // 17
+print(a & b)    // 4 (bitwise AND)
+print(a << 2)   // 48 (left shift)
 ```
+
+### For Loops
+
+```kode
+for (let i = 0; i < 5; i++) {
+  print(i)
+}
+// Output: 0 1 2 3 4
+```
+
+### While Loops
+
+```kode
+let x = 0
+while (x < 3) {
+  print(x)
+  x = x + 1
+}
+// Output: 0 1 2
+```
+
+### Functions
+
+```kode
+func add(a: int, b: int) = a + b
+print(add(3, 4))  // Output: 7
+```
+
+---
 
 ## 📦 CLI Reference
 
-```bash
-kode run path/to/file.kode       # type check, compile and execute
-kode build path/to/file.kode     # compile to Go + go build
-kode fmt path/to/file.kode       # format source code
-kode check path/to/file.kode     # type check only
-kode clean                       # remove generated artifacts
-kode version                     # show version and build info
-``` 
+### Build to Bytecode (Default)
 
-> See [docs/cli.md](./cli.md) for the full command reference and options.
+```bash
+kode build program.kode       # Creates program.kbc
+kode program.kbc              # Execute the bytecode
+```
+
+### Build to Go Binary (Legacy)
+
+```bash
+kode build --go program.kode  # Creates program (or .exe on Windows)
+./program                     # Run the binary
+```
+
+### Other Commands
+
+```bash
+kode run program.kode         # Compile and execute in one step
+kode check program.kode       # Type check only
+kode fmt program.kode         # Format source code
+kode clean                    # Remove generated artifacts
+kode version                  # Show version info
+```
+
+---
 
 ## 📘 Language Overview
 
-### Syntax
+Kode uses clean, familiar syntax inspired by C. Code is organized as:
+- Statements ending with semicolons
+- Blocks enclosed in curly braces `{}`
+- Variables declared with `let`
+- Functions defined with `func`
 
-Kode uses a clean, familiar syntax with C‑inspired braces and semicolons.
-Statements end with `;` and blocks use `{}`.
+### Basic Syntax
 
 ```kode
-fn main() {
-    let x = 10;
-    print x;
+let x = 10
+x = x + 5           // Update variable
+if (x > 10) {
+  print("x is large")
 }
+```
+
+### Operators
+
+#### Arithmetic Operators
+```kode
+10 + 5    // Addition: 15
+10 - 3    // Subtraction: 7
+4 * 5     // Multiplication: 20
+10 / 2    // Division: 5
+10 % 3    // Modulo: 1
+-5        // Negation
+```
+
+#### Comparison Operators
+```kode
+5 == 5    // Equal: true
+5 != 3    // Not equal: true
+5 < 10    // Less than: true
+5 > 3     // Greater than: true
+5 <= 5    // Less or equal: true
+5 >= 5    // Greater or equal: true
+```
+
+#### Logical Operators
+```kode
+1 && 1    // Logical AND: true
+1 || 0    // Logical OR: true
+!0        // Logical NOT: true
+```
+
+#### Bitwise Operators (NEW!)
+```kode
+12 & 5    // Bitwise AND: 4
+12 | 5    // Bitwise OR: 13
+12 ^ 5    // Bitwise XOR: 9
+8 << 2    // Left shift: 32
+8 >> 2    // Right shift: 2
+~5        // Bitwise NOT: -6
 ```
 
 ### Types & Inference
 
-The static type system employs Hindley‑Milner inference; you rarely need to
-annotate types unless distinguishing channel element types or generics.
+Kode supports these primary types:
+- `int` - Integer values
+- `float` - Floating point numbers
+- `string` - Text strings
+- `bool` - Boolean (true/false)
 
-### Concurrency
-
-Concurrency is first class:
-
-- `go` launches lightweight goroutines
-- `chan<T>` is a typed channel
-- `select` multiplexes channel operations
-
-Example:
+Type inference is automatic in most cases:
 
 ```kode
-let ch: chan<int> = chan.new();
-go fn() { ch <- 42; }();
-let v = <-ch;
+let x = 10        // inferred as int
+let y = 3.14      // inferred as float
+let s = "hello"   // inferred as string
+let b = true      // inferred as bool
 ```
 
-### Standard Library (v0.3)
+### Control Flow
 
-The standard library currently includes HTTP server/client helpers, basic
-collections, and I/O utilities. More packages are added each release.
+#### If-Else
+
+```kode
+if (x > 10) {
+  print("greater")
+} else {
+  print("less or equal")
+}
+```
+
+#### For Loops
+
+```kode
+for (let i = 0; i < 5; i++) {
+  print(i)  // Prints 0 1 2 3 4
+}
+```
+
+#### While Loops
+
+```kode
+let i = 0
+while (i < 5) {
+  print(i)
+  i = i + 1
+}
+```
+
+### Functions
+
+Define functions with typed parameters:
+
+```kode
+func multiply(a: int, b: int) = a * b
+print(multiply(6, 7))  // Output: 42
+```
+
+Recursive functions are supported:
+
+```kode
+func factorial(n: int) = if (n <= 1) { 1 } else { n * factorial(n - 1) }
+print(factorial(5))  // Output: 120
+```
+
+### Standard Library
+
+Core built-in functions available:
+- `print(value)` - Output to console
+- `input()` - Read user input
+
+More functions will be added in future releases.
 
 ## 📚 Examples
 
-See the `examples/` directory for ready‑made code snippets on concurrency,
-services, error handling and more.
+### Hello World
+
+```kode
+print("Hello, World!")
+```
+
+### Arithmetic with Bitwise Operations
+
+```kode
+let x = 15
+let y = 7
+print(x + y)      // 22
+print(x & y)      // 7 (bitwise AND)
+print(x | y)      // 15 (bitwise OR)
+print(x << 1)     // 30 (left shift)
+```
+
+### Looping
+
+```kode
+print("Count to 5:")
+for (let i = 1; i <= 5; i++) {
+  print(i)
+}
+
+print("Countdown from 3:")
+let j = 3
+while (j > 0) {
+  print(j)
+  j = j - 1
+}
+```
+
+### Functions and Recursion
+
+```kode
+func square(x: int) = x * x
+func power(base: int, exp: int) = 
+  if (exp == 0) { 1 } else { base * power(base, exp - 1) }
+
+print(square(5))      // 25
+print(power(2, 10))   // 1024
+```
+
+See the `examples/` directory for more code snippets.
 
 ## 📅 Roadmap & Development
 
-The project follows a phased roadmap: core language (v0.2), concurrency & stdlib
-(v0.3), optimization & packages (v0.4), then long‑term features such as a JIT
-and cloud SDKs. Full details are in [docs/roadmap.md](./roadmap.md).
+Kode development follows these phases:
+
+### v0.2 - Core Language (Current ✅)
+- ✅ Lexer, parser, and type checker
+- ✅ Complete operator support (arithmetic, bitwise, logical, comparison)
+- ✅ Control flow (if/else, for, while)
+- ✅ Functions with parameter inlining  
+- ✅ Bytecode compiler and VM
+- ✅ Colored CLI
+
+### v0.3 - Standard Library & I/O
+- ⏳ Expanded built-in functions
+- ⏳ File I/O operations
+- ⏳ String utilities
+- ⏳ Math library
+
+### v0.4 - Advanced Features
+- ⏳ Structs and methods
+- ⏳ Error handling (Result types)
+- ⏳ Collections (arrays, maps)
+- ⏳ Generic types
+
+### v0.5+ - Future
+- ⏳ Concurrency (channels, goroutines)
+- ⏳ Module system and packages
+- ⏳ Async/await
+- ⏳ JIT compilation option
+- ⏳ LLVM backend
+
+See [docs/roadmap.md](./roadmap.md) for detailed development plans.
 
 ## 🙌 Contributing
 
@@ -193,18 +407,47 @@ fn main() {
 
 ---
 
-## ⚠️ Current Limitations
+## ⚠️ Current Status
 
-Kode is in active development and has several limitations:
+### ✅ Implemented Features
 
-1. **No Object-Oriented Programming** - No classes or methods
-2. **Limited Type System** - Dynamic typing with no type annotations or checks
-3. **Basic Standard Library** - Limited built-in functions and utilities
-4. **Performance** - As an interpreted language, it's not as fast as compiled languages
-5. **Basic Error Handling** - Simple try-catch with no specific error types
-6. **Limited Module System** - Basic import functionality without namespacing
-7. **No Async Support** - No built-in support for asynchronous programming
-8. **Limited Collections** - Only arrays, no dictionaries/maps, sets, etc.
+- ✅ Variable declarations and assignments
+- ✅ All arithmetic operators (+, -, *, /, %)
+- ✅ All comparison operators (==, !=, <, <=, >, >=)
+- ✅ All logical operators (&&, ||, !)
+- ✅ **All bitwise operators** (&, |, ^, ~, <<, >>)
+- ✅ If-else conditional statements
+- ✅ For loops with proper variable tracking
+- ✅ While loops with condition checking
+- ✅ Function definitions with typed parameters
+- ✅ Function calls with argument passing
+- ✅ Recursive functions
+- ✅ Built-in functions (print, input)
+- ✅ Break and Continue statements (basic)
+- ✅ Bytecode compilation and execution
+- ✅ Colored CLI with helpful error messages
+
+### ⏳ Planned Features
+
+- ⏳ Concurrency (goroutines, channels, select)
+- ⏳ Object-oriented programming (structs, methods)
+- ⏳ Error handling (try-catch with specific error types)
+- ⏳ Collections (arrays, maps, sets)
+- ⏳ Module system and packages
+- ⏳ Generic types
+- ⏳ Higher-order functions and closures
+- ⏳ Type annotations in function signatures
+
+### ❌ Not Yet Implemented
+
+- ❌ Import/module system
+- ❌ Structs and enums
+- ❌ Pattern matching
+- ❌ Async/await
+- ❌ REPL (interactive shell)
+- ❌ Standard library beyond print/input
+- ❌ Null safety mechanisms
+- ❌ Null values (uses nil for uninitialized)
 
 ---
 

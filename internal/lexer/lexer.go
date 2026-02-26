@@ -88,6 +88,12 @@ const (
 	TokenAnd
 	TokenOr
 	TokenNot
+	TokenBitAnd
+	TokenBitOr
+	TokenBitXor
+	TokenBitNot
+	TokenBitShl
+	TokenBitShr
 
 	// Walrus operator
 	TokenWalrus
@@ -284,6 +290,11 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				l.consumeChar()
 				l.consumeChar()
 				l.column += 2
+			} else if l.peekCharAt(1) == '<' {
+				tokens = append(tokens, Token{Kind: TokenBitShl, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenLessThan, Pos: l.GetPosition()})
 				l.consumeChar()
@@ -292,6 +303,11 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 		case ch == '>':
 			if l.peekCharAt(1) == '=' {
 				tokens = append(tokens, Token{Kind: TokenGreaterThanOrEqual, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+				l.column += 2
+			} else if l.peekCharAt(1) == '>' {
+				tokens = append(tokens, Token{Kind: TokenBitShr, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
 				l.column += 2
@@ -307,7 +323,9 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				l.consumeChar()
 				l.column += 2
 			} else {
-				return nil, fmt.Errorf("unexpected character '&' at %v", l.GetPosition())
+				tokens = append(tokens, Token{Kind: TokenBitAnd, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.column++
 			}
 		case ch == '|':
 			if l.peekCharAt(1) == '|' {
@@ -316,8 +334,18 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				l.consumeChar()
 				l.column += 2
 			} else {
-				return nil, fmt.Errorf("unexpected character '|' at %v", l.GetPosition())
+				tokens = append(tokens, Token{Kind: TokenBitOr, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.column++
 			}
+		case ch == '^':
+			tokens = append(tokens, Token{Kind: TokenBitXor, Pos: l.GetPosition()})
+			l.consumeChar()
+			l.column++
+		case ch == '~':
+			tokens = append(tokens, Token{Kind: TokenBitNot, Pos: l.GetPosition()})
+			l.consumeChar()
+			l.column++
 		case ch == '(':
 			tokens = append(tokens, Token{Kind: TokenLParen, Pos: l.GetPosition()})
 			l.consumeChar()
@@ -440,6 +468,8 @@ func (l *Lexer) readNumber() Token {
 }
 
 func (l *Lexer) readString() (Token, error) {
+	startLine := l.line
+	startCol := l.column
 	l.consumeChar() // "
 	l.column++
 	var content strings.Builder
@@ -463,7 +493,7 @@ func (l *Lexer) readString() (Token, error) {
 			case '"':
 				content.WriteByte('"')
 			default:
-				return Token{}, fmt.Errorf("invalid escape sequence \\%c at %v", ch, l.GetPosition())
+				return Token{}, fmt.Errorf("invalid escape sequence \\%c at line %d, column %d", ch, l.line, l.column)
 			}
 			escaped = false
 		} else if ch == '\\' {
@@ -479,7 +509,7 @@ func (l *Lexer) readString() (Token, error) {
 		}
 	}
 
-	return Token{}, fmt.Errorf("unterminated string")
+	return Token{}, fmt.Errorf("unterminated string at line %d, column %d", startLine, startCol)
 }
 
 func (l *Lexer) readIdentifierOrKeyword() Token {

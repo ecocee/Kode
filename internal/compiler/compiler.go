@@ -32,15 +32,26 @@ func (c *Compiler) Compile(program ast.Program) (*ir.IR, error) {
 	// store AST for runtime fallback
 	c.ir.AST = program
 
+	// First pass: collect all function definitions
+	for _, stmt := range program.Statements {
+		if fnStmt, ok := stmt.(ast.FunctionDefStmt); ok {
+			if err := c.compileStatement(fnStmt); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// Create an implicit entry point for top-level statements
 	entryBlock := &ir.IRBlock{Label: "entry", Instructions: []ir.IRInstruction{}}
 	hasTopLevelStatements := false
 
+	// Second pass: compile all statements (including non-function statements)
 	for _, stmt := range program.Statements {
 		switch stmt.(type) {
-		case ast.FunctionDefStmt, ast.LetStmt, ast.AssignStmt:
-			// Function definitions and top-level variable declarations
-			// should be handled by compileStatement so globals are recorded.
+		case ast.FunctionDefStmt:
+			// Already compiled in first pass
+		case ast.LetStmt, ast.AssignStmt:
+			// Variable declarations at top level
 			if err := c.compileStatement(stmt); err != nil {
 				return nil, err
 			}

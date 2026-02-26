@@ -916,17 +916,68 @@ func (p *Parser) logicOr() (ast.Expression, error) {
 }
 
 func (p *Parser) logicAnd() (ast.Expression, error) {
-	expr, err := p.equality()
+	expr, err := p.bitwiseOr()
 	if err != nil {
 		return nil, err
 	}
 
 	for p.match(lexer.TokenAnd) {
-		right, err := p.equality()
+		right, err := p.bitwiseOr()
 		if err != nil {
 			return nil, err
 		}
 		expr = ast.BinaryExpr{Left: expr, Op: ast.OpAnd, Right: right}
+	}
+
+	return expr, nil
+}
+
+func (p *Parser) bitwiseOr() (ast.Expression, error) {
+	expr, err := p.bitwiseXor()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.match(lexer.TokenBitOr) {
+		right, err := p.bitwiseXor()
+		if err != nil {
+			return nil, err
+		}
+		expr = ast.BinaryExpr{Left: expr, Op: ast.OpBitOr, Right: right}
+	}
+
+	return expr, nil
+}
+
+func (p *Parser) bitwiseXor() (ast.Expression, error) {
+	expr, err := p.bitwiseAnd()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.match(lexer.TokenBitXor) {
+		right, err := p.bitwiseAnd()
+		if err != nil {
+			return nil, err
+		}
+		expr = ast.BinaryExpr{Left: expr, Op: ast.OpBitXor, Right: right}
+	}
+
+	return expr, nil
+}
+
+func (p *Parser) bitwiseAnd() (ast.Expression, error) {
+	expr, err := p.equality()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.match(lexer.TokenBitAnd) {
+		right, err := p.equality()
+		if err != nil {
+			return nil, err
+		}
+		expr = ast.BinaryExpr{Left: expr, Op: ast.OpBitAnd, Right: right}
 	}
 
 	return expr, nil
@@ -954,7 +1005,7 @@ func (p *Parser) equality() (ast.Expression, error) {
 }
 
 func (p *Parser) comparison() (ast.Expression, error) {
-	expr, err := p.term()
+	expr, err := p.shift()
 	if err != nil {
 		return nil, err
 	}
@@ -968,6 +1019,27 @@ func (p *Parser) comparison() (ast.Expression, error) {
 			op = ast.OpLessThanOrEqual
 		case lexer.TokenGreaterThanOrEqual:
 			op = ast.OpGreaterThanOrEqual
+		}
+		right, err := p.shift()
+		if err != nil {
+			return nil, err
+		}
+		expr = ast.BinaryExpr{Left: expr, Op: op, Right: right}
+	}
+
+	return expr, nil
+}
+
+func (p *Parser) shift() (ast.Expression, error) {
+	expr, err := p.term()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.match(lexer.TokenBitShl, lexer.TokenBitShr) {
+		op := ast.OpBitShl
+		if p.previous().Kind == lexer.TokenBitShr {
+			op = ast.OpBitShr
 		}
 		right, err := p.term()
 		if err != nil {
@@ -1025,7 +1097,7 @@ func (p *Parser) factor() (ast.Expression, error) {
 }
 
 func (p *Parser) unary() (ast.Expression, error) {
-	if p.match(lexer.TokenMinus, lexer.TokenNot) {
+	if p.match(lexer.TokenMinus, lexer.TokenNot, lexer.TokenBitNot) {
 		op := ast.OpNegate
 		if p.previous().Kind == lexer.TokenNot {
 			op = ast.OpNot

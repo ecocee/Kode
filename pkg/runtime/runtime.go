@@ -316,6 +316,19 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 			fmt.Println()
 			return nil, nil
 		}
+		if callee.Name == "input" {
+			// Built-in input
+			if len(e.Arguments) > 0 {
+				prompt, err := r.evaluateExpression(e.Arguments[0])
+				if err != nil {
+					return nil, err
+				}
+				fmt.Print(prompt)
+			}
+			var input string
+			fmt.Scanln(&input)
+			return input, nil
+		}
 		fn, ok := r.functions[callee.Name]
 		if !ok {
 			return nil, fmt.Errorf("undefined function: %s", callee.Name)

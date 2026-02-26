@@ -50,11 +50,30 @@ func NewTyper() *Typer {
 		ReturnType: ast.VoidType{},
 	}
 
+	typer.env["input"] = ast.FunctionType{
+		ParamTypes: []ast.Type{ast.StringType{}},
+		ReturnType: ast.StringType{},
+	}
+
 	return typer
 }
 
 // CheckProgram type checks a program
 func (t *Typer) CheckProgram(program ast.Program) error {
+	// First pass: hoist all function definitions
+	for _, stmt := range program.Statements {
+		if fnStmt, ok := stmt.(ast.FunctionDefStmt); ok {
+			// Add function to env without type checking the body yet
+			paramTypes := make([]ast.Type, len(fnStmt.Params))
+			for i, param := range fnStmt.Params {
+				paramTypes[i] = param.Type
+			}
+			fnType := ast.FunctionType{ParamTypes: paramTypes, ReturnType: fnStmt.ReturnType}
+			t.env[fnStmt.Name] = fnType
+		}
+	}
+
+	// Second pass: type check all statements
 	for _, stmt := range program.Statements {
 		if err := t.checkStatement(stmt); err != nil {
 			return err
@@ -263,6 +282,16 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 					}
 				}
 				return ast.VoidType{}, nil
+			}
+			if idExpr.Name == "input" {
+				// input accepts a string prompt and returns a string
+				if len(e.Arguments) > 0 {
+					_, err := t.inferExpression(e.Arguments[0])
+					if err != nil {
+						return nil, err
+					}
+				}
+				return ast.StringType{}, nil
 			}
 		}
 

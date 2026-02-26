@@ -165,7 +165,27 @@ let orResult = a || b;  // Logical OR: true
 let notResult = !a;     // Logical NOT: false
 ```
 
-### Assignment Operator
+### Bitwise Operators (NEW!)
+```kode
+let x = 12;  // Binary: 1100
+let y = 5;   // Binary: 0101
+
+let andBit = x & y;    // Bitwise AND: 4 (0100)
+let orBit = x | y;     // Bitwise OR: 13 (1101)
+let xorBit = x ^ y;    // Bitwise XOR: 9 (1001)
+let leftShift = x << 2; // Left shift by 2: 48 (110000)
+let rightShift = x >> 1; // Right shift by 1: 6 (110)
+let notBit = ~y;       // Bitwise NOT: -6
+```
+
+| Operator | Example | Result | Description |
+|----------|---------|--------|-------------|
+| `&` | `12 & 5` | `4` | Bitwise AND - 1 if both bits are 1 |
+| `\|` | `12 \| 5` | `13` | Bitwise OR - 1 if at least one bit is 1 |
+| `^` | `12 ^ 5` | `9` | Bitwise XOR - 1 if exactly one bit is 1 |
+| `<<` | `8 << 2` | `32` | Left shift - shift bits left, fill with 0 |
+| `>>` | `8 >> 2` | `2` | Right shift - shift bits right |
+| `~` | `~5` | `-6` | Bitwise NOT - invert all bits |
 ```kode
 let x = 5;  // Assign 5 to x
 x = x + 3;  // Reassign with value 8

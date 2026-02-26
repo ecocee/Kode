@@ -1,7 +1,7 @@
 # Kode
 
 > A concurrency‑first, statically typed compiled language for backend & distributed systems  
-> Compiles to idiomatic Go with a modern tooling suite. *(2026 edition)*
+> Compiles to idiomatic Go **or** bytecode. Modern tooling suite. *(2026 edition)*
 
 ---
 
@@ -12,8 +12,9 @@ servers, microservices and distributed applications. It provides:
 
 - **Static typing** with sophisticated inference
 - **Built‑in concurrency** modeled after CSP using goroutines & channels
-- **Go code generation** so you get native performance and ecosystem compatibility
-- **Modern tooling**: CLI, project generators, formatter and more
+- **Bytecode compilation** with Go-independent stack-based VM (default)
+- **Go code generation** option for native performance and ecosystem compatibility
+- **Modern tooling**: Colored CLI, project generators, formatter and more
 
 ## 🎯 Why choose Kode?
 
@@ -25,12 +26,14 @@ servers, microservices and distributed applications. It provides:
 
 ## 🌟 Key Features
 
-- Static type system with Hindley‑Milner inference
-- First‑class concurrency primitives (`go`, `chan`, `select`)
-- HTTP server primitives & standard library in development
-- AST → IR → Go compilation pipeline
-- Portable binaries via the Go toolchain
-- Cross‑platform support (Windows, macOS, Linux)
+- **Static type system** with Hindley‑Milner inference
+- **First‑class concurrency** primitives (`go`, `chan`, `select`)
+- **Bytecode VM execution** - portable, no Go compiler needed (default)
+- **Full operator support** - arithmetic, bitwise, logical, comparison
+- **Complete control flow** - if/else, for/while loops, functions
+- **Modern CLI** with colored output and helpful error messages
+- **AST → IR → Bytecode** compilation pipeline (or legacy Go backend)
+- **Cross‑platform support** (Windows, macOS, Linux)
 
 ## 📅 Roadmap & Phases
 
@@ -75,7 +78,10 @@ fn main() {
 
 ```bash
 kode run path/to/file.kode           # compile & execute
-kode build path/to/file.kode         # compile to Go + go build
+kode build path/to/file.kode         # compile to .kbc bytecode (default)
+kode build --go path/to/file.kode    # compile to Go binary (legacy)
+kode file.kbc                        # shorthand to execute bytecode
+kode exec file.kbc                   # explicit bytecode execution
 kode fmt path/to/file.kode           # format source
 kode check path/to/file.kode         # type check only
 kode clean                           # remove generated artifacts
