@@ -7,10 +7,9 @@ This document provides usage details for all CLI commands available in the `kode
 | Command               | Description                                |
 |------------------------|--------------------------------------------|
 | `kode run <file>`     | Runs a `.kode` source file (type checks & executes) |
-| `kode build <file>`   | Compiles `.kode` into Go and builds a binary      |
+| `kode build <file>`   | Compiles `.kode` into Go and builds a binary (old output is removed, build errors are reported clearly) |
 | `kode version`        | Prints the version number and build info         |
 | `kode help`           | Displays CLI usage instructions                 |
-
 ## ⚙️ Options
 
 | Flag           | Description                                 |
