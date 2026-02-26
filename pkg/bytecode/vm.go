@@ -422,7 +422,7 @@ func (vm *VM) Run() error {
 				structIdx := instr.Args[0].(int)
 				fieldCount := instr.Args[1].(int)
 				structName := vm.program.Constants[structIdx].(string)
-				
+
 				// Pop field values and names from stack
 				fields := make(map[string]interface{})
 				for i := 0; i < fieldCount; i++ {
@@ -433,7 +433,7 @@ func (vm *VM) Run() error {
 					fieldValue := vm.pop()
 					fields[fieldName] = fieldValue
 				}
-				
+
 				// Create struct as a map with metadata
 				structData := map[string]interface{}{
 					"_type": structName,
@@ -441,7 +441,7 @@ func (vm *VM) Run() error {
 				for k, v := range fields {
 					structData[k] = v
 				}
-				
+
 				vm.stack = append(vm.stack, structData)
 			}
 
@@ -452,21 +452,21 @@ func (vm *VM) Run() error {
 				variantIdx := instr.Args[1].(int)
 				enumName := vm.program.Constants[enumIdx].(string)
 				variantName := vm.program.Constants[variantIdx].(string)
-				
+
 				// Pop value from stack if present
 				var value interface{} = nil
 				if len(vm.stack) > 0 {
 					// Check if there's a value to pop
 					// For now, we'll keep the stack as is
 				}
-				
+
 				// Create enum variant as a map with metadata
 				variantData := map[string]interface{}{
 					"_type":    enumName,
 					"_variant": variantName,
 					"_value":   value,
 				}
-				
+
 				vm.stack = append(vm.stack, variantData)
 			}
 

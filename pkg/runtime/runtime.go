@@ -399,7 +399,7 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 			}
 			value = val
 		}
-		
+
 		// Create enum variant as a map with metadata
 		variant := map[string]interface{}{
 			"_type":    e.EnumName,

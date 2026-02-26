@@ -726,13 +726,14 @@ func (c *Compiler) compileStructLiteralExpr(expr *ast.StructLiteralExpr) error {
 		fieldIdx := c.buf.AddConstant(fieldName)
 		c.buf.Emit(OpPush, fieldIdx)
 	}
-	
+
 	// Emit struct create instruction
 	structIdx := c.buf.AddConstant(expr.StructName)
 	fieldCount := len(expr.Fields)
 	c.buf.Emit(OpStructCreate, structIdx, fieldCount)
 	return nil
 }
+
 // compileEnumVariantExpr compiles enum variant: EnumName::Variant(value)
 func (c *Compiler) compileEnumVariantExpr(expr *ast.EnumVariantExpr) error {
 	// Compile the enum variant value if provided
@@ -741,7 +742,7 @@ func (c *Compiler) compileEnumVariantExpr(expr *ast.EnumVariantExpr) error {
 			return err
 		}
 	}
-	
+
 	// Emit enum variant instruction
 	enumIdx := c.buf.AddConstant(expr.EnumName)
 	variantIdx := c.buf.AddConstant(expr.Variant)
