@@ -88,6 +88,6 @@ Kode is released under the MIT License.
 
 ---
 
-*Created with ❤️ by Sreeraj V Rajesh*
+*Created with ❤️ by ECOCEE*
 
 © 2025 Kode Programming Language
