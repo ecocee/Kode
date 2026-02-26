@@ -9,6 +9,9 @@ import (
 	"github.com/ecocee/kode-go/pkg/ir"
 )
 
+// enable runtime debug tracing (set to true during debugging)
+var verboseRuntime = false
+
 // Scheduler manages goroutines
 type Scheduler struct {
 	wg sync.WaitGroup
@@ -179,10 +182,19 @@ func (r *Runtime) evaluateValue(val ir.IRValue) interface{} {
 		return v.Value
 	case ir.IRVariable:
 		if val, ok := r.locals[v.Name]; ok {
+			if verboseRuntime {
+				fmt.Printf("lookup local %s -> %#v\n", v.Name, val)
+			}
 			return val
 		}
 		if val, ok := r.globals[v.Name]; ok {
+			if verboseRuntime {
+				fmt.Printf("lookup global %s -> %#v\n", v.Name, val)
+			}
 			return val
+		}
+		if verboseRuntime {
+			fmt.Printf("lookup variable %s -> nil\n", v.Name)
 		}
 		return nil
 	default:
@@ -192,6 +204,9 @@ func (r *Runtime) evaluateValue(val ir.IRValue) interface{} {
 
 // evaluateBinaryOp evaluates a binary operation
 func (r *Runtime) evaluateBinaryOp(op ast.BinaryOp, left, right interface{}) interface{} {
+	if verboseRuntime {
+		fmt.Printf("binary op %v with left=%#v (%T) right=%#v (%T)\n", op, left, left, right, right)
+	}
 	switch op {
 	case ast.OpAdd:
 		if l, ok := left.(int64); ok {

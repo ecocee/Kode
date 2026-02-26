@@ -36,13 +36,14 @@ func (c *Compiler) Compile(program ast.Program) (*ir.IR, error) {
 
 	for _, stmt := range program.Statements {
 		switch stmt.(type) {
-		case ast.FunctionDefStmt:
-			// Function definitions are handled separately
+		case ast.FunctionDefStmt, ast.LetStmt, ast.AssignStmt:
+			// Function definitions and top-level variable declarations
+			// should be handled by compileStatement so globals are recorded.
 			if err := c.compileStatement(stmt); err != nil {
 				return nil, err
 			}
 		default:
-			// Top-level statements go into the entry block
+			// Other top-level statements go into the entry block
 			hasTopLevelStatements = true
 			if err := c.compileStatementToBlock(stmt, entryBlock); err != nil {
 				return nil, err
