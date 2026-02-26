@@ -159,8 +159,9 @@ type WhileStmt struct {
 func (s WhileStmt) statement() {}
 
 type ForStmt struct {
-	Init      string      `json:"init,omitempty"`
+	Init      interface{} `json:"init,omitempty"`
 	Condition Expression  `json:"condition,omitempty"`
+	Incr      Expression  `json:"incr,omitempty"`
 	Body      []Statement `json:"body"`
 }
 
@@ -421,6 +422,7 @@ const (
 	OpMultiply
 	OpDivide
 	OpModulo
+	OpAssign
 	OpEqual
 	OpNotEqual
 	OpLessThan
@@ -443,6 +445,8 @@ func (op BinaryOp) String() string {
 		return "/"
 	case OpModulo:
 		return "%"
+	case OpAssign:
+		return "="
 	case OpEqual:
 		return "=="
 	case OpNotEqual:
@@ -468,6 +472,8 @@ type UnaryOp int
 const (
 	OpNegate UnaryOp = iota
 	OpNot
+	OpPostInc
+	OpPostDec
 )
 
 func (op UnaryOp) String() string {
@@ -476,6 +482,10 @@ func (op UnaryOp) String() string {
 		return "-"
 	case OpNot:
 		return "!"
+	case OpPostInc:
+		return "++"
+	case OpPostDec:
+		return "--"
 	}
 	return ""
 }

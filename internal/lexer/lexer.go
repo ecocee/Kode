@@ -76,6 +76,8 @@ const (
 	TokenStar
 	TokenSlash
 	TokenPercent
+	TokenPlusPlus
+	TokenMinusMinus
 	TokenEqual
 	TokenEqualEqual
 	TokenNotEqual
@@ -176,6 +178,12 @@ func (l *Lexer) GetPosition() Position {
 func (l *Lexer) Tokenize() ([]Token, error) {
 	var tokens []Token
 
+	// Skip UTF-8 BOM if present
+	if len(l.input) >= 3 && l.input[0] == '\xef' && l.input[1] == '\xbb' && l.input[2] == '\xbf' {
+		l.pos = 3
+		l.column = 1 // Reset column since we skipped
+	}
+
 	for l.peekChar() != 0 {
 		ch := l.peekChar()
 		switch {
@@ -198,11 +206,23 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				return nil, err
 			}
 		case ch == '+':
-			tokens = append(tokens, Token{Kind: TokenPlus, Pos: l.GetPosition()})
-			l.consumeChar()
-			l.column++
+			if l.peekCharAt(1) == '+' {
+				tokens = append(tokens, Token{Kind: TokenPlusPlus, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+				l.column += 2
+			} else {
+				tokens = append(tokens, Token{Kind: TokenPlus, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.column++
+			}
 		case ch == '-':
-			if l.peekCharAt(1) == '>' {
+			if l.peekCharAt(1) == '-' {
+				tokens = append(tokens, Token{Kind: TokenMinusMinus, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+				l.column += 2
+			} else if l.peekCharAt(1) == '>' {
 				tokens = append(tokens, Token{Kind: TokenArrow, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()

@@ -1,10 +1,13 @@
 package ir
 
-import "github.com/ecocee/kode-go/pkg/ast"
+import (
+	"github.com/ecocee/kode-go/pkg/ast"
+)
 
 // IR represents the intermediate representation
 type IR struct {
 	Program *IRProgram
+	AST     ast.Program // original AST for interpretation
 }
 
 // IRProgram is the top-level IR program

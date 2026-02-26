@@ -9,6 +9,10 @@ All notable changes to the Kode Programming Language are documented in this file
 ### ⚠️ Breaking
 - Removed `repl` command and interactive REPL support from CLI
 
+### 🐛 Bug Fixes
+- Top-level `let` declarations were not being compiled, causing globals to be nil at runtime
+- `kode build` could leave an executable containing only a shebang when Go build failed; now stale output is removed and the build errors are surfaced
+
 ## [0.1.0] - 2025-05-03
 
 ### ✨ Added

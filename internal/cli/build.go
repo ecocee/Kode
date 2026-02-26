@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/ecocee/kode-go/internal/codegen"
 	"github.com/ecocee/kode-go/internal/compiler"
@@ -104,6 +105,7 @@ func newBuildCmd() *cobra.Command {
 func buildWithGo(irProg *ir.IR, output string, sourceFile string, verbose bool) {
 	// Generate Go code from IR
 	codeGen := codegen.NewGoCodeGenerator(irProg)
+	codeGen.SetSourceFile(sourceFile)
 	goCode, err := codeGen.Generate()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error generating code: %v\n", err)
@@ -135,6 +137,13 @@ func buildWithGo(irProg *ir.IR, output string, sourceFile string, verbose bool) 
 		outputFile += ".exe"
 	}
 
+	// remove any stale output so we can't accidentally leave a script behind
+	if err := os.Remove(outputFile); err == nil {
+		if verbose {
+			fmt.Printf("Removed existing output file: %s\n", outputFile)
+		}
+	}
+
 	buildCmd := exec.Command("go", "build", "-o", outputFile, tempFile)
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
@@ -151,11 +160,48 @@ func buildWithGo(irProg *ir.IR, output string, sourceFile string, verbose bool) 
 		if goCodeBytes, readErr := ioutil.ReadFile(tempFile); readErr == nil {
 			fmt.Fprintf(os.Stderr, string(goCodeBytes))
 		}
+		// if the output file was created and is tiny, remove it to avoid confusion
+		if fi, statErr := os.Stat(outputFile); statErr == nil && fi.Size() < 1024 {
+			os.Remove(outputFile)
+		}
+		os.Exit(1)
+	}
+
+	// sanity check: make sure the produced file isn't just a script/shebang
+	if data, readErr := os.ReadFile(outputFile); readErr == nil {
+		if len(data) > 0 && strings.HasPrefix(string(data), "#!") {
+			fmt.Fprintf(os.Stderr, "build succeeded but output file '%s' appears to contain a shebang/script instead of a binary\n", outputFile)
+			size := len(data)
+			fmt.Fprintf(os.Stderr, "(first %d bytes):\n%s\n", size, string(data))
+			os.Remove(outputFile)
+			os.Exit(1)
+		}
+	}
+
+	// Copy the source file to the same directory as the executable
+	// so it can be executed at runtime
+	outputDir := filepath.Dir(outputFile)
+	if outputDir == "" {
+		outputDir = "."
+	}
+	sourceFileName := filepath.Base(sourceFile)
+	destSourceFile := filepath.Join(outputDir, sourceFileName)
+
+	sourceData, err := os.ReadFile(sourceFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading source file: %v\n", err)
+		os.Exit(1)
+	}
+
+	err = os.WriteFile(destSourceFile, sourceData, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error copying source file: %v\n", err)
 		os.Exit(1)
 	}
 
 	if verbose {
 		fmt.Printf("Successfully built executable: %s\n", outputFile)
+		fmt.Printf("Copied source file to: %s\n", destSourceFile)
 	} else {
 		fmt.Printf("Successfully built: %s\n", outputFile)
 	}
@@ -190,6 +236,11 @@ func buildWithLLVM(irProg *ir.IR, output string, sourceFile string, verbose bool
 		} else {
 			fmt.Printf("Full generated LLVM code:\n%s\n", llvmCode)
 		}
+	}
+
+	// remove any stale output before linking
+	if err := os.Remove(output); err == nil && verbose {
+		fmt.Printf("Removed existing output file: %s\n", output)
 	}
 
 	// Compile LLVM IR to object file using llc
@@ -235,6 +286,15 @@ func buildWithLLVM(irProg *ir.IR, output string, sourceFile string, verbose bool
 		fmt.Printf("Successfully built executable: %s\n", outputFile)
 	} else {
 		fmt.Printf("Successfully built: %s\n", outputFile)
+	}
+
+	// sanity check on generated file
+	if data, readErr := os.ReadFile(outputFile); readErr == nil {
+		if len(data) > 0 && strings.HasPrefix(string(data), "#!") {
+			fmt.Fprintf(os.Stderr, "build succeeded but output file '%s' appears to contain a shebang/script instead of a binary\n", outputFile)
+			os.Remove(outputFile)
+			os.Exit(1)
+		}
 	}
 
 	// Clean up temporary files

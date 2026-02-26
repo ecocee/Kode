@@ -68,30 +68,39 @@ func (p *Parser) ParseModule() ([]ast.Statement, error) {
 }
 
 func (p *Parser) declaration() (ast.Statement, error) {
+	var stmt ast.Statement
+	var err error
 	if p.match(lexer.TokenLet) {
-		return p.letDeclaration()
+		stmt, err = p.letDeclaration()
 	} else if p.match(lexer.TokenConst) {
-		return p.constDeclaration()
+		stmt, err = p.constDeclaration()
 	} else if p.match(lexer.TokenFunc) {
-		return p.functionDefinition()
+		stmt, err = p.functionDefinition()
 	} else if p.match(lexer.TokenStruct) {
-		return p.structDeclaration()
+		stmt, err = p.structDeclaration()
 	} else if p.match(lexer.TokenEnum) {
-		return p.enumDeclaration()
+		stmt, err = p.enumDeclaration()
 	} else if p.match(lexer.TokenTrait) {
-		return p.traitDeclaration()
+		stmt, err = p.traitDeclaration()
 	} else if p.match(lexer.TokenImpl) {
-		return p.implDeclaration()
+		stmt, err = p.implDeclaration()
 	} else if p.match(lexer.TokenService) {
-		return p.serviceDeclaration()
+		stmt, err = p.serviceDeclaration()
 	} else if p.match(lexer.TokenMod) {
-		return p.moduleDeclaration()
+		stmt, err = p.moduleDeclaration()
 	} else if p.match(lexer.TokenImport, lexer.TokenUse) {
-		return p.importDeclaration()
+		stmt, err = p.importDeclaration()
 	} else if p.match(lexer.TokenSpawn) {
-		return p.spawnStatement()
+		stmt, err = p.spawnStatement()
+	} else {
+		stmt, err = p.statement()
 	}
-	return p.statement()
+	if err != nil {
+		return nil, err
+	}
+	// consume optional semicolon after statement
+	p.match(lexer.TokenSemicolon)
+	return stmt, nil
 }
 
 func (p *Parser) letDeclaration() (ast.Statement, error) {
@@ -118,7 +127,8 @@ func (p *Parser) letDeclaration() (ast.Statement, error) {
 		return nil, err
 	}
 
-	return ast.LetStmt{Name: name, Type: typ, Value: value}, nil
+	stmt := ast.LetStmt{Name: name, Type: typ, Value: value}
+	return stmt, nil
 }
 
 func (p *Parser) functionDefinition() (ast.Statement, error) {
@@ -584,11 +594,12 @@ func (p *Parser) statement() (ast.Statement, error) {
 		if err != nil {
 			return nil, err
 		}
-		return ast.LetStmt{
+		stmt := ast.LetStmt{
 			Name:  name,
 			Type:  nil, // Inferred
 			Value: value,
-		}, nil
+		}
+		return stmt, nil
 	}
 	return p.expressionStatement()
 }
@@ -704,22 +715,45 @@ func (p *Parser) forStatement() (ast.Statement, error) {
 		return nil, err
 	}
 
-	// For now, assume simple for: for identifier in expression
-	ident, err := p.consumeIdentifier("Expected identifier in for")
-	if err != nil {
+	var init interface{}
+	if p.match(lexer.TokenLet) {
+		i, err := p.letDeclaration()
+		if err != nil {
+			return nil, err
+		}
+		init = i
+	} else if !p.check(lexer.TokenSemicolon) {
+		i, err := p.expression()
+		if err != nil {
+			return nil, err
+		}
+		init = i
+	}
+	if _, err := p.consume(lexer.TokenSemicolon, "Expected ';' after init"); err != nil {
 		return nil, err
 	}
 
-	if _, err := p.consume(lexer.TokenIn, "Expected 'in' after identifier"); err != nil { // Need TokenIn
+	var cond ast.Expression
+	if !p.check(lexer.TokenSemicolon) {
+		c, err := p.expression()
+		if err != nil {
+			return nil, err
+		}
+		cond = c
+	}
+	if _, err := p.consume(lexer.TokenSemicolon, "Expected ';' after condition"); err != nil {
 		return nil, err
 	}
 
-	expr, err := p.expression()
-	if err != nil {
-		return nil, err
+	var incr ast.Expression
+	if !p.check(lexer.TokenRParen) {
+		i, err := p.expression()
+		if err != nil {
+			return nil, err
+		}
+		incr = i
 	}
-
-	if _, err := p.consume(lexer.TokenRParen, "Expected ')' after for expression"); err != nil {
+	if _, err := p.consume(lexer.TokenRParen, "Expected ')' after incr"); err != nil {
 		return nil, err
 	}
 
@@ -733,8 +767,9 @@ func (p *Parser) forStatement() (ast.Statement, error) {
 	}
 
 	return ast.ForStmt{
-		Init:      ident,
-		Condition: expr,
+		Init:      init,
+		Condition: cond,
+		Incr:      incr,
 		Body:      body,
 	}, nil
 }
@@ -813,6 +848,15 @@ func (p *Parser) expressionStatement() (ast.Statement, error) {
 		return nil, err
 	}
 
+	// if the expression is a binary assign with an identifier on the left, treat
+	// it as an assignment statement rather than a comparison (assignment
+	// operator is parsed as OpAssign).
+	if bin, ok := expr.(ast.BinaryExpr); ok && bin.Op == ast.OpAssign {
+		if id, ok := bin.Left.(ast.IdentifierExpr); ok {
+			return ast.AssignStmt{Name: id.Name, Value: bin.Right}, nil
+		}
+	}
+
 	return ast.ExprStmt{Expr: expr}, nil
 }
 
@@ -835,7 +879,7 @@ func (p *Parser) assignment() (ast.Expression, error) {
 			}
 			return ast.BinaryExpr{
 				Left:  ast.IdentifierExpr{Name: id.Name},
-				Op:    ast.OpEqual,
+				Op:    ast.OpAssign,
 				Right: value,
 			}, nil
 		} else if aa, ok := expr.(ast.ArrayAccessExpr); ok {
@@ -1051,48 +1095,65 @@ func (p *Parser) finishCall(callee ast.Expression) (ast.Expression, error) {
 }
 
 func (p *Parser) primary() (ast.Expression, error) {
+	var expr ast.Expression
 	if p.match(lexer.TokenNumber) {
 		if val, ok := p.previous().Value.(int64); ok {
-			return ast.NumberExpr{Value: val}, nil
+			expr = ast.NumberExpr{Value: val}
 		}
 	} else if p.match(lexer.TokenFloat) {
 		if val, ok := p.previous().Value.(float64); ok {
-			return ast.FloatExpr{Value: val}, nil
+			expr = ast.FloatExpr{Value: val}
 		}
 	} else if p.match(lexer.TokenBool) {
 		if val, ok := p.previous().Value.(bool); ok {
-			return ast.BoolExpr{Value: val}, nil
+			expr = ast.BoolExpr{Value: val}
 		}
 	} else if p.match(lexer.TokenString) {
 		if val, ok := p.previous().Value.(string); ok {
-			return ast.StringExpr{Value: val}, nil
+			expr = ast.StringExpr{Value: val}
 		}
 	} else if p.match(lexer.TokenIdentifier) {
 		if val, ok := p.previous().Value.(string); ok {
-			return ast.IdentifierExpr{Name: val}, nil
+			expr = ast.IdentifierExpr{Name: val}
 		}
 	} else if p.match(lexer.TokenLBracket) {
-		return p.arrayLiteral()
+		var err error
+		expr, err = p.arrayLiteral()
+		if err != nil {
+			return nil, err
+		}
 	} else if p.match(lexer.TokenLParen) {
-		expr, err := p.expression()
+		var err error
+		expr, err = p.expression()
 		if err != nil {
 			return nil, err
 		}
 		if _, err := p.consume(lexer.TokenRParen, "Expected ')' after expression"); err != nil {
 			return nil, err
 		}
-		return expr, nil
 	} else if p.match(lexer.TokenFunc) {
-		return p.closure()
+		var err error
+		expr, err = p.closure()
+		if err != nil {
+			return nil, err
+		}
 	} else if p.match(lexer.TokenChan) {
 		typ, err := p.parseType()
 		if err != nil {
 			return nil, err
 		}
-		return ast.ChanExpr{Type: typ}, nil
+		expr = ast.ChanExpr{Type: typ}
+	} else {
+		return nil, fmt.Errorf("Expected expression")
 	}
 
-	return nil, fmt.Errorf("Expected expression")
+	if p.match(lexer.TokenPlusPlus) {
+		expr = ast.UnaryExpr{Op: ast.OpPostInc, Expr: expr}
+	} else if p.match(lexer.TokenMinusMinus) {
+		expr = ast.UnaryExpr{Op: ast.OpPostDec, Expr: expr}
+	}
+
+	return expr, nil
 }
 
 func (p *Parser) arrayLiteral() (ast.Expression, error) {

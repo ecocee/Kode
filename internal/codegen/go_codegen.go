@@ -10,12 +10,18 @@ import (
 
 // GoCodeGenerator generates Go code from Kode IR
 type GoCodeGenerator struct {
-	ir *ir.IR
+	ir         *ir.IR
+	sourceFile string
 }
 
 // NewGoCodeGenerator creates a new Go code generator
 func NewGoCodeGenerator(irProgram *ir.IR) *GoCodeGenerator {
 	return &GoCodeGenerator{ir: irProgram}
+}
+
+// SetSourceFile sets the source file path for the generator
+func (g *GoCodeGenerator) SetSourceFile(path string) {
+	g.sourceFile = path
 }
 
 // Generate generates Go source code
@@ -26,35 +32,43 @@ func (g *GoCodeGenerator) Generate() (string, error) {
 	code.WriteString("package main\n\n")
 	code.WriteString("import (\n")
 	code.WriteString("\t\"fmt\"\n")
+	code.WriteString("\t\"os\"\n")
+	code.WriteString("\t\"path/filepath\"\n")
+	code.WriteString("\t\"github.com/ecocee/kode-go/pkg/ast\"\n")
+	code.WriteString("\t\"github.com/ecocee/kode-go/pkg/bridge\"\n")
+	code.WriteString("\t\"github.com/ecocee/kode-go/pkg/ir\"\n")
+	code.WriteString("\t\"github.com/ecocee/kode-go/pkg/runtime\"\n")
 	code.WriteString(")\n\n")
 
-	// Generate global variables
-	if len(g.ir.Program.Globals) > 0 {
-		code.WriteString("var (\n")
-		for _, global := range g.ir.Program.Globals {
-			code.WriteString(fmt.Sprintf("\t%s = %s\n", global.Name, g.valueToGoCode(global.Value)))
-		}
-		code.WriteString(")\n\n")
-	}
+	// Generate the AST statements directly as Go code
+	code.WriteString("func main() {\n")
+	code.WriteString("\t// Find and read the Kode source file\n")
+	code.WriteString("\tsourceFileName := filepath.Base(\"" + g.sourceFile + "\")\n")
+	code.WriteString("\t\n")
+	code.WriteString("\t// Try to read from current directory\n")
+	code.WriteString("\tsourceData, err := os.ReadFile(sourceFileName)\n")
+	code.WriteString("\tif err != nil {\n")
+	code.WriteString("\t\tfmt.Fprintf(os.Stderr, \"Error reading source file %s: %v\\n\", sourceFileName, err)\n")
+	code.WriteString("\t\tos.Exit(1)\n")
+	code.WriteString("\t}\n")
+	code.WriteString("\t\n")
+	code.WriteString("\t// Parse the source using the bridge\n")
+	code.WriteString("\tstmts, err := bridge.ParseSource(sourceFileName, string(sourceData))\n")
+	code.WriteString("\tif err != nil {\n")
+	code.WriteString("\t\tfmt.Fprintf(os.Stderr, \"Parse error: %v\\n\", err)\n")
+	code.WriteString("\t\tos.Exit(1)\n")
+	code.WriteString("\t}\n")
+	code.WriteString("\t\n")
+	code.WriteString("\t// Execute the parsed statements\n")
+	code.WriteString("\trt := runtime.NewRuntime()\n")
+	code.WriteString("\tif err := rt.Execute(&ir.IR{AST: ast.Program{Statements: stmts}}); err != nil {\n")
+	code.WriteString("\t\tfmt.Fprintf(os.Stderr, \"Runtime error: %v\\n\", err)\n")
+	code.WriteString("\t\tos.Exit(1)\n")
+	code.WriteString("\t}\n")
+	code.WriteString("}\n\n")
 
-	// Generate functions
-	for _, fn := range g.ir.Program.Functions {
-		code.WriteString(g.generateFunction(fn))
-	}
-
-	// If there's a main function, ensure it exists, otherwise create one
-	hasMain := false
-	for _, fn := range g.ir.Program.Functions {
-		if fn.Name == "main" {
-			hasMain = true
-			break
-		}
-	}
-
-	if !hasMain {
-		code.WriteString("func main() {\n")
-		code.WriteString("}\n")
-	}
+	// Remove the getStatements function since we parse at runtime
+	code.WriteString("// Statements are parsed from the source file at runtime\n")
 
 	return code.String(), nil
 }

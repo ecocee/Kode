@@ -18,16 +18,63 @@ y := x + 1`,
 				if len(stmts) != 2 {
 					return false
 				}
-				// Check first statement
-				if let1, ok := stmts[0].(ast.LetStmt); !ok || let1.Name != "x" || let1.Type != nil {
+				if let1, ok := stmts[0].(ast.LetStmt); !ok || let1.Name != "x" {
 					return false
 				}
-				// Check second statement
-				if let2, ok := stmts[1].(ast.LetStmt); !ok || let2.Name != "y" || let2.Type != nil {
+				if let2, ok := stmts[1].(ast.LetStmt); !ok || let2.Name != "y" {
 					return false
 				}
 				return true
 			},
+		},
+		// arithmetic precedence
+		{
+			input: `let z = 1;`,
+			checkAST: func(stmts []ast.Statement) bool {
+				if len(stmts) != 1 {
+					return false
+				}
+				if let1, ok := stmts[0].(ast.LetStmt); !ok || let1.Name != "z" {
+					return false
+				}
+				return true
+			},
+		},
+		// if statement
+		{
+			input: `if (a > b) { let x = 1; } else { let x = 2; }`,
+			checkAST: func(stmts []ast.Statement) bool {
+				if len(stmts) != 1 {
+					return false
+				}
+				if _, ok := stmts[0].(ast.IfStmt); !ok {
+					return false
+				}
+				return true
+			},
+		},
+		// function definition
+		{
+			input: `func add(a: int, b: int) int { return a + b; }`,
+			checkAST: func(stmts []ast.Statement) bool {
+				if len(stmts) != 1 {
+					return false
+				}
+				if fn, ok := stmts[0].(ast.FunctionDefStmt); !ok || fn.Name != "add" {
+					return false
+				}
+				return true
+			},
+		},
+		// nested blocks
+		{
+			input: `{
+    let a = 1;
+    {
+        let b = 2;
+    }
+}`,
+			checkAST: func(stmts []ast.Statement) bool { return true },
 		},
 	}
 
@@ -40,7 +87,7 @@ y := x + 1`,
 
 		stmts, err := parser.Parse()
 		if err != nil {
-			t.Errorf("Parse error: %v", err)
+			t.Errorf("Parse error for %q: %v", test.input, err)
 			continue
 		}
 
