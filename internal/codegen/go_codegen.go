@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -28,7 +29,7 @@ func (g *GoCodeGenerator) Generate() (string, error) {
 	code.WriteString("\t\"fmt\"\n")
 	code.WriteString(")\n\n")
 
-	// Generate global variables
+	// Generate global variables from IR
 	if len(g.ir.Program.Globals) > 0 {
 		code.WriteString("var (\n")
 		for _, global := range g.ir.Program.Globals {
@@ -42,7 +43,7 @@ func (g *GoCodeGenerator) Generate() (string, error) {
 		code.WriteString(g.generateFunction(fn))
 	}
 
-	// If there's a main function, ensure it exists, otherwise create one
+	// If no main function exists, create one
 	hasMain := false
 	for _, fn := range g.ir.Program.Functions {
 		if fn.Name == "main" {

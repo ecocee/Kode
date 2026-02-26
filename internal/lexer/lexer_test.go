@@ -17,6 +17,23 @@ func TestLexer(t *testing.T) {
 			input:    "func add(a: int, b: int) int { return a + b }",
 			expected: []TokenKind{TokenFunc, TokenIdentifier, TokenLParen, TokenIdentifier, TokenColon, TokenInt, TokenComma, TokenIdentifier, TokenColon, TokenInt, TokenRParen, TokenInt, TokenLBrace, TokenReturn, TokenIdentifier, TokenPlus, TokenIdentifier, TokenRBrace, TokenEOF},
 		},
+		{
+			input: `// comment
+x = 1 /* block */`,
+			expected: []TokenKind{TokenIdentifier, TokenEqual, TokenNumber, TokenEOF},
+		},
+		{
+			input:    `"hello" + "world"`,
+			expected: []TokenKind{TokenString, TokenPlus, TokenString, TokenEOF},
+		},
+		{
+			input:    `a && b || !c`,
+			expected: []TokenKind{TokenIdentifier, TokenAnd, TokenIdentifier, TokenOr, TokenNot, TokenIdentifier, TokenEOF},
+		},
+		{
+			input:    "3.14 <= 2.7",
+			expected: []TokenKind{TokenFloat, TokenLessThanOrEqual, TokenFloat, TokenEOF},
+		},
 	}
 
 	for _, test := range tests {

@@ -6,6 +6,13 @@ import (
 	"github.com/ecocee/kode-go/pkg/ast"
 )
 
+// enable typer debug tracing (set to true during debugging)
+// exported for tests or external control
+var VerboseTyper = false
+
+// internal alias used by code to avoid changing numerous references
+var verboseTyper = VerboseTyper
+
 // TypeVar represents a type variable for inference
 type TypeVar struct {
 	ID int
@@ -102,6 +109,16 @@ func (t *Typer) checkStatement(stmt ast.Statement) error {
 			}
 		}
 		t.env = oldEnv
+	case ast.AssignStmt:
+		typ, err := t.inferExpression(s.Value)
+		if err != nil {
+			return err
+		}
+		if varType, ok := t.env[s.Name]; ok {
+			t.addConstraint(varType, typ)
+		} else {
+			return fmt.Errorf("undefined variable: %s", s.Name)
+		}
 	case ast.ReturnStmt:
 		// Assume return type from context
 	case ast.IfStmt:
@@ -126,6 +143,37 @@ func (t *Typer) checkStatement(stmt ast.Statement) error {
 			return err
 		}
 		t.addConstraint(ast.BoolType{}, condType)
+		for _, stmt := range s.Body {
+			if err := t.checkStatement(stmt); err != nil {
+				return err
+			}
+		}
+	case ast.ForStmt:
+		if s.Init != nil {
+			if stmt, ok := s.Init.(ast.Statement); ok {
+				if err := t.checkStatement(stmt); err != nil {
+					return err
+				}
+			} else if expr, ok := s.Init.(ast.Expression); ok {
+				_, err := t.inferExpression(expr)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		if s.Condition != nil {
+			condType, err := t.inferExpression(s.Condition)
+			if err != nil {
+				return err
+			}
+			t.addConstraint(ast.BoolType{}, condType)
+		}
+		if s.Incr != nil {
+			_, err := t.inferExpression(s.Incr)
+			if err != nil {
+				return err
+			}
+		}
 		for _, stmt := range s.Body {
 			if err := t.checkStatement(stmt); err != nil {
 				return err
@@ -159,6 +207,7 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 		}
 		return nil, fmt.Errorf("undefined variable: %s", e.Name)
 	case ast.BinaryExpr:
+
 		leftType, err := t.inferExpression(e.Left)
 		if err != nil {
 			return nil, err
@@ -186,6 +235,9 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 				return ast.FloatType{}, nil
 			}
 			return ast.IntType{}, nil
+		case ast.OpAssign:
+			t.addConstraint(leftType, rightType)
+			return rightType, nil
 		case ast.OpEqual, ast.OpNotEqual, ast.OpLessThan, ast.OpGreaterThan, ast.OpLessThanOrEqual, ast.OpGreaterThanOrEqual:
 			t.addConstraint(leftType, rightType)
 			return ast.BoolType{}, nil
@@ -244,6 +296,20 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			t.addConstraint(elemType, et)
 		}
 		return ast.ArrayType{ElementType: elemType}, nil
+	case ast.UnaryExpr:
+		operandType, err := t.inferExpression(e.Expr)
+		if err != nil {
+			return nil, err
+		}
+		switch e.Op {
+		case ast.OpPostInc, ast.OpPostDec:
+			// Ensure operand is numeric
+			if !t.isNumericType(operandType) {
+				return nil, fmt.Errorf("operand of ++/-- must be numeric")
+			}
+			return operandType, nil
+		}
+		return operandType, nil // For other unary ops, return operand type
 		// Add more cases
 	}
 	return t.newTypeVar(), nil // Default to type var
@@ -265,6 +331,10 @@ func (t *Typer) newTypeVar() TypeVar {
 func (t *Typer) solveConstraints() error {
 	// Simplified: just check basic constraints
 	for _, c := range t.constraints {
+		// debug
+		if VerboseTyper {
+			fmt.Printf("constraint: %T %v  vs  %T %v\n", c.Left, c.Left, c.Right, c.Right)
+		}
 		if !t.unify(c.Left, c.Right) {
 			return fmt.Errorf("type mismatch: %v vs %v", c.Left, c.Right)
 		}

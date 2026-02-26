@@ -29,6 +29,8 @@ func (c *Compiler) Compile(program ast.Program) (*ir.IR, error) {
 	if err := c.typer.CheckProgram(program); err != nil {
 		return nil, err
 	}
+	// store AST for runtime fallback
+	c.ir.AST = program
 
 	// Create an implicit entry point for top-level statements
 	entryBlock := &ir.IRBlock{Label: "entry", Instructions: []ir.IRInstruction{}}
@@ -192,6 +194,14 @@ func (c *Compiler) compileExpressionWithBlock(expr ast.Expression, block *ir.IRB
 			})
 		}
 		return ir.IRVariable{Name: result, Type: ast.IntType{}}
+	case ast.UnaryExpr:
+		operand := c.compileExpressionWithBlock(e.Expr, block)
+		switch e.Op {
+		case ast.OpPostInc, ast.OpPostDec:
+			// For now, just return the operand since runtime handles it
+			return operand
+		}
+		return operand
 	}
 	return ir.IRConstant{Type: ast.IntType{}, Value: 0}
 }
