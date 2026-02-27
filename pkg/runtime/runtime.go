@@ -381,6 +381,16 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 			return nil, err
 		}
 		switch e.Op {
+		case ast.OpNot:
+			// Logical NOT
+			boolVal := r.toBool(operand)
+			return !boolVal, nil
+		case ast.OpBitNot:
+			// Bitwise NOT
+			if val, ok := operand.(int64); ok {
+				return ^val, nil
+			}
+			return nil, fmt.Errorf("bitwise NOT requires integer operand")
 		case ast.OpPostInc:
 			if id, ok := e.Expr.(ast.IdentifierExpr); ok {
 				if val, ok := operand.(int64); ok {
@@ -760,6 +770,55 @@ func (r *Runtime) evaluateBinaryOp(op ast.BinaryOp, left, right interface{}, lin
 				return l / float64(r), nil
 			}
 		}
+	case ast.OpModulo:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				if r == 0 {
+					return nil, fmt.Errorf("division by zero")
+				}
+				return l % r, nil
+			}
+		}
+	case ast.OpAnd:
+		// Logical AND - convert to bool first
+		leftBool := r.toBool(left)
+		rightBool := r.toBool(right)
+		return leftBool && rightBool, nil
+	case ast.OpOr:
+		// Logical OR - convert to bool first
+		leftBool := r.toBool(left)
+		rightBool := r.toBool(right)
+		return leftBool || rightBool, nil
+	case ast.OpBitAnd:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l & r, nil
+			}
+		}
+	case ast.OpBitOr:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l | r, nil
+			}
+		}
+	case ast.OpBitXor:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l ^ r, nil
+			}
+		}
+	case ast.OpBitShl:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l << uint(r), nil
+			}
+		}
+	case ast.OpBitShr:
+		if l, ok := left.(int64); ok {
+			if r, ok := right.(int64); ok {
+				return l >> uint(r), nil
+			}
+		}
 	case ast.OpEqual:
 		return left == right, nil
 	case ast.OpNotEqual:
@@ -936,6 +995,24 @@ func (r *Runtime) loadAndExecuteModule(stmt ast.ImportStmt) error {
 	}
 
 	return nil
+}
+
+// toBool converts a value to boolean for logical operations
+func (r *Runtime) toBool(val interface{}) bool {
+	switch v := val.(type) {
+	case bool:
+		return v
+	case int64:
+		return v != 0
+	case float64:
+		return v != 0.0
+	case string:
+		return len(v) > 0
+	case nil:
+		return false
+	default:
+		return true // non-nil objects are truthy
+	}
 }
 
 // extractLineFromRuntimeError attempts to extract line number from error message

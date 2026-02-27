@@ -1,6 +1,6 @@
 # 🧠 Kode Language Syntax & Grammar
 
-> A complete reference for the Kode programming language syntax (v1.0+)
+> A complete reference for the Kode programming language syntax (v0.3.1+)
 
 **Created by Sreeraj V Rajesh**
 
@@ -867,7 +867,7 @@ import Parser from "./parser";
 
 ---
 
-## 🔄 Concurrency (v1.0+)
+## 🔄 Concurrency (Future)
 
 ### Spawning Goroutines (Lightweight Threads)
 ```kode

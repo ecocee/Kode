@@ -292,7 +292,7 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			return nil, err
 		}
 		switch e.Op {
-		case ast.OpAdd, ast.OpSubtract, ast.OpMultiply, ast.OpDivide:
+		case ast.OpAdd, ast.OpSubtract, ast.OpMultiply, ast.OpDivide, ast.OpModulo:
 			// Allow both int and float for arithmetic
 			// Determine result type based on operands
 			leftIsNumeric := t.isNumericType(leftType)

@@ -1,6 +1,6 @@
 # 📚 Kode Language Wiki
 
-> A comprehensive guide to the modern Kode programming language (v1.0+ edition, 2026)
+> A comprehensive guide to the modern Kode programming language (v0.3.1+ edition, 2026)
 
 **Maintained by the Kode project**
 
@@ -583,7 +583,7 @@ fn main() {
 
 ---
 
-## 📌 Feature Status (v1.0+)
+## 📌 Feature Status (v0.3.1+)
 
 ### ✅ Fully Implemented
 
@@ -637,7 +637,7 @@ Found a bug? Want to contribute code or documentation? See [CONTRIBUTING.md](../
 
 ---
 
-*Kode v1.0+ - Modern Systems Programming Language*
+*Kode v0.3.1+ - Modern Systems Programming Language*
 
 **Learn More:** [ARCHITECTURE.md](./ARCHITECTURE.md) | [syntax.md](./syntax.md) | [roadmap.md](./roadmap.md)
 
