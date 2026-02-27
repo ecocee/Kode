@@ -1,0 +1,7 @@
+Kode:
+  type: programming
+  extensions:
+  - .kode
+  - .kbc
+  color: "#7C3AED"
+  tm_scope: source.kode
