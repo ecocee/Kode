@@ -1,0 +1,73 @@
+// Kode Language - Comprehensive Test (No Semicolons)
+// Demonstrates all major features working without semicolons
+
+// ============ FUNCTIONS ============
+func add(a: int, b: int) int {
+    return a + b
+}
+
+func multiply(x: int, y: int) int {
+    return x * y
+}
+
+func factorial(n: int) int {
+    let result = 1
+    let i = 1
+    while (i <= n) {
+        result = result * i
+        i = i + 1
+    }
+    return result
+}
+
+// ============ VARIABLES ============
+let x = 10
+let y = 20
+const MAX_VALUE: int = 100
+let message = "Kode is awesome"
+
+// ============ CONTROL FLOW ============
+if (x < y) {
+    print("x is less than y")
+} else {
+    print("x is greater than or equal to y")
+}
+
+// ============ FUNCTION CALLS ============
+let add_result = add(15, 5)
+let mult_result = multiply(3, 4)
+let fact_result = factorial(5)
+
+print("15 + 5 =")
+print(add_result)
+print("3 * 4 =")
+print(mult_result)
+print("Factorial(5) =")
+print(fact_result)
+
+// ============ LOOPS ============
+let sum = 0
+let j = 1
+while (j <= 5) {
+    sum = sum + j
+    j = j + 1
+}
+
+print("Sum 1-5 =")
+print(sum)
+
+// ============ ARITHMETIC ============
+let a = 15
+let b = 3
+print("15 + 3 =")
+print(a + b)
+print("15 - 3 =")
+print(a - b)
+print("15 * 3 =")
+print(a * b)
+print("15 / 3 =")
+print(a / b)
+
+// ============ FINAL MESSAGE ============
+print("All features working without semicolons!")
+

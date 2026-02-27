@@ -447,8 +447,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Bytecode Compilation & Execution
 - Bytecode compilation system with stack-based VM execution
 - `.kbc` bytecode file format for portable, Go-independent execution
-- `kode exec <file>` command to execute `.kbc` bytecode files
-- Shorthand bytecode execution: `kode file.kbc` (instead of `kode exec file.kbc`)
+- `kode <file>` command to execute `.kbc` bytecode files
+- Shorthand bytecode execution: `kode file.kbc` (instead of `kode file.kbc`)
 
 #### Operators
 - **Bitwise Operators (Complete Suite):**

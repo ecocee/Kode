@@ -32,19 +32,27 @@
 
 Kode uses a clean, familiar syntax with these core rules:
 
-- Each statement ends with a semicolon (`;`)
+- Semicolons (`;`) are **optional** - statements can end with or without them
 - Code blocks are enclosed in curly braces (`{}`)
 - Variables are declared with `let` or `const`
 - Functions are defined with `fn`
 - Whitespace is generally ignored
 - Type annotations are optional (inferred automatically)
 
-Example:
+Example (both styles work):
 ```kode
+// With semicolons (still supported for compatibility)
 fn main() {
     let x = 42;
     const PI = 3.14159;
     print(x);
+}
+
+// Without semicolons (modern style)
+fn main() {
+    let x = 42
+    const PI = 3.14159
+    print(x)
 }
 ```
 

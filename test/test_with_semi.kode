@@ -1,0 +1,4 @@
+let x = 10;
+print(x);
+let b = 5;
+print(b);

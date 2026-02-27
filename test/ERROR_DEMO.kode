@@ -1,0 +1,8 @@
+// This file has intentional syntax errors to demonstrate improved error handling
+
+let x = 10
+// let y = ;  // This would show: error at expected expression
+
+// if x > 5 {  // This would show: error expected '(' after 'if'
+//     print(x);
+// }

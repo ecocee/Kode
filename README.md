@@ -77,7 +77,7 @@ kode run hello.kode
 
 # Compile to bytecode
 kode build hello.kode     # produces hello.kbc
-kode exec hello.kbc       # run the bytecode
+kode hello.kbc       # run the bytecode
 ```
 
 ---
@@ -87,7 +87,7 @@ kode exec hello.kbc       # run the bytecode
 ```
 kode run    <file.kode>   Run a source file directly
 kode build  <file.kode>   Compile to .kbc bytecode
-kode exec   <file.kbc>    Execute compiled bytecode
+kode   <file.kbc>    Execute compiled bytecode
 kode check  <file.kode>   Type-check without running
 kode fmt    <file.kode>   Format source files
 kode new    <name>        Scaffold a new project
@@ -666,7 +666,7 @@ if (perms & EXEC == 0) {
 | Structs | Declaration + instantiation + field access — see [Structs](#structs) |
 | Static type checking | With inference |
 | Bytecode compilation | `.kbc` format |
-| Bytecode execution | Via `kode exec` |
+| Bytecode execution | Via `kode` |
 
 ### Parser-Only (declaration parses, cannot use values)
 

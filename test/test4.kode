@@ -1,0 +1,23 @@
+
+// -----------------------------------------------
+// TEST 5: String Concatenation Stress
+// (basic VM pressure test)
+// -----------------------------------------------
+print("[5] String Concatenation")
+
+let s = ""
+let si = 0
+
+while (si < 20000) {
+    s = s + "a"
+    si = si + 1
+}
+
+print("    Final length (approx test)")
+print(si)
+print("")
+
+// -----------------------------------------------
+print("====================================")
+print("   Kode benchmark completed")
+print("====================================")

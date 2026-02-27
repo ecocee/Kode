@@ -154,7 +154,7 @@ Output
 ```bash
 ./kode build input.kode -o output.kbc   # Compile .kode to bytecode
 ./kode output.kbc                        # Execute bytecode (shorthand)
-./kode exec output.kbc                   # Execute bytecode (explicit)
+./kode output.kbc                   # Execute bytecode (explicit)
 ./kode run input.kode                    # Compile and run in one command
 ```
 

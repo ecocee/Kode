@@ -1,0 +1,18 @@
+// -----------------------------------------------
+// TEST 4: Boolean / Logical Stress
+// -----------------------------------------------
+print("[4] Logical Operations")
+
+let li = 0
+let lcount = 0
+
+while (li < 1000000) {
+    if ((5 & 1) || 0) {
+        lcount = lcount + 1
+    }
+    li = li + 1
+}
+
+print("    Logical count:")
+print(lcount)
+print("")

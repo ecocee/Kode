@@ -1,0 +1,20 @@
+// -----------------------------------------------
+// TEST 2: Nested Loop Stress
+// -----------------------------------------------
+print("[2] Nested Loop Stress")
+
+let outer = 0
+let counter = 0
+
+while (outer < 1000) {
+    let inner = 0
+    while (inner < 1000) {
+        counter = counter + 1
+        inner = inner + 1
+    }
+    outer = outer + 1
+}
+
+print("    Counter:")
+print(counter)
+print("")

@@ -1,0 +1,4 @@
+﻿let li = 0
+if (li & 1) {
+    print("ok")
+}

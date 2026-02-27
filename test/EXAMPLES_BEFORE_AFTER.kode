@@ -1,0 +1,94 @@
+// Kode Language - Examples with and without semicolons
+
+// ============================================
+// FUNCTION SYNTAX (uses 'func' keyword)
+// ============================================
+
+// NO SEMICOLONS
+func add(a: int, b: int) int {
+    return a + b
+}
+
+func greet(name: string) string {
+    return "Hello, " + name
+}
+
+// WITH SEMICOLONS (both work!)
+func subtract(a: int, b: int) int {
+    return a - b;
+}
+
+// ============================================
+// ORIGINAL STYLE (with semicolons)
+// ============================================
+
+// let result = add(5, 3);
+// const PI: float = 3.14159;
+// let x = 10;
+// print(x);
+// if (x > 0) {
+//     print("positive");
+// }
+
+// ============================================
+// MODERN STYLE (without semicolons)
+// ============================================
+
+let result = add(5, 3)
+const PI: float = 3.14159
+let x = 10
+print(x)
+
+if (x > 0) {
+    print("positive")
+}
+
+// ============================================
+// MIXED STYLE (both work together!)
+// ============================================
+
+let a = 5;
+let b = 10
+let c = 15;
+let d = 20
+
+print(a + b + c + d)
+
+// ============================================
+// ERROR HANDLING EXAMPLES
+// ============================================
+
+// Before: Error was hard to locate
+// Parser Error: Expected '(' after 'if' at {5 12}
+
+// After: Error is clear with context
+// Syntax Error at line 5, column 12
+//   → if x > 0 {
+//        ^
+//   ℹ Expected '(' after 'if'
+//     Use '(' to group conditions. Example: if (x > 0) { ... }
+
+// ============================================
+// KEY IMPROVEMENTS
+// ============================================
+
+// 1. SEMICOLONS ARE NOW OPTIONAL
+//    - Write concise code without semicolons
+//    - Old code with semicolons still works
+//    - No breaking changes!
+
+// 2. BETTER ERROR MESSAGES
+//    - Error messages show line context
+//    - Visual pointer to the problem
+//    - Helpful suggestions for fixes
+
+// 3. BACKWARD COMPATIBLE
+//    - All existing code continues to work
+//    - Mix styles in the same file
+//    - Gradual migration path
+
+// 4. CORRECT SYNTAX REMINDERS
+//    - Use 'func' keyword for functions (not 'fn')
+//    - Specify return types for functions
+//    - Require parentheses around if conditions: if (condition)
+

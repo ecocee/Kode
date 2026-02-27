@@ -337,6 +337,8 @@ func (r *Runtime) evaluateExpression(expr ast.Expression) (interface{}, error) {
 	switch e := expr.(type) {
 	case ast.NumberExpr:
 		return e.Value, nil
+	case ast.FloatExpr:
+		return e.Value, nil
 	case ast.StringExpr:
 		return e.Value, nil
 	case ast.BoolExpr:
@@ -682,7 +684,7 @@ func (r *Runtime) evaluateValue(val ir.IRValue) interface{} {
 // evaluateBinaryOp evaluates a binary operation
 func (r *Runtime) evaluateBinaryOp(op ast.BinaryOp, left, right interface{}, line int) (interface{}, error) {
 	if VerboseRuntime {
-		fmt.Printf("binary op %v with left=%#v (%T) right=%#v (%T)\n", op, left, left, right, right)
+		fmt.Fprintf(os.Stderr, "binary op %v with left=%#v (%T) right=%#v (%T)\n", op, left, left, right, right)
 	}
 	switch op {
 	case ast.OpAdd:
@@ -848,7 +850,7 @@ func (r *Runtime) evaluateBinaryOp(op ast.BinaryOp, left, right interface{}, lin
 			}
 		}
 	}
-	return nil, wrapRuntimeError(r.currentFile, line, fmt.Sprintf("unsupported binary operation: %v", op), nil)
+	return nil, wrapRuntimeError(r.currentFile, line, fmt.Sprintf("unsupported binary operation: %v with left=%T right=%T", op, left, right), nil)
 }
 
 // resolveModulePath resolves an import path to an actual file path

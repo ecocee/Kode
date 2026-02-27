@@ -104,7 +104,7 @@ This creates `myprogram.kbc`
 ```bash
 kode myprogram.kbc
 # or explicitly:
-kode exec myprogram.kbc
+kode myprogram.kbc
 ```
 
 ### Verbose output:

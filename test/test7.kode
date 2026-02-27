@@ -1,0 +1,14 @@
+const a:int=5.3
+let b=4.3
+//let c=a+b
+print(a+b)
+
+let a =5
+let b =5.30
+let c:float = 53.9
+print(a+b+c)
+
+let a = -5
+let c = -9.68
+
+print(a-b)
