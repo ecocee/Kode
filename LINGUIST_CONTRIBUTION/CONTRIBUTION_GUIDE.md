@@ -58,7 +58,7 @@ This PR adds support for the Kode programming language to Linguist.
 - **TextMate Scope**: `source.kode`
 
 ## TextMate Grammar
-The Kode language includes a TextMate grammar file (`kode.tmLanguage.json`) in the [Kode repository](https://github.com/Sreeraj-Lohan/kode).
+The Kode language includes a TextMate grammar file (`kode.tmLanguage.json`) in the [Kode repository](https://github.com/ecocee/kode).
 
 Fixes: N/A (initial addition)
 ```
