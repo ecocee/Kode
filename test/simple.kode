@@ -1,0 +1,16 @@
+// simple test without loops
+print("Hello World!")
+let x = 5
+let y = 10
+print(x)
+print(y)
+
+if (x < y) {
+    print("x is less than y")
+}
+else {
+    print("x is not less than y")
+}
+
+let z = x + y
+print(z)

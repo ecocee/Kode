@@ -1,0 +1,5 @@
+let name = input("What is your name? ")
+print(name)
+
+let age = input("How old are you? ")
+print(age)

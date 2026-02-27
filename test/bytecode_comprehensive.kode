@@ -1,0 +1,82 @@
+// Comprehensive bytecode test covering all implemented features
+
+// Test 1: Arithmetic operations
+print("=== Arithmetic Operations ===")
+let a = 10
+let b = 3
+print(a + b)  // 13
+print(a - b)  // 7
+print(a * b)  // 30
+print(a / b)  // 3
+print(a % b)  // 1
+
+// Test 2: Comparison operations
+print("=== Comparisons ===")
+print(a > b)  // true
+print(a < b)  // false
+print(a >= b) // true
+print(a <= b) // false
+print(a == b) // false
+print(a != b) // true
+
+// Test 3: Logical operations
+print("=== Logical Operations ===")
+print(true && true)   // true
+print(true && false)  // false
+print(true || false)  // true
+print(false || false) // false
+print(!true)  // false
+print(!false) // true
+
+// Test 4: If-else control flow
+print("=== If-Else ===")
+if (a > b) {
+    print("a is greater")
+} else {
+    print("b is greater or equal")
+}
+
+// Test 5: Loops
+print("=== For Loop ===")
+for (let i = 0; i < 3; i = i + 1) {
+    print(i)
+}
+
+// Test 6: Function calls (expression-bodied)
+func multiply(x: int, y: int) = x * y
+func add(a: int, b: int) = a + b
+
+print("=== Function Calls ===")
+print(multiply(4, 5))  // 20
+print(add(10, 20))     // 30
+
+// Test 7: Nested function calls
+func double(n: int) = n * 2
+func triple(n: int) = n * 3
+
+print("=== Nested Functions ===")
+print(double(triple(2))) // 12
+
+// Test 8: Complex expressions
+print("=== Complex Expressions ===")
+let result = (a + b) * 2 - (b - 1)
+print(result)  // (13) * 2 - 2 = 24
+
+// Test 9: Boolean expressions
+print("=== Boolean Expressions ===")
+let condition = (a > 5) && (b < 5)
+if (condition) {
+    print("Both conditions true")
+} else {
+    print("At least one condition false")
+}
+
+// Test 10: Multiple statements in if-else
+print("=== Multiple Statements ===")
+let x = 100
+if (x > 50) {
+    print("x is large")
+    print(x)
+}
+
+print("=== All Tests Complete ===")

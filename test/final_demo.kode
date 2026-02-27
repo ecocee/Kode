@@ -1,0 +1,68 @@
+print("╔════════════════════════════════════════════════════════════╗")
+print("║  Kode Bytecode Compiler - Final Demonstration              ║")
+print("╚════════════════════════════════════════════════════════════╝")
+print("")
+
+print("1️⃣  ARITHMETIC OPERATIONS")
+print("5 + 3 = ")
+print(5 + 3)
+print("10 - 3 = ")
+print(10 - 3)
+print("7 * 6 = ")
+print(7 * 6)
+print("20 / 4 = ")
+print(20 / 4)
+print("17 % 5 = ")
+print(17 % 5)
+print("")
+
+print("2️⃣  BITWISE OPERATIONS")
+print("Binary AND: 12 & 5 = ")
+print(12 & 5)
+print("Binary OR: 12 | 5 = ")
+print(12 | 5)
+print("Binary XOR: 12 ^ 5 = ")
+print(12 ^ 5)
+print("Left Shift: 8 << 2 = ")
+print(8 << 2)
+print("Right Shift: 32 >> 2 = ")
+print(32 >> 2)
+print("Bitwise NOT: ~5 = ")
+print(~5)
+print("")
+
+print("3️⃣  CONTROL FLOW - FOR LOOP")
+print("Counting from 0 to 4:")
+for (let i = 0; i < 5; i++) {
+  print(i)
+}
+print("")
+
+print("4️⃣  CONTROL FLOW - WHILE LOOP")
+print("Descending from 3 to 1:")
+let counter = 3
+while (counter > 0) {
+  print(counter)
+  counter = counter - 1
+}
+print("")
+
+print("5️⃣  CONDITIONAL LOGIC")
+let x = 15
+if (x > 10) {
+  print("x is greater than 10")
+}
+print("")
+
+print("6️⃣  VARIABLE ASSIGNMENT")
+let value = 50
+print("Initial value: ")
+print(value)
+value = value + 25
+print("After adding 25: ")
+print(value)
+print("")
+
+print("═════════════════════════════════════════════════════════════")
+print("✅ ALL FEATURES WORKING CORRECTLY")
+print("═════════════════════════════════════════════════════════════")

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -35,6 +36,7 @@ A modern systems programming language for backend services and AI tooling.`,
 	rootCmd.AddCommand(
 		newRunCmd(),
 		newBuildCmd(),
+		newExecCmd(),
 		newCheckCmd(),
 		newFmtCmd(),
 		newNewCmd(),
@@ -49,6 +51,14 @@ A modern systems programming language for backend services and AI tooling.`,
 
 // Execute runs the root command
 func Execute() {
+	// Check if the first argument is a .kbc file
+	if len(os.Args) > 1 && strings.HasSuffix(os.Args[1], ".kbc") {
+		// Reconstruct args to call exec command
+		newArgs := []string{"kode", "exec"}
+		newArgs = append(newArgs, os.Args[1:]...)
+		os.Args = newArgs
+	}
+
 	if err := NewRootCmd().Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

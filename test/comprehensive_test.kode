@@ -1,0 +1,112 @@
+func add(a: int, b: int) = a + b
+func multiply(a: int, b: int) = a * b
+func factorial(n: int) = if (n <= 1) { 1 } else { n * factorial(n - 1) }
+
+print("=== Kode Bytecode Compiler - Comprehensive Feature Test ===")
+print("")
+
+print("1. ARITHMETIC OPERATORS")
+let a = 10
+let b = 3
+print("a = 10, b = 3")
+print("a + b =")
+print(a + b)
+print("a - b =")
+print(a - b)
+print("a * b =")
+print(a * b)
+print("a / b =")
+print(a / b)
+print("a % b =")
+print(a % b)
+print("")
+
+print("2. COMPARISON OPERATORS")
+print("a == b:")
+print(a == b)
+print("a != b:")
+print(a != b)
+print("a < b:")
+print(a < b)
+print("a > b:")
+print(a > b)
+print("a <= 10:")
+print(a <= 10)
+print("a >= 10:")
+print(a >= 10)
+print("")
+
+print("3. LOGICAL OPERATORS")
+let x = 1
+let y = 0
+print("x = 1, y = 0")
+print("x && y:")
+print(x && y)
+print("x || y:")
+print(x || y)
+print("!x:")
+print(!x)
+print("")
+
+print("4. BITWISE OPERATORS")
+let p = 12
+let q = 5
+print("p = 12, q = 5")
+print("p & q:")
+print(p & q)
+print("p | q:")
+print(p | q)
+print("p ^ q:")
+print(p ^ q)
+print("p << 1:")
+print(p << 1)
+print("p >> 1:")
+print(p >> 1)
+print("~p:")
+print(~p)
+print("")
+
+print("5. FOR LOOPS")
+print("for i = 0 to 4")
+for (let i = 0; i < 5; i++) {
+  print(i)
+}
+print("")
+
+print("6. WHILE LOOPS")
+print("while i < 3")
+let i = 0
+while (i < 3) {
+  print(i)
+  i = i + 1
+}
+print("")
+
+print("7. IF-ELSE STATEMENTS")
+let num = 7
+print("num = 7")
+if (num < 5) {
+  print("num is less than 5")
+} else {
+  if (num == 7) {
+    print("num equals 7")
+  } else {
+    print("num is greater than 5 but not 7")
+  }
+}
+print("")
+
+print("8. FUNCTION CALLS")
+print("add(3, 4):")
+print(add(3, 4))
+print("multiply(6, 7):")
+print(multiply(6, 7))
+print("")
+
+print("9. RECURSION")
+print("factorial(5):")
+print(factorial(5))
+print("")
+
+print("=== All Tests Completed ===" )
+

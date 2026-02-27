@@ -1,0 +1,41 @@
+print("=== Kode Bytecode Feature Test ===")
+print("")
+
+print("ARITHMETIC")
+print(10 + 5)
+print(10 - 5)
+print(10 * 5)
+print(10 / 5)
+print(10 % 3)
+print("")
+
+print("BITWISE OPERATORS")
+print(12 & 5)
+print(12 | 5)
+print(12 ^ 5)
+print(12 << 1)
+print(12 >> 1)
+print("")
+
+print("FOR LOOP")
+for (let i = 0; i < 3; i++) {
+  print(i)
+}
+print("")
+
+print("WHILE LOOP")
+let x = 0
+while (x < 3) {
+  print(x)
+  x = x + 1
+}
+print("")
+
+print("IF-ELSE")
+let y = 10
+if (y > 5) {
+  print("yes")
+}
+print("")
+
+print("=== Test Complete ===")

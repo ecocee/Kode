@@ -1,0 +1,41 @@
+print("Testing Features:")
+print("")
+
+print("1. Arithmetic:")
+print(5 + 3)
+print(10 - 4)
+print(3 * 7)
+print(20 / 4)
+print(17 % 5)
+print("")
+
+print("2. Comparison:")
+print(5 < 10)
+print(10 > 5)
+print(5 == 5)
+print(5 != 3)
+print("")
+
+print("3. Bitwise:")
+print(12 & 5)
+print(12 | 5)
+print(12 ^ 5)
+print(12 << 1)
+print(12 >> 1)
+print("")
+
+print("4. For loop:")
+for (let i = 0; i < 3; i++) {
+  print(i)
+}
+print("")
+
+print("5. While loop:")
+let j = 0
+while (j < 3) {
+  print(j)
+  j = j + 1
+}
+print("")
+
+print("Done!")

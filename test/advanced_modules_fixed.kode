@@ -1,0 +1,85 @@
+// Advanced Module System Examples
+
+import "config" as cfg;
+import { add, multiply, PI } from "math";
+import { Person, Address, createPerson } from "data";
+
+func main() {
+    print(cfg.APP_NAME);
+    print(cfg.VERSION);
+    let result = add(10, 5);
+    print(result);
+}
+
+// Logger exports
+export func log(message: string) {
+    print("[LOG] ");
+    print(message);
+}
+
+export func debug(message: string) {
+    print("[DEBUG] ");
+    print(message);
+}
+
+export func error(message: string) {
+    print("[ERROR] ");
+    print(message);
+}
+
+// Data types
+export struct User {
+    id: int,
+    name: string,
+    email: string
+}
+
+export struct Post {
+    id: int,
+    userId: int,
+    title: string,
+    content: string
+}
+
+// Configuration
+export const APP_NAME = "MyAwesomeApp";
+export const VERSION = "2.5.1";
+export const MAX_USERS = 1000;
+export const MAX_REQUESTS = 60;
+
+export let PORT = 8080;
+export let HOST = "localhost";
+
+export func getAppInfo() {
+    print(APP_NAME);
+    print(VERSION);
+}
+
+// Utility functions
+export func formatMessage(prefix: string, message: string) {
+    print(prefix);
+    print(": ");
+    print(message);
+}
+
+export func concatenate(a: string, b: string) {
+    print(a);
+    print(b);
+}
+
+export func formatNumber(n: int) {
+    print(n);
+}
+
+// Module with interdependencies
+import { User, Post } from "models";
+
+export func getUserInfo(userId: int) {
+    print("Getting user ");
+    print(userId);
+}
+
+export func getPostsByUser(userId: int) {
+    print("Getting posts for user ");
+    print(userId);
+}

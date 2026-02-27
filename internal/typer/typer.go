@@ -2,7 +2,12 @@ package typer
 
 import (
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/ecocee/kode-go/internal/parser"
 	"github.com/ecocee/kode-go/pkg/ast"
 )
 
@@ -10,8 +15,38 @@ import (
 // exported for tests or external control
 var VerboseTyper = false
 
-// internal alias used by code to avoid changing numerous references
-var verboseTyper = VerboseTyper
+// KodeError represents an error with file and line information
+type KodeError struct {
+	File    string
+	Line    int
+	Message string
+	Cause   error
+}
+
+func (e KodeError) Error() string {
+	msg := e.Message
+	if e.Cause != nil {
+		msg = msg + ": " + e.Cause.Error()
+	}
+	if e.Line > 0 {
+		return fmt.Sprintf("%s:%d: %s", e.File, e.Line, msg)
+	}
+	return fmt.Sprintf("%s: %s", e.File, msg)
+}
+
+func (e KodeError) Unwrap() error {
+	return e.Cause
+}
+
+// wrapError wraps an error with file context
+func wrapError(file string, line int, message string, cause error) error {
+	return KodeError{
+		File:    file,
+		Line:    line,
+		Message: message,
+		Cause:   cause,
+	}
+}
 
 // TypeVar represents a type variable for inference
 type TypeVar struct {
@@ -50,11 +85,39 @@ func NewTyper() *Typer {
 		ReturnType: ast.VoidType{},
 	}
 
+	typer.env["input"] = ast.FunctionType{
+		ParamTypes: []ast.Type{ast.StringType{}},
+		ReturnType: ast.StringType{},
+	}
+
 	return typer
 }
 
 // CheckProgram type checks a program
 func (t *Typer) CheckProgram(program ast.Program) error {
+	// First pass: process imports to load module types
+	for _, stmt := range program.Statements {
+		if importStmt, ok := stmt.(ast.ImportStmt); ok {
+			if err := t.loadModuleImport(importStmt); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Second pass: hoist all function definitions
+	for _, stmt := range program.Statements {
+		if fnStmt, ok := stmt.(ast.FunctionDefStmt); ok {
+			// Add function to env without type checking the body yet
+			paramTypes := make([]ast.Type, len(fnStmt.Params))
+			for i, param := range fnStmt.Params {
+				paramTypes[i] = param.Type
+			}
+			fnType := ast.FunctionType{ParamTypes: paramTypes, ReturnType: fnStmt.ReturnType}
+			t.env[fnStmt.Name] = fnType
+		}
+	}
+
+	// Second pass: type check all statements
 	for _, stmt := range program.Statements {
 		if err := t.checkStatement(stmt); err != nil {
 			return err
@@ -179,6 +242,18 @@ func (t *Typer) checkStatement(stmt ast.Statement) error {
 				return err
 			}
 		}
+	case ast.StructDeclStmt:
+		// Register struct type
+		fields := make(map[string]ast.Type)
+		for _, field := range s.Fields {
+			fields[field.Name] = field.Type
+		}
+		structType := ast.StructType{Name: s.Name, Fields: fields}
+		t.env[s.Name] = structType
+	case ast.EnumDeclStmt:
+		// Register enum type
+		enumType := ast.EnumType{Name: s.Name, Variants: s.Variants}
+		t.env[s.Name] = enumType
 	case ast.PrintStmt:
 		_, err := t.inferExpression(s.Value)
 		return err
@@ -242,8 +317,17 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			t.addConstraint(leftType, rightType)
 			return ast.BoolType{}, nil
 		case ast.OpAnd, ast.OpOr:
-			t.addConstraint(leftType, ast.BoolType{})
-			t.addConstraint(rightType, ast.BoolType{})
+			// Allow any types for logical operators with coercion semantics
+			// But still type-check the operands
+			_, leftErr := t.inferExpression(e.Left)
+			if leftErr != nil {
+				return nil, leftErr
+			}
+			_, rightErr := t.inferExpression(e.Right)
+			if rightErr != nil {
+				return nil, rightErr
+			}
+			// Logical operators always return bool
 			return ast.BoolType{}, nil
 		}
 	case ast.CallExpr:
@@ -263,6 +347,16 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 					}
 				}
 				return ast.VoidType{}, nil
+			}
+			if idExpr.Name == "input" {
+				// input accepts a string prompt and returns a string
+				if len(e.Arguments) > 0 {
+					_, err := t.inferExpression(e.Arguments[0])
+					if err != nil {
+						return nil, err
+					}
+				}
+				return ast.StringType{}, nil
 			}
 		}
 
@@ -310,6 +404,95 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			return operandType, nil
 		}
 		return operandType, nil // For other unary ops, return operand type
+	case ast.ArrayAccessExpr:
+		// Type check array and index
+		arrayType, err := t.inferExpression(e.Array)
+		if err != nil {
+			return nil, err
+		}
+		indexType, err := t.inferExpression(e.Index)
+		if err != nil {
+			return nil, err
+		}
+
+		// Index must be numeric
+		if !t.isNumericType(indexType) {
+			return nil, fmt.Errorf("array index must be numeric, got %s", indexType)
+		}
+
+		// Array must be array type
+		if arrType, ok := arrayType.(ast.ArrayType); ok {
+			return arrType.ElementType, nil
+		}
+		return nil, fmt.Errorf("cannot index non-array type: %s", arrayType)
+	case ast.MemberAccessExpr:
+		// Type check member access (arr.len, obj.field, etc.)
+		objType, err := t.inferExpression(e.Object)
+		if err != nil {
+			return nil, err
+		}
+
+		// Handle array methods/properties
+		if arrType, ok := objType.(ast.ArrayType); ok {
+			switch e.Member {
+			case "len":
+				// arr.len is a property that returns int
+				return ast.IntType{}, nil
+			case "push":
+				// arr.push is a method taking element type
+				return ast.FunctionType{
+					ParamTypes: []ast.Type{arrType.ElementType},
+					ReturnType: ast.VoidType{},
+				}, nil
+			case "pop":
+				// arr.pop is a method returning element type
+				return ast.FunctionType{
+					ParamTypes: []ast.Type{},
+					ReturnType: arrType.ElementType,
+				}, nil
+			default:
+				return nil, fmt.Errorf("array has no member: %s", e.Member)
+			}
+		}
+
+		// Handle struct field access
+		if structType, ok := objType.(ast.StructType); ok {
+			if fieldType, ok := structType.Fields[e.Member]; ok {
+				return fieldType, nil
+			}
+			return nil, fmt.Errorf("struct %s has no field: %s", structType.Name, e.Member)
+		}
+
+		return nil, fmt.Errorf("cannot access member of type: %s", objType)
+	case ast.StructLiteralExpr:
+		// Type check struct literal
+		structType, ok := t.env[e.StructName]
+		if !ok {
+			return nil, fmt.Errorf("undefined struct: %s", e.StructName)
+		}
+
+		if sType, ok := structType.(ast.StructType); ok {
+			// Check all fields are provided and have correct types
+			for fieldName, fieldType := range sType.Fields {
+				if val, ok := e.Fields[fieldName]; ok {
+					valType, err := t.inferExpression(val)
+					if err != nil {
+						return nil, err
+					}
+					t.addConstraint(fieldType, valType)
+				} else {
+					return nil, fmt.Errorf("missing field %s in struct literal %s", fieldName, e.StructName)
+				}
+			}
+			// Check no extra fields provided
+			for providedField := range e.Fields {
+				if _, ok := sType.Fields[providedField]; !ok {
+					return nil, fmt.Errorf("struct %s has no field %s", e.StructName, providedField)
+				}
+			}
+			return sType, nil
+		}
+		return nil, fmt.Errorf("%s is not a struct type", e.StructName)
 		// Add more cases
 	}
 	return t.newTypeVar(), nil // Default to type var
@@ -390,4 +573,154 @@ func (t *Typer) isNumericType(typ ast.Type) bool {
 	default:
 		return false
 	}
+}
+
+// resolveModulePathForTyper resolves an import path to an actual file path
+func (t *Typer) resolveModulePathForTyper(importPath string) (string, error) {
+	// If the path has an extension, use it as-is
+	if filepath.Ext(importPath) != "" {
+		if _, err := os.Stat(importPath); err == nil {
+			return importPath, nil
+		}
+	}
+
+	// Try with .kode extension
+	kodePath := importPath + ".kode"
+	if _, err := os.Stat(kodePath); err == nil {
+		return kodePath, nil
+	}
+
+	// Try in examples directory
+	examplesPath := filepath.Join("examples", importPath+".kode")
+	if _, err := os.Stat(examplesPath); err == nil {
+		return examplesPath, nil
+	}
+
+	// Try in current directory
+	currentPath := filepath.Join(".", importPath+".kode")
+	if _, err := os.Stat(currentPath); err == nil {
+		return currentPath, nil
+	}
+
+	return "", fmt.Errorf("module not found: %s", importPath)
+}
+
+// extractModuleExports extracts exported functions and constants from module AST
+func (t *Typer) extractModuleExports(statements []ast.Statement) map[string]ast.Type {
+	exports := make(map[string]ast.Type)
+
+	for _, stmt := range statements {
+		switch s := stmt.(type) {
+		case ast.ExportStmt:
+			// Extract the wrapped statement
+			switch wrapped := s.Statement.(type) {
+			case ast.FunctionDefStmt:
+				// Convert function to type
+				paramTypes := make([]ast.Type, len(wrapped.Params))
+				for i, param := range wrapped.Params {
+					paramTypes[i] = param.Type
+				}
+				fnType := ast.FunctionType{
+					ParamTypes: paramTypes,
+					ReturnType: wrapped.ReturnType,
+				}
+				exports[wrapped.Name] = fnType
+			case ast.ConstDeclStmt:
+				// Constants get their type from the declaration
+				exports[wrapped.Name] = wrapped.Type
+			}
+		}
+	}
+
+	return exports
+}
+
+// loadModuleImport loads a module and adds its exported symbols to the type environment
+func (t *Typer) loadModuleImport(stmt ast.ImportStmt) error {
+	// Resolve the module path
+	modulePath, err := t.resolveModulePathForTyper(stmt.Path)
+	if err != nil {
+		return wrapError("", 0, fmt.Sprintf("module not found: %s", stmt.Path), err)
+	}
+
+	// Read the module file
+	content, err := ioutil.ReadFile(modulePath)
+	if err != nil {
+		return wrapError(modulePath, 0, "failed to read module file", err)
+	}
+
+	// Parse the module directly from source
+	p, err := parser.NewParser(modulePath, string(content))
+	if err != nil {
+		return wrapError(modulePath, 0, "failed to create parser for module", err)
+	}
+
+	statements, err := p.Parse()
+	if err != nil {
+		// Try to extract line number from parser error
+		line := t.extractLineFromError(err.Error(), string(content))
+		return wrapError(modulePath, line, "parse error in imported module", err)
+	}
+
+	// Create a temporary typer for the module and type-check it
+	moduleTyper := NewTyper()
+	moduleProgram := ast.Program{Statements: statements}
+	if err := moduleTyper.CheckProgram(moduleProgram); err != nil {
+		// Try to extract line number from type error
+		line := t.extractLineFromError(err.Error(), string(content))
+		return wrapError(modulePath, line, "type error in imported module", err)
+	}
+
+	// Extract exported symbols
+	exports := t.extractModuleExports(statements)
+
+	// Also hoist function definitions from the module for complete type info
+	for _, s := range statements {
+		if expStmt, ok := s.(ast.ExportStmt); ok {
+			if fnStmt, ok := expStmt.Statement.(ast.FunctionDefStmt); ok {
+				paramTypes := make([]ast.Type, len(fnStmt.Params))
+				for i, param := range fnStmt.Params {
+					paramTypes[i] = param.Type
+				}
+				fnType := ast.FunctionType{
+					ParamTypes: paramTypes,
+					ReturnType: fnStmt.ReturnType,
+				}
+				exports[fnStmt.Name] = fnType
+			}
+		}
+	}
+
+	// Add exported symbols to current environment based on import style
+	if stmt.IsNamed {
+		// Named import: import { add, subtract } from "math"
+		for _, item := range stmt.Items {
+			if typ, ok := exports[item]; ok {
+				t.env[item] = typ
+			} else {
+				return wrapError("", 0, fmt.Sprintf("exported symbol '%s' not found in module %s", item, stmt.Path), nil)
+			}
+		}
+	} else if stmt.Alias != "" {
+		// Namespace import: import math from "math"
+	} else {
+		// Wildcard import: import * from "math"
+		for name, typ := range exports {
+			t.env[name] = typ
+		}
+	}
+
+	return nil
+}
+
+// extractLineFromError attempts to extract line number from error message
+func (t *Typer) extractLineFromError(_, source string) int {
+	// Look for patterns like "at line X" or "line X"
+	// For now, return 0 if we can't determine the line
+	sourceLines := strings.Split(source, "\n")
+
+	// Simple heuristic: if error mentions a specific token, find it in source
+	// This is a basic implementation - could be improved
+	_ = sourceLines // Avoid unused variable warning
+	return 0
 }

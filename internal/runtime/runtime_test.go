@@ -44,7 +44,7 @@ func TestGlobalLetAndPrint(t *testing.T) {
 	}
 	rt := runtime.NewRuntime()
 	out := captureStdout(func() {
-		if err := rt.Execute(ir); err != nil {
+		if err := rt.Execute(ir, "test.kode"); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -75,7 +75,7 @@ if (sum == 10) { print("ok") } else { print("bad") }`
 		fmt.Printf("IR: %+v\n", ir)
 	}
 	rt := runtime.NewRuntime()
-	out := captureStdout(func() { rt.Execute(ir) })
+	out := captureStdout(func() { rt.Execute(ir, "test.kode") })
 	if out != "ok\n" {
 		t.Fatalf("expected ok, got %q", out)
 	}
@@ -101,7 +101,7 @@ print(fact(5))`
 		fmt.Printf("IR: %+v\n", ir)
 	}
 	rt := runtime.NewRuntime()
-	out := captureStdout(func() { rt.Execute(ir) })
+	out := captureStdout(func() { rt.Execute(ir, "test.kode") })
 	if out != "120\n" {
 		t.Fatalf("expected 120, got %q", out)
 	}
@@ -117,7 +117,7 @@ func TestRuntimeError(t *testing.T) {
 		t.Fatal(err)
 	}
 	rt := runtime.NewRuntime()
-	err = rt.Execute(ir)
+	err = rt.Execute(ir, "test.kode")
 	if err == nil {
 		t.Fatalf("expected runtime error, got nil")
 	}

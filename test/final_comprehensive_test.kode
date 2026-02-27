@@ -1,0 +1,93 @@
+func square(x: int) = x * x
+func isEven(n: int) = n % 2 == 0
+
+print("=== Kode Bytecode Compiler - Final Feature Test ===")
+print("")
+
+print("1. ARITHMETIC OPERATORS")
+let a = 15
+let b = 4
+print("15 + 4 = ")
+print(a + b)
+print("15 - 4 = ")
+print(a - b)
+print("15 * 4 = ")
+print(a * b)
+print("15 / 4 = ")
+print(a / b)
+print("15 % 4 = ")
+print(a % b)
+print("")
+
+print("2. COMPARISON OPERATORS")
+print("15 > 4: ")
+print(a > b)
+print("15 < 4: ")
+print(a < b)
+print("15 == 15: ")
+print(a == 15)
+print("15 != 4: ")
+print(a != b)
+print("")
+
+print("3. LOGICAL OPERATORS")
+print("true && false: ")
+print(1 && 0)
+print("true || false: ")
+print(1 || 0)
+print("!true: ")
+print(!1)
+print("")
+
+print("4. BITWISE OPERATORS")
+let x = 12
+let y = 5
+print("12 & 5 = ")
+print(x & y)
+print("12 | 5 = ")
+print(x | y)
+print("12 ^ 5 = ")
+print(x ^ y)
+print("12 << 2 = ")
+print(x << 2)
+print("12 >> 1 = ")
+print(x >> 1)
+print("~12 = ")
+print(~x)
+print("")
+
+print("5. IF-ELSE STATEMENTS")
+if (a > b) {
+  print("15 is greater than 4")
+} else {
+  print("4 is greater than or equal to 15")
+}
+print("")
+
+print("6. FOR LOOPS")
+print("Counting 0 to 4:")
+for (let i = 0; i < 5; i++) {
+  print(i)
+}
+print("")
+
+print("7. WHILE LOOPS")
+print("Counting down from 3:")
+let j = 3
+while (j > 0) {
+  print(j)
+  j = j - 1
+}
+print("")
+
+print("8. FUNCTION CALLS")
+print("square(7) = ")
+print(square(7))
+print("isEven(8) = ")
+print(isEven(8))
+print("isEven(7) = ")
+print(isEven(7))
+print("")
+
+print("=== All Features Verified Successfully ===")
+

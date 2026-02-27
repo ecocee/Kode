@@ -1,0 +1,3 @@
+// Very simple test
+func add(a: int, b: int) = a + b
+print(add(5, 3))

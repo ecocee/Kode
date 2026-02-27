@@ -1,0 +1,9 @@
+print("Before import");
+
+import "config" as cfg;
+
+print("After import");
+
+func main() {
+    print("In main");
+}

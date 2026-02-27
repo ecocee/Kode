@@ -1,0 +1,10 @@
+// Simple bytecode test
+print("=== Start ===")
+let a = 10
+let b = 3
+print(a)
+print(b)
+print(a + b)
+print(a > b)
+print(true && true)
+print("=== End ===")

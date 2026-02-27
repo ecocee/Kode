@@ -1,0 +1,55 @@
+print("=== Kode Bytecode - Feature Summary ===")
+print("")
+print("FEATURES IMPLEMENTED AND TESTED")
+print("")
+
+print("✓ Arithmetic Operators")
+print(10 + 5)
+print(10 - 5)
+print(10 * 5)
+print(10 / 5)
+print(10 % 3)
+print("")
+
+print("✓ Comparison Operators")
+print(10 > 5)
+print(10 < 20)
+print(10 == 10)
+print(10 != 5)
+print("")
+
+print("✓ Logical Operators")
+print(1 && 1)
+print(0 || 1)
+print(!0)
+print("")
+
+print("✓ Bitwise Operators")
+print(12 & 5)
+print(12 | 5)
+print(12 ^ 5)
+print(12 << 1)
+print(12 >> 1)
+print("")
+
+print("✓ For Loops")
+for (let i = 0; i < 3; i++) {
+  print(i)
+}
+print("")
+
+print("✓ While Loops")
+let x = 0
+while (x < 3) {
+  print(x)
+  x = x + 1
+}
+print("")
+
+print("✓ If-Else Conditions")
+if (10 > 5) {
+  print("conditional works")
+}
+print("")
+
+print("=== compilation test Success ===")

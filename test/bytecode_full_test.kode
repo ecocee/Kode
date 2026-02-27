@@ -1,0 +1,15 @@
+// Comprehensive bytecode test
+print("Test 1: Basic")
+let x = 100
+print(x)
+let y = 25
+print(y)
+
+print("Test 2: Functions")
+func add(a: int, b: int) = a + b
+print(add(10, 20))
+
+func square(n: int) = n * n
+print(square(5))
+
+print("Done!")

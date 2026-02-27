@@ -1,0 +1,6 @@
+print("Logical Operators:")
+let a = 1
+let b = 0
+print(a && b)
+print(a || b)
+print(!a)

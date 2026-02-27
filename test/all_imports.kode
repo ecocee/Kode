@@ -1,0 +1,10 @@
+// Test all import styles
+import "config";
+import "math" as m;
+import { Person, createPerson } from "data";
+
+func main() {
+    print("OK");
+}
+
+main();
