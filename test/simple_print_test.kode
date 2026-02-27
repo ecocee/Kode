@@ -1,0 +1,5 @@
+print(10)
+print(20)
+
+let x = 5
+print(x)

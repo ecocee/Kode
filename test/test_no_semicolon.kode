@@ -1,0 +1,11 @@
+// Test file without semicolons
+let x = 10
+let y = 20
+print(x + y)
+
+let z = 5
+print(z)
+
+if (x < y ){
+    print("x is less than y")
+}

@@ -171,7 +171,7 @@ Variable Updates: Working
 ./kode program.kbc
 
 # Explicit
-./kode exec program.kbc
+./kode program.kbc
 ```
 
 ### Compile and Run

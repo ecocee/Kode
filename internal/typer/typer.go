@@ -292,7 +292,7 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			return nil, err
 		}
 		switch e.Op {
-		case ast.OpAdd, ast.OpSubtract, ast.OpMultiply, ast.OpDivide:
+		case ast.OpAdd, ast.OpSubtract, ast.OpMultiply, ast.OpDivide, ast.OpModulo:
 			// Allow both int and float for arithmetic
 			// Determine result type based on operands
 			leftIsNumeric := t.isNumericType(leftType)
@@ -329,6 +329,19 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			}
 			// Logical operators always return bool
 			return ast.BoolType{}, nil
+		case ast.OpBitAnd, ast.OpBitOr, ast.OpBitXor, ast.OpBitShl, ast.OpBitShr:
+			// Bitwise operators require integer operands and return int
+			if !t.isNumericType(leftType) || !t.isNumericType(rightType) {
+				return nil, fmt.Errorf("bitwise operations require integer operands")
+			}
+			// Bitwise ops don't support float, so ensure both are int
+			if _, isFloat := leftType.(ast.FloatType); isFloat {
+				return nil, fmt.Errorf("bitwise operations do not support float operands")
+			}
+			if _, isFloat := rightType.(ast.FloatType); isFloat {
+				return nil, fmt.Errorf("bitwise operations do not support float operands")
+			}
+			return ast.IntType{}, nil
 		}
 	case ast.CallExpr:
 		calleeType, err := t.inferExpression(e.Callee)
@@ -402,6 +415,15 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 				return nil, fmt.Errorf("operand of ++/-- must be numeric")
 			}
 			return operandType, nil
+		case ast.OpBitNot:
+			// Bitwise NOT requires integer operand and returns int
+			if !t.isNumericType(operandType) {
+				return nil, fmt.Errorf("bitwise NOT requires integer operand")
+			}
+			if _, isFloat := operandType.(ast.FloatType); isFloat {
+				return nil, fmt.Errorf("bitwise NOT does not support float operands")
+			}
+			return ast.IntType{}, nil
 		}
 		return operandType, nil // For other unary ops, return operand type
 	case ast.ArrayAccessExpr:

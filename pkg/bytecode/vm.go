@@ -470,6 +470,68 @@ func (vm *VM) Run() error {
 				vm.stack = append(vm.stack, variantData)
 			}
 
+		case OpLoad:
+			// Load local variable
+			if len(instr.Args) > 0 {
+				varIdx := instr.Args[0].(int)
+				if len(vm.locals) > 0 {
+					// Search through local scopes from innermost to outermost
+					for i := len(vm.locals) - 1; i >= 0; i-- {
+						if val, ok := vm.locals[i][fmt.Sprintf("_var_%d", varIdx)]; ok {
+							vm.stack = append(vm.stack, val)
+							break
+						}
+					}
+				}
+			}
+
+		case OpStore:
+			// Store to local variable
+			if len(instr.Args) > 0 && len(vm.stack) > 0 && len(vm.locals) > 0 {
+				varIdx := instr.Args[0].(int)
+				val := vm.pop()
+				vm.locals[len(vm.locals)-1][fmt.Sprintf("_var_%d", varIdx)] = val
+			}
+
+		case OpCall:
+			// Call function
+			if len(instr.Args) >= 2 {
+				// First arg is function name (string)
+				// Second arg is argument count
+				var funcName string
+				if nameVal, ok := instr.Args[0].(string); ok {
+					funcName = nameVal
+				}
+
+				argCount := 0
+				if countVal, ok := instr.Args[1].(int); ok {
+					argCount = countVal
+				}
+
+				// Pop arguments from stack
+				args := make([]interface{}, argCount)
+				for i := argCount - 1; i >= 0; i-- {
+					if len(vm.stack) > 0 {
+						args[i] = vm.pop()
+					}
+				}
+
+				// Check if it's a built-in function
+				result := vm.callBuiltin(funcName, args)
+				vm.stack = append(vm.stack, result)
+			}
+
+		case OpReturn:
+			// Return without value
+			return nil
+
+		case OpReturnValue:
+			// Return with value - value is already on stack
+			return nil
+
+		case OpNoop:
+			// No operation
+
 		case OpBreak:
 			// Break: set pc to after loop (handled by loop jump patching)
 			// For now, just halt execution (improve later for nested loops)
@@ -750,4 +812,59 @@ func (vm *VM) bitwiseShr(left, right interface{}) interface{} {
 		}
 	}
 	return nil
+}
+
+func (vm *VM) callBuiltin(name string, args []interface{}) interface{} {
+	switch name {
+	case "print":
+		for _, arg := range args {
+			fmt.Println(vm.valueToString(arg))
+		}
+		return nil
+	case "len":
+		if len(args) > 0 {
+			switch v := args[0].(type) {
+			case string:
+				return int64(len(v))
+			case []interface{}:
+				return int64(len(v))
+			}
+		}
+		return int64(0)
+	case "int":
+		if len(args) > 0 {
+			switch v := args[0].(type) {
+			case int:
+				return v
+			case float64:
+				return int(v)
+			case string:
+				if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+					return int(i)
+				}
+			}
+		}
+		return 0
+	case "float":
+		if len(args) > 0 {
+			switch v := args[0].(type) {
+			case int:
+				return float64(v)
+			case float64:
+				return v
+			case string:
+				if f, err := strconv.ParseFloat(v, 64); err == nil {
+					return f
+				}
+			}
+		}
+		return 0.0
+	case "string":
+		if len(args) > 0 {
+			return vm.valueToString(args[0])
+		}
+		return ""
+	default:
+		return nil
+	}
 }

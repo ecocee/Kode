@@ -342,5 +342,5 @@ func buildWithBytecode(irProg *ir.IR, output string, verbose bool) {
 	// Create a wrapper executable that reads and executes the bytecode
 	// For now, just indicate how to run it
 	fmt.Printf("Successfully built: %s\n", bytecodeFile)
-	fmt.Printf("Run with: kode exec %s\n", bytecodeFile)
+	fmt.Printf("Run with: kode %s\n", bytecodeFile)
 }

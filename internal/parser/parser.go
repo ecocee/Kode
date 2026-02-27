@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/ecocee/kode-go/internal/lexer"
 	"github.com/ecocee/kode-go/pkg/ast"
@@ -278,9 +279,8 @@ func (p *Parser) constDeclaration() (ast.Statement, error) {
 		return nil, err
 	}
 
-	if _, err := p.consume(lexer.TokenSemicolon, "Expected ';' after constant declaration"); err != nil {
-		return nil, err
-	}
+	// Semicolon is now optional
+	p.match(lexer.TokenSemicolon)
 
 	return ast.ConstDeclStmt{Line: line, Name: name, Type: typ, Value: value}, nil
 }
@@ -569,9 +569,8 @@ func (p *Parser) importDeclaration() (ast.Statement, error) {
 				"Could not parse module path as string")
 		}
 
-		if _, err := p.consume(lexer.TokenSemicolon, "Missing semicolon: Import statements must end with ';'"); err != nil {
-			return nil, p.errorf("Missing semicolon", p.peek().Pos, err.Error())
-		}
+		// Semicolon is now optional
+		p.match(lexer.TokenSemicolon)
 
 		return ast.ImportStmt{Line: startPos.Line, Path: path, Items: items, IsNamed: true}, nil
 	}
@@ -600,9 +599,8 @@ func (p *Parser) importDeclaration() (ast.Statement, error) {
 		}
 	}
 
-	if _, err := p.consume(lexer.TokenSemicolon, "Missing semicolon: Import statements must end with ';'"); err != nil {
-		return nil, p.errorf("Missing semicolon", p.peek().Pos, err.Error())
-	}
+	// Semicolon is now optional
+	p.match(lexer.TokenSemicolon)
 
 	return ast.ImportStmt{Line: startPos.Line, Path: path, Alias: alias, IsNamed: false}, nil
 }
@@ -642,9 +640,8 @@ func (p *Parser) spawnStatement() (ast.Statement, error) {
 		return nil, err
 	}
 
-	if _, err := p.consume(lexer.TokenSemicolon, "Expected ';' after spawn"); err != nil {
-		return nil, err
-	}
+	// Semicolon is now optional
+	p.match(lexer.TokenSemicolon)
 
 	return ast.SpawnStmt{Line: line, Call: call}, nil
 }
@@ -855,20 +852,23 @@ func (p *Parser) forStatement() (ast.Statement, error) {
 		}
 		init = i
 	}
-	if _, err := p.consume(lexer.TokenSemicolon, "Expected ';' after init"); err != nil {
-		return nil, err
+	// Semicolon is now optional in for loops, but we still expect the structure
+	if !p.match(lexer.TokenSemicolon) && !p.check(lexer.TokenRParen) {
+		return nil, p.errorf("Syntax Error", p.peek().Pos,
+			fmt.Sprintf("Expected ';' after for loop init, got '%v'. For loop syntax: for(init; cond; incr)", p.peek().Value))
 	}
 
 	var cond ast.Expression
-	if !p.check(lexer.TokenSemicolon) {
+	if !p.check(lexer.TokenSemicolon) && !p.check(lexer.TokenRParen) {
 		c, err := p.expression()
 		if err != nil {
 			return nil, err
 		}
 		cond = c
 	}
-	if _, err := p.consume(lexer.TokenSemicolon, "Expected ';' after condition"); err != nil {
-		return nil, err
+	if !p.match(lexer.TokenSemicolon) && !p.check(lexer.TokenRParen) {
+		return nil, p.errorf("Syntax Error", p.peek().Pos,
+			fmt.Sprintf("Expected ';' after for loop condition, got '%v'. For loop syntax: for(init; cond; incr)", p.peek().Value))
 	}
 
 	var incr ast.Expression
@@ -908,9 +908,8 @@ func (p *Parser) deferStatement() (ast.Statement, error) {
 		return nil, err
 	}
 
-	if _, err := p.consume(lexer.TokenSemicolon, "Expected ';' after defer"); err != nil {
-		return nil, err
-	}
+	// Semicolon is now optional
+	p.match(lexer.TokenSemicolon)
 
 	return ast.DeferStmt{Line: line, Call: call}, nil
 }
@@ -1528,7 +1527,11 @@ func (p *Parser) consume(kind lexer.TokenKind, message string) (lexer.Token, err
 	if p.check(kind) {
 		return p.advance(), nil
 	}
-	return lexer.Token{}, fmt.Errorf("%s at %v", message, p.peek().Pos)
+	tokenName := p.tokenKindString(kind)
+	current := p.peek()
+	currentName := p.tokenKindString(current.Kind)
+	return lexer.Token{}, p.errorf("Syntax Error", current.Pos,
+		fmt.Sprintf("%s\n  Expected token: %s\n  Got: %s", message, tokenName, currentName))
 }
 
 func (p *Parser) consumeIdentifier(message string) (string, error) {
@@ -1538,7 +1541,9 @@ func (p *Parser) consumeIdentifier(message string) (string, error) {
 			return val, nil
 		}
 	}
-	return "", fmt.Errorf("%s at %v", message, p.peek().Pos)
+	current := p.peek()
+	return "", p.errorf("Expected Identifier", current.Pos,
+		fmt.Sprintf("%s\n  Got: %v at position", message, current.Value))
 }
 
 func (p *Parser) consumeString(message string) (string, error) {
@@ -1548,13 +1553,56 @@ func (p *Parser) consumeString(message string) (string, error) {
 			return val, nil
 		}
 	}
-	return "", fmt.Errorf("%s at %v", message, p.peek().Pos)
+	current := p.peek()
+	return "", p.errorf("Expected String", current.Pos,
+		fmt.Sprintf("%s\n  Got: %v", message, current.Value))
+}
+
+// tokenKindString provides human-readable token names for error messages
+func (p *Parser) tokenKindString(kind lexer.TokenKind) string {
+	names := map[lexer.TokenKind]string{
+		lexer.TokenLParen:     "(\n    Use '(' to start a group or function call",
+		lexer.TokenRParen:     ")\n    Use ')' to end a group or function call",
+		lexer.TokenLBrace:     "{\n    Use '{' to start a code block",
+		lexer.TokenRBrace:     "}\n    Use '}' to end a code block",
+		lexer.TokenComma:      ",\n    Separate items with ','",
+		lexer.TokenColon:      ":\n    Use ':' for type annotations",
+		lexer.TokenEqual:      "=\n    Use '=' for assignment",
+		lexer.TokenEqualEqual: "==\n    Use '==' for equality comparison",
+		lexer.TokenSemicolon:  "; (semicolon is now optional)",
+		lexer.TokenIdentifier: "identifier (variable or function name)",
+		lexer.TokenString:     "string literal (\"...\")",
+		lexer.TokenNumber:     "number",
+	}
+	if name, ok := names[kind]; ok {
+		return name
+	}
+	return fmt.Sprintf("token type %d", kind)
 }
 
 // errorf formats parser errors in a modern compiler style
-// Similar to Rust/Go compiler error messages
+// Similar to Rust/Go compiler error messages with enhanced context
 func (p *Parser) errorf(errorType string, pos lexer.Position, suggestion string) error {
-	// Format: "Error Type: suggestion at line:col"
-	return fmt.Errorf("\033[1;31m%s\033[0m\n  \033[1;33m→\033[0m %s at {%d %d}",
-		errorType, suggestion, pos.Line, pos.Column)
+	// Extract the line from source code for context
+	lines := strings.Split(p.sourceCode, "\n")
+	var contextLine string
+	if pos.Line > 0 && pos.Line <= len(lines) {
+		contextLine = lines[pos.Line-1]
+	}
+
+	// Create error pointer
+	pointerLine := strings.Repeat(" ", pos.Column-1) + "^"
+
+	// Format error with context
+	errorMsg := fmt.Sprintf("\033[1;31m%s\033[0m at line %d, column %d\n",
+		errorType, pos.Line, pos.Column)
+
+	if contextLine != "" {
+		errorMsg += fmt.Sprintf("  \033[1;33m→\033[0m %s\n", contextLine)
+		errorMsg += fmt.Sprintf("    %s\n", pointerLine)
+	}
+
+	errorMsg += fmt.Sprintf("  \033[1;36mℹ\033[0m %s\n", suggestion)
+
+	return fmt.Errorf(errorMsg)
 }

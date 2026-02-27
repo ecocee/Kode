@@ -1,0 +1,15 @@
+func add(a: int, b: int) int = a + b
+
+func multiply(x: int, y: int) int = x * y
+
+let result1 = add(5, 3)
+let result2 = multiply(4, 2)
+
+print(result1)
+print(result2)
+
+if (result1 > result2) {
+    print("add is greater")
+} else {
+    print("multiply is greater or equal")
+}

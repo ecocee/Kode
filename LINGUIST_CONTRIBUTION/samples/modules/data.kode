@@ -1,0 +1,41 @@
+// data.kode - Data structures and models
+// Exports: Person struct, Address struct, createPerson function
+
+export struct Person {
+    name: string,
+    age: int,
+    email: string
+}
+
+export struct Address {
+    street: string,
+    city: string,
+    zipcode: string
+}
+
+// Constructor function
+export fn createPerson(name: string, age: int, email: string) -> Person {
+    Person {
+        name: name,
+        age: age,
+        email: email
+    }
+}
+
+// Helper function - NOT exported
+fn validateEmail(email: string) -> bool {
+    // Simple email validation (just checks for @)
+    let hasAt = false;
+    for (let i = 0; i < email.len; i = i + 1) {
+        // Would check email[i] == '@' in full implementation
+    }
+    hasAt
+}
+
+export fn updatePersonAge(person: Person, newAge: int) -> Person {
+    Person {
+        name: person.name,
+        age: newAge,
+        email: person.email
+    }
+}

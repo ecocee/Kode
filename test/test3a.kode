@@ -1,0 +1,9 @@
+﻿let li = 0
+let lcount = 0
+while (li < 1000000) {
+    if ((li & 1) || 0) {
+        lcount = lcount + 1
+    }
+    li = li + 1
+}
+print(lcount)

@@ -7,97 +7,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v1.0.0] - 2026-02-27
+## [Unreleased]
 
-### ✨ Major Features - Production Ready Release
+### 🚧 In Progress (v0.4+)
+- Struct and enum runtime implementation (parsing complete)
+- Pattern matching with destructuring
+- Concurrency features (spawn, channels, select)
+- Advanced error handling (try/catch, Result types)
+- Standard library expansion
+- Performance optimizations
 
-#### Type System Enhancements
-- Generic type support across structs and functions
-- Full parametric polymorphism implementation
-- Type aliases and newtype patterns
-- Improved type inference with constraint solving
-- Explicit type annotations for clarity
+---
 
-#### Advanced Language Features
-- **Pattern Matching**: `match` expressions with exhaustiveness checking
-  - Simple patterns (literals, wildcards)
-  - Destructuring patterns for structs and tuples
-  - Enum pattern matching with associated values
-  - Guard clauses for complex conditions
-  - Default case handling
-- **Traits & Interfaces**: Complete implementation
-  - Trait definitions with method signatures
-  - Multiple trait implementations per type
-  - Trait objects for dynamic dispatch
-  - Trait bounds in generic functions
-- **Error Handling**: Comprehensive error system
-  - `Result<T, E>` type for recoverable errors
-  - `try/catch` blocks for exception handling
-  - Error chaining and propagation
-  - Custom error types with Display trait
+## [v0.3.1] - 2026-02-27
 
-#### Concurrency & Parallelism
-- **Goroutines**: Lightweight concurrent execution
-  - `spawn` keyword for goroutine creation
-  - Automatic goroutine scheduling
-  - Race condition detection (experimental)
-- **Channels**: Type-safe message passing
-  - `Channel<T>` for typed communication
-  - Buffered and unbuffered channels
-  - Channel operations: send, receive, close
-- **Select**: Channel multiplexing
-  - `select` statement for multiple channel operations
-  - Non-blocking receive with default case
-  - Timeout support
-- **Synchronization**: Mutex and atomic operations
-  - `Mutex<T>` for mutual exclusion
-  - Atomic integer operations
-  - Wait groups for synchronization
+### ✨ Core Language Features
+- **Complete operator support**: Arithmetic (`+`, `-`, `*`, `/`, `%`), bitwise (`&`, `|`, `^`, `~`, `<<`, `>>`), logical (`&&`, `||`, `!`), comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`)
+- **Array operations**: Array literals `[1, 2, 3]`, indexing `arr[0]`, length method `arr.len`
+- **Control structures**: `if/else`, `for`, `while` loops with full expression support
+- **Functions**: Parameterized functions with return values and recursion
+- **Type system**: Static typing with inference for `int`, `float`, `string`, `bool`
 
-#### Module System (Complete)
-- **Imports**: Multiple import styles
-  - Named imports: `import { add, multiply } from "math"`
-  - Namespace imports: `import math from "./math"`
-  - Wildcard imports: `import * from "stdlib"`
-  - Module aliases: `import M from "math" as M`
-- **Exports**: Export visibility control
-  - `export fn` for public functions
-  - `export struct`, `export enum` for types
-  - `export const` for constants
-  - Re-exports for aggregation
-- **Module Resolution**:
-  - Relative and absolute paths
-  - Circular dependency detection
-  - Module caching to prevent re-parsing
-  - Search path configuration
+### 🔧 Technical Improvements
+- **Runtime evaluator**: Complete expression evaluation engine
+- **Type checker**: Full type checking for all operators and constructs
+- **Parser**: Comprehensive syntax parsing with operator precedence
+- **Bytecode compiler**: Working compilation pipeline (though currently using runtime mode)
+- **Error handling**: Meaningful error messages with line numbers
 
-#### Standard Library (Core)
-- **Collections**: Immutable and mutable
-  - Array/List with functional operations
-  - Map/Dictionary with generic keys
-  - Set for unique values
-  - Queue and Stack implementations
-- **String Operations**: Comprehensive string handling
-  - String concatenation and interpolation
-  - UTF-8 support
-  - String slicing and indexing
-  - Common string methods
-- **I/O**: Input/output primitives
-  - `print()`, `println()` for output
-  - `input()` for user input
-  - File I/O primitives
-- **Numeric Operations**: Mathematical functions
-  - `sqrt()`, `pow()`, `abs()`
-  - Trigonometric functions
-  - Random number generation
-  - Type conversions
+### 📚 Documentation & Testing
+- **Comprehensive test suite**: Full coverage of implemented features
+- **Example programs**: Working demonstrations of all features
+- **Updated documentation**: Accurate feature descriptions for v0.3.1
 
-#### Compiler Improvements
-- **Line Number Tracking**: Precise error reporting
-  - Every AST node carries line information
-  - Error messages show exact source location
-  - Stack traces map to source lines
-  - Support for imported module debugging
+### ✨ Module System (✅ FULLY IMPLEMENTED)
+- **Import syntax**: Multiple import styles supported
+  - Named destructuring: `import { add, multiply } from "math"`
+  - Namespace imports: `import "math" as m`
+  - Simple imports: `import "config"`
+  - Aliased imports: `import "math" as mathematics`
+- **Export syntax**: Function and constant exports
+  - `export func add(a: int, b: int) { ... }`
+  - `export const PI = 3.14159`
+  - `export let VERSION = "1.0.0"`
+- **Runtime module loading**: Full module resolution and execution
+- **Module path resolution**: Searches current directory and examples/
+- **Symbol management**: Exported symbols available in importing modules
+
+### 🔧 Error Handling
+- **Basic error checking**: Conditional error detection
+- **Runtime error reporting**: Meaningful error messages
+- **Division by zero protection**: Automatic handling in arithmetic operations
+
+---
+
+## [v0.3.0] - 2026-02-26
+
+### ✨ Array Support
+- **Array literals**: `[1, 2, 3, 4, 5]` syntax
+- **Array indexing**: `arr[0]`, `arr[index]` 
+- **Type checking**: Homogeneous array elements
+- **Bytecode operations**: OpArrayCreate, OpArrayAccess, OpArrayStore, OpArrayLen
+
+### 🔧 Technical Features
+- **Lexer enhancements**: Token recognition for array syntax
+- **Parser updates**: Array expression parsing
+- **Type checker**: Array type validation
+- **Runtime support**: Array operations in evaluator
+- **Compiler support**: Array bytecode generation
+
+---
+
+## [v0.2.0] - 2026-02-25
+
+### ✨ Bytecode VM & Operators
+- **Complete operator suite**: Arithmetic, bitwise, comparison, logical
+- **Stack-based VM**: Efficient bytecode execution
+- **Control flow**: Jump instructions for loops and conditionals
+- **Function calls**: Parameter passing and return values
+- **Variable management**: Global and local scope handling
+
+### 🏗️ Architecture
+- **Modular compiler**: Separate compilation phases
+- **IR generation**: Intermediate representation
+- **Bytecode format**: Serializable instruction stream
+- **Runtime integration**: Dual execution modes
+
+---
+
+## [v0.1.0] - 2026-02-24
+
+### ✨ Core Language Foundation
+- **Lexer**: Complete token recognition
+- **Parser**: Expression parsing with precedence
+- **Basic types**: int, float, string, bool
+- **Variables**: let declarations
+- **Functions**: Basic function definitions
+- **Control structures**: if/else, for, while
+
+### 🏗️ Project Setup
+- **Go project structure**: Standard Go layout
+- **CLI tool**: `kode` command-line interface
+- **Build system**: Go modules
+- **Testing framework**: Comprehensive test suite
+
+---
 - **Optimization**: Performance enhancements
   - Constant folding
   - Dead code elimination
@@ -433,8 +447,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Bytecode Compilation & Execution
 - Bytecode compilation system with stack-based VM execution
 - `.kbc` bytecode file format for portable, Go-independent execution
-- `kode exec <file>` command to execute `.kbc` bytecode files
-- Shorthand bytecode execution: `kode file.kbc` (instead of `kode exec file.kbc`)
+- `kode <file>` command to execute `.kbc` bytecode files
+- Shorthand bytecode execution: `kode file.kbc` (instead of `kode file.kbc`)
 
 #### Operators
 - **Bitwise Operators (Complete Suite):**

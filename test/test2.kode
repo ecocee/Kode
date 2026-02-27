@@ -1,0 +1,21 @@
+
+// -----------------------------------------------
+// TEST 3: Function Call Overhead
+// -----------------------------------------------
+print("[3] Function Call Overhead")
+
+func add(a: int, b: int) int {
+    return a + b
+}
+
+let fsum = 0
+let fi = 0
+
+while (fi < 500000) {
+    fsum = add(fsum, fi)
+    fi = fi + 1
+}
+
+print("    Result:")
+print(fsum)
+print("")

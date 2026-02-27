@@ -1,6 +1,6 @@
 # 🧠 Kode Language Syntax & Grammar
 
-> A complete reference for the Kode programming language syntax (v1.0+)
+> A complete reference for the Kode programming language syntax (v0.3.1+)
 
 **Created by Sreeraj V Rajesh**
 
@@ -32,19 +32,27 @@
 
 Kode uses a clean, familiar syntax with these core rules:
 
-- Each statement ends with a semicolon (`;`)
+- Semicolons (`;`) are **optional** - statements can end with or without them
 - Code blocks are enclosed in curly braces (`{}`)
 - Variables are declared with `let` or `const`
 - Functions are defined with `fn`
 - Whitespace is generally ignored
 - Type annotations are optional (inferred automatically)
 
-Example:
+Example (both styles work):
 ```kode
+// With semicolons (still supported for compatibility)
 fn main() {
     let x = 42;
     const PI = 3.14159;
     print(x);
+}
+
+// Without semicolons (modern style)
+fn main() {
+    let x = 42
+    const PI = 3.14159
+    print(x)
 }
 ```
 
@@ -867,7 +875,7 @@ import Parser from "./parser";
 
 ---
 
-## 🔄 Concurrency (v1.0+)
+## 🔄 Concurrency (Future)
 
 ### Spawning Goroutines (Lightweight Threads)
 ```kode
@@ -1082,7 +1090,7 @@ let add = fn(a, b) { return a + b; };
 
 ### Null/Undefined Equivalent
 ```kode
-let empty = null;  // Not yet implemented in v0.2.0
+let empty = null;  // Not yet implemented in v0.1.0
 ```
 
 ---
@@ -1216,7 +1224,7 @@ for (let i = 0; i < 5; i = i + 1) {
 ```
 
 ### Break and Continue
-*Not implemented in v0.2.0*
+*Not implemented in v0.1.0*
 
 ---
 
@@ -1286,7 +1294,7 @@ let numbers = [1, 2, 3];
 numbers[1] = 99;  // Now [1, 99, 3]
 ```
 
-*Note: Kode v0.2.0 does not include built-in array methods like push, pop, etc.*
+*Note: Kode v0.1.0 does not include built-in array methods like push, pop, etc.*
 
 ---
 
@@ -1379,7 +1387,7 @@ import math;
 print math.square(5);  // 25
 ```
 
-*Note: Kode v0.2.0 has basic module support without namespaces or selective imports.*
+*Note: Kode v0.1.0 has basic module support without namespaces or selective imports.*
 
 ---
 

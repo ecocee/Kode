@@ -168,7 +168,7 @@ Correct implementation following standard programming language conventions:
 ### Execution
 ```bash
 ./kode output.kbc              # Shorthand execution
-./kode exec output.kbc         # Explicit execution
+./kode output.kbc         # Explicit execution
 ./kode run input.kode          # Compile and run
 ```
 
