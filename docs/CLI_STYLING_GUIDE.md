@@ -222,7 +222,7 @@ kode build file.kode --release
 
 ```bash
 # Run source code directly (compile + execute)
-kode run file.kode
+kode file.kode
 
 # Execute bytecode (shorthand - NEW!)
 kode file.kbc
@@ -307,7 +307,7 @@ print(x | y)
 print(x << 2)
 EOF
 
-$ kode run bitwise.kode
+$ kode bitwise.kode
 4
 13
 48
@@ -340,7 +340,7 @@ $ kode run bitwise.kode
 
 5. **One-liner compile and run:**
    ```bash
-   kode run program.kode
+   kode program.kode
    ```
 
 ---
@@ -417,7 +417,7 @@ $ kode calc.kbc
 
 ### Performance Tips
 
-1. Use `kode run` for development (faster iteration)
+1. Use `kode` for development (faster iteration)
 2. Use `kode build` for distribution (smaller output)
 3. Bytecode executes ~10-20% faster than direct interpretation
 4. Use expression-bodied functions for optimal bytecode size

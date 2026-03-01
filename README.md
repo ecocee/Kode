@@ -72,7 +72,7 @@ kode version
 echo 'print("Hello, Kode!")' > hello.kode
 
 # Run it
-kode run hello.kode
+kode hello.kode
 # Hello, Kode!
 
 # Compile to bytecode
@@ -85,7 +85,7 @@ kode hello.kbc       # run the bytecode
 ## CLI Commands
 
 ```
-kode run    <file.kode>   Run a source file directly
+kode    <file.kode>   Run a source file directly
 kode build  <file.kode>   Compile to .kbc bytecode
 kode   <file.kbc>    Execute compiled bytecode
 kode check  <file.kode>   Type-check without running
@@ -710,14 +710,16 @@ Source (.kode)
  IR Generator      Intermediate representation
       │             pkg/ir
       ▼
-  ┌───────────┐
-  │           │
-  ▼           ▼
-Bytecode   Runtime       Two execution backends
-Compiler   (tree-walk)   pkg/bytecode  /  pkg/runtime
-  │
-  ▼
+Bytecode Compiler     Generates stack-based VM instructions
+      │             pkg/bytecode
+      ▼
  .kbc                    Portable bytecode file
+      │
+      ▼
+   Kode VM         Stack-based virtual machine execution
+      │             pkg/bytecode
+      ▼
+   Output / Side Effects
 ```
 
 ### Bytecode VM
@@ -771,7 +773,6 @@ kode/
 │   ├── ast/            AST node types
 │   ├── ir/             Intermediate representation
 │   ├── bytecode/       Bytecode compiler + stack VM
-│   ├── runtime/        Tree-walking interpreter
 │   └── bridge/         Runtime bridge
 ├── examples/           Working .kode programs
 ├── test/               Test .kode files

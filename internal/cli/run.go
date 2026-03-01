@@ -8,41 +8,18 @@ import (
 	"github.com/ecocee/kode-go/internal/compiler"
 	"github.com/ecocee/kode-go/internal/parser"
 	"github.com/ecocee/kode-go/pkg/ast"
-	"github.com/ecocee/kode-go/pkg/runtime"
+	"github.com/ecocee/kode-go/pkg/bytecode"
 	"github.com/spf13/cobra"
 )
-
-// displayError formats and displays an error with file/line information
-func displayError(err error) {
-	if kodeErr, ok := err.(interface{ Error() string }); ok {
-		// Check if it's our KodeError type
-		if strings.Contains(kodeErr.Error(), ":") {
-			parts := strings.SplitN(kodeErr.Error(), ":", 3)
-			if len(parts) >= 2 {
-				file := parts[0]
-				if len(parts) == 3 {
-					line := parts[1]
-					message := parts[2]
-					fmt.Fprintf(os.Stderr, "  \033[1;33m→\033[0m %s:%s: %s\n", file, line, strings.TrimSpace(message))
-				} else {
-					fmt.Fprintf(os.Stderr, "  \033[1;33m→\033[0m %s: %s\n", file, strings.TrimSpace(parts[1]))
-				}
-				return
-			}
-		}
-	}
-	// Fallback for regular errors
-	fmt.Fprintf(os.Stderr, "  \033[1;33m→\033[0m %v\n", err)
-}
 
 func newRunCmd() *cobra.Command {
 	var release bool
 
 	cmd := &cobra.Command{
 		Use:   "run <file>",
-		Short: "Run a Kode file",
-		Long:  "Compile and execute a Kode source file",
-		Args:  requireArgs(1, "a Kode file to run (e.g., 'kode run main.kode')"),
+		Short: "Run a Kode source file",
+		Long:  "Compile and execute a Kode source file (.kode only)",
+		Args:  requireArgs(1, "a Kode source file to run (e.g., 'kode main.kode')"),
 		Run: func(cmd *cobra.Command, args []string) {
 			file := args[0]
 
@@ -54,6 +31,13 @@ func newRunCmd() *cobra.Command {
 				fmt.Println("Running in release mode")
 			}
 
+			// Check if it's a bytecode file - direct execution should be used instead
+			if strings.HasSuffix(file, ".kbc") {
+				fmt.Fprintf(os.Stderr, "\033[1;31m✗ Error\033[0m: Use 'kode %s' to run bytecode files directly\n", file)
+				os.Exit(1)
+			}
+
+			// Handle source file (.kode)
 			// Read the file
 			sourceCode, err := os.ReadFile(file)
 			if err != nil {
@@ -86,11 +70,20 @@ func newRunCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			// Direct runtime execution
-			rt := runtime.NewRuntime()
-			if err := rt.Execute(ir, file); err != nil {
+			// Compile IR to bytecode
+			bc := bytecode.NewCompiler()
+			prog, err := bc.Compile(ir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "\033[1;31m✗ Bytecode Compilation Error\033[0m in %s\n", file)
+				fmt.Fprintf(os.Stderr, "  \033[1;33m→\033[0m %v\n", err)
+				os.Exit(1)
+			}
+
+			// Execute bytecode on VM
+			vm := bytecode.NewVM(prog)
+			if err := vm.Run(); err != nil {
 				fmt.Fprintf(os.Stderr, "\033[1;31m✗ Execution Error\033[0m\n")
-				displayError(err)
+				fmt.Fprintf(os.Stderr, "  \033[1;33m→\033[0m %v\n", err)
 				os.Exit(1)
 			}
 		},

@@ -6,7 +6,7 @@ This document provides usage details for all CLI commands available in the `kode
 
 | Command               | Description                                |
 |------------------------|--------------------------------------------|
-| `kode run <file>`     | Runs a `.kode` source file (type checks & executes) |
+| `kode <file>`     | Runs a `.kode` source file (type checks & executes) |
 | `kode build <file>`   | Compiles `.kode` to `.kbc` bytecode (default) or Go binary with `--go` flag |
 | `kode <file.kbc>`     | **Shorthand** to execute compiled `.kbc` bytecode files |
 | `kode <file.kbc>`| Explicitly executes a compiled `.kbc` bytecode file |

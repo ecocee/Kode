@@ -125,7 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### CLI Enhancements
 - **Commands**: Full command set
-  - `kode run` - Direct compilation and execution
+  - `kode` - Direct compilation and execution
   - `kode build` - Build to bytecode (default) or Go
   - `kode check` - Type-check without execution
   - `kode fmt` - Code formatting

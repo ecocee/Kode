@@ -176,7 +176,7 @@ Variable Updates: Working
 
 ### Compile and Run
 ```bash
-./kode run program.kode
+./kode program.kode
 ```
 
 ## 💡 Example Programs

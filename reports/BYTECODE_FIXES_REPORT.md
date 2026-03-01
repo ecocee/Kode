@@ -98,7 +98,7 @@ Output:
 
 ### Test 4: Direct Execution (Unchanged)
 ```bash
-$ kode run test/test_functions_nosemi.kode
+$ kode test/test_functions_nosemi.kode
 Output:
   8
   8
@@ -111,7 +111,7 @@ Output:
 
 | Mode | Command | How It Works | Performance |
 |------|---------|-------------|-------------|
-| Direct | `kode run file.kode` | Interprets AST directly via runtime | Fast for dev/testing |
+| Direct | `kode file.kode` | Interprets AST directly via runtime | Fast for dev/testing |
 | Bytecode | `kode build file.kode` | Compiles to bytecode, executes in VM | Faster for production |
 
 Both modes now work correctly for supported features.
@@ -182,7 +182,7 @@ print(result)  // 8
 
 ```bash
 # For quick testing, use run
-kode run myprogram.kode
+kode myprogram.kode
 
 # When ready to build, use build
 kode build myprogram.kode && kode myprogram.kbc
