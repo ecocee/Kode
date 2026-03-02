@@ -255,6 +255,23 @@ func (p *Program) Serialize() ([]byte, error) {
 		binary.Write(&buf, binary.LittleEndian, int32(idx))
 	}
 
+	// Write number of functions
+	binary.Write(&buf, binary.LittleEndian, int32(len(p.Functions)))
+
+	// Write functions in sorted order for consistency
+	var funcNames []string
+	for name := range p.Functions {
+		funcNames = append(funcNames, name)
+	}
+	sort.Strings(funcNames)
+	for _, name := range funcNames {
+		entryPC := p.Functions[name]
+		nameBytes := []byte(name)
+		binary.Write(&buf, binary.LittleEndian, int32(len(nameBytes)))
+		buf.Write(nameBytes)
+		binary.Write(&buf, binary.LittleEndian, int32(entryPC))
+	}
+
 	// Write instructions (store as raw buffer for now)
 	instructionData, _ := serializeInstructions(p.Instructions)
 	binary.Write(&buf, binary.LittleEndian, int32(len(instructionData)))
@@ -278,6 +295,7 @@ func Deserialize(data []byte) (*Program, error) {
 		Instructions: make([]Instruction, 0),
 		Constants:    make([]Value, 0),
 		Globals:      make(map[string]int),
+		Functions:    make(map[string]int),
 	}
 
 	// Read number of constants
@@ -327,6 +345,22 @@ func Deserialize(data []byte) (*Program, error) {
 		var idx int32
 		binary.Read(buf, binary.LittleEndian, &idx)
 		prog.Globals[string(nameBytes)] = int(idx)
+	}
+
+	// Read number of functions
+	var numFunctions int32
+	binary.Read(buf, binary.LittleEndian, &numFunctions)
+
+	// Read functions
+	for i := 0; i < int(numFunctions); i++ {
+		var nameLen int32
+		binary.Read(buf, binary.LittleEndian, &nameLen)
+		nameBytes := make([]byte, nameLen)
+		buf.Read(nameBytes)
+
+		var entryPC int32
+		binary.Read(buf, binary.LittleEndian, &entryPC)
+		prog.Functions[string(nameBytes)] = int(entryPC)
 	}
 
 	// Read instructions
