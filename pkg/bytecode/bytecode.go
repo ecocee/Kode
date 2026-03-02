@@ -79,14 +79,20 @@ const (
 	OpPrint           // Print stack top
 	OpInput           // Read input from user
 	OpInputWithPrompt // Read input from user with prompt
-	OpBreak           // Break from loop
-	OpContinue        // Continue loop
+	OpBreak           // Break from loop (arg: jump offset)
+	OpContinue        // Continue loop (arg: jump offset)
 	OpNoop            // No operation
 	OpHalt            // End execution
 )
 
 // Value represents a runtime value
 type Value interface{}
+
+// SourceInfo represents source location information
+type SourceInfo struct {
+	File string
+	Line int
+}
 
 // Instruction represents a single bytecode instruction
 type Instruction struct {
@@ -98,7 +104,9 @@ type Instruction struct {
 type Program struct {
 	Instructions []Instruction
 	Constants    []Value
-	Globals      map[string]int // Variable name -> index
+	Globals      map[string]int     // Variable name -> index
+	Functions    map[string]int     // Function name -> entry pc
+	SourceMap    map[int]SourceInfo // PC -> source location
 }
 
 // Buffer for building bytecode
@@ -107,6 +115,8 @@ type Buffer struct {
 	instructions []Instruction
 	constants    []Value
 	globals      map[string]int
+	functions    map[string]int
+	sourceMap    map[int]SourceInfo
 }
 
 // NewBuffer creates a new bytecode buffer
@@ -115,6 +125,8 @@ func NewBuffer() *Buffer {
 		instructions: make([]Instruction, 0),
 		constants:    make([]Value, 0),
 		globals:      make(map[string]int),
+		functions:    make(map[string]int),
+		sourceMap:    make(map[int]SourceInfo),
 	}
 }
 
@@ -124,6 +136,17 @@ func (b *Buffer) Emit(op OpCode, args ...interface{}) {
 		Op:   op,
 		Args: args,
 	})
+	// For now, don't set source info - will be updated when calls are modified
+}
+
+// EmitWithSource adds an instruction with source location
+func (b *Buffer) EmitWithSource(file string, line int, op OpCode, args ...interface{}) {
+	pc := len(b.instructions)
+	b.instructions = append(b.instructions, Instruction{
+		Op:   op,
+		Args: args,
+	})
+	b.sourceMap[pc] = SourceInfo{File: file, Line: line}
 }
 
 // AddConstant adds a constant value and returns its index
@@ -143,12 +166,27 @@ func (b *Buffer) AddGlobal(name string) int {
 	return idx
 }
 
+// RegisterFunction registers a function entry point
+// Returns the PC where the function starts
+func (b *Buffer) RegisterFunction(name string) int {
+	pc := len(b.instructions)
+	b.functions[name] = pc
+	return pc
+}
+
+// GetFunctionPC gets the entry point PC for a function
+func (b *Buffer) GetFunctionPC(name string) (int, bool) {
+	pc, ok := b.functions[name]
+	return pc, ok
+}
+
 // Build converts the buffer to a Program
 func (b *Buffer) Build() *Program {
 	return &Program{
 		Instructions: b.instructions,
 		Constants:    b.constants,
 		Globals:      b.globals,
+		Functions:    b.functions,
 	}
 }
 

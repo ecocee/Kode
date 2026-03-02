@@ -34,6 +34,20 @@ x = 1 /* block */`,
 			input:    "3.14 <= 2.7",
 			expected: []TokenKind{TokenFloat, TokenLessThanOrEqual, TokenFloat, TokenEOF},
 		},
+		// regression test for minus lexing
+		{
+			input:    "a - b",
+			expected: []TokenKind{TokenIdentifier, TokenMinus, TokenIdentifier, TokenEOF},
+		},
+		// verify arrow tokens from both flavors
+		{
+			input:    "x => y",
+			expected: []TokenKind{TokenIdentifier, TokenArrow, TokenIdentifier, TokenEOF},
+		},
+		{
+			input:    "x -> y",
+			expected: []TokenKind{TokenIdentifier, TokenArrow, TokenIdentifier, TokenEOF},
+		},
 	}
 
 	for _, test := range tests {

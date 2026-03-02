@@ -233,12 +233,10 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				tokens = append(tokens, Token{Kind: TokenMinusMinus, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else if l.peekCharAt(1) == '>' {
 				tokens = append(tokens, Token{Kind: TokenArrow, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenMinus, Pos: l.GetPosition()})
 				l.consumeChar()
@@ -265,84 +263,66 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				tokens = append(tokens, Token{Kind: TokenEqualEqual, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
-			} else if l.peekCharAt(1) == ':' {
-				// Note: := is : followed by =, but we check = followed by :
-				// Actually, since we read left to right, when we see :, we should check if next is =
-				// But here we're at =, so if previous was :, but that's not how it works.
-				// Actually, := should be handled when we see :
-				// Let me change this.
-				// Better to handle := when we see :
-				// Let me find the : case.
+			} else if l.peekCharAt(1) == '>' {
+				tokens = append(tokens, Token{Kind: TokenArrow, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
 			} else {
 				tokens = append(tokens, Token{Kind: TokenEqual, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '!':
 			if l.peekCharAt(1) == '=' {
 				tokens = append(tokens, Token{Kind: TokenNotEqual, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenNot, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '<':
 			if l.peekCharAt(1) == '=' {
 				tokens = append(tokens, Token{Kind: TokenLessThanOrEqual, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else if l.peekCharAt(1) == '<' {
 				tokens = append(tokens, Token{Kind: TokenBitShl, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenLessThan, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '>':
 			if l.peekCharAt(1) == '=' {
 				tokens = append(tokens, Token{Kind: TokenGreaterThanOrEqual, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else if l.peekCharAt(1) == '>' {
 				tokens = append(tokens, Token{Kind: TokenBitShr, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenGreaterThan, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '&':
 			if l.peekCharAt(1) == '&' {
 				tokens = append(tokens, Token{Kind: TokenAnd, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenBitAnd, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '|':
 			if l.peekCharAt(1) == '|' {
 				tokens = append(tokens, Token{Kind: TokenOr, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenBitOr, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '^':
 			tokens = append(tokens, Token{Kind: TokenBitXor, Pos: l.GetPosition()})
@@ -389,11 +369,9 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				tokens = append(tokens, Token{Kind: TokenWalrus, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenColon, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '"':
 			token, err := l.readString()

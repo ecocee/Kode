@@ -7,6 +7,20 @@ import (
 	"github.com/ecocee/kode-go/pkg/ir"
 )
 
+// LoopContext tracks loop start and break target positions
+type LoopContext struct {
+	startPC     int // Position to jump to for continue
+	breakTarget int // Position to jump to for break
+}
+
+// FunctionInfo stores metadata about a function
+type FunctionInfo struct {
+	Name       string
+	ParamCount int
+	Params     []string
+	IsExprBody bool
+}
+
 // Compiler converts IR to bytecode
 type Compiler struct {
 	buf            *Buffer
@@ -14,9 +28,12 @@ type Compiler struct {
 	globalVars     map[string]int // Global variable name -> index
 	functions      map[string]*ir.IRFunction
 	astFunctions   map[string]*ast.FunctionDefStmt // AST functions for inlining
+	functionInfo   map[string]*FunctionInfo        // Function metadata for code gen
 	currentFunc    *ir.IRFunction
+	currentFuncAST *ast.FunctionDefStmt // Current function being compiled
 	isInFunction   bool
 	localVarOffset int
+	loopStack      []LoopContext // Stack of loop contexts for break/continue
 }
 
 // NewCompiler creates a new bytecode compiler
@@ -27,6 +44,8 @@ func NewCompiler() *Compiler {
 		globalVars:   make(map[string]int),
 		functions:    make(map[string]*ir.IRFunction),
 		astFunctions: make(map[string]*ast.FunctionDefStmt),
+		functionInfo: make(map[string]*FunctionInfo),
+		loopStack:    make([]LoopContext, 0),
 	}
 }
 
@@ -39,37 +58,68 @@ func (c *Compiler) Compile(ir *ir.IR) (*Program, error) {
 		}
 	}
 
-	// Collect AST function definitions for inlining
+	// Collect AST function definitions and their metadata
 	for _, stmt := range ir.AST.Statements {
 		if fnStmt, ok := stmt.(ast.FunctionDefStmt); ok {
 			c.astFunctions[fnStmt.Name] = &fnStmt
+
+			// Store function metadata
+			paramNames := make([]string, len(fnStmt.Params))
+			for i, param := range fnStmt.Params {
+				paramNames[i] = param.Name
+			}
+			c.functionInfo[fnStmt.Name] = &FunctionInfo{
+				Name:       fnStmt.Name,
+				ParamCount: len(fnStmt.Params),
+				Params:     paramNames,
+				IsExprBody: fnStmt.IsExprBody,
+			}
 		}
 	}
 
-	// Compile global statements
+	// Emit skip jump to skip over all functions
+	skipPC := len(c.buf.instructions)
+	c.buf.Emit(OpJmp, 0) // Will patch later
+
+	// Compile all function bodies first (while skipping them with the jump)
 	for _, stmt := range ir.AST.Statements {
-		if err := c.compileStatement(stmt); err != nil {
-			return nil, err
+		if fnStmt, ok := stmt.(ast.FunctionDefStmt); ok {
+			if err := c.compileFunctionBody(&fnStmt); err != nil {
+				return nil, err
+			}
 		}
 	}
 
-	// Add halt instruction
-	c.buf.Emit(OpHalt)
+	// Patch the skip jump to the start of main code
+	mainCodePC := len(c.buf.instructions)
+	c.buf.instructions[skipPC].Args[0] = mainCodePC - skipPC
 
+	// Compile global statements (non-function declarations)
+	for _, stmt := range ir.AST.Statements {
+		if _, ok := stmt.(ast.FunctionDefStmt); !ok {
+			if err := c.compileStatement(stmt); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// build resulting program
 	return c.buf.Build(), nil
 }
 
-// compileStatement compiles a statement to bytecode
+// compileStatement dispatches various statement types to their specific compilers
 func (c *Compiler) compileStatement(stmt ast.Statement) error {
 	switch s := stmt.(type) {
+	case ast.FunctionDefStmt:
+		return c.compileFunctionDeclaration(&s)
 	case ast.LetStmt:
 		return c.compileLetStatement(&s)
+	case ast.AssignStmt:
+		return c.compileAssignStatement(&s)
 	case ast.ConstDeclStmt:
 		return c.compileConstStatement(&s)
 	case ast.ExprStmt:
 		return c.compileExpressionStatement(&s)
-	case ast.AssignStmt:
-		return c.compileAssignStatement(&s)
 	case ast.ReturnStmt:
 		return c.compileReturnStatement(&s)
 	case ast.IfStmt:
@@ -78,32 +128,33 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 		return c.compileForLoop(&s)
 	case ast.WhileStmt:
 		return c.compileWhileLoop(&s)
-	case ast.FunctionDefStmt:
-		return c.compileFunctionDeclaration(&s)
 	case ast.BreakStmt:
-		c.buf.Emit(OpBreak)
+		if len(c.loopStack) == 0 {
+			return fmt.Errorf("break statement outside of loop")
+		}
+		topLoop := c.loopStack[len(c.loopStack)-1]
+		offset := topLoop.breakTarget - len(c.buf.instructions) - 1
+		c.buf.Emit(OpBreak, offset)
 		return nil
 	case ast.ContinueStmt:
-		c.buf.Emit(OpContinue)
+		if len(c.loopStack) == 0 {
+			return fmt.Errorf("continue statement outside of loop")
+		}
+		topLoop := c.loopStack[len(c.loopStack)-1]
+		offset := topLoop.startPC - len(c.buf.instructions) - 1
+		c.buf.Emit(OpContinue, offset)
 		return nil
 	case ast.ImportStmt:
-		// Imports are for module organization, no runtime code needed yet
 		return nil
 	case ast.ExportStmt:
-		// Export wraps another statement, compile the wrapped statement
 		return c.compileStatement(s.Statement)
-	case ast.StructDeclStmt:
-		// Structs are type definitions, no runtime code needed
-		return nil
-	case ast.EnumDeclStmt:
-		// Enums are type definitions, no runtime code needed
+	case ast.StructDeclStmt, ast.EnumDeclStmt:
 		return nil
 	default:
 		return fmt.Errorf("unknown statement type: %T", stmt)
 	}
 }
 
-// compileAssignStatement compiles an assignment statement
 func (c *Compiler) compileAssignStatement(stmt *ast.AssignStmt) error {
 	// Compile the value expression
 	if err := c.compileExpression(stmt.Value); err != nil {
@@ -231,6 +282,12 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 	// Save loop start position for jumping back
 	loopStart := len(c.buf.instructions)
 
+	// Push loop context
+	c.loopStack = append(c.loopStack, LoopContext{
+		startPC:     loopStart,
+		breakTarget: 0, // Will be set later
+	})
+
 	// Compile condition
 	if stmt.Condition != nil {
 		if err := c.compileExpression(stmt.Condition); err != nil {
@@ -356,9 +413,86 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 	return nil
 }
 
-// compileFunctionDeclaration compiles a function declaration
-func (c *Compiler) compileFunctionDeclaration(_ *ast.FunctionDefStmt) error {
-	// Store function reference
+// compileFunctionBody compiles the body of a function declaration
+func (c *Compiler) compileFunctionBody(fnStmt *ast.FunctionDefStmt) error {
+	// Register function entry point
+	_ = c.buf.RegisterFunction(fnStmt.Name)
+
+	// Save current state
+	oldLocalVars := c.localVars
+	oldFuncAST := c.currentFuncAST
+	oldIsInFunc := c.isInFunction
+	oldVarOffset := c.localVarOffset
+
+	// Set up new scope for function
+	c.localVars = make(map[string]int)
+	c.currentFuncAST = fnStmt
+	c.isInFunction = true
+	c.localVarOffset = 0
+
+	// Map parameters to local variable indices (0-indexed)
+	for i, param := range fnStmt.Params {
+		c.localVars[param.Name] = i
+	}
+
+	if fnStmt.IsExprBody {
+		// Expression-bodied function: compile expression
+		if expr, ok := fnStmt.Body.(ast.Expression); ok {
+			if err := c.compileExpression(expr); err != nil {
+				return err
+			}
+		}
+	} else {
+		// Block-bodied function: compile statements
+		if stmts, ok := fnStmt.Body.([]ast.Statement); ok {
+			hasExplicitReturn := false
+			for _, stmt := range stmts {
+				if retStmt, ok := stmt.(ast.ReturnStmt); ok {
+					hasExplicitReturn = true
+					if retStmt.Value != nil {
+						if err := c.compileExpression(retStmt.Value); err != nil {
+							return err
+						}
+					} else {
+						// Return without value
+						nilIdx := c.buf.AddConstant(nil)
+						c.buf.Emit(OpPush, nilIdx)
+					}
+					c.buf.Emit(OpReturnValue)
+					break // Stop after the return
+				} else {
+					if err := c.compileStatement(stmt); err != nil {
+						return err
+					}
+				}
+			}
+
+			// If no explicit return, return nil
+			if !hasExplicitReturn {
+				nilIdx := c.buf.AddConstant(nil)
+				c.buf.Emit(OpPush, nilIdx)
+				c.buf.Emit(OpReturnValue)
+			}
+		}
+	}
+
+	// Emit return instruction (for expression-bodied functions)
+	if fnStmt.IsExprBody {
+		c.buf.Emit(OpReturnValue)
+	}
+
+	// Restore state
+	c.localVars = oldLocalVars
+	c.currentFuncAST = oldFuncAST
+	c.isInFunction = oldIsInFunc
+	c.localVarOffset = oldVarOffset
+
+	return nil
+}
+
+// compileFunctionDeclaration is called from compileStatement for function declarations
+// Functions are already compiled during the Compile phase, so this is a no-op
+func (c *Compiler) compileFunctionDeclaration(fn *ast.FunctionDefStmt) error {
 	return nil
 }
 
@@ -378,8 +512,13 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 		idx := c.buf.AddConstant(e.Value)
 		c.buf.Emit(OpPush, idx)
 	case ast.IdentifierExpr:
-		varIdx := c.buf.AddGlobal(e.Name)
-		c.buf.Emit(OpLoadGlobal, varIdx)
+		// Check if it's a local variable (function parameter) first
+		if localIdx, ok := c.localVars[e.Name]; ok {
+			c.buf.Emit(OpLoad, localIdx)
+		} else {
+			varIdx := c.buf.AddGlobal(e.Name)
+			c.buf.Emit(OpLoadGlobal, varIdx)
+		}
 	case ast.BinaryExpr:
 		return c.compileBinaryExpression(&e)
 	case ast.UnaryExpr:
@@ -555,25 +694,22 @@ func (c *Compiler) compileCallExpression(expr *ast.CallExpr) error {
 			return nil
 		}
 
-		// Try to inline user-defined functions
-		if fnDef, ok := c.astFunctions[ident.Name]; ok {
-			// For expression-bodied functions, inline the body
-			if fnDef.IsExprBody {
-				// Create a mapping of parameter names to argument expressions
-				paramMap := make(map[string]ast.Expression)
-				for i, param := range fnDef.Params {
-					if i < len(expr.Arguments) {
-						paramMap[param.Name] = expr.Arguments[i]
-					}
+		// Check if it's a user-defined function
+		if _, ok := c.astFunctions[ident.Name]; ok {
+			// Emit OpCall for user-defined functions
+			// Arguments are compiled and pushed on the stack
+			for _, arg := range expr.Arguments {
+				if err := c.compileExpression(arg); err != nil {
+					return err
 				}
-
-				// Compile the function body with parameter substitution
-				bodyExpr := fnDef.Body.(ast.Expression)
-				return c.compileExpressionWithSubstitution(bodyExpr, paramMap)
 			}
+			// Emit OpCall with function name and argument count
+			// The return value will be on the stack after the call
+			c.buf.Emit(OpCall, ident.Name, len(expr.Arguments))
+			return nil
 		}
 
-		// Compile arguments
+		// Compile arguments for unknown functions (might be built-in)
 		for _, arg := range expr.Arguments {
 			if err := c.compileExpression(arg); err != nil {
 				return err

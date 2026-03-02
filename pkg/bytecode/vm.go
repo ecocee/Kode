@@ -5,6 +5,19 @@ import (
 	"strconv"
 )
 
+// CallFrame represents a function call frame
+type CallFrame struct {
+	pc     int                    // Return program counter
+	bp     int                    // Return base pointer
+	locals map[string]interface{} // Local variables for this frame
+}
+
+// LoopFrame represents a loop frame for break/continue
+type LoopFrame struct {
+	startPC     int // PC to jump to for continue
+	breakTarget int // PC to jump to for break
+}
+
 // VM is a bytecode virtual machine
 type VM struct {
 	program   *Program
@@ -13,16 +26,20 @@ type VM struct {
 	locals    []map[string]interface{} // Stack of local scopes
 	pc        int                      // Program counter
 	bp        int                      // Base pointer
+	callStack []CallFrame              // Call stack
+	loopStack []LoopFrame              // Loop stack for break/continue
 	functions map[string]*Program
 }
 
 // NewVM creates a new virtual machine
 func NewVM(program *Program) *VM {
 	return &VM{
-		program: program,
-		stack:   make([]interface{}, 0, 256),
-		globals: make(map[string]interface{}),
-		locals:  make([]map[string]interface{}, 0),
+		program:   program,
+		stack:     make([]interface{}, 0, 256),
+		globals:   make(map[string]interface{}),
+		locals:    make([]map[string]interface{}, 0),
+		callStack: make([]CallFrame, 0),
+		loopStack: make([]LoopFrame, 0),
 	}
 }
 
@@ -508,26 +525,80 @@ func (vm *VM) Run() error {
 					argCount = countVal
 				}
 
-				// Pop arguments from stack
-				args := make([]interface{}, argCount)
-				for i := argCount - 1; i >= 0; i-- {
-					if len(vm.stack) > 0 {
-						args[i] = vm.pop()
+				// Look up function entry point
+				if entryPC, ok := vm.program.Functions[funcName]; ok {
+					// Pop arguments from stack in reverse order
+					args := make([]interface{}, argCount)
+					for i := argCount - 1; i >= 0; i-- {
+						if len(vm.stack) > 0 {
+							args[i] = vm.pop()
+						}
 					}
-				}
 
-				// Check if it's a built-in function
-				result := vm.callBuiltin(funcName, args)
-				vm.stack = append(vm.stack, result)
+					// Create call frame
+					frame := CallFrame{
+						pc:     vm.pc + 1, // Save instr after OpCall; loop will increment to it
+						bp:     vm.bp,
+						locals: make(map[string]interface{}),
+					}
+					vm.callStack = append(vm.callStack, frame)
+
+					// Create locals map for this function call
+					newLocals := make(map[string]interface{})
+					// Map parameters to local indices
+					for i, arg := range args {
+						newLocals[fmt.Sprintf("_var_%d", i)] = arg
+					}
+					vm.locals = append(vm.locals, newLocals)
+
+					// Set base pointer to stack length
+					vm.bp = len(vm.stack)
+
+					// Jump to function entry point
+					// Set to entryPC - 1 because loop will increment it
+					vm.pc = entryPC - 1
+				} else {
+					// Built-in function
+					args := make([]interface{}, argCount)
+					for i := argCount - 1; i >= 0; i-- {
+						if len(vm.stack) > 0 {
+							args[i] = vm.pop()
+						}
+					}
+
+					// Check if it's a built-in function
+					result := vm.callBuiltin(funcName, args)
+					vm.stack = append(vm.stack, result)
+				}
 			}
 
 		case OpReturn:
-			// Return without value
-			return nil
+			// Return without value - pop frame
+			if len(vm.callStack) > 0 {
+				frame := vm.callStack[len(vm.callStack)-1]
+				vm.callStack = vm.callStack[:len(vm.callStack)-1]
+				if len(vm.locals) > 0 {
+					vm.locals = vm.locals[:len(vm.locals)-1]
+				}
+				vm.pc = frame.pc - 1 // -1 because loop will increment
+			} else {
+				// Top-level return
+				return nil
+			}
 
 		case OpReturnValue:
 			// Return with value - value is already on stack
-			return nil
+			if len(vm.callStack) > 0 {
+				frame := vm.callStack[len(vm.callStack)-1]
+				vm.callStack = vm.callStack[:len(vm.callStack)-1]
+				if len(vm.locals) > 0 {
+					vm.locals = vm.locals[:len(vm.locals)-1]
+				}
+				vm.pc = frame.pc - 1 // -1 because loop will increment
+			} else {
+				// Top-level return
+				return nil
+			}
 
 		case OpNoop:
 			// No operation

@@ -1,0 +1,7 @@
+// Test nested calls (simplified)
+let a = 2
+let b = 3
+let c = 4
+let temp = a * b
+let result = temp + c
+print("Nested calls result:", result)

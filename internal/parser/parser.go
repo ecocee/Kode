@@ -172,7 +172,7 @@ func (p *Parser) functionDefinition() (ast.Statement, error) {
 	}
 
 	var returnType ast.Type
-	if !p.check(lexer.TokenLBrace) && !p.check(lexer.TokenEqual) {
+	if !p.check(lexer.TokenLBrace) && !p.check(lexer.TokenEqual) && !p.check(lexer.TokenArrow) {
 		rt, err := p.parseType()
 		if err != nil {
 			return nil, err
@@ -182,8 +182,8 @@ func (p *Parser) functionDefinition() (ast.Statement, error) {
 
 	var body interface{}
 	var isExprBody bool
-	if p.match(lexer.TokenEqual) {
-		// Expression body
+	if p.match(lexer.TokenArrow) || p.match(lexer.TokenEqual) {
+		// Expression body (support both => and =)
 		expr, err := p.expression()
 		if err != nil {
 			return nil, err
@@ -199,7 +199,7 @@ func (p *Parser) functionDefinition() (ast.Statement, error) {
 		body = block
 		isExprBody = false
 	} else {
-		return nil, fmt.Errorf("Expected '=' or '{' after function signature")
+		return nil, fmt.Errorf("Expected '=>', '=' or '{' after function signature")
 	}
 
 	return ast.FunctionDefStmt{
