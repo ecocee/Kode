@@ -1,0 +1,11 @@
+print("START LOOP")
+let i = 0
+for (let x = 0; x < 3; x = x + 1) {
+  print("x is")
+  print(x)
+  if (x == 1) {
+    print("breaking")
+    break
+  }
+}
+print("AFTER LOOP")

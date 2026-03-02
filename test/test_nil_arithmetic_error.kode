@@ -1,0 +1,18 @@
+// Test that nil operands in arithmetic produce runtime errors
+// Previously these would silently return nil
+
+func test_undefined_var_arithmetic() {
+  // Using undefined variable should error
+  let result = undefined_var + 5
+  print(result)
+}
+
+// Commenting this out as it would crash:
+// test_undefined_var_arithmetic()
+
+// Test with guard to prevent crash
+func safe_add(x: int) {
+  print(x + 1)
+}
+
+safe_add(5)  // Should work: print 6

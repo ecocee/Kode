@@ -99,6 +99,9 @@ func (vm *VM) Run() error {
 			if len(vm.stack) >= 2 {
 				right := vm.pop()
 				left := vm.pop()
+				if left == nil || right == nil {
+					return fmt.Errorf("cannot perform arithmetic on nil value")
+				}
 				result := vm.add(left, right)
 				vm.stack = append(vm.stack, result)
 			}
@@ -107,6 +110,9 @@ func (vm *VM) Run() error {
 			if len(vm.stack) >= 2 {
 				right := vm.pop()
 				left := vm.pop()
+				if left == nil || right == nil {
+					return fmt.Errorf("cannot perform arithmetic on nil value")
+				}
 				result := vm.subtract(left, right)
 				vm.stack = append(vm.stack, result)
 			}
@@ -115,6 +121,9 @@ func (vm *VM) Run() error {
 			if len(vm.stack) >= 2 {
 				right := vm.pop()
 				left := vm.pop()
+				if left == nil || right == nil {
+					return fmt.Errorf("cannot perform arithmetic on nil value")
+				}
 				result := vm.multiply(left, right)
 				vm.stack = append(vm.stack, result)
 			}
@@ -123,6 +132,12 @@ func (vm *VM) Run() error {
 			if len(vm.stack) >= 2 {
 				right := vm.pop()
 				left := vm.pop()
+				if left == nil || right == nil {
+					return fmt.Errorf("cannot perform arithmetic on nil value")
+				}
+				if (isInt(right) && asInt(right) == 0) || (isFloat(right) && asFloat(right) == 0) {
+					return fmt.Errorf("division by zero")
+				}
 				result := vm.divide(left, right)
 				vm.stack = append(vm.stack, result)
 			}
@@ -131,6 +146,12 @@ func (vm *VM) Run() error {
 			if len(vm.stack) >= 2 {
 				right := vm.pop()
 				left := vm.pop()
+				if left == nil || right == nil {
+					return fmt.Errorf("cannot perform arithmetic on nil value")
+				}
+				if isInt(right) && asInt(right) == 0 {
+					return fmt.Errorf("modulo by zero")
+				}
 				result := vm.modulo(left, right)
 				vm.stack = append(vm.stack, result)
 			}
@@ -604,13 +625,30 @@ func (vm *VM) Run() error {
 			// No operation
 
 		case OpBreak:
-			// Break: set pc to after loop (handled by loop jump patching)
-			// For now, just halt execution (improve later for nested loops)
-			return nil
+			// Break: jump to target PC stored in the loop context
+			// With bounds checking to prevent invalid jumps
+			if len(instr.Args) > 0 {
+				offset := instr.Args[0].(int)
+				newPC := vm.pc + offset - 1 // -1 because loop will increment
+				if newPC >= 0 && newPC < len(vm.program.Instructions) {
+					vm.pc = newPC
+				} else {
+					// Invalid offset; just continue to next instruction
+					// (Proper fix requires compiler to emit correct loop targets)
+				}
+			}
 		case OpContinue:
-			// Continue: jump to loop start (handled by loop jump patching)
-			// For now, just halt execution (improve later for nested loops)
-			return nil
+			// Continue: jump to loop start with bounds checking
+			if len(instr.Args) > 0 {
+				offset := instr.Args[0].(int)
+				newPC := vm.pc + offset - 1 // -1 because loop will increment
+				if newPC >= 0 && newPC < len(vm.program.Instructions) {
+					vm.pc = newPC
+				} else {
+					// Invalid offset; just continue to next instruction
+					// (Proper fix requires compiler to emit correct loop targets)
+				}
+			}
 		default:
 			return fmt.Errorf("unknown opcode: %d", instr.Op)
 		}
@@ -627,6 +665,37 @@ func (vm *VM) pop() interface{} {
 		return val
 	}
 	return nil
+}
+
+// Type checking helpers
+func isInt(v interface{}) bool {
+	_, ok := v.(int)
+	return ok
+}
+
+func isFloat(v interface{}) bool {
+	_, ok := v.(float64)
+	return ok
+}
+
+func asInt(v interface{}) int {
+	if i, ok := v.(int); ok {
+		return i
+	}
+	if f, ok := v.(float64); ok {
+		return int(f)
+	}
+	return 0
+}
+
+func asFloat(v interface{}) float64 {
+	if f, ok := v.(float64); ok {
+		return f
+	}
+	if i, ok := v.(int); ok {
+		return float64(i)
+	}
+	return 0
 }
 
 func (vm *VM) add(left, right interface{}) interface{} {

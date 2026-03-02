@@ -1,0 +1,32 @@
+// Test that local let inside functions doesn't pollute global scope
+// Previously, let inside a function would be stored globally
+
+let global_var = 100
+
+func test_local_scope() {
+  let local_var = 42
+  let another_local = 99
+  print(local_var)
+}
+
+test_local_scope()
+
+// This should print 100, not 42 or 99
+// If local_var leaked out, this would be an error or print wrong value
+print(global_var)
+
+// Test function should be able to have its own locals
+// that don't interfere with other function locals
+func func_a() {
+  let x = 1
+  print(x)
+}
+
+func func_b() {
+  let x = 2
+  print(x)
+}
+
+func_a()  // Should print 1
+func_b()  // Should print 2
+func_a()  // Should print 1 again, not affected by func_b

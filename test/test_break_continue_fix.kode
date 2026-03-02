@@ -1,0 +1,41 @@
+// Test break and continue in loops
+// Previously these would halt the entire VM - now they should work correctly
+
+func test_break() {
+  let result = 0
+  for (let i = 0; i < 10; i = i + 1) {
+    if (i == 5) {
+      break
+    }
+    result = result + i
+  }
+  print(result)  // Should print 10 (0+1+2+3+4), not loop forever or crash
+}
+
+func test_continue() {
+  let result = 0
+  for (let i = 0; i < 5; i = i + 1) {
+    if (i == 2) {
+      continue
+    }
+    result = result + i
+  }
+  print(result)  // Should print 8 (0+1+3+4, skipping 2)
+}
+
+func test_nested_break() {
+  let outer_result = 0
+  for (let i = 0; i < 3; i = i + 1) {
+    for (let j = 0; j < 3; j = j + 1) {
+      if (j == 1) {
+        break  // Should break inner loop only
+      }
+      outer_result = outer_result + 1
+    }
+  }
+  print(outer_result)  // Should print 3 (3 iterations of outer * 1 iteration of inner)
+}
+
+test_break()
+test_continue()
+test_nested_break()

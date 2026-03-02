@@ -1,0 +1,31 @@
+// Test: basic for loop without special statements
+let sum = 0
+for (let i = 1; i <= 3; i = i + 1) {
+  sum = sum + i
+}
+print("sum is: ")
+print(sum)
+
+// Test: loop with break
+let result = 0
+for (let j = 0; j < 10; j = j + 1) {
+  if (j == 5) {
+    break
+  }
+  result = result + 1
+}
+print("result before break: ")
+print(result)
+
+// Test: loop with continue
+let skipped = 0
+for (let k = 0; k < 5; k = k + 1) {
+  if (k == 2) {
+    continue
+  }
+  skipped = skipped + 1
+}
+print("skipped count: ")
+print(skipped)
+
+print("ALL TESTS COMPLETE")

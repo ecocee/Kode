@@ -9,8 +9,11 @@ import (
 
 // LoopContext tracks loop start and break target positions
 type LoopContext struct {
-	startPC     int // Position to jump to for continue
-	breakTarget int // Position to jump to for break
+	startPC              int   // Position to jump to for continue
+	breakTarget          int   // Position to jump to for break
+	continueTarget       int   // Position to jump to for continue (start of increment)  
+	breakInstructions    []int // Instruction indices of OpBreak to patch
+	continueInstructions []int // Instruction indices of OpContinue to patch
 }
 
 // FunctionInfo stores metadata about a function
@@ -133,16 +136,20 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 			return fmt.Errorf("break statement outside of loop")
 		}
 		topLoop := c.loopStack[len(c.loopStack)-1]
-		offset := topLoop.breakTarget - len(c.buf.instructions) - 1
-		c.buf.Emit(OpBreak, offset)
+		// Emit OpBreak with placeholder offset - will be patched later
+		breakIdx := len(c.buf.instructions)
+		c.buf.Emit(OpBreak, 0)
+		topLoop.breakInstructions = append(topLoop.breakInstructions, breakIdx)
 		return nil
 	case ast.ContinueStmt:
 		if len(c.loopStack) == 0 {
 			return fmt.Errorf("continue statement outside of loop")
 		}
 		topLoop := c.loopStack[len(c.loopStack)-1]
-		offset := topLoop.startPC - len(c.buf.instructions) - 1
-		c.buf.Emit(OpContinue, offset)
+		// Emit OpContinue with placeholder offset - will be patched later
+		continueIdx := len(c.buf.instructions)
+		c.buf.Emit(OpContinue, 0)
+		topLoop.continueInstructions = append(topLoop.continueInstructions, continueIdx)
 		return nil
 	case ast.ImportStmt:
 		return nil
@@ -175,9 +182,18 @@ func (c *Compiler) compileLetStatement(stmt *ast.LetStmt) error {
 		return err
 	}
 
-	// Store to variable
-	varIdx := c.buf.AddGlobal(stmt.Name)
-	c.buf.Emit(OpStoreGlobal, varIdx)
+	// If inside a function, allocate local variable; otherwise global
+	if c.isInFunction {
+		// Allocate new local variable
+		varIdx := c.localVarOffset
+		c.localVars[stmt.Name] = varIdx
+		c.localVarOffset++
+		c.buf.Emit(OpStore, varIdx)
+	} else {
+		// Store to global variable
+		varIdx := c.buf.AddGlobal(stmt.Name)
+		c.buf.Emit(OpStoreGlobal, varIdx)
+	}
 
 	return nil
 }
@@ -189,9 +205,18 @@ func (c *Compiler) compileConstStatement(stmt *ast.ConstDeclStmt) error {
 		return err
 	}
 
-	// Store to variable (constants are stored like regular variables at runtime)
-	varIdx := c.buf.AddGlobal(stmt.Name)
-	c.buf.Emit(OpStoreGlobal, varIdx)
+	// If inside a function, allocate local constant; otherwise global
+	if c.isInFunction {
+		// Allocate new local variable
+		varIdx := c.localVarOffset
+		c.localVars[stmt.Name] = varIdx
+		c.localVarOffset++
+		c.buf.Emit(OpStore, varIdx)
+	} else {
+		// Store to global variable (constants are stored like regular variables at runtime)
+		varIdx := c.buf.AddGlobal(stmt.Name)
+		c.buf.Emit(OpStoreGlobal, varIdx)
+	}
 
 	return nil
 }
@@ -304,6 +329,9 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 			}
 		}
 
+		// Mark start of increment phase (where continue should jump)
+		continueTargetPC := len(c.buf.instructions)
+
 		// Compile increment
 		if stmt.Incr != nil {
 			// Try to compile as expression, or handle as assignment
@@ -333,6 +361,12 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 		// Patch the JmpIfFalse to exit the loop
 		falseOffset := len(c.buf.instructions) - jmpIfFalseIdx
 		c.buf.instructions[jmpIfFalseIdx].Args[0] = falseOffset
+		
+		// Update loop context with targets
+		if len(c.loopStack) > 0 {
+			c.loopStack[len(c.loopStack)-1].breakTarget = len(c.buf.instructions)
+			c.loopStack[len(c.loopStack)-1].continueTarget = continueTargetPC
+		}
 	} else {
 		// No condition - compile body and jump back (infinite loop)
 		for _, s := range stmt.Body {
@@ -368,6 +402,28 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 		c.buf.Emit(OpJmp, jmpOffset)
 	}
 
+	// Patch all break and continue instructions
+	if len(c.loopStack) > 0 {
+		topLoop := c.loopStack[len(c.loopStack)-1]
+		breakTarget := topLoop.breakTarget       // Use stored breakTarget
+		continueTarget := topLoop.continueTarget // Use stored continueTarget
+		
+		// Patch break instructions
+		for _, breakIdx := range topLoop.breakInstructions {
+			offset := breakTarget - breakIdx - 1
+			c.buf.instructions[breakIdx].Args[0] = offset
+		}
+		
+		// Patch continue instructions
+		for _, continueIdx := range topLoop.continueInstructions {
+			offset := continueTarget - continueIdx - 1
+			c.buf.instructions[continueIdx].Args[0] = offset
+		}
+		
+		// Pop the loop context
+		c.loopStack = c.loopStack[:len(c.loopStack)-1]
+	}
+
 	return nil
 }
 
@@ -376,14 +432,24 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 	// Record the start of the loop
 	loopStart := len(c.buf.instructions)
 
+	// Push loop context
+	// For while loop: continue jumps to condition (loop start), break jumps past loop
+	c.loopStack = append(c.loopStack, LoopContext{
+		startPC:              loopStart,
+		continueTarget:       loopStart,  // Continue goes to condition check
+		breakTarget:          0,           // Will be set after loop body
+		breakInstructions:    []int{},
+		continueInstructions: []int{},
+	})
+
 	// Compile condition
 	if stmt.Condition != nil {
 		if err := c.compileExpression(stmt.Condition); err != nil {
 			return err
 		}
 		// Emit jump if false (placeholder offset)
+		jmpIfFalseIdx := len(c.buf.instructions)
 		c.buf.Emit(OpJmpIfFalse, 0)
-		jmpIfFalseIdx := len(c.buf.instructions) - 1
 
 		// Compile loop body
 		for _, s := range stmt.Body {
@@ -399,6 +465,11 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 		// Patch the JmpIfFalse to exit the loop
 		falseOffset := len(c.buf.instructions) - jmpIfFalseIdx
 		c.buf.instructions[jmpIfFalseIdx].Args[0] = falseOffset
+		
+		// Update loop context with correct break target
+		if len(c.loopStack) > 0 {
+			c.loopStack[len(c.loopStack)-1].breakTarget = len(c.buf.instructions)
+		}
 	} else {
 		// No condition - infinite loop
 		for _, s := range stmt.Body {
@@ -409,7 +480,40 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 		// Jump back to loop start
 		jmpOffset := loopStart - len(c.buf.instructions) - 1
 		c.buf.Emit(OpJmp, jmpOffset)
+		
+		// Set break target for infinite loop
+		if len(c.loopStack) > 0 {
+			c.loopStack[len(c.loopStack)-1].breakTarget = len(c.buf.instructions)
+		}
 	}
+	
+	// Patch all break and continue instructions
+	if len(c.loopStack) > 0 {
+		topLoop := c.loopStack[len(c.loopStack)-1]
+		breakTarget := topLoop.breakTarget       // Jump past the loop
+		continueTarget := topLoop.continueTarget // Jump back to condition
+		
+		// Patch break instructions
+		for _, breakIdx := range topLoop.breakInstructions {
+			offset := breakTarget - breakIdx - 1
+			c.buf.instructions[breakIdx].Args[0] = offset
+		}
+		
+		// Patch continue instructions
+		for _, continueIdx := range topLoop.continueInstructions {
+			offset := continueTarget - continueIdx - 1
+			c.buf.instructions[continueIdx].Args[0] = offset
+		}
+		
+		// Pop the loop context
+		c.loopStack = c.loopStack[:len(c.loopStack)-1]
+	}
+	
+	return nil
+}		// Pop the loop context
+		c.loopStack = c.loopStack[:len(c.loopStack)-1]
+	}
+	
 	return nil
 }
 

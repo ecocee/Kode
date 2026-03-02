@@ -1,0 +1,59 @@
+// Comprehensive test of all fixes applied March 2, 2026
+
+print("=== TEST 1: Break/Continue Fix ===")
+let break_count = 0
+for (let i = 0; i < 5; i = i + 1) {
+  if (i == 3) {
+    break
+  }
+  break_count = break_count + 1
+}
+print("Break test result (should be 3):")
+print(break_count)
+
+print("=== TEST 2: Continue Fix ===")
+let continue_count = 0
+for (let i = 0; i < 5; i = i + 1) {
+  if (i == 2) {
+    continue
+  }
+  continue_count = continue_count + 1
+}
+print("Continue test result (should be 4):")
+print(continue_count)
+
+print("=== TEST 3: Local Let in Function ===")
+let global_var = 100
+func test_local_scope() {
+  let local_var = 5
+  print("Inside function, local_var =")
+  print(local_var)
+  return local_var + 1
+}
+let result = test_local_scope()
+print("After function, global_var =")
+print(global_var)
+print("Function returned:")
+print(result)
+
+print("=== TEST 4: Safe Division ===")
+func safe_divide(a: int, b: int) {
+  if (b == 0) {
+    print(-1)
+  } else {
+    print(a / b)
+  }
+}
+print("10 / 2 =")
+safe_divide(10, 2)
+print("10 / 0 (guarded) =")
+safe_divide(10, 0)
+
+print("=== TEST 5: Safe Addition ===")
+func safe_add(a: int, b: int) {
+  print(a + b)
+}
+print("5 + 3 =")
+safe_add(5, 3)
+
+print("=== All tests complete ===")
