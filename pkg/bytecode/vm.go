@@ -67,7 +67,17 @@ func (vm *VM) Run() error {
 		vm.globals[name] = nil
 	}
 
-	for vm.pc = 0; vm.pc < len(vm.program.Instructions); vm.pc++ {
+	vm.pc = 0
+	return vm.runLoop(-1)
+}
+
+// runLoop runs the instruction dispatch from vm.pc.
+// If stopDepth >= 0, it returns when vm.callStack depth drops to stopDepth.
+func (vm *VM) runLoop(stopDepth int) error {
+	for vm.pc < len(vm.program.Instructions) {
+		if stopDepth >= 0 && len(vm.callStack) <= stopDepth {
+			break
+		}
 		instr := vm.program.Instructions[vm.pc]
 
 		switch instr.Op {
@@ -127,10 +137,9 @@ func (vm *VM) Run() error {
 					if !vm.tryHandleError(runtimeErr) {
 						return runtimeErr
 					}
-					continue
+				} else {
+					vm.stack = append(vm.stack, vm.add(left, right))
 				}
-				result := vm.add(left, right)
-				vm.stack = append(vm.stack, result)
 			}
 
 		case OpSub:
@@ -142,10 +151,9 @@ func (vm *VM) Run() error {
 					if !vm.tryHandleError(runtimeErr) {
 						return runtimeErr
 					}
-					continue
+				} else {
+					vm.stack = append(vm.stack, vm.subtract(left, right))
 				}
-				result := vm.subtract(left, right)
-				vm.stack = append(vm.stack, result)
 			}
 
 		case OpMul:
@@ -157,10 +165,9 @@ func (vm *VM) Run() error {
 					if !vm.tryHandleError(runtimeErr) {
 						return runtimeErr
 					}
-					continue
+				} else {
+					vm.stack = append(vm.stack, vm.multiply(left, right))
 				}
-				result := vm.multiply(left, right)
-				vm.stack = append(vm.stack, result)
 			}
 
 		case OpDiv:
@@ -172,17 +179,14 @@ func (vm *VM) Run() error {
 					if !vm.tryHandleError(runtimeErr) {
 						return runtimeErr
 					}
-					continue
-				}
-				if (isInt(right) && asInt(right) == 0) || (isFloat(right) && asFloat(right) == 0) {
+				} else if (isInt(right) && asInt(right) == 0) || (isFloat(right) && asFloat(right) == 0) {
 					runtimeErr := fmt.Errorf("division by zero")
 					if !vm.tryHandleError(runtimeErr) {
 						return runtimeErr
 					}
-					continue
+				} else {
+					vm.stack = append(vm.stack, vm.divide(left, right))
 				}
-				result := vm.divide(left, right)
-				vm.stack = append(vm.stack, result)
 			}
 
 		case OpMod:
@@ -194,17 +198,14 @@ func (vm *VM) Run() error {
 					if !vm.tryHandleError(runtimeErr) {
 						return runtimeErr
 					}
-					continue
-				}
-				if isInt(right) && asInt(right) == 0 {
+				} else if isInt(right) && asInt(right) == 0 {
 					runtimeErr := fmt.Errorf("modulo by zero")
 					if !vm.tryHandleError(runtimeErr) {
 						return runtimeErr
 					}
-					continue
+				} else {
+					vm.stack = append(vm.stack, vm.modulo(left, right))
 				}
-				result := vm.modulo(left, right)
-				vm.stack = append(vm.stack, result)
 			}
 
 		case OpNeg:
@@ -436,32 +437,35 @@ func (vm *VM) Run() error {
 				array := vm.pop()
 				if arr, ok := array.([]interface{}); ok {
 					var idx int
+					idxOK := false
 					switch i := index.(type) {
 					case int:
 						idx = i
+						idxOK = true
 					case int64:
 						idx = int(i)
+						idxOK = true
 					default:
 						runtimeErr := fmt.Errorf("array index must be an integer, got %T", index)
 						if !vm.tryHandleError(runtimeErr) {
 							return runtimeErr
 						}
-						continue
 					}
-					if idx < 0 || idx >= len(arr) {
-						runtimeErr := fmt.Errorf("index out of bounds: index %d, length %d", idx, len(arr))
-						if !vm.tryHandleError(runtimeErr) {
-							return runtimeErr
+					if idxOK {
+						if idx < 0 || idx >= len(arr) {
+							runtimeErr := fmt.Errorf("index out of bounds: index %d, length %d", idx, len(arr))
+							if !vm.tryHandleError(runtimeErr) {
+								return runtimeErr
+							}
+						} else {
+							vm.stack = append(vm.stack, arr[idx])
 						}
-						continue
 					}
-					vm.stack = append(vm.stack, arr[idx])
 				} else {
 					runtimeErr := fmt.Errorf("cannot index into non-array type %T", array)
 					if !vm.tryHandleError(runtimeErr) {
 						return runtimeErr
 					}
-					continue
 				}
 			}
 
@@ -859,6 +863,7 @@ func (vm *VM) Run() error {
 		default:
 			return fmt.Errorf("unknown opcode: %d", instr.Op)
 		}
+		vm.pc++
 	}
 
 	return nil
@@ -1862,14 +1867,6 @@ func (vm *VM) callMethod(receiver interface{}, method string, args []interface{}
 			if len(args) > 0 {
 				result := make([]interface{}, len(rv))
 				for i, v := range rv {
-					vm.stack = append(vm.stack, v)
-					if vm.dispatchCall(args[0], 1) {
-						// dispatchCall set up call frame; result will be on stack after return
-						// We need a different approach: run the sub-call synchronously
-						// For simplicity, use callBuiltinFn if it's a string
-						result[i] = vm.callBuiltin("__noop__", nil)
-					}
-					// Simpler: if args[0] is a ClosureValue or string, call it directly
 					result[i] = vm.applyFn(args[0], []interface{}{v})
 				}
 				return result
@@ -1948,90 +1945,39 @@ func (vm *VM) callMethod(receiver interface{}, method string, args []interface{}
 
 // applyFn calls a function (ClosureValue or string name) with the given args
 // synchronously by temporarily running the VM. Used for map/filter/reduce.
+// applyFn calls a function (ClosureValue or string name) with args, running it
+// synchronously within the current VM execution context using runLoop.
+// vm.pc is saved and restored so the outer execution loop is not affected.
 func (vm *VM) applyFn(fn interface{}, args []interface{}) interface{} {
+	// Save the outer pc so Run()'s loop can continue correctly after we return.
+	savedPC := vm.pc
+
 	for _, a := range args {
 		vm.stack = append(vm.stack, a)
 	}
-	origPC := vm.pc
-	handled := vm.dispatchCall(fn, len(args))
-	if !handled {
-		for i := 0; i < len(args); i++ {
+	startDepth := len(vm.callStack)
+	if !vm.dispatchCall(fn, len(args)) {
+		// Not a callable — clean up and return nil
+		for range args {
 			if len(vm.stack) > 0 {
 				vm.pop()
 			}
 		}
+		vm.pc = savedPC
 		return nil
 	}
-	// Run until we return from the called frame (depth decreases)
-	targetDepth := len(vm.callStack)
-	for vm.pc < len(vm.program.Instructions) && len(vm.callStack) >= targetDepth {
-		instr := vm.program.Instructions[vm.pc]
-		if instr.Op == OpReturnValue || instr.Op == OpReturn {
-			vm.runDeferred(len(vm.callStack))
-			if len(vm.callStack) > 0 {
-				frame := vm.callStack[len(vm.callStack)-1]
-				vm.callStack = vm.callStack[:len(vm.callStack)-1]
-				if len(vm.locals) > 0 {
-					vm.locals = vm.locals[:len(vm.locals)-1]
-				}
-				vm.pc = frame.pc - 1
-			}
-			break
-		}
-		// Run the instruction via the main dispatch
-		_ = vm.execOne(instr)
-		vm.pc++
-	}
-	_ = origPC
-	if len(vm.stack) > 0 {
-		return vm.pop()
-	}
-	return nil
-}
+	// dispatchCall sets vm.pc = entryPC - 1; advance to actual entry point.
+	vm.pc++
+	// Run until the called function returns (callStack depth drops back to startDepth).
+	_ = vm.runLoop(startDepth)
 
-// execOne runs a single instruction without incrementing the PC.
-// Used by applyFn for inline sub-execution.
-func (vm *VM) execOne(instr Instruction) error {
-	// Minimal subset needed for map/filter/reduce callbacks
-	switch instr.Op {
-	case OpPush:
-		if len(instr.Args) > 0 {
-			idx := instr.Args[0].(int)
-			vm.stack = append(vm.stack, vm.program.Constants[idx])
-		}
-	case OpLoad:
-		if len(instr.Args) > 0 {
-			varIdx := instr.Args[0].(int)
-			if len(vm.locals) > 0 {
-				localMap := vm.locals[len(vm.locals)-1]
-				key := fmt.Sprintf("_var_%d", varIdx)
-				if val, ok := localMap[key]; ok {
-					vm.stack = append(vm.stack, val)
-					return nil
-				}
-			}
-			vm.stack = append(vm.stack, nil)
-		}
-	case OpAdd:
-		if len(vm.stack) >= 2 {
-			right := vm.pop()
-			left := vm.pop()
-			vm.stack = append(vm.stack, vm.add(left, right))
-		}
-	case OpSub:
-		if len(vm.stack) >= 2 {
-			right := vm.pop()
-			left := vm.pop()
-			vm.stack = append(vm.stack, vm.subtract(left, right))
-		}
-	case OpMul:
-		if len(vm.stack) >= 2 {
-			right := vm.pop()
-			left := vm.pop()
-			vm.stack = append(vm.stack, vm.multiply(left, right))
-		}
+	var result interface{}
+	if len(vm.stack) > 0 {
+		result = vm.pop()
 	}
-	return nil
+	// Restore the outer pc: Run()/runLoop()'s vm.pc++ will advance past the OpMethodCall.
+	vm.pc = savedPC
+	return result
 }
 
 // sortArray returns a sorted copy of an interface{} slice.

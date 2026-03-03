@@ -1574,6 +1574,15 @@ func (p *Parser) primary() (ast.Expression, error) {
 		}
 	} else if p.match(lexer.TokenNil) {
 		expr = ast.NilExpr{Line: p.previous().Pos.Line}
+	} else if p.match(lexer.TokenInt) {
+		// Allow type names as callable identifiers: int("42"), float("3.14"), etc.
+		expr = ast.IdentifierExpr{Line: p.previous().Pos.Line, Name: "int"}
+	} else if p.match(lexer.TokenStringType) {
+		expr = ast.IdentifierExpr{Line: p.previous().Pos.Line, Name: "string"}
+	} else if p.match(lexer.TokenBoolType) {
+		expr = ast.IdentifierExpr{Line: p.previous().Pos.Line, Name: "bool"}
+	} else if p.match(lexer.TokenFloatType) {
+		expr = ast.IdentifierExpr{Line: p.previous().Pos.Line, Name: "float"}
 	} else if p.match(lexer.TokenChan) {
 		typ, err := p.parseType()
 		if err != nil {
@@ -1581,7 +1590,8 @@ func (p *Parser) primary() (ast.Expression, error) {
 		}
 		expr = ast.ChanExpr{Line: p.previous().Pos.Line, Type: typ}
 	} else {
-		return nil, fmt.Errorf("Expected expression")
+		tok := p.peek()
+		return nil, fmt.Errorf("Expected expression at line %d (got token kind: %v)", tok.Pos.Line, tok.Kind)
 	}
 
 	if p.match(lexer.TokenPlusPlus) {
