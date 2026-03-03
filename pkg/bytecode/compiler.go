@@ -135,21 +135,19 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 		if len(c.loopStack) == 0 {
 			return fmt.Errorf("break statement outside of loop")
 		}
-		topLoop := c.loopStack[len(c.loopStack)-1]
 		// Emit OpBreak with placeholder offset - will be patched later
 		breakIdx := len(c.buf.instructions)
 		c.buf.Emit(OpBreak, 0)
-		topLoop.breakInstructions = append(topLoop.breakInstructions, breakIdx)
+		c.loopStack[len(c.loopStack)-1].breakInstructions = append(c.loopStack[len(c.loopStack)-1].breakInstructions, breakIdx)
 		return nil
 	case ast.ContinueStmt:
 		if len(c.loopStack) == 0 {
 			return fmt.Errorf("continue statement outside of loop")
 		}
-		topLoop := c.loopStack[len(c.loopStack)-1]
 		// Emit OpContinue with placeholder offset - will be patched later
 		continueIdx := len(c.buf.instructions)
 		c.buf.Emit(OpContinue, 0)
-		topLoop.continueInstructions = append(topLoop.continueInstructions, continueIdx)
+		c.loopStack[len(c.loopStack)-1].continueInstructions = append(c.loopStack[len(c.loopStack)-1].continueInstructions, continueIdx)
 		return nil
 	case ast.ImportStmt:
 		return nil
@@ -409,14 +407,16 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 		continueTarget := topLoop.continueTarget // Use stored continueTarget
 		
 		// Patch break instructions
+		// OpBreak VM formula: newPC = vm.pc + offset - 1, then pc++, so final_pc = vm.pc + offset
+		// To land at breakTarget: offset = breakTarget - breakIdx
 		for _, breakIdx := range topLoop.breakInstructions {
-			offset := breakTarget - breakIdx - 1
+			offset := breakTarget - breakIdx
 			c.buf.instructions[breakIdx].Args[0] = offset
 		}
 		
 		// Patch continue instructions
 		for _, continueIdx := range topLoop.continueInstructions {
-			offset := continueTarget - continueIdx - 1
+			offset := continueTarget - continueIdx
 			c.buf.instructions[continueIdx].Args[0] = offset
 		}
 		
@@ -494,23 +494,20 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 		continueTarget := topLoop.continueTarget // Jump back to condition
 		
 		// Patch break instructions
+		// OpBreak VM formula: newPC = vm.pc + offset - 1, then pc++, so final_pc = vm.pc + offset
+		// To land at breakTarget: offset = breakTarget - breakIdx
 		for _, breakIdx := range topLoop.breakInstructions {
-			offset := breakTarget - breakIdx - 1
+			offset := breakTarget - breakIdx
 			c.buf.instructions[breakIdx].Args[0] = offset
 		}
 		
 		// Patch continue instructions
 		for _, continueIdx := range topLoop.continueInstructions {
-			offset := continueTarget - continueIdx - 1
+			offset := continueTarget - continueIdx
 			c.buf.instructions[continueIdx].Args[0] = offset
 		}
 		
 		// Pop the loop context
-		c.loopStack = c.loopStack[:len(c.loopStack)-1]
-	}
-	
-	return nil
-}		// Pop the loop context
 		c.loopStack = c.loopStack[:len(c.loopStack)-1]
 	}
 	
