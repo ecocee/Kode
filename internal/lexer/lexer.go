@@ -62,6 +62,7 @@ const (
 	TokenIn
 	TokenFrom
 	TokenCatch
+	TokenTry
 	TokenUnderscore
 	TokenTrue
 	TokenFalse
@@ -100,6 +101,16 @@ const (
 
 	// Walrus operator
 	TokenWalrus
+
+	// Nil literal
+	TokenNil
+
+	// Compound assignment
+	TokenPlusEq
+	TokenMinusEq
+	TokenStarEq
+	TokenSlashEq
+	TokenPercentEq
 
 	// Symbols
 	TokenLParen
@@ -162,6 +173,12 @@ var keywords = map[string]TokenKind{
 	"select":   TokenSelect,
 	"chan":     TokenChan,
 	"defer":    TokenDefer,
+	"nil":      TokenNil,
+	"try":      TokenTry,
+	"catch":    TokenCatch,
+	"in":       TokenIn,
+	"main":     TokenMain,
+	"go":       TokenGo,
 	"import":   TokenImport,
 	"from":     TokenFrom,
 	"service":  TokenService,
@@ -223,6 +240,10 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				l.consumeChar()
 				l.consumeChar()
 				l.column += 2
+			} else if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenPlusEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
 			} else {
 				tokens = append(tokens, Token{Kind: TokenPlus, Pos: l.GetPosition()})
 				l.consumeChar()
@@ -237,23 +258,45 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				tokens = append(tokens, Token{Kind: TokenArrow, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
+			} else if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenMinusEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
 			} else {
 				tokens = append(tokens, Token{Kind: TokenMinus, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.column++
 			}
 		case ch == '*':
-			tokens = append(tokens, Token{Kind: TokenStar, Pos: l.GetPosition()})
-			l.consumeChar()
-			l.column++
+			if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenStarEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+			} else {
+				tokens = append(tokens, Token{Kind: TokenStar, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.column++
+			}
 		case ch == '/':
-			tokens = append(tokens, Token{Kind: TokenSlash, Pos: l.GetPosition()})
-			l.consumeChar()
-			l.column++
+			if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenSlashEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+			} else {
+				tokens = append(tokens, Token{Kind: TokenSlash, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.column++
+			}
 		case ch == '%':
-			tokens = append(tokens, Token{Kind: TokenPercent, Pos: l.GetPosition()})
-			l.consumeChar()
-			l.column++
+			if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenPercentEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+			} else {
+				tokens = append(tokens, Token{Kind: TokenPercent, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.column++
+			}
 		case ch == '.':
 			tokens = append(tokens, Token{Kind: TokenDot, Pos: l.GetPosition()})
 			l.consumeChar()

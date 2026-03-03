@@ -20,26 +20,30 @@ type LoopFrame struct {
 
 // VM is a bytecode virtual machine
 type VM struct {
-	program   *Program
-	stack     []interface{}
-	globals   map[string]interface{}
-	locals    []map[string]interface{} // Stack of local scopes
-	pc        int                      // Program counter
-	bp        int                      // Base pointer
-	callStack []CallFrame              // Call stack
-	loopStack []LoopFrame              // Loop stack for break/continue
-	functions map[string]*Program
+	program      *Program
+	stack        []interface{}
+	globals      map[string]interface{}
+	locals       []map[string]interface{} // Stack of local scopes
+	pc           int                      // Program counter
+	bp           int                      // Base pointer
+	callStack    []CallFrame              // Call stack
+	loopStack    []LoopFrame              // Loop stack for break/continue
+	functions    map[string]*Program
+	tryStack     []int   // Stack of catch block PCs for nested try/catch
+	deferredPCs  [][]int // Per-call-frame deferred code start PCs
 }
 
 // NewVM creates a new virtual machine
 func NewVM(program *Program) *VM {
 	return &VM{
-		program:   program,
-		stack:     make([]interface{}, 0, 256),
-		globals:   make(map[string]interface{}),
-		locals:    make([]map[string]interface{}, 0),
-		callStack: make([]CallFrame, 0),
-		loopStack: make([]LoopFrame, 0),
+		program:     program,
+		stack:       make([]interface{}, 0, 256),
+		globals:     make(map[string]interface{}),
+		locals:      make([]map[string]interface{}, 0),
+		callStack:   make([]CallFrame, 0),
+		loopStack:   make([]LoopFrame, 0),
+		tryStack:    make([]int, 0),
+		deferredPCs: make([][]int, 0),
 	}
 }
 
@@ -106,7 +110,11 @@ func (vm *VM) Run() error {
 				right := vm.pop()
 				left := vm.pop()
 				if left == nil || right == nil {
-					return fmt.Errorf("cannot perform arithmetic on nil value")
+					runtimeErr := fmt.Errorf("cannot perform arithmetic on nil value")
+					if !vm.tryHandleError(runtimeErr) {
+						return runtimeErr
+					}
+					continue
 				}
 				result := vm.add(left, right)
 				vm.stack = append(vm.stack, result)
@@ -117,7 +125,11 @@ func (vm *VM) Run() error {
 				right := vm.pop()
 				left := vm.pop()
 				if left == nil || right == nil {
-					return fmt.Errorf("cannot perform arithmetic on nil value")
+					runtimeErr := fmt.Errorf("cannot perform arithmetic on nil value")
+					if !vm.tryHandleError(runtimeErr) {
+						return runtimeErr
+					}
+					continue
 				}
 				result := vm.subtract(left, right)
 				vm.stack = append(vm.stack, result)
@@ -128,7 +140,11 @@ func (vm *VM) Run() error {
 				right := vm.pop()
 				left := vm.pop()
 				if left == nil || right == nil {
-					return fmt.Errorf("cannot perform arithmetic on nil value")
+					runtimeErr := fmt.Errorf("cannot perform arithmetic on nil value")
+					if !vm.tryHandleError(runtimeErr) {
+						return runtimeErr
+					}
+					continue
 				}
 				result := vm.multiply(left, right)
 				vm.stack = append(vm.stack, result)
@@ -139,10 +155,18 @@ func (vm *VM) Run() error {
 				right := vm.pop()
 				left := vm.pop()
 				if left == nil || right == nil {
-					return fmt.Errorf("cannot perform arithmetic on nil value")
+					runtimeErr := fmt.Errorf("cannot perform arithmetic on nil value")
+					if !vm.tryHandleError(runtimeErr) {
+						return runtimeErr
+					}
+					continue
 				}
 				if (isInt(right) && asInt(right) == 0) || (isFloat(right) && asFloat(right) == 0) {
-					return fmt.Errorf("division by zero")
+					runtimeErr := fmt.Errorf("division by zero")
+					if !vm.tryHandleError(runtimeErr) {
+						return runtimeErr
+					}
+					continue
 				}
 				result := vm.divide(left, right)
 				vm.stack = append(vm.stack, result)
@@ -153,10 +177,18 @@ func (vm *VM) Run() error {
 				right := vm.pop()
 				left := vm.pop()
 				if left == nil || right == nil {
-					return fmt.Errorf("cannot perform arithmetic on nil value")
+					runtimeErr := fmt.Errorf("cannot perform arithmetic on nil value")
+					if !vm.tryHandleError(runtimeErr) {
+						return runtimeErr
+					}
+					continue
 				}
 				if isInt(right) && asInt(right) == 0 {
-					return fmt.Errorf("modulo by zero")
+					runtimeErr := fmt.Errorf("modulo by zero")
+					if !vm.tryHandleError(runtimeErr) {
+						return runtimeErr
+					}
+					continue
 				}
 				result := vm.modulo(left, right)
 				vm.stack = append(vm.stack, result)
@@ -397,14 +429,26 @@ func (vm *VM) Run() error {
 					case int64:
 						idx = int(i)
 					default:
-						return fmt.Errorf("array index must be an integer, got %T", index)
+						runtimeErr := fmt.Errorf("array index must be an integer, got %T", index)
+						if !vm.tryHandleError(runtimeErr) {
+							return runtimeErr
+						}
+						continue
 					}
 					if idx < 0 || idx >= len(arr) {
-						return fmt.Errorf("index out of bounds: index %d, length %d", idx, len(arr))
+						runtimeErr := fmt.Errorf("index out of bounds: index %d, length %d", idx, len(arr))
+						if !vm.tryHandleError(runtimeErr) {
+							return runtimeErr
+						}
+						continue
 					}
 					vm.stack = append(vm.stack, arr[idx])
 				} else {
-					return fmt.Errorf("cannot index into non-array type %T", array)
+					runtimeErr := fmt.Errorf("cannot index into non-array type %T", array)
+					if !vm.tryHandleError(runtimeErr) {
+						return runtimeErr
+					}
+					continue
 				}
 			}
 
@@ -436,6 +480,85 @@ func (vm *VM) Run() error {
 				} else {
 					vm.stack = append(vm.stack, 0)
 				}
+			}
+
+		case OpArrayPush:
+			// Stack: [..., value, array] — pops array and value, pushes new array
+			if len(vm.stack) >= 2 {
+				arr := vm.pop()
+				val := vm.pop()
+				switch a := arr.(type) {
+				case []interface{}:
+					newArr := make([]interface{}, len(a)+1)
+					copy(newArr, a)
+					newArr[len(a)] = val
+					vm.stack = append(vm.stack, newArr)
+				default:
+					vm.stack = append(vm.stack, []interface{}{val})
+				}
+			}
+
+		case OpArrayPop:
+			// Stack: [..., array] — pops array, pushes popped_value then new_array on top
+			if len(vm.stack) > 0 {
+				arr := vm.pop()
+				switch a := arr.(type) {
+				case []interface{}:
+					if len(a) == 0 {
+						vm.stack = append(vm.stack, nil)
+						vm.stack = append(vm.stack, []interface{}{})
+					} else {
+						popped := a[len(a)-1]
+						newArr := make([]interface{}, len(a)-1)
+						copy(newArr, a[:len(a)-1])
+						vm.stack = append(vm.stack, popped)
+						vm.stack = append(vm.stack, newArr)
+					}
+				default:
+					vm.stack = append(vm.stack, nil)
+					vm.stack = append(vm.stack, []interface{}{})
+				}
+			}
+
+		case OpTryBegin:
+			// Register catch block offset
+			if len(instr.Args) > 0 {
+				catchOffset := instr.Args[0].(int)
+				catchPC := vm.pc + catchOffset
+				vm.tryStack = append(vm.tryStack, catchPC)
+			}
+
+		case OpTryEnd:
+			// Clear error handler
+			if len(vm.tryStack) > 0 {
+				vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+			}
+
+		case OpDefer:
+			// Register deferred code start and jump over the block
+			if len(instr.Args) > 0 {
+				jumpDist := instr.Args[0].(int)
+				deferredPC := vm.pc + 1 // first instruction of deferred block
+				depth := len(vm.callStack)
+				for len(vm.deferredPCs) <= depth {
+					vm.deferredPCs = append(vm.deferredPCs, []int{})
+				}
+				vm.deferredPCs[depth] = append(vm.deferredPCs[depth], deferredPC)
+				vm.pc += jumpDist // jump over deferred block
+			}
+
+		case OpThrow:
+			var errVal interface{}
+			if len(vm.stack) > 0 {
+				errVal = vm.pop()
+			}
+			if len(vm.tryStack) > 0 {
+				catchPC := vm.tryStack[len(vm.tryStack)-1]
+				vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+				vm.stack = append(vm.stack, errVal)
+				vm.pc = catchPC - 1
+			} else {
+				return fmt.Errorf("unhandled error: %v", errVal)
 			}
 
 		case OpMemberAccess:
@@ -625,6 +748,8 @@ func (vm *VM) Run() error {
 			}
 
 		case OpReturn:
+			// Execute deferred calls for this frame
+			vm.runDeferred(len(vm.callStack))
 			// Return without value - pop frame
 			if len(vm.callStack) > 0 {
 				frame := vm.callStack[len(vm.callStack)-1]
@@ -639,6 +764,8 @@ func (vm *VM) Run() error {
 			}
 
 		case OpReturnValue:
+			// Execute deferred calls for this frame
+			vm.runDeferred(len(vm.callStack))
 			// Return with value - value is already on stack
 			if len(vm.callStack) > 0 {
 				frame := vm.callStack[len(vm.callStack)-1]
@@ -696,6 +823,43 @@ func (vm *VM) pop() interface{} {
 		return val
 	}
 	return nil
+}
+
+// runDeferred executes all deferred calls registered at the given call depth
+func (vm *VM) runDeferred(depth int) {
+	if depth >= len(vm.deferredPCs) {
+		return
+	}
+	deferred := vm.deferredPCs[depth]
+	// Execute in LIFO order
+	for i := len(deferred) - 1; i >= 0; i-- {
+		savedPC := vm.pc
+		vm.pc = deferred[i]
+		// Run until we hit OpNoop (end of deferred block) or OpReturn
+		for vm.pc < len(vm.program.Instructions) {
+			instr := vm.program.Instructions[vm.pc]
+			if instr.Op == OpNoop {
+				break
+			}
+			// Execute instruction (simplified - just advance PC for now)
+			vm.pc++
+		}
+		vm.pc = savedPC
+	}
+	vm.deferredPCs[depth] = nil
+}
+
+// tryHandleError attempts to route a runtime error to the nearest catch block.
+// Returns true if the error was caught (vm.pc is set to catch PC - 1).
+func (vm *VM) tryHandleError(err error) bool {
+	if len(vm.tryStack) > 0 {
+		catchPC := vm.tryStack[len(vm.tryStack)-1]
+		vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+		vm.stack = append(vm.stack, err.Error())
+		vm.pc = catchPC - 1 // will be incremented by the loop
+		return true
+	}
+	return false
 }
 
 // Type checking helpers

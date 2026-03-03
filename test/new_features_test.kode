@@ -1,0 +1,97 @@
+// Test file for all new features
+
+// ============================
+// 1. nil literal
+// ============================
+let x = nil
+print("nil test:")
+print(x)
+
+// ============================
+// 2. Compound assignment operators
+// ============================
+print("compound assign test:")
+let a = 10
+a += 5
+print(a)  // 15
+
+a -= 3
+print(a)  // 12
+
+a *= 2
+print(a)  // 24
+
+a /= 4
+print(a)  // 6
+
+a %= 4
+print(a)  // 2
+
+// ============================
+// 3. Pre-increment / pre-decrement
+// ============================
+print("pre-increment test:")
+let b = 5
+let c = ++b
+print(b)  // 6
+print(c)  // 6
+
+let d = --b
+print(b)  // 5
+print(d)  // 5
+
+// ============================
+// 4. Array push/pop
+// ============================
+print("array push/pop test:")
+let arr = [1, 2, 3]
+arr.push(4)
+arr.push(5)
+print(arr)  // [1, 2, 3, 4, 5]
+
+let popped = arr.pop()
+print(popped)  // 5
+print(arr)   // [1, 2, 3, 4]
+
+// ============================
+// 5. For-in loop
+// ============================
+print("for-in loop test:")
+let nums = [10, 20, 30, 40]
+for n in nums {
+    print(n)
+}
+
+// ============================
+// 6. try/catch
+// ============================
+print("try/catch test:")
+try {
+    let val = 1 / 0
+    print("no error")
+} catch {
+    print("caught error")
+}
+
+// ============================
+// 7. match (basic literal patterns)
+// ============================
+print("match test:")
+let score = 2
+match score {
+    1 => "one"
+    2 => "two"
+    3 => "three"
+    _ => "other"
+}
+
+// ============================
+// 8. Post-increment (existing)
+// ============================
+print("post-increment test:")
+let i = 0
+i++
+i++
+print(i)  // 2
+
+print("all tests done")

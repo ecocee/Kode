@@ -66,6 +66,8 @@ const (
 	OpArrayAccess  // Access array element (pops index, pops array, pushes element)
 	OpArrayStore   // Store to array element (pops value, pops index, pops array)
 	OpArrayLen     // Get array length (pops array, pushes length)
+	OpArrayPush    // Append element to array (pops value, pops array, pushes new array)
+	OpArrayPop     // Remove last element from array (pops array, pushes (popped_value, new_array))
 	OpMemberAccess // Member access (arg: member name; pops object, pushes member value)
 
 	// Structs
@@ -83,6 +85,10 @@ const (
 	OpContinue        // Continue loop (arg: jump offset)
 	OpNoop            // No operation
 	OpHalt            // End execution
+	OpTryBegin        // Begin a try block (arg: catch block offset)
+	OpTryEnd          // End a try block (clear error handler)
+	OpDefer           // Defer a call (registers deferred instructions; arg: jump-over offset)
+	OpThrow           // Throw/raise an error value
 )
 
 // Value represents a runtime value

@@ -130,6 +130,8 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 		return c.compileIfStatement(&s)
 	case ast.ForStmt:
 		return c.compileForLoop(&s)
+	case ast.ForInStmt:
+		return c.compileForInLoop(&s)
 	case ast.WhileStmt:
 		return c.compileWhileLoop(&s)
 	case ast.BreakStmt:
@@ -177,14 +179,12 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 		c.buf.Emit(OpPrint)
 		return nil
 	case ast.TryStmt:
-		// Compile try body; catch not yet fully implemented
-		for _, inner := range s.Body {
-			if err := c.compileStatement(inner); err != nil {
-				return err
-			}
-		}
-		return nil
-	case ast.MatchStmt, ast.DeferStmt, ast.GoStmt, ast.SpawnStmt:
+		return c.compileTryStmt(&s)
+	case ast.MatchStmt:
+		return c.compileMatchStmt(&s)
+	case ast.DeferStmt:
+		return c.compileDeferStmt(&s)
+	case ast.GoStmt, ast.SpawnStmt:
 		// Not yet implemented — skip gracefully
 		return nil
 	default:
@@ -558,6 +558,335 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 	return nil
 }
 
+// compileForInLoop compiles a for-in loop: for x in arr { body }
+func (c *Compiler) compileForInLoop(stmt *ast.ForInStmt) error {
+	// Compile: let __iter = iterable; let __idx = 0; let __len = len(__iter)
+	// while __idx < __len { let x = __iter[__idx]; body; __idx++ }
+
+	// Allocate hidden loop variables
+	var iterIdx, loopIdxIdx, loopLenIdx int
+	if c.isInFunction {
+		iterIdx = c.localVarOffset
+		c.localVars["__iter_"+stmt.VarName] = iterIdx
+		c.localVarOffset++
+
+		loopIdxIdx = c.localVarOffset
+		c.localVars["__forin_idx_"+stmt.VarName] = loopIdxIdx
+		c.localVarOffset++
+
+		loopLenIdx = c.localVarOffset
+		c.localVars["__forin_len_"+stmt.VarName] = loopLenIdx
+		c.localVarOffset++
+	}
+
+	// Store the iterable
+	if err := c.compileExpression(stmt.Iterable); err != nil {
+		return err
+	}
+	if c.isInFunction {
+		c.buf.Emit(OpStore, iterIdx)
+	} else {
+		iterGlobal := c.buf.AddGlobal("__iter_" + stmt.VarName)
+		c.buf.Emit(OpStoreGlobal, iterGlobal)
+		_ = iterGlobal
+	}
+
+	// Store index = 0
+	idxConst := c.buf.AddConstant(0)
+	c.buf.Emit(OpPush, idxConst)
+	if c.isInFunction {
+		c.buf.Emit(OpStore, loopIdxIdx)
+	} else {
+		idxGlobal := c.buf.AddGlobal("__forin_idx_" + stmt.VarName)
+		c.buf.Emit(OpStoreGlobal, idxGlobal)
+		_ = idxGlobal
+	}
+
+	// Store len = len(iterable)
+	if c.isInFunction {
+		c.buf.Emit(OpLoad, iterIdx)
+	} else {
+		iterGlobal := c.buf.AddGlobal("__iter_" + stmt.VarName)
+		c.buf.Emit(OpLoadGlobal, iterGlobal)
+	}
+	c.buf.Emit(OpArrayLen)
+	if c.isInFunction {
+		c.buf.Emit(OpStore, loopLenIdx)
+	} else {
+		lenGlobal := c.buf.AddGlobal("__forin_len_" + stmt.VarName)
+		c.buf.Emit(OpStoreGlobal, lenGlobal)
+		_ = lenGlobal
+	}
+
+	// Loop start: check idx < len
+	loopStart := len(c.buf.instructions)
+
+	// Push loop context
+	c.loopStack = append(c.loopStack, LoopContext{
+		startPC:              loopStart,
+		continueTarget:       loopStart,
+		breakTarget:          0,
+		breakInstructions:    []int{},
+		continueInstructions: []int{},
+	})
+
+	// Condition: __forin_idx < __forin_len
+	if c.isInFunction {
+		c.buf.Emit(OpLoad, loopIdxIdx)
+		c.buf.Emit(OpLoad, loopLenIdx)
+	} else {
+		idxGlobal := c.buf.AddGlobal("__forin_idx_" + stmt.VarName)
+		lenGlobal := c.buf.AddGlobal("__forin_len_" + stmt.VarName)
+		c.buf.Emit(OpLoadGlobal, idxGlobal)
+		c.buf.Emit(OpLoadGlobal, lenGlobal)
+	}
+	c.buf.Emit(OpLt)
+	jmpExitIdx := len(c.buf.instructions)
+	c.buf.Emit(OpJmpIfFalse, 0)
+
+	// Bind loop variable: let varName = iterable[idx]
+	if c.isInFunction {
+		c.buf.Emit(OpLoad, iterIdx)
+		c.buf.Emit(OpLoad, loopIdxIdx)
+	} else {
+		iterGlobal := c.buf.AddGlobal("__iter_" + stmt.VarName)
+		idxGlobal := c.buf.AddGlobal("__forin_idx_" + stmt.VarName)
+		c.buf.Emit(OpLoadGlobal, iterGlobal)
+		c.buf.Emit(OpLoadGlobal, idxGlobal)
+	}
+	c.buf.Emit(OpArrayAccess)
+	if c.isInFunction {
+		// Allocate or reuse loop var slot
+		if _, exists := c.localVars[stmt.VarName]; !exists {
+			c.localVars[stmt.VarName] = c.localVarOffset
+			c.localVarOffset++
+		}
+		c.buf.Emit(OpStore, c.localVars[stmt.VarName])
+	} else {
+		varGlobal := c.buf.AddGlobal(stmt.VarName)
+		c.buf.Emit(OpStoreGlobal, varGlobal)
+	}
+
+	// Compile body
+	for _, s := range stmt.Body {
+		if err := c.compileStatement(s); err != nil {
+			return err
+		}
+	}
+
+	// Increment index
+	if c.isInFunction {
+		c.buf.Emit(OpLoad, loopIdxIdx)
+	} else {
+		idxGlobal := c.buf.AddGlobal("__forin_idx_" + stmt.VarName)
+		c.buf.Emit(OpLoadGlobal, idxGlobal)
+	}
+	c.buf.Emit(OpIncr)
+	if c.isInFunction {
+		c.buf.Emit(OpStore, loopIdxIdx)
+	} else {
+		idxGlobal := c.buf.AddGlobal("__forin_idx_" + stmt.VarName)
+		c.buf.Emit(OpStoreGlobal, idxGlobal)
+	}
+
+	// Jump back
+	jmpOffset := loopStart - len(c.buf.instructions) - 1
+	c.buf.Emit(OpJmp, jmpOffset)
+
+	// Patch exit jump
+	exitOffset := len(c.buf.instructions) - jmpExitIdx
+	c.buf.instructions[jmpExitIdx].Args[0] = exitOffset
+
+	// Patch break/continue
+	if len(c.loopStack) > 0 {
+		topLoop := c.loopStack[len(c.loopStack)-1]
+		breakTarget := len(c.buf.instructions)
+		continueTarget := topLoop.continueTarget
+		for _, breakIdx := range topLoop.breakInstructions {
+			c.buf.instructions[breakIdx].Args[0] = breakTarget - breakIdx
+		}
+		for _, continueIdx := range topLoop.continueInstructions {
+			c.buf.instructions[continueIdx].Args[0] = continueTarget - continueIdx
+		}
+		c.loopStack = c.loopStack[:len(c.loopStack)-1]
+	}
+
+	// Clean up hidden loop variables from localVars
+	if c.isInFunction {
+		delete(c.localVars, "__iter_"+stmt.VarName)
+		delete(c.localVars, "__forin_idx_"+stmt.VarName)
+		delete(c.localVars, "__forin_len_"+stmt.VarName)
+	}
+
+	return nil
+}
+
+// compileMatchStmt compiles a match statement
+func (c *Compiler) compileMatchStmt(stmt *ast.MatchStmt) error {
+	if len(stmt.Cases) == 0 {
+		return nil
+	}
+
+	// Compile the match expression once
+	if err := c.compileExpression(stmt.Expr); err != nil {
+		return err
+	}
+
+	// For each case: dup the match value, compile pattern, compare, jump if not equal
+	jmpEndIdxs := []int{}
+
+	for _, mc := range stmt.Cases {
+		switch pat := mc.Pattern.(type) {
+		case ast.WildcardPattern:
+			// Wildcard always matches — pop match value and compile body
+			c.buf.Emit(OpPop) // pop match value
+			if err := c.compileMatchBody(mc.Body); err != nil {
+				return err
+			}
+			// Jump to end (no need to check further)
+			jmpEndIdx := len(c.buf.instructions)
+			c.buf.Emit(OpJmp, 0)
+			jmpEndIdxs = append(jmpEndIdxs, jmpEndIdx)
+			// Skip remaining cases
+			goto patchEnd
+
+		case ast.LiteralPattern:
+			// Dup match value, push pattern value, compare
+			c.buf.Emit(OpDup)
+			patConst := c.buf.AddConstant(pat.Value)
+			c.buf.Emit(OpPush, patConst)
+			c.buf.Emit(OpEq)
+			// Jump over body if not equal
+			jmpNotMatchIdx := len(c.buf.instructions)
+			c.buf.Emit(OpJmpIfFalse, 0)
+			// Pop the (duplicated) match value before executing body
+			c.buf.Emit(OpPop)
+			if err := c.compileMatchBody(mc.Body); err != nil {
+				return err
+			}
+			// Jump to end
+			jmpEndIdx := len(c.buf.instructions)
+			c.buf.Emit(OpJmp, 0)
+			jmpEndIdxs = append(jmpEndIdxs, jmpEndIdx)
+			// Patch not-match jump
+			notMatchOffset := len(c.buf.instructions) - jmpNotMatchIdx
+			c.buf.instructions[jmpNotMatchIdx].Args[0] = notMatchOffset
+
+		case ast.IdentifierPattern:
+			// Bind the match value to the identifier and execute body
+			c.buf.Emit(OpDup) // Keep match value for pattern binding
+			// Store match value into the identifier
+			if c.isInFunction {
+				if _, exists := c.localVars[pat.Name]; !exists {
+					c.localVars[pat.Name] = c.localVarOffset
+					c.localVarOffset++
+				}
+				c.buf.Emit(OpStore, c.localVars[pat.Name])
+			} else {
+				varGlobal := c.buf.AddGlobal(pat.Name)
+				c.buf.Emit(OpStoreGlobal, varGlobal)
+			}
+			c.buf.Emit(OpPop) // Pop remaining dup
+			if err := c.compileMatchBody(mc.Body); err != nil {
+				return err
+			}
+			jmpEndIdx := len(c.buf.instructions)
+			c.buf.Emit(OpJmp, 0)
+			jmpEndIdxs = append(jmpEndIdxs, jmpEndIdx)
+			goto patchEnd
+
+		default:
+			// Unknown pattern - skip
+			c.buf.Emit(OpPop)
+		}
+	}
+
+patchEnd:
+	// Pop the original match value if no case consumed it (possible if no wildcard/ident at end)
+	c.buf.Emit(OpPop) // pop match value (may be no-op if already consumed)
+
+	// Patch all end jumps
+	endPC := len(c.buf.instructions)
+	for _, idx := range jmpEndIdxs {
+		c.buf.instructions[idx].Args[0] = endPC - idx
+	}
+
+	return nil
+}
+
+// compileMatchBody compiles the body expression of a match arm
+func (c *Compiler) compileMatchBody(body ast.Expression) error {
+	if err := c.compileExpression(body); err != nil {
+		return err
+	}
+	c.buf.Emit(OpPrint)
+	return nil
+}
+
+// compileTryStmt compiles a try/catch statement
+func (c *Compiler) compileTryStmt(stmt *ast.TryStmt) error {
+	// Emit TryBegin with placeholder offset to catch block
+	tryBeginIdx := len(c.buf.instructions)
+	c.buf.Emit(OpTryBegin, 0)
+
+	// Compile try body
+	for _, inner := range stmt.Body {
+		if err := c.compileStatement(inner); err != nil {
+			return err
+		}
+	}
+
+	// Emit TryEnd and jump over catch block
+	c.buf.Emit(OpTryEnd)
+	jmpOverCatchIdx := len(c.buf.instructions)
+	c.buf.Emit(OpJmp, 0)
+
+	// Patch TryBegin to point to catch block
+	catchPC := len(c.buf.instructions)
+	catchOffset := catchPC - tryBeginIdx
+	c.buf.instructions[tryBeginIdx].Args[0] = catchOffset
+
+	// Compile catch body
+	for _, inner := range stmt.Catch {
+		if err := c.compileStatement(inner); err != nil {
+			return err
+		}
+	}
+
+	// Patch jump over catch
+	endOffset := len(c.buf.instructions) - jmpOverCatchIdx
+	c.buf.instructions[jmpOverCatchIdx].Args[0] = endOffset
+
+	return nil
+}
+
+// compileDeferStmt compiles a defer statement
+func (c *Compiler) compileDeferStmt(stmt *ast.DeferStmt) error {
+	// Emit OpDefer with a jump-over offset so the deferred block is skipped
+	// on normal execution, but will be called on return.
+	// We encode deferred calls as inline deferred sections.
+	deferIdx := len(c.buf.instructions)
+	c.buf.Emit(OpDefer, 0)
+
+	// Save start of deferred code
+	deferCodeStart := len(c.buf.instructions)
+
+	// Compile the deferred call
+	if err := c.compileExpression(stmt.Call); err != nil {
+		return err
+	}
+	// Pop the return value of the deferred call
+	c.buf.Emit(OpPop)
+	// Emit a return from deferred section (OpNoop — VM pops deferred context)
+	c.buf.Emit(OpNoop)
+
+	// Patch OpDefer to skip over the deferred block
+	deferEnd := len(c.buf.instructions)
+	c.buf.instructions[deferIdx].Args[0] = deferEnd - deferCodeStart
+
+	return nil
+}
+
 // compileFunctionBody compiles the body of a function declaration
 func (c *Compiler) compileFunctionBody(fnStmt *ast.FunctionDefStmt) error {
 	// Register function entry point
@@ -650,6 +979,9 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 			varIdx := c.buf.AddGlobal(e.Name)
 			c.buf.Emit(OpLoadGlobal, varIdx)
 		}
+	case ast.NilExpr:
+		idx := c.buf.AddConstant(nil)
+		c.buf.Emit(OpPush, idx)
 	case ast.BinaryExpr:
 		return c.compileBinaryExpression(&e)
 	case ast.UnaryExpr:
@@ -799,6 +1131,52 @@ func (c *Compiler) compileUnaryExpression(expr *ast.UnaryExpr) error {
 			c.buf.Emit(OpDecr)
 		}
 
+	case ast.OpPreInc:
+		// Handle prefix increment: ++i
+		// Increments variable and returns new value
+		if ident, ok := expr.Expr.(ast.IdentifierExpr); ok {
+			if localIdx, ok2 := c.localVars[ident.Name]; ok2 {
+				c.buf.Emit(OpLoad, localIdx)
+				c.buf.Emit(OpIncr)
+				c.buf.Emit(OpStore, localIdx)
+				c.buf.Emit(OpLoad, localIdx)
+			} else {
+				varIdx := c.buf.AddGlobal(ident.Name)
+				c.buf.Emit(OpLoadGlobal, varIdx)
+				c.buf.Emit(OpIncr)
+				c.buf.Emit(OpStoreGlobal, varIdx)
+				c.buf.Emit(OpLoadGlobal, varIdx)
+			}
+		} else {
+			if err := c.compileExpression(expr.Expr); err != nil {
+				return err
+			}
+			c.buf.Emit(OpIncr)
+		}
+
+	case ast.OpPreDec:
+		// Handle prefix decrement: --i
+		// Decrements variable and returns new value
+		if ident, ok := expr.Expr.(ast.IdentifierExpr); ok {
+			if localIdx, ok2 := c.localVars[ident.Name]; ok2 {
+				c.buf.Emit(OpLoad, localIdx)
+				c.buf.Emit(OpDecr)
+				c.buf.Emit(OpStore, localIdx)
+				c.buf.Emit(OpLoad, localIdx)
+			} else {
+				varIdx := c.buf.AddGlobal(ident.Name)
+				c.buf.Emit(OpLoadGlobal, varIdx)
+				c.buf.Emit(OpDecr)
+				c.buf.Emit(OpStoreGlobal, varIdx)
+				c.buf.Emit(OpLoadGlobal, varIdx)
+			}
+		} else {
+			if err := c.compileExpression(expr.Expr); err != nil {
+				return err
+			}
+			c.buf.Emit(OpDecr)
+		}
+
 	default:
 		return fmt.Errorf("unknown unary operator: %v", expr.Op)
 	}
@@ -870,6 +1248,91 @@ func (c *Compiler) compileCallExpression(expr *ast.CallExpr) error {
 		}
 
 		c.buf.Emit(OpCall, ident.Name, len(expr.Arguments))
+	} else if mem, ok := expr.Callee.(ast.MemberAccessExpr); ok {
+		// Method call on an object: obj.method(args...)
+		switch mem.Member {
+		case "push":
+			// arr.push(val) — append val to arr and store back
+			if objIdent, ok2 := mem.Object.(ast.IdentifierExpr); ok2 {
+				// Compile the value to push
+				if len(expr.Arguments) > 0 {
+					if err := c.compileExpression(expr.Arguments[0]); err != nil {
+						return err
+					}
+				} else {
+					nilIdx := c.buf.AddConstant(nil)
+					c.buf.Emit(OpPush, nilIdx)
+				}
+				// Load the array
+				if localIdx, ok3 := c.localVars[objIdent.Name]; ok3 {
+					c.buf.Emit(OpLoad, localIdx)
+				} else {
+					arrIdx := c.buf.AddGlobal(objIdent.Name)
+					c.buf.Emit(OpLoadGlobal, arrIdx)
+				}
+				// OpArrayPush: pops (array, value) and pushes new_array
+				c.buf.Emit(OpArrayPush)
+				// Store new array back
+				if localIdx, ok3 := c.localVars[objIdent.Name]; ok3 {
+					c.buf.Emit(OpStore, localIdx)
+				} else {
+					arrIdx := c.buf.AddGlobal(objIdent.Name)
+					c.buf.Emit(OpStoreGlobal, arrIdx)
+				}
+				// Push nil as call return value
+				nilIdx := c.buf.AddConstant(nil)
+				c.buf.Emit(OpPush, nilIdx)
+			} else {
+				// Non-identifier — compile object and args, emit generic call
+				if err := c.compileExpression(mem.Object); err != nil {
+					return err
+				}
+				for _, arg := range expr.Arguments {
+					if err := c.compileExpression(arg); err != nil {
+						return err
+					}
+				}
+				c.buf.Emit(OpArrayPush)
+			}
+		case "pop":
+			// arr.pop() — remove last element, store new array back, return popped value
+			if objIdent, ok2 := mem.Object.(ast.IdentifierExpr); ok2 {
+				// Load the array
+				if localIdx, ok3 := c.localVars[objIdent.Name]; ok3 {
+					c.buf.Emit(OpLoad, localIdx)
+				} else {
+					arrIdx := c.buf.AddGlobal(objIdent.Name)
+					c.buf.Emit(OpLoadGlobal, arrIdx)
+				}
+				// OpArrayPop: pops array, pushes (new_array, popped_value)
+				c.buf.Emit(OpArrayPop)
+				// Stack is now: [..., popped_value, new_array]
+				// Store new array back (it's on top)
+				if localIdx, ok3 := c.localVars[objIdent.Name]; ok3 {
+					c.buf.Emit(OpStore, localIdx)
+				} else {
+					arrIdx := c.buf.AddGlobal(objIdent.Name)
+					c.buf.Emit(OpStoreGlobal, arrIdx)
+				}
+				// popped_value is now on top (the "return value")
+			} else {
+				if err := c.compileExpression(mem.Object); err != nil {
+					return err
+				}
+				c.buf.Emit(OpArrayPop)
+			}
+		default:
+			// Other method calls on arbitrary objects — compile as generic call
+			if err := c.compileExpression(mem.Object); err != nil {
+				return err
+			}
+			for _, arg := range expr.Arguments {
+				if err := c.compileExpression(arg); err != nil {
+					return err
+				}
+			}
+			c.buf.Emit(OpCall, mem.Member, len(expr.Arguments)+1)
+		}
 	}
 
 	return nil

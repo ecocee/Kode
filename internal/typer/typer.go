@@ -242,6 +242,19 @@ func (t *Typer) checkStatement(stmt ast.Statement) error {
 				return err
 			}
 		}
+	case ast.ForInStmt:
+		// Check iterable and bind loop variable
+		_, err := t.inferExpression(s.Iterable)
+		if err != nil {
+			return err
+		}
+		// Bind loop variable to a fresh type variable
+		t.env[s.VarName] = t.newTypeVar()
+		for _, stmt := range s.Body {
+			if err := t.checkStatement(stmt); err != nil {
+				return err
+			}
+		}
 	case ast.StructDeclStmt:
 		// Register struct type
 		fields := make(map[string]ast.Type)
@@ -260,6 +273,24 @@ func (t *Typer) checkStatement(stmt ast.Statement) error {
 	case ast.ExprStmt:
 		_, err := t.inferExpression(s.Expr)
 		return err
+	case ast.DeferStmt:
+		_, err := t.inferExpression(s.Call)
+		return err
+	case ast.TryStmt:
+		for _, stmt := range s.Body {
+			if err := t.checkStatement(stmt); err != nil {
+				return err
+			}
+		}
+		for _, stmt := range s.Catch {
+			if err := t.checkStatement(stmt); err != nil {
+				return err
+			}
+		}
+		return nil
+	case ast.MatchStmt:
+		_, err := t.inferExpression(s.Expr)
+		return err
 		// Add more cases as needed
 	}
 	return nil
@@ -276,6 +307,8 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 		return ast.BoolType{}, nil
 	case ast.StringExpr:
 		return ast.StringType{}, nil
+	case ast.NilExpr:
+		return nil, nil
 	case ast.IdentifierExpr:
 		if typ, ok := t.env[e.Name]; ok {
 			if typ == nil {

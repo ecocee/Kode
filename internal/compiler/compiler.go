@@ -172,6 +172,8 @@ func (c *Compiler) compileStatementToBlock(stmt ast.Statement, block *ir.IRBlock
 		})
 	case ast.ExprStmt:
 		c.compileExpressionWithBlock(s.Expr, block)
+	case ast.ForInStmt:
+		// For-in is handled entirely by the bytecode compiler; IR pass is a no-op
 	}
 	return nil
 }
@@ -187,6 +189,8 @@ func (c *Compiler) compileExpressionWithBlock(expr ast.Expression, block *ir.IRB
 		return ir.IRConstant{Type: ast.FloatType{}, Value: e.Value}
 	case ast.BoolExpr:
 		return ir.IRConstant{Type: ast.BoolType{}, Value: e.Value}
+	case ast.NilExpr:
+		return ir.IRConstant{Type: ast.IntType{}, Value: nil}
 	case ast.IdentifierExpr:
 		return ir.IRVariable{Name: e.Name, Type: ast.IntType{}} // Simplified
 	case ast.CallExpr:

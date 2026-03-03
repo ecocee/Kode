@@ -670,6 +670,8 @@ func (p *Parser) statement() (ast.Statement, error) {
 		return p.deferStatement()
 	} else if p.match(lexer.TokenMatch) {
 		return p.matchStatement()
+	} else if p.match(lexer.TokenTry) {
+		return p.tryStatement()
 	} else if p.check(lexer.TokenIdentifier) && p.current+1 < len(p.tokens) && p.tokens[p.current+1].Kind == lexer.TokenColon {
 		// Handle name : type = expression
 		line := p.peek().Pos.Line
@@ -834,6 +836,12 @@ func (p *Parser) whileStatement() (ast.Statement, error) {
 
 func (p *Parser) forStatement() (ast.Statement, error) {
 	line := p.previous().Pos.Line // 'for' token
+
+	// Check for for-in loop: for identifier in iterable { body }
+	if p.check(lexer.TokenIdentifier) && p.current+1 < len(p.tokens) && p.tokens[p.current+1].Kind == lexer.TokenIn {
+		return p.forInStatement(line)
+	}
+
 	if _, err := p.consume(lexer.TokenLParen, "Expected '(' after 'for'"); err != nil {
 		return nil, err
 	}
@@ -901,6 +909,39 @@ func (p *Parser) forStatement() (ast.Statement, error) {
 	}, nil
 }
 
+func (p *Parser) forInStatement(line int) (ast.Statement, error) {
+	// Parse: for identifier in iterable { body }
+	varName, err := p.consumeIdentifier("Expected variable name after 'for'")
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.consume(lexer.TokenIn, "Expected 'in' after variable name in for-in loop"); err != nil {
+		return nil, err
+	}
+
+	iterable, err := p.expression()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.consume(lexer.TokenLBrace, "Expected '{' before for-in body"); err != nil {
+		return nil, err
+	}
+
+	body, err := p.block()
+	if err != nil {
+		return nil, err
+	}
+
+	return ast.ForInStmt{
+		Line:     line,
+		VarName:  varName,
+		Iterable: iterable,
+		Body:     body,
+	}, nil
+}
+
 func (p *Parser) deferStatement() (ast.Statement, error) {
 	line := p.previous().Pos.Line // 'defer' token
 	call, err := p.expression()
@@ -912,6 +953,40 @@ func (p *Parser) deferStatement() (ast.Statement, error) {
 	p.match(lexer.TokenSemicolon)
 
 	return ast.DeferStmt{Line: line, Call: call}, nil
+}
+
+func (p *Parser) tryStatement() (ast.Statement, error) {
+	line := p.previous().Pos.Line // 'try' token
+
+	if _, err := p.consume(lexer.TokenLBrace, "Expected '{' after 'try'"); err != nil {
+		return nil, err
+	}
+
+	body, err := p.block()
+	if err != nil {
+		return nil, err
+	}
+
+	var catchBody []ast.Statement
+	if p.match(lexer.TokenCatch) {
+		// catch can optionally have a variable name: catch(e) { }  or just catch { }
+		if p.match(lexer.TokenLParen) {
+			// Parse optional catch variable
+			p.consumeIdentifier("Expected catch variable name")
+			if _, err := p.consume(lexer.TokenRParen, "Expected ')' after catch variable"); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := p.consume(lexer.TokenLBrace, "Expected '{' after 'catch'"); err != nil {
+			return nil, err
+		}
+		catchBody, err = p.block()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return ast.TryStmt{Line: line, Body: body, Catch: catchBody}, nil
 }
 
 func (p *Parser) matchStatement() (ast.Statement, error) {
@@ -943,9 +1018,8 @@ func (p *Parser) matchStatement() (ast.Statement, error) {
 
 		cases = append(cases, ast.MatchCase{Pattern: pat, Body: body})
 
-		if !p.match(lexer.TokenComma) {
-			break
-		}
+		// Allow optional comma between cases; newline-separated is also fine
+		p.match(lexer.TokenComma)
 	}
 
 	if _, err := p.consume(lexer.TokenRBrace, "Expected '}' after match"); err != nil {
@@ -1023,6 +1097,47 @@ func (p *Parser) assignment() (ast.Expression, error) {
 			}, nil
 		}
 		return nil, fmt.Errorf("Invalid assignment target")
+	}
+
+	// Compound assignment operators: +=, -=, *=, /=, %=
+	var compoundOp ast.BinaryOp
+	isCompound := false
+	if p.match(lexer.TokenPlusEq) {
+		compoundOp = ast.OpAdd
+		isCompound = true
+	} else if p.match(lexer.TokenMinusEq) {
+		compoundOp = ast.OpSubtract
+		isCompound = true
+	} else if p.match(lexer.TokenStarEq) {
+		compoundOp = ast.OpMultiply
+		isCompound = true
+	} else if p.match(lexer.TokenSlashEq) {
+		compoundOp = ast.OpDivide
+		isCompound = true
+	} else if p.match(lexer.TokenPercentEq) {
+		compoundOp = ast.OpModulo
+		isCompound = true
+	}
+	if isCompound {
+		if id, ok := expr.(ast.IdentifierExpr); ok {
+			value, err := p.assignment()
+			if err != nil {
+				return nil, err
+			}
+			// Desugar: a op= b  =>  a = a op b
+			return ast.BinaryExpr{
+				Line: p.previous().Pos.Line,
+				Left: id,
+				Op:   ast.OpAssign,
+				Right: ast.BinaryExpr{
+					Line:  p.previous().Pos.Line,
+					Left:  id,
+					Op:    compoundOp,
+					Right: value,
+				},
+			}, nil
+		}
+		return nil, fmt.Errorf("Invalid compound assignment target")
 	}
 
 	return expr, nil
@@ -1237,6 +1352,23 @@ func (p *Parser) factor() (ast.Expression, error) {
 }
 
 func (p *Parser) unary() (ast.Expression, error) {
+	// Prefix ++ and --
+	if p.match(lexer.TokenPlusPlus) {
+		line := p.previous().Pos.Line
+		expr, err := p.call()
+		if err != nil {
+			return nil, err
+		}
+		return ast.UnaryExpr{Line: line, Op: ast.OpPreInc, Expr: expr}, nil
+	}
+	if p.match(lexer.TokenMinusMinus) {
+		line := p.previous().Pos.Line
+		expr, err := p.call()
+		if err != nil {
+			return nil, err
+		}
+		return ast.UnaryExpr{Line: line, Op: ast.OpPreDec, Expr: expr}, nil
+	}
 	if p.match(lexer.TokenMinus, lexer.TokenNot, lexer.TokenBitNot) {
 		line := p.previous().Pos.Line
 		op := ast.OpNegate
@@ -1286,8 +1418,9 @@ func (p *Parser) call() (ast.Expression, error) {
 			} else {
 				return nil, fmt.Errorf("Invalid member name")
 			}
-		} else if p.match(lexer.TokenLBrace) {
-			line := p.previous().Pos.Line
+		} else if p.checkStructLiteralStart() {
+			lbraceLine := p.peek().Pos.Line
+			p.advance() // consume {
 			// Struct literal: StructName { field1: value1, field2: value2 }
 			if idExpr, ok := expr.(ast.IdentifierExpr); ok {
 				fields := make(map[string]ast.Expression)
@@ -1323,7 +1456,7 @@ func (p *Parser) call() (ast.Expression, error) {
 				if _, err := p.consume(lexer.TokenRBrace, "Expected '}' after struct fields"); err != nil {
 					return nil, err
 				}
-				expr = ast.StructLiteralExpr{Line: line, StructName: idExpr.Name, Fields: fields}
+				expr = ast.StructLiteralExpr{Line: lbraceLine, StructName: idExpr.Name, Fields: fields}
 			} else {
 				return nil, fmt.Errorf("Struct literal must have a struct name")
 			}
@@ -1403,6 +1536,8 @@ func (p *Parser) primary() (ast.Expression, error) {
 		if err != nil {
 			return nil, err
 		}
+	} else if p.match(lexer.TokenNil) {
+		expr = ast.NilExpr{Line: p.previous().Pos.Line}
 	} else if p.match(lexer.TokenChan) {
 		typ, err := p.parseType()
 		if err != nil {
@@ -1513,6 +1648,27 @@ func (p *Parser) advance() lexer.Token {
 
 func (p *Parser) isAtEnd() bool {
 	return p.current >= len(p.tokens) || p.peek().Kind == lexer.TokenEOF
+}
+
+// checkStructLiteralStart returns true if the current token is '{' and it looks
+// like a struct literal (either empty '{}' or 'field: value' pairs), not a
+// block body (e.g., match body '{ 1 => ... }').
+func (p *Parser) checkStructLiteralStart() bool {
+	if !p.check(lexer.TokenLBrace) {
+		return false
+	}
+	next := p.current + 1
+	// Empty struct: Name {}
+	if next < len(p.tokens) && p.tokens[next].Kind == lexer.TokenRBrace {
+		return true
+	}
+	// Struct literal: Name { field: value, ... }
+	// Lookahead two tokens: identifier then colon
+	if next+1 < len(p.tokens) {
+		return p.tokens[next].Kind == lexer.TokenIdentifier &&
+			p.tokens[next+1].Kind == lexer.TokenColon
+	}
+	return false
 }
 
 func (p *Parser) peek() lexer.Token {
