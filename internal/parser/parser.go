@@ -37,6 +37,15 @@ func NewParser(filePath, sourceCode string) (*Parser, error) {
 	}, nil
 }
 
+// newParserFromTokens creates a parser from an already-lexed token slice.
+// Used for parsing sub-expressions inside interpolated strings.
+func newParserFromTokens(tokens []lexer.Token) *Parser {
+	return &Parser{
+		tokens:  tokens,
+		current: 0,
+	}
+}
+
 func (p *Parser) Parse() ([]ast.Statement, error) {
 	var statements []ast.Statement
 	for !p.isAtEnd() {
@@ -220,16 +229,16 @@ func (p *Parser) parseParam() (ast.Param, error) {
 		return ast.Param{}, err
 	}
 
-	if _, err := p.consume(lexer.TokenColon, "Expected ':' after parameter name"); err != nil {
-		return ast.Param{}, err
+	// Type annotation is optional — fn(x, y) and fn(x: int, y: int) both valid
+	if p.match(lexer.TokenColon) {
+		typ, err := p.parseType()
+		if err != nil {
+			return ast.Param{}, err
+		}
+		return ast.Param{Name: name, Type: typ}, nil
 	}
 
-	typ, err := p.parseType()
-	if err != nil {
-		return ast.Param{}, err
-	}
-
-	return ast.Param{Name: name, Type: typ}, nil
+	return ast.Param{Name: name}, nil
 }
 
 func (p *Parser) parseType() (ast.Type, error) {
@@ -1511,6 +1520,33 @@ func (p *Parser) primary() (ast.Expression, error) {
 		if val, ok := p.previous().Value.(string); ok {
 			expr = ast.StringExpr{Line: p.previous().Pos.Line, Value: val}
 		}
+	} else if p.match(lexer.TokenStringInterp) {
+		// Interpolated string: "Hello, ${name}!"
+		line := p.previous().Pos.Line
+		rawParts, ok := p.previous().Value.([]lexer.StringInterpPart)
+		if !ok {
+			return nil, fmt.Errorf("internal: invalid interpolated string token")
+		}
+		var astParts []ast.StringInterpPart
+		for _, rp := range rawParts {
+			if !rp.IsExpr {
+				astParts = append(astParts, ast.StringInterpPart{IsExpr: false, Literal: rp.Content})
+			} else {
+				// Sub-lex and sub-parse the embedded expression
+				subLex := lexer.NewLexer(rp.Content)
+				subTokens, err := subLex.Tokenize()
+				if err != nil {
+					return nil, fmt.Errorf("error in interpolated expression: %v", err)
+				}
+				subParser := newParserFromTokens(subTokens)
+				subExpr, err := subParser.expression()
+				if err != nil {
+					return nil, fmt.Errorf("error parsing interpolated expression '${%s}': %v", rp.Content, err)
+				}
+				astParts = append(astParts, ast.StringInterpPart{IsExpr: true, Expr: subExpr})
+			}
+		}
+		expr = ast.StringInterpExpr{Line: line, Parts: astParts}
 	} else if p.match(lexer.TokenIdentifier) {
 		if val, ok := p.previous().Value.(string); ok {
 			expr = ast.IdentifierExpr{Line: p.previous().Pos.Line, Name: val}

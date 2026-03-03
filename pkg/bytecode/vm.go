@@ -20,17 +20,17 @@ type LoopFrame struct {
 
 // VM is a bytecode virtual machine
 type VM struct {
-	program      *Program
-	stack        []interface{}
-	globals      map[string]interface{}
-	locals       []map[string]interface{} // Stack of local scopes
-	pc           int                      // Program counter
-	bp           int                      // Base pointer
-	callStack    []CallFrame              // Call stack
-	loopStack    []LoopFrame              // Loop stack for break/continue
-	functions    map[string]*Program
-	tryStack     []int   // Stack of catch block PCs for nested try/catch
-	deferredPCs  [][]int // Per-call-frame deferred code start PCs
+	program     *Program
+	stack       []interface{}
+	globals     map[string]interface{}
+	locals      []map[string]interface{} // Stack of local scopes
+	pc          int                      // Program counter
+	bp          int                      // Base pointer
+	callStack   []CallFrame              // Call stack
+	loopStack   []LoopFrame              // Loop stack for break/continue
+	functions   map[string]*Program
+	tryStack    []int   // Stack of catch block PCs for nested try/catch
+	deferredPCs [][]int // Per-call-frame deferred code start PCs
 }
 
 // NewVM creates a new virtual machine
@@ -686,65 +686,69 @@ func (vm *VM) Run() error {
 			}
 
 		case OpCall:
-			// Call function
+			// Call function (args: funcName string, argCount int)
 			if len(instr.Args) >= 2 {
-				// First arg is function name (string)
-				// Second arg is argument count
-				var funcName string
-				if nameVal, ok := instr.Args[0].(string); ok {
-					funcName = nameVal
-				}
+				funcName, _ := instr.Args[0].(string)
+				argCount, _ := instr.Args[1].(int)
 
-				argCount := 0
-				if countVal, ok := instr.Args[1].(int); ok {
-					argCount = countVal
-				}
-
-				// Look up function entry point
-				if entryPC, ok := vm.program.Functions[funcName]; ok {
-					// Pop arguments from stack in reverse order
-					args := make([]interface{}, argCount)
-					for i := argCount - 1; i >= 0; i-- {
-						if len(vm.stack) > 0 {
-							args[i] = vm.pop()
+				// If name is not a direct function, check if a global variable
+				// holds a closure reference (a string naming a compiled function).
+				resolvedName := funcName
+				if _, ok := vm.program.Functions[funcName]; !ok {
+					if ref, exists := vm.globals[funcName]; exists {
+						if nameStr, isStr := ref.(string); isStr {
+							if _, isFn := vm.program.Functions[nameStr]; isFn {
+								resolvedName = nameStr
+							}
 						}
 					}
+				}
 
-					// Create call frame
-					frame := CallFrame{
-						pc:     vm.pc + 1, // Save instr after OpCall; loop will increment to it
-						bp:     vm.bp,
-						locals: make(map[string]interface{}),
-					}
-					vm.callStack = append(vm.callStack, frame)
-
-					// Create locals map for this function call
-					newLocals := make(map[string]interface{})
-					// Map parameters to local indices
-					for i, arg := range args {
-						newLocals[fmt.Sprintf("_var_%d", i)] = arg
-					}
-					vm.locals = append(vm.locals, newLocals)
-
-					// Set base pointer to stack length
-					vm.bp = len(vm.stack)
-
-					// Jump to function entry point
-					// Set to entryPC - 1 because loop will increment it
-					vm.pc = entryPC - 1
+				if entryPC, ok := vm.program.Functions[resolvedName]; ok {
+					vm.callFunction(entryPC, argCount)
 				} else {
-					// Built-in function
+					// Built-in / unknown
 					args := make([]interface{}, argCount)
 					for i := argCount - 1; i >= 0; i-- {
 						if len(vm.stack) > 0 {
 							args[i] = vm.pop()
 						}
 					}
-
-					// Check if it's a built-in function
 					result := vm.callBuiltin(funcName, args)
 					vm.stack = append(vm.stack, result)
 				}
+			}
+
+		case OpCallDynamic:
+			// Call a closure/function whose name is on the stack.
+			// Stack layout (bottom→top): fn_ref, arg0, arg1, ..., argN-1
+			// instr.Args[0] = argCount
+			argCount := 0
+			if len(instr.Args) > 0 {
+				argCount, _ = instr.Args[0].(int)
+			}
+			// Pop args first (they are on top), then pop the fn_ref below them.
+			args := make([]interface{}, argCount)
+			for i := argCount - 1; i >= 0; i-- {
+				if len(vm.stack) > 0 {
+					args[i] = vm.pop()
+				}
+			}
+			fnRef := vm.pop() // the closure handle
+			if fnName, isStr := fnRef.(string); isStr {
+				if entryPC, ok := vm.program.Functions[fnName]; ok {
+					// Re-push the args so callFunction can pop them
+					for _, a := range args {
+						vm.stack = append(vm.stack, a)
+					}
+					vm.callFunction(entryPC, argCount)
+				} else {
+					result := vm.callBuiltin(fnName, args)
+					vm.stack = append(vm.stack, result)
+				}
+			} else {
+				// Not callable — push nil
+				vm.stack = append(vm.stack, nil)
 			}
 
 		case OpReturn:
@@ -847,6 +851,34 @@ func (vm *VM) runDeferred(depth int) {
 		vm.pc = savedPC
 	}
 	vm.deferredPCs[depth] = nil
+}
+
+// callFunction sets up a new call frame and jumps to entryPC.
+// Arguments must already be on the stack (argCount of them, pushed in order).
+func (vm *VM) callFunction(entryPC, argCount int) {
+	// Pop arguments from stack in reverse order (last arg is on top)
+	args := make([]interface{}, argCount)
+	for i := argCount - 1; i >= 0; i-- {
+		if len(vm.stack) > 0 {
+			args[i] = vm.pop()
+		}
+	}
+	// Push a new call frame
+	frame := CallFrame{
+		pc:     vm.pc + 1, // return address: instruction after OpCall/OpCallDynamic
+		bp:     vm.bp,
+		locals: make(map[string]interface{}),
+	}
+	vm.callStack = append(vm.callStack, frame)
+	// Set up locals for the new scope
+	newLocals := make(map[string]interface{})
+	for i, arg := range args {
+		newLocals[fmt.Sprintf("_var_%d", i)] = arg
+	}
+	vm.locals = append(vm.locals, newLocals)
+	vm.bp = len(vm.stack)
+	// Jump (loop will increment, so subtract 1)
+	vm.pc = entryPC - 1
 }
 
 // tryHandleError attempts to route a runtime error to the nearest catch block.

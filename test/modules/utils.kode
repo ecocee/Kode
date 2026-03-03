@@ -1,0 +1,13 @@
+// Importable utility functions
+
+func double(n) {
+    return n * 2
+}
+
+func greet(name) {
+    return "Hello, " + name + "!"
+}
+
+func square(x) {
+    return x * x
+}

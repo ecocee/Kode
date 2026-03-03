@@ -112,6 +112,9 @@ const (
 	TokenSlashEq
 	TokenPercentEq
 
+	// Interpolated string (contains ${...} expressions)
+	TokenStringInterp
+
 	// Symbols
 	TokenLParen
 	TokenRParen
@@ -133,6 +136,14 @@ type Position struct {
 	Column int
 }
 
+// StringInterpPart is one segment of an interpolated string literal.
+// IsExpr==false → Content is a plain text fragment.
+// IsExpr==true  → Content is the raw source of an embedded expression.
+type StringInterpPart struct {
+	IsExpr  bool
+	Content string
+}
+
 type Token struct {
 	Kind  TokenKind
 	Value interface{}
@@ -149,6 +160,7 @@ type Lexer struct {
 var keywords = map[string]TokenKind{
 	"let":      TokenLet,
 	"func":     TokenFunc,
+	"fn":       TokenFunc, // short alias for closures: let f = fn(x) { x + 1 }
 	"return":   TokenReturn,
 	"if":       TokenIf,
 	"else":     TokenElse,
@@ -497,15 +509,15 @@ func (l *Lexer) readNumber() Token {
 func (l *Lexer) readString() (Token, error) {
 	startLine := l.line
 	startCol := l.column
-	l.consumeChar() // "
-	l.column++
+	l.consumeChar() // consume opening "
 	var content strings.Builder
 	escaped := false
+	hasInterp := false
+	var parts []StringInterpPart
 
 	for l.peekChar() != 0 {
 		ch := l.peekChar()
 		l.consumeChar()
-		l.column++
 
 		if escaped {
 			switch ch {
@@ -526,7 +538,44 @@ func (l *Lexer) readString() (Token, error) {
 		} else if ch == '\\' {
 			escaped = true
 		} else if ch == '"' {
-			return Token{Kind: TokenString, Value: content.String(), Pos: Position{Line: l.line, Column: l.column - len(content.String()) - 2}}, nil
+			// End of string
+			pos := Position{Line: startLine, Column: startCol}
+			if !hasInterp {
+				return Token{Kind: TokenString, Value: content.String(), Pos: pos}, nil
+			}
+			// Flush remaining literal
+			parts = append(parts, StringInterpPart{IsExpr: false, Content: content.String()})
+			return Token{Kind: TokenStringInterp, Value: parts, Pos: pos}, nil
+		} else if ch == '$' && l.peekChar() == '{' {
+			// Start of interpolated expression
+			hasInterp = true
+			l.consumeChar() // consume '{'
+			// Flush literal part so far
+			parts = append(parts, StringInterpPart{IsExpr: false, Content: content.String()})
+			content.Reset()
+			// Scan until matching closing '}'
+			var exprBuf strings.Builder
+			depth := 1
+			for l.peekChar() != 0 && depth > 0 {
+				ec := l.peekChar()
+				l.consumeChar()
+				if ec == '{' {
+					depth++
+					exprBuf.WriteRune(ec)
+				} else if ec == '}' {
+					depth--
+					if depth > 0 {
+						exprBuf.WriteRune(ec)
+					}
+				} else {
+					if ec == '\n' {
+						l.line++
+						l.column = 1
+					}
+					exprBuf.WriteRune(ec)
+				}
+			}
+			parts = append(parts, StringInterpPart{IsExpr: true, Content: exprBuf.String()})
 		} else {
 			if ch == '\n' {
 				l.line++

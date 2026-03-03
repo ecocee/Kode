@@ -38,18 +38,20 @@ type Compiler struct {
 	isInFunction   bool
 	localVarOffset int
 	loopStack      []LoopContext // Stack of loop contexts for break/continue
+	closureCounter int           // counter for generating unique closure names
 }
 
 // NewCompiler creates a new bytecode compiler
 func NewCompiler() *Compiler {
 	return &Compiler{
-		buf:          NewBuffer(),
-		localVars:    make(map[string]int),
-		globalVars:   make(map[string]int),
-		functions:    make(map[string]*ir.IRFunction),
-		astFunctions: make(map[string]*ast.FunctionDefStmt),
-		functionInfo: make(map[string]*FunctionInfo),
-		loopStack:    make([]LoopContext, 0),
+		buf:            NewBuffer(),
+		localVars:      make(map[string]int),
+		globalVars:     make(map[string]int),
+		functions:      make(map[string]*ir.IRFunction),
+		astFunctions:   make(map[string]*ast.FunctionDefStmt),
+		functionInfo:   make(map[string]*FunctionInfo),
+		loopStack:      make([]LoopContext, 0),
+		closureCounter: 0,
 	}
 }
 
@@ -999,8 +1001,32 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 	case ast.EnumVariantExpr:
 		return c.compileEnumVariantExpr(&e)
 	case ast.ClosureExpr:
-		// Closures not yet fully compiled — push nil placeholder
-		idx := c.buf.AddConstant(nil)
+		// Compile the closure body as an anonymous function and push its name as a handle.
+		// We emit a jump over the body so the main flow doesn't fall through it.
+		name := fmt.Sprintf("__closure_%d", c.closureCounter)
+		c.closureCounter++
+		fnStmt := &ast.FunctionDefStmt{
+			Name:   name,
+			Params: e.Params,
+			Body:   e.Body,
+		}
+		c.astFunctions[name] = fnStmt
+
+		// Emit jump-over so main code skips the function body
+		jmpIdx := len(c.buf.instructions)
+		c.buf.Emit(OpJmp, 0) // patched after body
+
+		// Compile the function body inline (it registers its entry PC via RegisterFunction)
+		if err := c.compileFunctionBody(fnStmt); err != nil {
+			return err
+		}
+
+		// Patch the jump to land right after the function body
+		afterBodyPC := len(c.buf.instructions)
+		c.buf.instructions[jmpIdx].Args[0] = afterBodyPC - jmpIdx
+
+		// Push the closure handle (function name string) as the expression value
+		idx := c.buf.AddConstant(name)
 		c.buf.Emit(OpPush, idx)
 		return nil
 	case ast.ChanExpr:
@@ -1008,6 +1034,8 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 		idx := c.buf.AddConstant(nil)
 		c.buf.Emit(OpPush, idx)
 		return nil
+	case ast.StringInterpExpr:
+		return c.compileStringInterp(&e)
 	default:
 		return fmt.Errorf("unknown expression type: %T", expr)
 	}
@@ -1240,7 +1268,21 @@ func (c *Compiler) compileCallExpression(expr *ast.CallExpr) error {
 			return nil
 		}
 
-		// Compile arguments for unknown functions (might be built-in)
+		// Compile arguments for unknown functions (might be built-in or closure variable)
+		// If the identifier resolves to a LOCAL variable it holds a closure handle — use OpCallDynamic.
+		if localIdx, isLocal := c.localVars[ident.Name]; isLocal {
+			// Push the closure handle (stored in local var), then push args, then call dynamically.
+			c.buf.Emit(OpLoad, localIdx)
+			for _, arg := range expr.Arguments {
+				if err := c.compileExpression(arg); err != nil {
+					return err
+				}
+			}
+			c.buf.Emit(OpCallDynamic, len(expr.Arguments))
+			return nil
+		}
+
+		// Otherwise: global closure var or built-in — use OpCall; VM resolves at runtime.
 		for _, arg := range expr.Arguments {
 			if err := c.compileExpression(arg); err != nil {
 				return err
@@ -1530,5 +1572,44 @@ func (c *Compiler) compileEnumVariantExpr(expr *ast.EnumVariantExpr) error {
 	enumIdx := c.buf.AddConstant(expr.EnumName)
 	variantIdx := c.buf.AddConstant(expr.Variant)
 	c.buf.Emit(OpEnumVariant, enumIdx, variantIdx, hasValue)
+	return nil
+}
+
+// compileStringInterp compiles an interpolated string by concatenating all parts using OpAdd.
+// e.g., "Hello, ${name}!" → push "Hello, " / load name / OpAdd / push "!" / OpAdd
+func (c *Compiler) compileStringInterp(expr *ast.StringInterpExpr) error {
+	if len(expr.Parts) == 0 {
+		idx := c.buf.AddConstant("")
+		c.buf.Emit(OpPush, idx)
+		return nil
+	}
+
+	// Push the first part to start the chain
+	first := expr.Parts[0]
+	if !first.IsExpr {
+		idx := c.buf.AddConstant(first.Literal)
+		c.buf.Emit(OpPush, idx)
+	} else {
+		// Start with an empty string accumulator so that OpAdd produces a string
+		emptyIdx := c.buf.AddConstant("")
+		c.buf.Emit(OpPush, emptyIdx)
+		if err := c.compileExpression(first.Expr); err != nil {
+			return err
+		}
+		c.buf.Emit(OpAdd)
+	}
+
+	// Concatenate remaining parts
+	for _, part := range expr.Parts[1:] {
+		if !part.IsExpr {
+			idx := c.buf.AddConstant(part.Literal)
+			c.buf.Emit(OpPush, idx)
+		} else {
+			if err := c.compileExpression(part.Expr); err != nil {
+				return err
+			}
+		}
+		c.buf.Emit(OpAdd)
+	}
 	return nil
 }

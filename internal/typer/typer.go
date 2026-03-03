@@ -307,6 +307,16 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 		return ast.BoolType{}, nil
 	case ast.StringExpr:
 		return ast.StringType{}, nil
+	case ast.StringInterpExpr:
+		// Interpolated strings always produce a string
+		for _, part := range e.Parts {
+			if part.IsExpr {
+				if _, err := t.inferExpression(part.Expr); err != nil {
+					return nil, err
+				}
+			}
+		}
+		return ast.StringType{}, nil
 	case ast.NilExpr:
 		return nil, nil
 	case ast.IdentifierExpr:
@@ -457,7 +467,14 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			}
 			return fnType.ReturnType, nil
 		}
-		return nil, fmt.Errorf("not a function")
+		// Callee is not a statically-known function type (e.g. a closure variable
+		// or a builtin). Type-check arguments permissively and return a fresh type var.
+		for _, arg := range e.Arguments {
+			if _, err := t.inferExpression(arg); err != nil {
+				return nil, err
+			}
+		}
+		return t.newTypeVar(), nil
 	case ast.ArrayExpr:
 		if len(e.Elements) == 0 {
 			return ast.ArrayType{ElementType: t.newTypeVar()}, nil

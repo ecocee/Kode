@@ -57,7 +57,8 @@ const (
 	OpJmpIfTrue  // Jump if true (arg: offset)
 
 	// Function call
-	OpCall        // Call function (arg: func index, arg count)
+	OpCall        // Call function (arg: func name, arg count)
+	OpCallDynamic // Call function via stack value (arg: arg count; pops fn-ref then args)
 	OpReturn      // Return from function
 	OpReturnValue // Return with value
 

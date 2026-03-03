@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ecocee/kode-go/internal/compiler"
@@ -11,6 +12,68 @@ import (
 	"github.com/ecocee/kode-go/pkg/bytecode"
 	"github.com/spf13/cobra"
 )
+
+// resolveImports replaces ImportStmt nodes in stmts with the actual function
+// definitions from the imported file, so they are available at compile time.
+// baseDir is the directory containing the importing file.
+func resolveImports(baseDir string, stmts []ast.Statement) ([]ast.Statement, error) {
+	var result []ast.Statement
+
+	for _, stmt := range stmts {
+		imp, ok := stmt.(ast.ImportStmt)
+		if !ok {
+			result = append(result, stmt)
+			continue
+		}
+
+		// Resolve the file path: add .kode if missing, resolve relative to baseDir
+		modPath := imp.Path
+		if !strings.HasSuffix(modPath, ".kode") {
+			modPath += ".kode"
+		}
+		if !filepath.IsAbs(modPath) {
+			modPath = filepath.Join(baseDir, modPath)
+		}
+
+		src, err := os.ReadFile(modPath)
+		if err != nil {
+			return nil, fmt.Errorf("cannot import %q: %v", imp.Path, err)
+		}
+
+		p, err := parser.NewParser(modPath, string(src))
+		if err != nil {
+			return nil, fmt.Errorf("import %q lexer error: %v", imp.Path, err)
+		}
+		importedStmts, err := p.Parse()
+		if err != nil {
+			return nil, fmt.Errorf("import %q parse error: %v", imp.Path, err)
+		}
+
+		// Build a set of allowed names (empty = allow all)
+		allowed := make(map[string]bool)
+		for _, name := range imp.Items {
+			allowed[name] = true
+		}
+
+		// Collect exported function definitions from the imported file
+		for _, is := range importedStmts {
+			switch s := is.(type) {
+			case ast.FunctionDefStmt:
+				if len(allowed) == 0 || allowed[s.Name] {
+					result = append(result, s)
+				}
+			case ast.ExportStmt:
+				if fn, ok := s.Statement.(ast.FunctionDefStmt); ok {
+					if len(allowed) == 0 || allowed[fn.Name] {
+						result = append(result, fn)
+					}
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
 
 func newRunCmd() *cobra.Command {
 	var release bool
@@ -58,6 +121,15 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\033[1;31m✗ Parser Error\033[0m in %s\n", file)
 				displayError(err)
+				os.Exit(1)
+			}
+
+			// Resolve imports — splice imported function definitions into the program
+			baseDir := filepath.Dir(file)
+			statements, err = resolveImports(baseDir, statements)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "\033[1;31m✗ Import Error\033[0m in %s\n", file)
+				fmt.Fprintf(os.Stderr, "  \033[1;33m→\033[0m %v\n", err)
 				os.Exit(1)
 			}
 
