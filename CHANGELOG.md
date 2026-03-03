@@ -10,12 +10,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### 🚧 In Progress (v0.4+)
-- Struct and enum runtime implementation (parsing complete)
-- Pattern matching with destructuring
+- Struct field mutation (`p.x = 5`)
+- `impl` method bodies compiled and dispatched
+- Enum `::` variant access syntax (`Color::Red`)
+- Full pattern matching with destructuring
 - Concurrency features (spawn, channels, select)
-- Advanced error handling (try/catch, Result types)
+- Generics / parametric types
 - Standard library expansion
-- Performance optimizations
+
+---
+
+## [v0.3.2-dev] - 2026-03 (In Progress)
+
+### ✨ New Language Features
+- **Closures**: `fn` keyword creates first-class closures that capture enclosing scope (`OpMakeClosure`, `OpCallDynamic`)
+- **String interpolation**: `"Hello ${name}!"` — arbitrary expressions inside `${}` (lexer + bytecode)
+- **Compound assignment**: `+=`, `-=`, `*=`, `/=`, `%=` operators
+- **Increment / decrement**: `x++` and `x--` post-operators
+- **`try` / `catch` error handling**: `try { } catch (e) { }` with full VM try-stack (`OpTryBegin`, `OpTryEnd`, `OpThrow`)
+- **`defer` statement**: `defer { }` block runs at function exit (LIFO), `OpDefer` execution
+- **`match` statement**: Pattern matching with literal, wildcard `_`, and binding patterns
+- **`for x in arr`**: For-in iteration over arrays
+- **`break` / `continue`**: Properly jump out of / continue loops (two-phase patching in compiler)
+- **Array `.push(v)` / `.pop()`**: Mutable array operations (`OpArrayPush`, `OpArrayPop`)
+- **`nil` literal**: Assignable nil value with runtime nil-checks in arithmetic
+- **Enum variants**: Runtime enum variant creation via `OpEnumVariant`
+
+### 🔧 Technical Improvements
+- **53 VM opcodes** (up from 37 in v0.3.1): Added `OpMakeClosure`, `OpCallDynamic`, `OpMethodCall`, `OpTryBegin/End/Throw`, `OpDefer`, `OpArrayPush/Pop`, `OpStructCreate`, `OpEnumVariant`, `OpInputWithPrompt`
+- **VM try-stack**: `tryStack []int` enables nested error handling scopes
+- **VM defer-stack**: `deferredPCs [][]int` enables LIFO defer semantics
+- **Method call dispatch**: `OpMethodCall` handles string, array, and struct method receivers
+- **Break/continue patching**: Two-phase compiler patching generates correct jump offsets
+- **Division-by-zero / nil-arithmetic errors**: Runtime errors catchable via try/catch
+
+### 📚 Built-in Functions (40+)
+- **Output**: `print`, `println`, `printf`
+- **Input**: `input()` / `input("prompt")`
+- **Type / convert**: `type`, `int`, `float`, `string`, `bool`, `len`
+- **Range**: `range(n)`, `range(start, end)`, `range(start, end, step)`
+- **Math**: `abs`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `min`, `max`, `random`, `math.pi`, `math.e`
+- **String methods**: `upper`, `lower`, `trim`, `split`, `contains`, `startsWith`, `endsWith`, `replace`, `indexOf`, `repeat`
+- **Array utilities**: `sort`, `reverse`, `join`, `has`, `keys`, `values`
+- **File I/O**: `readFile`, `writeFile`, `appendFile`, `fileExists`, `readDir`, `joinPath`
 
 ---
 

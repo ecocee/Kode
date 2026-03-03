@@ -1090,7 +1090,7 @@ let add = fn(a, b) { return a + b; };
 
 ### Null/Undefined Equivalent
 ```kode
-let empty = null;  // Not yet implemented in v0.1.0
+let empty = null;  // Not yet implemented in v0.2.0
 ```
 
 ---
@@ -1224,7 +1224,7 @@ for (let i = 0; i < 5; i = i + 1) {
 ```
 
 ### Break and Continue
-*Not implemented in v0.1.0*
+*Not implemented in v0.2.0*
 
 ---
 
@@ -1294,7 +1294,7 @@ let numbers = [1, 2, 3];
 numbers[1] = 99;  // Now [1, 99, 3]
 ```
 
-*Note: Kode v0.1.0 does not include built-in array methods like push, pop, etc.*
+*Note: Kode v0.2.0 does not include built-in array methods like push, pop, etc.*
 
 ---
 
@@ -1387,7 +1387,7 @@ import math;
 print math.square(5);  // 25
 ```
 
-*Note: Kode v0.1.0 has basic module support without namespaces or selective imports.*
+*Note: Kode v0.2.0 has basic module support without namespaces or selective imports.*
 
 ---
 
