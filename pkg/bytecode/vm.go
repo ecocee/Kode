@@ -73,12 +73,18 @@ func (vm *VM) Run() error {
 		case OpLoadGlobal:
 			if len(instr.Args) > 0 {
 				varIdx := instr.Args[0].(int)
+				found := false
 				// Find variable by index
 				for name, idx := range vm.program.Globals {
 					if idx == varIdx {
 						vm.stack = append(vm.stack, vm.globals[name])
+						found = true
 						break
 					}
+				}
+				if !found {
+					// Variable not found — push nil to avoid stack corruption
+					vm.stack = append(vm.stack, nil)
 				}
 			}
 
@@ -384,13 +390,21 @@ func (vm *VM) Run() error {
 				index := vm.pop()
 				array := vm.pop()
 				if arr, ok := array.([]interface{}); ok {
-					if idx, ok := index.(int64); ok && idx >= 0 && idx < int64(len(arr)) {
-						vm.stack = append(vm.stack, arr[idx])
-					} else if idx, ok := index.(int); ok && idx >= 0 && idx < len(arr) {
-						vm.stack = append(vm.stack, arr[idx])
-					} else {
-						vm.stack = append(vm.stack, nil) // Out of bounds
+					var idx int
+					switch i := index.(type) {
+					case int:
+						idx = i
+					case int64:
+						idx = int(i)
+					default:
+						return fmt.Errorf("array index must be an integer, got %T", index)
 					}
+					if idx < 0 || idx >= len(arr) {
+						return fmt.Errorf("index out of bounds: index %d, length %d", idx, len(arr))
+					}
+					vm.stack = append(vm.stack, arr[idx])
+				} else {
+					return fmt.Errorf("cannot index into non-array type %T", array)
 				}
 			}
 
@@ -400,9 +414,14 @@ func (vm *VM) Run() error {
 				index := vm.pop()
 				array := vm.pop()
 				if arr, ok := array.([]interface{}); ok {
-					if idx, ok := index.(int64); ok && idx >= 0 && idx < int64(len(arr)) {
-						arr[int(idx)] = value
-					} else if idx, ok := index.(int); ok && idx >= 0 && idx < len(arr) {
+					var idx int
+					switch i := index.(type) {
+					case int:
+						idx = i
+					case int64:
+						idx = int(i)
+					}
+					if idx >= 0 && idx < len(arr) {
 						arr[idx] = value
 					}
 				}
@@ -413,9 +432,9 @@ func (vm *VM) Run() error {
 			if len(vm.stack) > 0 {
 				array := vm.pop()
 				if arr, ok := array.([]interface{}); ok {
-					vm.stack = append(vm.stack, int64(len(arr)))
+					vm.stack = append(vm.stack, int(len(arr)))
 				} else {
-					vm.stack = append(vm.stack, int64(0))
+					vm.stack = append(vm.stack, 0)
 				}
 			}
 
@@ -426,18 +445,17 @@ func (vm *VM) Run() error {
 				member := vm.program.Constants[memberIdx].(string)
 				obj := vm.pop()
 
-				// Handle array methods
+				// Handle array methods and properties
 				if arr, ok := obj.([]interface{}); ok {
 					switch member {
 					case "len":
-						// Push a callable that returns array length
-						// For now, return the length directly
-						vm.stack = append(vm.stack, int64(len(arr)))
+						// Return array length as int (normalised from int64)
+						vm.stack = append(vm.stack, int(len(arr)))
 					case "push":
-						// Create a push method (needs to be called)
+						// Return a method reference for arr.push(val)
 						vm.stack = append(vm.stack, map[string]interface{}{"_method": "push", "_array": arr})
 					case "pop":
-						// Return method reference
+						// Return a method reference for arr.pop()
 						vm.stack = append(vm.stack, map[string]interface{}{"_method": "pop", "_array": arr})
 					default:
 						return fmt.Errorf("array has no method: %s", member)
@@ -449,6 +467,8 @@ func (vm *VM) Run() error {
 					} else {
 						return fmt.Errorf("struct has no field: %s", member)
 					}
+				} else if obj == nil {
+					return fmt.Errorf("cannot access member '%s' of nil", member)
 				} else {
 					return fmt.Errorf("cannot access member of type %T", obj)
 				}
@@ -491,11 +511,16 @@ func (vm *VM) Run() error {
 				enumName := vm.program.Constants[enumIdx].(string)
 				variantName := vm.program.Constants[variantIdx].(string)
 
-				// Pop value from stack if present
+				// Only pop a value from the stack if the compiler emitted one
 				var value interface{} = nil
-				if len(vm.stack) > 0 {
-					// Check if there's a value to pop
-					// For now, we'll keep the stack as is
+				hasValue := false
+				if len(instr.Args) >= 3 {
+					if hv, ok := instr.Args[2].(bool); ok {
+						hasValue = hv
+					}
+				}
+				if hasValue && len(vm.stack) > 0 {
+					value = vm.pop()
 				}
 
 				// Create enum variant as a map with metadata
@@ -512,14 +537,20 @@ func (vm *VM) Run() error {
 			// Load local variable
 			if len(instr.Args) > 0 {
 				varIdx := instr.Args[0].(int)
+				found := false
 				if len(vm.locals) > 0 {
 					// Search through local scopes from innermost to outermost
 					for i := len(vm.locals) - 1; i >= 0; i-- {
 						if val, ok := vm.locals[i][fmt.Sprintf("_var_%d", varIdx)]; ok {
 							vm.stack = append(vm.stack, val)
+							found = true
 							break
 						}
 					}
+				}
+				if !found {
+					// Local not found — push nil to avoid stack corruption
+					vm.stack = append(vm.stack, nil)
 				}
 			}
 
@@ -812,12 +843,25 @@ func (vm *VM) equal(left, right interface{}) bool {
 		switch r := right.(type) {
 		case int:
 			return l == r
+		case int64:
+			return int64(l) == r
+		case float64:
+			return float64(l) == r
+		}
+	case int64:
+		switch r := right.(type) {
+		case int:
+			return l == int64(r)
+		case int64:
+			return l == r
 		case float64:
 			return float64(l) == r
 		}
 	case float64:
 		switch r := right.(type) {
 		case int:
+			return l == float64(r)
+		case int64:
 			return l == float64(r)
 		case float64:
 			return l == r
@@ -840,12 +884,25 @@ func (vm *VM) lessThan(left, right interface{}) bool {
 		switch r := right.(type) {
 		case int:
 			return l < r
+		case int64:
+			return int64(l) < r
+		case float64:
+			return float64(l) < r
+		}
+	case int64:
+		switch r := right.(type) {
+		case int:
+			return l < int64(r)
+		case int64:
+			return l < r
 		case float64:
 			return float64(l) < r
 		}
 	case float64:
 		switch r := right.(type) {
 		case int:
+			return l < float64(r)
+		case int64:
 			return l < float64(r)
 		case float64:
 			return l < r
@@ -965,12 +1022,12 @@ func (vm *VM) callBuiltin(name string, args []interface{}) interface{} {
 		if len(args) > 0 {
 			switch v := args[0].(type) {
 			case string:
-				return int64(len(v))
+				return int(len(v))
 			case []interface{}:
-				return int64(len(v))
+				return int(len(v))
 			}
 		}
-		return int64(0)
+		return 0
 	case "int":
 		if len(args) > 0 {
 			switch v := args[0].(type) {

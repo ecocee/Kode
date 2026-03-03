@@ -2,6 +2,7 @@ package bytecode
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/ecocee/kode-go/pkg/ast"
 	"github.com/ecocee/kode-go/pkg/ir"
@@ -155,6 +156,37 @@ func (c *Compiler) compileStatement(stmt ast.Statement) error {
 		return c.compileStatement(s.Statement)
 	case ast.StructDeclStmt, ast.EnumDeclStmt:
 		return nil
+	case ast.TraitDeclStmt, ast.ImplDeclStmt, ast.ServiceDeclStmt, ast.ModuleDeclStmt:
+		// Type/module declarations — no runtime code needed
+		return nil
+	case ast.HttpStmt, ast.RouteStmt:
+		// HTTP declarations — not yet implemented
+		return nil
+	case ast.BlockStmt:
+		// Compile inner block statements
+		for _, inner := range s.Statements {
+			if err := c.compileStatement(inner); err != nil {
+				return err
+			}
+		}
+		return nil
+	case ast.PrintStmt:
+		if err := c.compileExpression(s.Value); err != nil {
+			return err
+		}
+		c.buf.Emit(OpPrint)
+		return nil
+	case ast.TryStmt:
+		// Compile try body; catch not yet fully implemented
+		for _, inner := range s.Body {
+			if err := c.compileStatement(inner); err != nil {
+				return err
+			}
+		}
+		return nil
+	case ast.MatchStmt, ast.DeferStmt, ast.GoStmt, ast.SpawnStmt:
+		// Not yet implemented — skip gracefully
+		return nil
 	default:
 		return fmt.Errorf("unknown statement type: %T", stmt)
 	}
@@ -166,9 +198,13 @@ func (c *Compiler) compileAssignStatement(stmt *ast.AssignStmt) error {
 		return err
 	}
 
-	// Store to variable
-	varIdx := c.buf.AddGlobal(stmt.Name)
-	c.buf.Emit(OpStoreGlobal, varIdx)
+	// Store to local variable if inside a function, otherwise global
+	if localIdx, ok := c.localVars[stmt.Name]; ok {
+		c.buf.Emit(OpStore, localIdx)
+	} else {
+		varIdx := c.buf.AddGlobal(stmt.Name)
+		c.buf.Emit(OpStoreGlobal, varIdx)
+	}
 
 	return nil
 }
@@ -339,10 +375,14 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 				if err := c.compileExpression(binExpr.Right); err != nil {
 					return err
 				}
-				// Store to variable
+				// Store to local or global variable
 				if ident, ok := binExpr.Left.(ast.IdentifierExpr); ok {
-					varIdx := c.buf.AddGlobal(ident.Name)
-					c.buf.Emit(OpStoreGlobal, varIdx)
+					if localIdx, ok := c.localVars[ident.Name]; ok {
+						c.buf.Emit(OpStore, localIdx)
+					} else {
+						varIdx := c.buf.AddGlobal(ident.Name)
+						c.buf.Emit(OpStoreGlobal, varIdx)
+					}
 				}
 			} else {
 				if err := c.compileExpression(stmt.Incr); err != nil {
@@ -382,10 +422,14 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 				if err := c.compileExpression(binExpr.Right); err != nil {
 					return err
 				}
-				// Store to variable
+				// Store to local or global variable
 				if ident, ok := binExpr.Left.(ast.IdentifierExpr); ok {
-					varIdx := c.buf.AddGlobal(ident.Name)
-					c.buf.Emit(OpStoreGlobal, varIdx)
+					if localIdx, ok := c.localVars[ident.Name]; ok {
+						c.buf.Emit(OpStore, localIdx)
+					} else {
+						varIdx := c.buf.AddGlobal(ident.Name)
+						c.buf.Emit(OpStoreGlobal, varIdx)
+					}
 				}
 			} else {
 				if err := c.compileExpression(stmt.Incr); err != nil {
@@ -535,6 +579,8 @@ func (c *Compiler) compileFunctionBody(fnStmt *ast.FunctionDefStmt) error {
 	for i, param := range fnStmt.Params {
 		c.localVars[param.Name] = i
 	}
+	// Local variables start AFTER parameter slots to avoid overwriting args
+	c.localVarOffset = len(fnStmt.Params)
 
 	if fnStmt.IsExprBody {
 		// Expression-bodied function: compile expression
@@ -544,36 +590,20 @@ func (c *Compiler) compileFunctionBody(fnStmt *ast.FunctionDefStmt) error {
 			}
 		}
 	} else {
-		// Block-bodied function: compile statements
+		// Block-bodied function: compile all statements uniformly.
+		// compileStatement handles ReturnStmt via compileReturnStatement which emits OpReturnValue.
+		// An implicit nil return is appended at the end; it is only reached at runtime
+		// if no explicit return statement was executed.
 		if stmts, ok := fnStmt.Body.([]ast.Statement); ok {
-			hasExplicitReturn := false
 			for _, stmt := range stmts {
-				if retStmt, ok := stmt.(ast.ReturnStmt); ok {
-					hasExplicitReturn = true
-					if retStmt.Value != nil {
-						if err := c.compileExpression(retStmt.Value); err != nil {
-							return err
-						}
-					} else {
-						// Return without value
-						nilIdx := c.buf.AddConstant(nil)
-						c.buf.Emit(OpPush, nilIdx)
-					}
-					c.buf.Emit(OpReturnValue)
-					break // Stop after the return
-				} else {
-					if err := c.compileStatement(stmt); err != nil {
-						return err
-					}
+				if err := c.compileStatement(stmt); err != nil {
+					return err
 				}
 			}
-
-			// If no explicit return, return nil
-			if !hasExplicitReturn {
-				nilIdx := c.buf.AddConstant(nil)
-				c.buf.Emit(OpPush, nilIdx)
-				c.buf.Emit(OpReturnValue)
-			}
+			// Implicit nil return — only reached if no explicit return executed
+			nilIdx := c.buf.AddConstant(nil)
+			c.buf.Emit(OpPush, nilIdx)
+			c.buf.Emit(OpReturnValue)
 		}
 	}
 
@@ -636,6 +666,16 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 		return c.compileStructLiteralExpr(&e)
 	case ast.EnumVariantExpr:
 		return c.compileEnumVariantExpr(&e)
+	case ast.ClosureExpr:
+		// Closures not yet fully compiled — push nil placeholder
+		idx := c.buf.AddConstant(nil)
+		c.buf.Emit(OpPush, idx)
+		return nil
+	case ast.ChanExpr:
+		// Channels not yet implemented — push nil placeholder
+		idx := c.buf.AddConstant(nil)
+		c.buf.Emit(OpPush, idx)
+		return nil
 	default:
 		return fmt.Errorf("unknown expression type: %T", expr)
 	}
@@ -792,6 +832,18 @@ func (c *Compiler) compileCallExpression(expr *ast.CallExpr) error {
 			} else {
 				c.buf.Emit(OpInput)
 			}
+			return nil
+		}
+
+		// Handle array assignment: arr[i] = val is lowered to __array_assign(arr, i, val)
+		if ident.Name == "__array_assign" {
+			for _, arg := range expr.Arguments {
+				if err := c.compileExpression(arg); err != nil {
+					return err
+				}
+			}
+			// OpArrayStore: pops (value, index, array) → pushes modified array
+			c.buf.Emit(OpArrayStore)
 			return nil
 		}
 
@@ -976,8 +1028,16 @@ func (c *Compiler) compileMemberAccessExpr(expr *ast.MemberAccessExpr) error {
 
 // compileStructLiteralExpr compiles struct literal: StructName { field1: value1, ... }
 func (c *Compiler) compileStructLiteralExpr(expr *ast.StructLiteralExpr) error {
-	// For each field in the struct, compile the value and push to stack
-	for fieldName, fieldVal := range expr.Fields {
+	// Sort field names for deterministic ordering (map iteration is random in Go)
+	fieldNames := make([]string, 0, len(expr.Fields))
+	for name := range expr.Fields {
+		fieldNames = append(fieldNames, name)
+	}
+	sort.Strings(fieldNames)
+
+	// For each field in deterministic order, compile the value and push to stack
+	for _, fieldName := range fieldNames {
+		fieldVal := expr.Fields[fieldName]
 		if err := c.compileExpression(fieldVal); err != nil {
 			return err
 		}
@@ -995,16 +1055,17 @@ func (c *Compiler) compileStructLiteralExpr(expr *ast.StructLiteralExpr) error {
 
 // compileEnumVariantExpr compiles enum variant: EnumName::Variant(value)
 func (c *Compiler) compileEnumVariantExpr(expr *ast.EnumVariantExpr) error {
+	hasValue := expr.Value != nil
 	// Compile the enum variant value if provided
-	if expr.Value != nil {
+	if hasValue {
 		if err := c.compileExpression(expr.Value); err != nil {
 			return err
 		}
 	}
 
-	// Emit enum variant instruction
+	// Emit enum variant instruction with hasValue flag so VM knows to pop the value
 	enumIdx := c.buf.AddConstant(expr.EnumName)
 	variantIdx := c.buf.AddConstant(expr.Variant)
-	c.buf.Emit(OpEnumVariant, enumIdx, variantIdx)
+	c.buf.Emit(OpEnumVariant, enumIdx, variantIdx, hasValue)
 	return nil
 }

@@ -278,6 +278,10 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 		return ast.StringType{}, nil
 	case ast.IdentifierExpr:
 		if typ, ok := t.env[e.Name]; ok {
+			if typ == nil {
+				// Variable exists but type not yet resolved — use a fresh type variable
+				return t.newTypeVar(), nil
+			}
 			return typ, nil
 		}
 		return nil, fmt.Errorf("undefined variable: %s", e.Name)
@@ -344,33 +348,67 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			return ast.IntType{}, nil
 		}
 	case ast.CallExpr:
-		calleeType, err := t.inferExpression(e.Callee)
-		if err != nil {
-			return nil, err
-		}
-
-		// Special handling for built-in functions
+		// Check for built-in / internal functions BEFORE resolving the callee type.
+		// This avoids "undefined variable" errors for names that are not in the
+		// user scope but are handled specially by the compiler/VM.
 		if idExpr, ok := e.Callee.(ast.IdentifierExpr); ok {
-			if idExpr.Name == "print" {
-				// print accepts any type
+			switch idExpr.Name {
+			case "print":
 				for _, arg := range e.Arguments {
-					_, err := t.inferExpression(arg)
-					if err != nil {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.VoidType{}, nil
+			case "input":
+				if len(e.Arguments) > 0 {
+					if _, err := t.inferExpression(e.Arguments[0]); err != nil {
+						return nil, err
+					}
+				}
+				return ast.StringType{}, nil
+			case "len":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.IntType{}, nil
+			case "int":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.IntType{}, nil
+			case "float":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.FloatType{}, nil
+			case "string":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.StringType{}, nil
+			case "__array_assign":
+				// Internal built-in for arr[i] = val; just type-check args
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
 						return nil, err
 					}
 				}
 				return ast.VoidType{}, nil
 			}
-			if idExpr.Name == "input" {
-				// input accepts a string prompt and returns a string
-				if len(e.Arguments) > 0 {
-					_, err := t.inferExpression(e.Arguments[0])
-					if err != nil {
-						return nil, err
-					}
-				}
-				return ast.StringType{}, nil
-			}
+		}
+
+		calleeType, err := t.inferExpression(e.Callee)
+		if err != nil {
+			return nil, err
 		}
 
 		if fnType, ok := calleeType.(ast.FunctionType); ok {
@@ -521,7 +559,13 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 }
 
 // addConstraint adds a type constraint
+// Constraints involving nil (unknown/unresolved) types are skipped.
 func (t *Typer) addConstraint(left, right ast.Type) {
+	if left == nil || right == nil {
+		// Skip constraints with unknown types — avoids false "type mismatch" errors
+		// for functions without explicit return type annotations.
+		return
+	}
 	t.constraints = append(t.constraints, Constraint{Left: left, Right: right})
 }
 
@@ -549,6 +593,17 @@ func (t *Typer) solveConstraints() error {
 
 // unify checks if two types unify (simplified)
 func (t *Typer) unify(a, b ast.Type) bool {
+	// nil means an unknown/unresolved type; treat it as unifying with anything.
+	if a == nil || b == nil {
+		return true
+	}
+	// Type variables unify with anything (from either side)
+	if _, ok := a.(TypeVar); ok {
+		return true
+	}
+	if _, ok := b.(TypeVar); ok {
+		return true
+	}
 	switch at := a.(type) {
 	case ast.IntType:
 		_, ok := b.(ast.IntType)
