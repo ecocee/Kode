@@ -1245,15 +1245,25 @@ func (c *Compiler) compileCallExpression(expr *ast.CallExpr) error {
 	if ident, ok := expr.Callee.(ast.IdentifierExpr); ok {
 		// Handle built-in print function specially
 		if ident.Name == "print" {
-			for _, arg := range expr.Arguments {
-				if err := c.compileExpression(arg); err != nil {
+			if len(expr.Arguments) == 1 {
+				// Fast path: single arg → OpPrint (pops the value)
+				if err := c.compileExpression(expr.Arguments[0]); err != nil {
 					return err
 				}
 				c.buf.Emit(OpPrint)
+				// OpPrint doesn't push a result; push nil so callers have a value
+				idx := c.buf.AddConstant(nil)
+				c.buf.Emit(OpPush, idx)
+			} else {
+				// Multi-arg (or zero-arg): route through callBuiltin which pushes its own nil result
+				for _, arg := range expr.Arguments {
+					if err := c.compileExpression(arg); err != nil {
+						return err
+					}
+				}
+				c.buf.Emit(OpCall, "print", len(expr.Arguments))
+				// OpCall already pushed the callBuiltin return value (nil), no extra push
 			}
-			// Push nil as return value
-			idx := c.buf.AddConstant(nil)
-			c.buf.Emit(OpPush, idx)
 			return nil
 		}
 		if ident.Name == "input" {

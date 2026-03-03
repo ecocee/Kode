@@ -1302,9 +1302,11 @@ func (vm *VM) callBuiltin(name string, args []interface{}) interface{} {
 
 	// ── Output ─────────────────────────────────────────────────────────────
 	case "print":
-		for _, arg := range args {
-			fmt.Println(vm.valueToString(arg))
+		parts := make([]string, len(args))
+		for i, a := range args {
+			parts[i] = vm.valueToString(a)
 		}
+		fmt.Println(strings.Join(parts, " "))
 		return nil
 	case "println":
 		parts := make([]string, len(args))

@@ -1,17 +1,3 @@
-let base = 100
-let add_base = fn(x) { return base + x }
-print(add_base(5))
-func make_multiplier(factor) {
-    return fn(x) { return x * factor }
-}
-let triple = make_multiplier(3)
-let quadruple = make_multiplier(4)
-print(triple(7))
-print(quadruple(7))
-let arr = [1, 2, 3, 4, 5]
-let factor = 10
-let scaled = arr.map(fn(x) { return x * factor })
-print(scaled)
-print(range(5))
-print(range(2, 6))
-print(range(0, 10, 2))
+print("hello", "world")
+println("a", "b", "c")
+print("x =", 42, "y =", 3.14)
