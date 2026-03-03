@@ -11,7 +11,7 @@ import (
 type LoopContext struct {
 	startPC              int   // Position to jump to for continue
 	breakTarget          int   // Position to jump to for break
-	continueTarget       int   // Position to jump to for continue (start of increment)  
+	continueTarget       int   // Position to jump to for continue (start of increment)
 	breakInstructions    []int // Instruction indices of OpBreak to patch
 	continueInstructions []int // Instruction indices of OpContinue to patch
 }
@@ -359,7 +359,7 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 		// Patch the JmpIfFalse to exit the loop
 		falseOffset := len(c.buf.instructions) - jmpIfFalseIdx
 		c.buf.instructions[jmpIfFalseIdx].Args[0] = falseOffset
-		
+
 		// Update loop context with targets
 		if len(c.loopStack) > 0 {
 			c.loopStack[len(c.loopStack)-1].breakTarget = len(c.buf.instructions)
@@ -405,7 +405,7 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 		topLoop := c.loopStack[len(c.loopStack)-1]
 		breakTarget := topLoop.breakTarget       // Use stored breakTarget
 		continueTarget := topLoop.continueTarget // Use stored continueTarget
-		
+
 		// Patch break instructions
 		// OpBreak VM formula: newPC = vm.pc + offset - 1, then pc++, so final_pc = vm.pc + offset
 		// To land at breakTarget: offset = breakTarget - breakIdx
@@ -413,13 +413,13 @@ func (c *Compiler) compileForLoop(stmt *ast.ForStmt) error {
 			offset := breakTarget - breakIdx
 			c.buf.instructions[breakIdx].Args[0] = offset
 		}
-		
+
 		// Patch continue instructions
 		for _, continueIdx := range topLoop.continueInstructions {
 			offset := continueTarget - continueIdx
 			c.buf.instructions[continueIdx].Args[0] = offset
 		}
-		
+
 		// Pop the loop context
 		c.loopStack = c.loopStack[:len(c.loopStack)-1]
 	}
@@ -436,8 +436,8 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 	// For while loop: continue jumps to condition (loop start), break jumps past loop
 	c.loopStack = append(c.loopStack, LoopContext{
 		startPC:              loopStart,
-		continueTarget:       loopStart,  // Continue goes to condition check
-		breakTarget:          0,           // Will be set after loop body
+		continueTarget:       loopStart, // Continue goes to condition check
+		breakTarget:          0,         // Will be set after loop body
 		breakInstructions:    []int{},
 		continueInstructions: []int{},
 	})
@@ -465,7 +465,7 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 		// Patch the JmpIfFalse to exit the loop
 		falseOffset := len(c.buf.instructions) - jmpIfFalseIdx
 		c.buf.instructions[jmpIfFalseIdx].Args[0] = falseOffset
-		
+
 		// Update loop context with correct break target
 		if len(c.loopStack) > 0 {
 			c.loopStack[len(c.loopStack)-1].breakTarget = len(c.buf.instructions)
@@ -480,19 +480,19 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 		// Jump back to loop start
 		jmpOffset := loopStart - len(c.buf.instructions) - 1
 		c.buf.Emit(OpJmp, jmpOffset)
-		
+
 		// Set break target for infinite loop
 		if len(c.loopStack) > 0 {
 			c.loopStack[len(c.loopStack)-1].breakTarget = len(c.buf.instructions)
 		}
 	}
-	
+
 	// Patch all break and continue instructions
 	if len(c.loopStack) > 0 {
 		topLoop := c.loopStack[len(c.loopStack)-1]
 		breakTarget := topLoop.breakTarget       // Jump past the loop
 		continueTarget := topLoop.continueTarget // Jump back to condition
-		
+
 		// Patch break instructions
 		// OpBreak VM formula: newPC = vm.pc + offset - 1, then pc++, so final_pc = vm.pc + offset
 		// To land at breakTarget: offset = breakTarget - breakIdx
@@ -500,17 +500,17 @@ func (c *Compiler) compileWhileLoop(stmt *ast.WhileStmt) error {
 			offset := breakTarget - breakIdx
 			c.buf.instructions[breakIdx].Args[0] = offset
 		}
-		
+
 		// Patch continue instructions
 		for _, continueIdx := range topLoop.continueInstructions {
 			offset := continueTarget - continueIdx
 			c.buf.instructions[continueIdx].Args[0] = offset
 		}
-		
+
 		// Pop the loop context
 		c.loopStack = c.loopStack[:len(c.loopStack)-1]
 	}
-	
+
 	return nil
 }
 
