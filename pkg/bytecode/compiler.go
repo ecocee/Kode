@@ -1001,13 +1001,28 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 	case ast.EnumVariantExpr:
 		return c.compileEnumVariantExpr(&e)
 	case ast.ClosureExpr:
-		// Compile the closure body as an anonymous function and push its name as a handle.
-		// We emit a jump over the body so the main flow doesn't fall through it.
+		// Compile the closure body as an anonymous function that captures outer-scope
+		// variables as hidden trailing parameters (lexical closure via value capture).
 		name := fmt.Sprintf("__closure_%d", c.closureCounter)
 		c.closureCounter++
+
+		// Find free variables (referenced in body, not in params, but in outer scope).
+		paramSet := make(map[string]bool)
+		for _, p := range e.Params {
+			paramSet[p.Name] = true
+		}
+		freeVars := c.collectFreeVars(e.Body, paramSet, c.localVars)
+
+		// Build extended parameter list: original params + hidden capture params.
+		extParams := make([]ast.Param, len(e.Params))
+		copy(extParams, e.Params)
+		for _, fv := range freeVars {
+			extParams = append(extParams, ast.Param{Name: fv})
+		}
+
 		fnStmt := &ast.FunctionDefStmt{
 			Name:   name,
-			Params: e.Params,
+			Params: extParams,
 			Body:   e.Body,
 		}
 		c.astFunctions[name] = fnStmt
@@ -1016,7 +1031,7 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 		jmpIdx := len(c.buf.instructions)
 		c.buf.Emit(OpJmp, 0) // patched after body
 
-		// Compile the function body inline (it registers its entry PC via RegisterFunction)
+		// Compile the function body inline
 		if err := c.compileFunctionBody(fnStmt); err != nil {
 			return err
 		}
@@ -1025,9 +1040,22 @@ func (c *Compiler) compileExpression(expr ast.Expression) error {
 		afterBodyPC := len(c.buf.instructions)
 		c.buf.instructions[jmpIdx].Args[0] = afterBodyPC - jmpIdx
 
-		// Push the closure handle (function name string) as the expression value
-		idx := c.buf.AddConstant(name)
-		c.buf.Emit(OpPush, idx)
+		if len(freeVars) == 0 {
+			// No captures — push function name string as handle (cheaper path)
+			idx := c.buf.AddConstant(name)
+			c.buf.Emit(OpPush, idx)
+		} else {
+			// Push captured var values from outer scope, then create ClosureValue
+			for _, varName := range freeVars {
+				if localIdx, ok := c.localVars[varName]; ok {
+					c.buf.Emit(OpLoad, localIdx)
+				} else {
+					gIdx := c.buf.AddGlobal(varName)
+					c.buf.Emit(OpLoadGlobal, gIdx)
+				}
+			}
+			c.buf.Emit(OpMakeClosure, name, len(freeVars))
+		}
 		return nil
 	case ast.ChanExpr:
 		// Channels not yet implemented — push nil placeholder
@@ -1364,7 +1392,21 @@ func (c *Compiler) compileCallExpression(expr *ast.CallExpr) error {
 				c.buf.Emit(OpArrayPop)
 			}
 		default:
-			// Other method calls on arbitrary objects — compile as generic call
+			// Check if this is a module-qualified call like math.sqrt(x)
+			if objIdent, ok2 := mem.Object.(ast.IdentifierExpr); ok2 {
+				switch objIdent.Name {
+				case "math":
+					// math.xxx(args) → OpCall("math.xxx", argCount)
+					for _, arg := range expr.Arguments {
+						if err := c.compileExpression(arg); err != nil {
+							return err
+						}
+					}
+					c.buf.Emit(OpCall, "math."+mem.Member, len(expr.Arguments))
+					return nil
+				}
+			}
+			// General method call: push receiver, push args, OpMethodCall
 			if err := c.compileExpression(mem.Object); err != nil {
 				return err
 			}
@@ -1373,7 +1415,7 @@ func (c *Compiler) compileCallExpression(expr *ast.CallExpr) error {
 					return err
 				}
 			}
-			c.buf.Emit(OpCall, mem.Member, len(expr.Arguments)+1)
+			c.buf.Emit(OpMethodCall, mem.Member, len(expr.Arguments))
 		}
 	}
 
@@ -1521,6 +1563,19 @@ func (c *Compiler) compileArrayAccessExpr(expr *ast.ArrayAccessExpr) error {
 
 // compileMemberAccessExpr compiles member access: obj.member
 func (c *Compiler) compileMemberAccessExpr(expr *ast.MemberAccessExpr) error {
+	// Special case: math module constants (math.pi, math.e)
+	if objIdent, ok := expr.Object.(ast.IdentifierExpr); ok && objIdent.Name == "math" {
+		switch expr.Member {
+		case "pi":
+			idx := c.buf.AddConstant(3.141592653589793)
+			c.buf.Emit(OpPush, idx)
+			return nil
+		case "e":
+			idx := c.buf.AddConstant(2.718281828459045)
+			c.buf.Emit(OpPush, idx)
+			return nil
+		}
+	}
 	// Compile object expression
 	if err := c.compileExpression(expr.Object); err != nil {
 		return err
@@ -1612,4 +1667,140 @@ func (c *Compiler) compileStringInterp(expr *ast.StringInterpExpr) error {
 		c.buf.Emit(OpAdd)
 	}
 	return nil
+}
+
+// collectFreeVars walks the closure body ([]ast.Statement or ast.Expression),
+// collects all variable names that are referenced but not declared locally
+// and appear in outerLocals. The paramSet contains the closure's own parameter names.
+// Returns an ordered, deduplicated slice of captured variable names.
+func (c *Compiler) collectFreeVars(body interface{}, paramSet map[string]bool, outerLocals map[string]int) []string {
+	refs := make(map[string]bool)
+	decls := make(map[string]bool)
+	for k := range paramSet {
+		decls[k] = true
+	}
+
+	switch b := body.(type) {
+	case []ast.Statement:
+		for _, s := range b {
+			c.freeVarWalkStmt(s, refs, decls)
+		}
+	case ast.Expression:
+		c.freeVarWalkExpr(b, refs, decls)
+	}
+
+	seen := make(map[string]bool)
+	var result []string
+	for name := range refs {
+		if _, inOuter := outerLocals[name]; inOuter {
+			if !decls[name] && !seen[name] {
+				seen[name] = true
+				result = append(result, name)
+			}
+		}
+	}
+	return result
+}
+
+func (c *Compiler) freeVarWalkStmt(stmt ast.Statement, refs, decls map[string]bool) {
+	if stmt == nil {
+		return
+	}
+	switch s := stmt.(type) {
+	case ast.LetStmt:
+		if s.Value != nil {
+			c.freeVarWalkExpr(s.Value, refs, decls)
+		}
+		decls[s.Name] = true
+	case ast.AssignStmt:
+		c.freeVarWalkExpr(s.Value, refs, decls)
+		decls[s.Name] = true
+	case ast.CompoundAssignStmt:
+		c.freeVarWalkExpr(s.Value, refs, decls)
+		refs[s.Name] = true
+	case ast.ExprStmt:
+		c.freeVarWalkExpr(s.Expr, refs, decls)
+	case ast.ReturnStmt:
+		if s.Value != nil {
+			c.freeVarWalkExpr(s.Value, refs, decls)
+		}
+	case ast.IfStmt:
+		c.freeVarWalkExpr(s.Condition, refs, decls)
+		for _, st := range s.ThenBranch {
+			c.freeVarWalkStmt(st, refs, decls)
+		}
+		for _, st := range s.ElseBranch {
+			c.freeVarWalkStmt(st, refs, decls)
+		}
+	case ast.WhileStmt:
+		c.freeVarWalkExpr(s.Condition, refs, decls)
+		for _, st := range s.Body {
+			c.freeVarWalkStmt(st, refs, decls)
+		}
+	case ast.ForStmt:
+		// ForStmt has Init/Condition/Incr/Body — no iterable
+		for _, st := range s.Body {
+			c.freeVarWalkStmt(st, refs, decls)
+		}
+	case ast.ForInStmt:
+		c.freeVarWalkExpr(s.Iterable, refs, decls)
+		decls[s.VarName] = true
+		for _, st := range s.Body {
+			c.freeVarWalkStmt(st, refs, decls)
+		}
+	case ast.BlockStmt:
+		for _, st := range s.Statements {
+			c.freeVarWalkStmt(st, refs, decls)
+		}
+	case ast.PrintStmt:
+		c.freeVarWalkExpr(s.Value, refs, decls)
+	case ast.FunctionDefStmt:
+		decls[s.Name] = true
+	}
+}
+
+func (c *Compiler) freeVarWalkExpr(expr ast.Expression, refs, decls map[string]bool) {
+	if expr == nil {
+		return
+	}
+	switch e := expr.(type) {
+	case ast.IdentifierExpr:
+		refs[e.Name] = true
+	case ast.BinaryExpr:
+		c.freeVarWalkExpr(e.Left, refs, decls)
+		c.freeVarWalkExpr(e.Right, refs, decls)
+	case ast.UnaryExpr:
+		c.freeVarWalkExpr(e.Expr, refs, decls)
+	case ast.CallExpr:
+		c.freeVarWalkExpr(e.Callee, refs, decls)
+		for _, arg := range e.Arguments {
+			c.freeVarWalkExpr(arg, refs, decls)
+		}
+	case ast.MemberAccessExpr:
+		c.freeVarWalkExpr(e.Object, refs, decls)
+	case ast.ArrayAccessExpr:
+		c.freeVarWalkExpr(e.Array, refs, decls)
+		c.freeVarWalkExpr(e.Index, refs, decls)
+	case ast.ArrayExpr:
+		for _, el := range e.Elements {
+			c.freeVarWalkExpr(el, refs, decls)
+		}
+	case ast.ClosureExpr:
+		innerDecls := make(map[string]bool)
+		for k := range decls {
+			innerDecls[k] = true
+		}
+		for _, p := range e.Params {
+			innerDecls[p.Name] = true
+		}
+		for _, s := range e.Body {
+			c.freeVarWalkStmt(s, refs, innerDecls)
+		}
+	case ast.StringInterpExpr:
+		for _, part := range e.Parts {
+			if part.IsExpr {
+				c.freeVarWalkExpr(part.Expr, refs, decls)
+			}
+		}
+	}
 }

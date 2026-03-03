@@ -2,8 +2,21 @@ package bytecode
 
 import (
 	"fmt"
+	"math"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 )
+
+// ClosureValue holds a compiled function name plus captured variable values.
+// The captured values are baked in as hidden trailing parameters when the closure is called.
+type ClosureValue struct {
+	FuncName string
+	Captured []interface{}
+}
 
 // CallFrame represents a function call frame
 type CallFrame struct {
@@ -691,23 +704,8 @@ func (vm *VM) Run() error {
 				funcName, _ := instr.Args[0].(string)
 				argCount, _ := instr.Args[1].(int)
 
-				// If name is not a direct function, check if a global variable
-				// holds a closure reference (a string naming a compiled function).
-				resolvedName := funcName
-				if _, ok := vm.program.Functions[funcName]; !ok {
-					if ref, exists := vm.globals[funcName]; exists {
-						if nameStr, isStr := ref.(string); isStr {
-							if _, isFn := vm.program.Functions[nameStr]; isFn {
-								resolvedName = nameStr
-							}
-						}
-					}
-				}
-
-				if entryPC, ok := vm.program.Functions[resolvedName]; ok {
-					vm.callFunction(entryPC, argCount)
-				} else {
-					// Built-in / unknown
+				if !vm.dispatchCall(funcName, argCount) {
+					// Pop args for builtin call
 					args := make([]interface{}, argCount)
 					for i := argCount - 1; i >= 0; i-- {
 						if len(vm.stack) > 0 {
@@ -720,36 +718,83 @@ func (vm *VM) Run() error {
 			}
 
 		case OpCallDynamic:
-			// Call a closure/function whose name is on the stack.
-			// Stack layout (bottom→top): fn_ref, arg0, arg1, ..., argN-1
-			// instr.Args[0] = argCount
+			// Call a closure/function whose reference is on the stack (below the args).
+			// Stack layout (bottom→top based on push order): fn_ref, arg0..argN-1
 			argCount := 0
 			if len(instr.Args) > 0 {
 				argCount, _ = instr.Args[0].(int)
 			}
-			// Pop args first (they are on top), then pop the fn_ref below them.
+			// Pop args first (on top), then pop fn_ref
 			args := make([]interface{}, argCount)
 			for i := argCount - 1; i >= 0; i-- {
 				if len(vm.stack) > 0 {
 					args[i] = vm.pop()
 				}
 			}
-			fnRef := vm.pop() // the closure handle
-			if fnName, isStr := fnRef.(string); isStr {
-				if entryPC, ok := vm.program.Functions[fnName]; ok {
-					// Re-push the args so callFunction can pop them
-					for _, a := range args {
-						vm.stack = append(vm.stack, a)
-					}
-					vm.callFunction(entryPC, argCount)
-				} else {
-					result := vm.callBuiltin(fnName, args)
-					vm.stack = append(vm.stack, result)
-				}
-			} else {
-				// Not callable — push nil
-				vm.stack = append(vm.stack, nil)
+			fnRef := vm.pop()
+			// Re-push args so dispatchCall can pop them
+			for _, a := range args {
+				vm.stack = append(vm.stack, a)
 			}
+			if !vm.dispatchCall(fnRef, argCount) {
+				// Fallback builtin / unknown
+				if fnName, isStr := fnRef.(string); isStr {
+					// rebuild args (already popped)
+					a2 := make([]interface{}, argCount)
+					for i := argCount - 1; i >= 0; i-- {
+						if len(vm.stack) > 0 {
+							a2[i] = vm.pop()
+						}
+					}
+					result := vm.callBuiltin(fnName, a2)
+					vm.stack = append(vm.stack, result)
+				} else {
+					// pop the re-pushed args and push nil
+					for i := 0; i < argCount; i++ {
+						if len(vm.stack) > 0 {
+							vm.pop()
+						}
+					}
+					vm.stack = append(vm.stack, nil)
+				}
+			}
+
+		case OpMakeClosure:
+			// Create a ClosureValue capturing the top `captureCount` stack values.
+			// Args: [funcName string, captureCount int]
+			funcName, _ := instr.Args[0].(string)
+			captureCount := 0
+			if len(instr.Args) > 1 {
+				captureCount, _ = instr.Args[1].(int)
+			}
+			captured := make([]interface{}, captureCount)
+			for i := captureCount - 1; i >= 0; i-- {
+				if len(vm.stack) > 0 {
+					captured[i] = vm.pop()
+				}
+			}
+			vm.stack = append(vm.stack, ClosureValue{FuncName: funcName, Captured: captured})
+
+		case OpMethodCall:
+			// Call method on a receiver value.
+			// Args: [methodName string, argCount int]
+			// Stack (bottom→top): receiver, arg0, arg1 …  argN-1
+			methodName, _ := instr.Args[0].(string)
+			argCount := 0
+			if len(instr.Args) > 1 {
+				argCount, _ = instr.Args[1].(int)
+			}
+			// Pop args
+			args := make([]interface{}, argCount)
+			for i := argCount - 1; i >= 0; i-- {
+				if len(vm.stack) > 0 {
+					args[i] = vm.pop()
+				}
+			}
+			// Pop receiver
+			receiver := vm.pop()
+			result := vm.callMethod(receiver, methodName, args)
+			vm.stack = append(vm.stack, result)
 
 		case OpReturn:
 			// Execute deferred calls for this frame
@@ -855,13 +900,19 @@ func (vm *VM) runDeferred(depth int) {
 
 // callFunction sets up a new call frame and jumps to entryPC.
 // Arguments must already be on the stack (argCount of them, pushed in order).
-func (vm *VM) callFunction(entryPC, argCount int) {
+// extraArgs are appended after the popped args (used for closure captures).
+func (vm *VM) callFunction(entryPC, argCount int, extraArgs ...interface{}) {
 	// Pop arguments from stack in reverse order (last arg is on top)
 	args := make([]interface{}, argCount)
 	for i := argCount - 1; i >= 0; i-- {
 		if len(vm.stack) > 0 {
 			args[i] = vm.pop()
 		}
+	}
+	// Append captured values (for closures)
+	allArgs := args
+	if len(extraArgs) > 0 {
+		allArgs = append(args, extraArgs...)
 	}
 	// Push a new call frame
 	frame := CallFrame{
@@ -872,13 +923,47 @@ func (vm *VM) callFunction(entryPC, argCount int) {
 	vm.callStack = append(vm.callStack, frame)
 	// Set up locals for the new scope
 	newLocals := make(map[string]interface{})
-	for i, arg := range args {
+	for i, arg := range allArgs {
 		newLocals[fmt.Sprintf("_var_%d", i)] = arg
 	}
 	vm.locals = append(vm.locals, newLocals)
 	vm.bp = len(vm.stack)
 	// Jump (loop will increment, so subtract 1)
 	vm.pc = entryPC - 1
+}
+
+// dispatchCall handles calling a value (string funcName or ClosureValue) with argCount stack args.
+// Returns true if call was dispatched internally (no builtin fallback needed).
+func (vm *VM) dispatchCall(callee interface{}, argCount int) bool {
+	switch cv := callee.(type) {
+	case ClosureValue:
+		if entryPC, ok := vm.program.Functions[cv.FuncName]; ok {
+			vm.callFunction(entryPC, argCount, cv.Captured...)
+			return true
+		}
+	case string:
+		// Try to resolve as a global closure variable first
+		if ref, exists := vm.globals[cv]; exists {
+			if inner, ok := ref.(ClosureValue); ok {
+				if entryPC, ok2 := vm.program.Functions[inner.FuncName]; ok2 {
+					vm.callFunction(entryPC, argCount, inner.Captured...)
+					return true
+				}
+			}
+			// Also handle: global var holds a plain string function name (no-capture closure)
+			if innerName, ok := ref.(string); ok {
+				if entryPC, ok2 := vm.program.Functions[innerName]; ok2 {
+					vm.callFunction(entryPC, argCount)
+					return true
+				}
+			}
+		}
+		if entryPC, ok := vm.program.Functions[cv]; ok {
+			vm.callFunction(entryPC, argCount)
+			return true
+		}
+	}
+	return false
 }
 
 // tryHandleError attempts to route a runtime error to the nearest catch block.
@@ -1209,21 +1294,57 @@ func (vm *VM) bitwiseShr(left, right interface{}) interface{} {
 
 func (vm *VM) callBuiltin(name string, args []interface{}) interface{} {
 	switch name {
+
+	// ── Output ─────────────────────────────────────────────────────────────
 	case "print":
 		for _, arg := range args {
 			fmt.Println(vm.valueToString(arg))
 		}
 		return nil
-	case "len":
+	case "println":
+		parts := make([]string, len(args))
+		for i, a := range args {
+			parts[i] = vm.valueToString(a)
+		}
+		fmt.Println(strings.Join(parts, " "))
+		return nil
+	case "printf":
 		if len(args) > 0 {
-			switch v := args[0].(type) {
-			case string:
-				return int(len(v))
-			case []interface{}:
-				return int(len(v))
+			if fmtStr, ok := args[0].(string); ok {
+				iArgs := make([]interface{}, len(args)-1)
+				copy(iArgs, args[1:])
+				fmt.Printf(fmtStr, iArgs...)
 			}
 		}
-		return 0
+		return nil
+
+	// ── Type inspection ────────────────────────────────────────────────────
+	case "type":
+		if len(args) > 0 {
+			switch args[0].(type) {
+			case int:
+				return "int"
+			case float64:
+				return "float"
+			case bool:
+				return "bool"
+			case string:
+				return "string"
+			case []interface{}:
+				return "array"
+			case map[string]interface{}:
+				return "struct"
+			case ClosureValue:
+				return "function"
+			case nil:
+				return "nil"
+			default:
+				return fmt.Sprintf("%T", args[0])
+			}
+		}
+		return "nil"
+
+	// ── Type conversions ──────────────────────────────────────────────────
 	case "int":
 		if len(args) > 0 {
 			switch v := args[0].(type) {
@@ -1232,9 +1353,17 @@ func (vm *VM) callBuiltin(name string, args []interface{}) interface{} {
 			case float64:
 				return int(v)
 			case string:
-				if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+				if i, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
 					return int(i)
 				}
+				if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+					return int(f)
+				}
+			case bool:
+				if v {
+					return 1
+				}
+				return 0
 			}
 		}
 		return 0
@@ -1246,9 +1375,14 @@ func (vm *VM) callBuiltin(name string, args []interface{}) interface{} {
 			case float64:
 				return v
 			case string:
-				if f, err := strconv.ParseFloat(v, 64); err == nil {
+				if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
 					return f
 				}
+			case bool:
+				if v {
+					return 1.0
+				}
+				return 0.0
 			}
 		}
 		return 0.0
@@ -1257,7 +1391,706 @@ func (vm *VM) callBuiltin(name string, args []interface{}) interface{} {
 			return vm.valueToString(args[0])
 		}
 		return ""
+	case "bool":
+		if len(args) > 0 {
+			return vm.isTruthy(args[0])
+		}
+		return false
+
+	// ── Lengths ────────────────────────────────────────────────────────────
+	case "len":
+		if len(args) > 0 {
+			switch v := args[0].(type) {
+			case string:
+				return len(v)
+			case []interface{}:
+				return len(v)
+			}
+		}
+		return 0
+
+	// ── Range ─────────────────────────────────────────────────────────────
+	case "range":
+		switch len(args) {
+		case 1:
+			n := vm.toInt(args[0])
+			out := make([]interface{}, n)
+			for i := 0; i < n; i++ {
+				out[i] = i
+			}
+			return out
+		case 2:
+			start, end := vm.toInt(args[0]), vm.toInt(args[1])
+			out := make([]interface{}, 0, end-start)
+			for i := start; i < end; i++ {
+				out = append(out, i)
+			}
+			return out
+		case 3:
+			start, end, step := vm.toInt(args[0]), vm.toInt(args[1]), vm.toInt(args[2])
+			if step == 0 {
+				step = 1
+			}
+			var out []interface{}
+			for i := start; step > 0 && i < end || step < 0 && i > end; i += step {
+				out = append(out, i)
+			}
+			return out
+		}
+		return []interface{}{}
+
+	// ── Math (flat names) ────────────────────────────────────────────────
+	case "abs", "math.abs":
+		if len(args) > 0 {
+			switch v := args[0].(type) {
+			case int:
+				if v < 0 {
+					return -v
+				}
+				return v
+			case float64:
+				return math.Abs(v)
+			}
+		}
+		return 0
+	case "sqrt", "math.sqrt":
+		if len(args) > 0 {
+			return math.Sqrt(vm.toFloat(args[0]))
+		}
+		return 0.0
+	case "pow", "math.pow":
+		if len(args) >= 2 {
+			return math.Pow(vm.toFloat(args[0]), vm.toFloat(args[1]))
+		}
+		return 1.0
+	case "floor", "math.floor":
+		if len(args) > 0 {
+			return int(math.Floor(vm.toFloat(args[0])))
+		}
+		return 0
+	case "ceil", "math.ceil":
+		if len(args) > 0 {
+			return int(math.Ceil(vm.toFloat(args[0])))
+		}
+		return 0
+	case "round", "math.round":
+		if len(args) > 0 {
+			return int(math.Round(vm.toFloat(args[0])))
+		}
+		return 0
+	case "min", "math.min":
+		if len(args) >= 2 {
+			a, b := vm.toFloat(args[0]), vm.toFloat(args[1])
+			if a < b {
+				return a
+			}
+			return b
+		}
+		return 0
+	case "max", "math.max":
+		if len(args) >= 2 {
+			a, b := vm.toFloat(args[0]), vm.toFloat(args[1])
+			if a > b {
+				return a
+			}
+			return b
+		}
+		return 0
+	case "random", "math.random":
+		return rand.Float64()
+	case "math.pi":
+		return math.Pi
+	case "math.e":
+		return math.E
+
+	// ── String helpers (flat names) ──────────────────────────────────────
+	case "split":
+		if len(args) >= 2 {
+			s := vm.valueToString(args[0])
+			sep := vm.valueToString(args[1])
+			parts := strings.Split(s, sep)
+			out := make([]interface{}, len(parts))
+			for i, p := range parts {
+				out[i] = p
+			}
+			return out
+		}
+		return []interface{}{}
+	case "trim":
+		if len(args) > 0 {
+			return strings.TrimSpace(vm.valueToString(args[0]))
+		}
+		return ""
+	case "upper":
+		if len(args) > 0 {
+			return strings.ToUpper(vm.valueToString(args[0]))
+		}
+		return ""
+	case "lower":
+		if len(args) > 0 {
+			return strings.ToLower(vm.valueToString(args[0]))
+		}
+		return ""
+	case "contains":
+		if len(args) >= 2 {
+			return strings.Contains(vm.valueToString(args[0]), vm.valueToString(args[1]))
+		}
+		return false
+	case "startsWith":
+		if len(args) >= 2 {
+			return strings.HasPrefix(vm.valueToString(args[0]), vm.valueToString(args[1]))
+		}
+		return false
+	case "endsWith":
+		if len(args) >= 2 {
+			return strings.HasSuffix(vm.valueToString(args[0]), vm.valueToString(args[1]))
+		}
+		return false
+	case "replace":
+		if len(args) >= 3 {
+			return strings.ReplaceAll(vm.valueToString(args[0]), vm.valueToString(args[1]), vm.valueToString(args[2]))
+		}
+		return ""
+	case "indexOf":
+		if len(args) >= 2 {
+			return strings.Index(vm.valueToString(args[0]), vm.valueToString(args[1]))
+		}
+		return -1
+	case "repeat":
+		if len(args) >= 2 {
+			return strings.Repeat(vm.valueToString(args[0]), vm.toInt(args[1]))
+		}
+		return ""
+
+	// ── File I/O ──────────────────────────────────────────────────────────
+	case "readFile":
+		if len(args) > 0 {
+			path := vm.valueToString(args[0])
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			return string(data)
+		}
+		return nil
+	case "writeFile":
+		if len(args) >= 2 {
+			path := vm.valueToString(args[0])
+			content := vm.valueToString(args[1])
+			err := os.WriteFile(path, []byte(content), 0644)
+			return err == nil
+		}
+		return false
+	case "appendFile":
+		if len(args) >= 2 {
+			path := vm.valueToString(args[0])
+			content := vm.valueToString(args[1])
+			f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return false
+			}
+			defer f.Close()
+			_, err = f.WriteString(content)
+			return err == nil
+		}
+		return false
+	case "fileExists":
+		if len(args) > 0 {
+			_, err := os.Stat(vm.valueToString(args[0]))
+			return err == nil
+		}
+		return false
+	case "readDir":
+		if len(args) > 0 {
+			entries, err := os.ReadDir(vm.valueToString(args[0]))
+			if err != nil {
+				return []interface{}{}
+			}
+			out := make([]interface{}, len(entries))
+			for i, e := range entries {
+				out[i] = e.Name()
+			}
+			return out
+		}
+		return []interface{}{}
+	case "joinPath":
+		parts := make([]string, len(args))
+		for i, a := range args {
+			parts[i] = vm.valueToString(a)
+		}
+		return filepath.Join(parts...)
+
+	// ── Array helpers (flat names) ────────────────────────────────────────
+	case "sort":
+		if len(args) > 0 {
+			if arr, ok := args[0].([]interface{}); ok {
+				return vm.sortArray(arr)
+			}
+		}
+		return []interface{}{}
+	case "reverse":
+		if len(args) > 0 {
+			if arr, ok := args[0].([]interface{}); ok {
+				cp := make([]interface{}, len(arr))
+				copy(cp, arr)
+				for i, j := 0, len(cp)-1; i < j; i, j = i+1, j-1 {
+					cp[i], cp[j] = cp[j], cp[i]
+				}
+				return cp
+			}
+		}
+		return []interface{}{}
+	case "join":
+		if len(args) >= 2 {
+			if arr, ok := args[0].([]interface{}); ok {
+				sep := vm.valueToString(args[1])
+				parts := make([]string, len(arr))
+				for i, v := range arr {
+					parts[i] = vm.valueToString(v)
+				}
+				return strings.Join(parts, sep)
+			}
+		}
+		return ""
+	case "keys":
+		if len(args) > 0 {
+			if m, ok := args[0].(map[string]interface{}); ok {
+				ks := make([]interface{}, 0, len(m))
+				for k := range m {
+					ks = append(ks, k)
+				}
+				return ks
+			}
+		}
+		return []interface{}{}
+	case "values":
+		if len(args) > 0 {
+			if m, ok := args[0].(map[string]interface{}); ok {
+				vs := make([]interface{}, 0, len(m))
+				for _, v := range m {
+					vs = append(vs, v)
+				}
+				return vs
+			}
+		}
+		return []interface{}{}
+	case "has":
+		if len(args) >= 2 {
+			if m, ok := args[0].(map[string]interface{}); ok {
+				_, exists := m[vm.valueToString(args[1])]
+				return exists
+			}
+			if arr, ok := args[0].([]interface{}); ok {
+				needle := args[1]
+				for _, v := range arr {
+					if fmt.Sprintf("%v", v) == fmt.Sprintf("%v", needle) {
+						return true
+					}
+				}
+				return false
+			}
+		}
+		return false
+
 	default:
 		return nil
 	}
+}
+
+// callMethod dispatches a method call on a receiver value (string, array, or math namespace).
+func (vm *VM) callMethod(receiver interface{}, method string, args []interface{}) interface{} {
+	switch rv := receiver.(type) {
+
+	case string:
+		switch method {
+		case "len":
+			return len(rv)
+		case "upper":
+			return strings.ToUpper(rv)
+		case "lower":
+			return strings.ToLower(rv)
+		case "trim":
+			return strings.TrimSpace(rv)
+		case "trimLeft":
+			if len(args) > 0 {
+				return strings.TrimLeft(rv, vm.valueToString(args[0]))
+			}
+			return strings.TrimLeft(rv, " \t\n")
+		case "trimRight":
+			if len(args) > 0 {
+				return strings.TrimRight(rv, vm.valueToString(args[0]))
+			}
+			return strings.TrimRight(rv, " \t\n")
+		case "split":
+			sep := ""
+			if len(args) > 0 {
+				sep = vm.valueToString(args[0])
+			}
+			parts := strings.Split(rv, sep)
+			out := make([]interface{}, len(parts))
+			for i, p := range parts {
+				out[i] = p
+			}
+			return out
+		case "contains":
+			if len(args) > 0 {
+				return strings.Contains(rv, vm.valueToString(args[0]))
+			}
+			return false
+		case "startsWith", "hasPrefix":
+			if len(args) > 0 {
+				return strings.HasPrefix(rv, vm.valueToString(args[0]))
+			}
+			return false
+		case "endsWith", "hasSuffix":
+			if len(args) > 0 {
+				return strings.HasSuffix(rv, vm.valueToString(args[0]))
+			}
+			return false
+		case "replace":
+			if len(args) >= 2 {
+				return strings.ReplaceAll(rv, vm.valueToString(args[0]), vm.valueToString(args[1]))
+			}
+			return rv
+		case "indexOf", "index":
+			if len(args) > 0 {
+				return strings.Index(rv, vm.valueToString(args[0]))
+			}
+			return -1
+		case "repeat":
+			if len(args) > 0 {
+				return strings.Repeat(rv, vm.toInt(args[0]))
+			}
+			return rv
+		case "slice", "substr":
+			if len(args) >= 2 {
+				start, end := vm.toInt(args[0]), vm.toInt(args[1])
+				runes := []rune(rv)
+				n := len(runes)
+				if start < 0 {
+					start = 0
+				}
+				if end > n {
+					end = n
+				}
+				return string(runes[start:end])
+			} else if len(args) == 1 {
+				start := vm.toInt(args[0])
+				runes := []rune(rv)
+				if start < 0 || start >= len(runes) {
+					return ""
+				}
+				return string(runes[start:])
+			}
+			return rv
+		case "toInt":
+			if i, err := strconv.ParseInt(strings.TrimSpace(rv), 10, 64); err == nil {
+				return int(i)
+			}
+			return 0
+		case "toFloat":
+			if f, err := strconv.ParseFloat(strings.TrimSpace(rv), 64); err == nil {
+				return f
+			}
+			return 0.0
+		case "chars":
+			runes := []rune(rv)
+			out := make([]interface{}, len(runes))
+			for i, r := range runes {
+				out[i] = string(r)
+			}
+			return out
+		}
+
+	case []interface{}:
+		switch method {
+		case "len":
+			return len(rv)
+		case "contains":
+			if len(args) > 0 {
+				needle := fmt.Sprintf("%v", args[0])
+				for _, v := range rv {
+					if fmt.Sprintf("%v", v) == needle {
+						return true
+					}
+				}
+				return false
+			}
+			return false
+		case "join":
+			sep := ""
+			if len(args) > 0 {
+				sep = vm.valueToString(args[0])
+			}
+			parts := make([]string, len(rv))
+			for i, v := range rv {
+				parts[i] = vm.valueToString(v)
+			}
+			return strings.Join(parts, sep)
+		case "sort":
+			return vm.sortArray(rv)
+		case "reverse":
+			cp := make([]interface{}, len(rv))
+			copy(cp, rv)
+			for i, j := 0, len(cp)-1; i < j; i, j = i+1, j-1 {
+				cp[i], cp[j] = cp[j], cp[i]
+			}
+			return cp
+		case "slice":
+			if len(args) >= 2 {
+				start, end := vm.toInt(args[0]), vm.toInt(args[1])
+				if start < 0 {
+					start = 0
+				}
+				if end > len(rv) {
+					end = len(rv)
+				}
+				cp := make([]interface{}, end-start)
+				copy(cp, rv[start:end])
+				return cp
+			} else if len(args) == 1 {
+				start := vm.toInt(args[0])
+				if start < 0 || start > len(rv) {
+					return []interface{}{}
+				}
+				cp := make([]interface{}, len(rv)-start)
+				copy(cp, rv[start:])
+				return cp
+			}
+			return rv
+		case "map":
+			if len(args) > 0 {
+				result := make([]interface{}, len(rv))
+				for i, v := range rv {
+					vm.stack = append(vm.stack, v)
+					if vm.dispatchCall(args[0], 1) {
+						// dispatchCall set up call frame; result will be on stack after return
+						// We need a different approach: run the sub-call synchronously
+						// For simplicity, use callBuiltinFn if it's a string
+						result[i] = vm.callBuiltin("__noop__", nil)
+					}
+					// Simpler: if args[0] is a ClosureValue or string, call it directly
+					result[i] = vm.applyFn(args[0], []interface{}{v})
+				}
+				return result
+			}
+			return rv
+		case "filter":
+			if len(args) > 0 {
+				var result []interface{}
+				for _, v := range rv {
+					res := vm.applyFn(args[0], []interface{}{v})
+					if vm.isTruthy(res) {
+						result = append(result, v)
+					}
+				}
+				if result == nil {
+					return []interface{}{}
+				}
+				return result
+			}
+			return rv
+		case "reduce":
+			if len(args) >= 2 {
+				acc := args[1]
+				for _, v := range rv {
+					acc = vm.applyFn(args[0], []interface{}{acc, v})
+				}
+				return acc
+			}
+			return nil
+		case "indexOf", "index":
+			if len(args) > 0 {
+				needle := fmt.Sprintf("%v", args[0])
+				for i, v := range rv {
+					if fmt.Sprintf("%v", v) == needle {
+						return i
+					}
+				}
+				return -1
+			}
+			return -1
+		case "first":
+			if len(rv) > 0 {
+				return rv[0]
+			}
+			return nil
+		case "last":
+			if len(rv) > 0 {
+				return rv[len(rv)-1]
+			}
+			return nil
+		case "flat":
+			var result []interface{}
+			for _, v := range rv {
+				if inner, ok := v.([]interface{}); ok {
+					result = append(result, inner...)
+				} else {
+					result = append(result, v)
+				}
+			}
+			if result == nil {
+				return []interface{}{}
+			}
+			return result
+		}
+
+	// math namespace (receiver is the string "math" used as an identifier)
+	case nil:
+		// method on nil — return nil
+
+	}
+
+	// Fallback: try calling as a builtin with the method name
+	allArgs := append([]interface{}{receiver}, args...)
+	return vm.callBuiltin(method, allArgs)
+}
+
+// applyFn calls a function (ClosureValue or string name) with the given args
+// synchronously by temporarily running the VM. Used for map/filter/reduce.
+func (vm *VM) applyFn(fn interface{}, args []interface{}) interface{} {
+	for _, a := range args {
+		vm.stack = append(vm.stack, a)
+	}
+	origPC := vm.pc
+	handled := vm.dispatchCall(fn, len(args))
+	if !handled {
+		for i := 0; i < len(args); i++ {
+			if len(vm.stack) > 0 {
+				vm.pop()
+			}
+		}
+		return nil
+	}
+	// Run until we return from the called frame (depth decreases)
+	targetDepth := len(vm.callStack)
+	for vm.pc < len(vm.program.Instructions) && len(vm.callStack) >= targetDepth {
+		instr := vm.program.Instructions[vm.pc]
+		if instr.Op == OpReturnValue || instr.Op == OpReturn {
+			vm.runDeferred(len(vm.callStack))
+			if len(vm.callStack) > 0 {
+				frame := vm.callStack[len(vm.callStack)-1]
+				vm.callStack = vm.callStack[:len(vm.callStack)-1]
+				if len(vm.locals) > 0 {
+					vm.locals = vm.locals[:len(vm.locals)-1]
+				}
+				vm.pc = frame.pc - 1
+			}
+			break
+		}
+		// Run the instruction via the main dispatch
+		_ = vm.execOne(instr)
+		vm.pc++
+	}
+	_ = origPC
+	if len(vm.stack) > 0 {
+		return vm.pop()
+	}
+	return nil
+}
+
+// execOne runs a single instruction without incrementing the PC.
+// Used by applyFn for inline sub-execution.
+func (vm *VM) execOne(instr Instruction) error {
+	// Minimal subset needed for map/filter/reduce callbacks
+	switch instr.Op {
+	case OpPush:
+		if len(instr.Args) > 0 {
+			idx := instr.Args[0].(int)
+			vm.stack = append(vm.stack, vm.program.Constants[idx])
+		}
+	case OpLoad:
+		if len(instr.Args) > 0 {
+			varIdx := instr.Args[0].(int)
+			if len(vm.locals) > 0 {
+				localMap := vm.locals[len(vm.locals)-1]
+				key := fmt.Sprintf("_var_%d", varIdx)
+				if val, ok := localMap[key]; ok {
+					vm.stack = append(vm.stack, val)
+					return nil
+				}
+			}
+			vm.stack = append(vm.stack, nil)
+		}
+	case OpAdd:
+		if len(vm.stack) >= 2 {
+			right := vm.pop()
+			left := vm.pop()
+			vm.stack = append(vm.stack, vm.add(left, right))
+		}
+	case OpSub:
+		if len(vm.stack) >= 2 {
+			right := vm.pop()
+			left := vm.pop()
+			vm.stack = append(vm.stack, vm.subtract(left, right))
+		}
+	case OpMul:
+		if len(vm.stack) >= 2 {
+			right := vm.pop()
+			left := vm.pop()
+			vm.stack = append(vm.stack, vm.multiply(left, right))
+		}
+	}
+	return nil
+}
+
+// sortArray returns a sorted copy of an interface{} slice.
+func (vm *VM) sortArray(arr []interface{}) []interface{} {
+	cp := make([]interface{}, len(arr))
+	copy(cp, arr)
+	sort.Slice(cp, func(i, j int) bool {
+		ai := vm.valueToString(cp[i])
+		aj := vm.valueToString(cp[j])
+		// Numeric sort if both are numbers
+		if ni, ok1 := cp[i].(int); ok1 {
+			if nj, ok2 := cp[j].(int); ok2 {
+				return ni < nj
+			}
+		}
+		if fi, ok1 := cp[i].(float64); ok1 {
+			if fj, ok2 := cp[j].(float64); ok2 {
+				return fi < fj
+			}
+		}
+		return ai < aj
+	})
+	return cp
+}
+
+// toInt converts any value to int.
+func (vm *VM) toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	case string:
+		if i, err := strconv.ParseInt(strings.TrimSpace(n), 10, 64); err == nil {
+			return int(i)
+		}
+	case bool:
+		if n {
+			return 1
+		}
+	}
+	return 0
+}
+
+// toFloat converts any value to float64.
+func (vm *VM) toFloat(v interface{}) float64 {
+	switch n := v.(type) {
+	case int:
+		return float64(n)
+	case float64:
+		return n
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(n), 64); err == nil {
+			return f
+		}
+	case bool:
+		if n {
+			return 1.0
+		}
+	}
+	return 0.0
 }

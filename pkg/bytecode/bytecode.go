@@ -90,6 +90,8 @@ const (
 	OpTryEnd          // End a try block (clear error handler)
 	OpDefer           // Defer a call (registers deferred instructions; arg: jump-over offset)
 	OpThrow           // Throw/raise an error value
+	OpMakeClosure     // Create a closure value (arg: funcName, captureCount; pops captures from stack)
+	OpMethodCall      // Call method on receiver (arg: methodName, argCount; receiver below args on stack)
 )
 
 // Value represents a runtime value

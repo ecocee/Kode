@@ -1,0 +1,50 @@
+﻿// Test 1: string method calls
+print("=== String Methods ===")
+let s = "Hello World"
+print(s.upper())
+print(s.lower())
+print(s.split(" "))
+print(s.contains("World"))
+print(s.startsWith("Hello"))
+
+// Test 2: closure capturing outer var
+print("=== Closures + Capture ===")
+let base = 10
+let adder = fn(x) { return base + x }
+print(adder(5))
+print(adder(20))
+
+// make_adder factory
+func make_adder(n) {
+    return fn(x) { return n + x }
+}
+let add5 = make_adder(5)
+print(add5(3))
+print(add5(100))
+
+// Test 3: math module
+print("=== Math Module ===")
+print(math.pi)
+print(math.sqrt(16.0))
+print(math.pow(2.0, 8.0))
+print(math.abs(-42))
+print(math.min(3, 7))
+print(math.max(3, 7))
+print(math.floor(3.9))
+print(math.ceil(3.1))
+
+// Test 4: array method calls
+print("=== Array Methods ===")
+let arr = [3, 1, 4, 1, 5, 9]
+print(arr.sort())
+print(arr.join(", "))
+print(arr.contains(4))
+print(arr.len())
+
+// Test 5: stdlib
+print("=== Stdlib ===")
+print(len("hello"))
+print(len([1, 2, 3]))
+print(type(42))
+print(type("hi"))
+print(type(3.14))
