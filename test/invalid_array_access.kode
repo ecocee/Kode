@@ -1,0 +1,4 @@
+// Test invalid array access (out of bounds)
+let arr = [1, 2, 3]
+print("Valid access:", arr[2])  // Should work
+print("Invalid access:", arr[5])  // Should cause runtime error

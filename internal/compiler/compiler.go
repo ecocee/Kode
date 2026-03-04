@@ -51,8 +51,9 @@ func (c *Compiler) Compile(program ast.Program) (*ir.IR, error) {
 		case ast.FunctionDefStmt:
 			// Already compiled in first pass
 		case ast.LetStmt, ast.AssignStmt:
-			// Variable declarations at top level
-			if err := c.compileStatement(stmt); err != nil {
+			// Variable declarations at top level - add to entry block
+			hasTopLevelStatements = true
+			if err := c.compileStatementToBlock(stmt, entryBlock); err != nil {
 				return nil, err
 			}
 		default:
@@ -148,8 +149,31 @@ func (c *Compiler) compileStatementToBlock(stmt ast.Statement, block *ir.IRBlock
 	case ast.ReturnStmt:
 		val := c.compileExpressionWithBlock(s.Value, block)
 		block.Instructions = append(block.Instructions, ir.IRReturn{Value: val})
+	case ast.LetStmt:
+		// Compile the value and store it as a variable
+		val := c.compileExpressionWithBlock(s.Value, block)
+		// For now, just store the result in a variable name
+		// The variable will be accessible by name in the IR
+		// We'll create a simple assignment by storing the value
+		block.Instructions = append(block.Instructions, ir.IRBinaryOp{
+			Op:     ast.OpAssign,
+			Left:   ir.IRVariable{Name: s.Name, Type: s.Type},
+			Right:  val,
+			Result: s.Name,
+		})
+	case ast.AssignStmt:
+		// Compile the value and store it
+		val := c.compileExpressionWithBlock(s.Value, block)
+		block.Instructions = append(block.Instructions, ir.IRBinaryOp{
+			Op:     ast.OpAssign,
+			Left:   ir.IRVariable{Name: s.Name, Type: ast.IntType{}},
+			Right:  val,
+			Result: s.Name,
+		})
 	case ast.ExprStmt:
 		c.compileExpressionWithBlock(s.Expr, block)
+	case ast.ForInStmt:
+		// For-in is handled entirely by the bytecode compiler; IR pass is a no-op
 	}
 	return nil
 }
@@ -165,6 +189,8 @@ func (c *Compiler) compileExpressionWithBlock(expr ast.Expression, block *ir.IRB
 		return ir.IRConstant{Type: ast.FloatType{}, Value: e.Value}
 	case ast.BoolExpr:
 		return ir.IRConstant{Type: ast.BoolType{}, Value: e.Value}
+	case ast.NilExpr:
+		return ir.IRConstant{Type: ast.IntType{}, Value: nil}
 	case ast.IdentifierExpr:
 		return ir.IRVariable{Name: e.Name, Type: ast.IntType{}} // Simplified
 	case ast.CallExpr:

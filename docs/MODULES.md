@@ -439,7 +439,7 @@ export func send_http(url: string) -> string { ... }
 
 ```bash
 # Run program with module system
-kode run main.kode
+kode main.kode
 
 # Build with modules
 kode build main.kode

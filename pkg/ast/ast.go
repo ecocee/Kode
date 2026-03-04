@@ -122,6 +122,15 @@ type AssignStmt struct {
 
 func (s AssignStmt) statement() {}
 
+type CompoundAssignStmt struct {
+	Line  int        `json:"line"`
+	Name  string     `json:"name"`
+	Op    BinaryOp   `json:"op"`
+	Value Expression `json:"value"`
+}
+
+func (s CompoundAssignStmt) statement() {}
+
 type FunctionDefStmt struct {
 	Line       int         `json:"line"`
 	FilePrefix string      `json:"file_prefix"`
@@ -173,6 +182,15 @@ type ForStmt struct {
 }
 
 func (s ForStmt) statement() {}
+
+type ForInStmt struct {
+	Line     int         `json:"line"`
+	VarName  string      `json:"var_name"`
+	Iterable Expression  `json:"iterable"`
+	Body     []Statement `json:"body"`
+}
+
+func (s ForInStmt) statement() {}
 
 type ExprStmt struct {
 	Line int        `json:"line"`
@@ -403,6 +421,27 @@ type StringExpr struct {
 
 func (e StringExpr) expression() {}
 
+// StringInterpPart is one segment of an interpolated string expression.
+type StringInterpPart struct {
+	IsExpr  bool
+	Literal string     // plain text when IsExpr==false
+	Expr    Expression // compiled expression when IsExpr==true
+}
+
+// StringInterpExpr represents a string with embedded ${...} expressions.
+type StringInterpExpr struct {
+	Line  int                `json:"line"`
+	Parts []StringInterpPart `json:"parts"`
+}
+
+func (e StringInterpExpr) expression() {}
+
+type NilExpr struct {
+	Line int `json:"line"`
+}
+
+func (e NilExpr) expression() {}
+
 type IdentifierExpr struct {
 	Line int    `json:"line"`
 	Name string `json:"name"`
@@ -568,6 +607,8 @@ const (
 	OpBitNot
 	OpPostInc
 	OpPostDec
+	OpPreInc
+	OpPreDec
 )
 
 func (op UnaryOp) String() string {
@@ -579,6 +620,10 @@ func (op UnaryOp) String() string {
 	case OpPostInc:
 		return "++"
 	case OpPostDec:
+		return "--"
+	case OpPreInc:
+		return "++"
+	case OpPreDec:
 		return "--"
 	}
 	return ""

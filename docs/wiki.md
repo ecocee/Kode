@@ -67,7 +67,7 @@ fn main() {
 }
 ```
 
-Run with: `kode run hello.kode`
+Run with: `kode hello.kode`
 
 ### Working with Variables
 
@@ -165,13 +165,13 @@ print("Got: ${value}")  // 42
 
 ```bash
 # Direct interpretation (fastest startup, best for development)
-kode run program.kode
+kode program.kode
 
 # Run with verbose output
-kode run --verbose program.kode
+kode --verbose program.kode
 
 # Specify module search path
-kode run --module-path ./my_modules program.kode
+kode --module-path ./my_modules program.kode
 ```
 
 ### Build Commands
@@ -252,7 +252,7 @@ kode help build
 
 | Command | Startup | Performance | Best For |
 |---------|---------|-------------|----------|
-| `kode run` | ⚡ Instant | 🟡 Good | Development & testing |
+| `kode` | ⚡ Instant | 🟡 Good | Development & testing |
 | `kode build` (bytecode) | ⚡ Fast | 🟡 Good | Distribution, portability |
 | `kode build --go` (native) | 🟡 Varies | ⚡ Excellent | Performance-critical code |
 

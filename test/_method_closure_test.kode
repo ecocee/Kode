@@ -1,0 +1,101 @@
+﻿// ============================================================
+// Production-level feature test
+// ============================================================
+
+// 1. String methods
+print("=== String Methods ===")
+let s = "Hello World"
+print(s.upper())
+print(s.lower())
+print(s.split(" "))
+print(s.contains("World"))
+print(s.startsWith("Hello"))
+print(s.replace("World", "Kode"))
+print(s.trim())
+print("  spaces  ".trim())
+
+// 2. Math module
+print("=== Math ===")
+print(math.pi)
+print(math.sqrt(16.0))
+print(math.pow(2.0, 10.0))
+print(math.abs(-99))
+print(math.min(3, 7))
+print(math.max(3, 7))
+print(math.floor(3.9))
+print(math.ceil(3.1))
+print(math.round(3.5))
+
+// 3. Array methods
+print("=== Array Methods ===")
+let nums = [3, 1, 4, 1, 5, 9, 2, 6, 5]
+print(nums.sort())
+print(nums.reverse())
+print(nums.join(", "))
+print(nums.contains(5))
+print(nums.indexOf(4))
+print(nums.len())
+print(nums.first())
+print(nums.last())
+print(nums.slice(1, 4))
+
+// 4. Higher-order: map
+print("=== map ===")
+let doubled = nums.map(fn(x) { return x * 2 })
+print(doubled)
+
+// 5. Higher-order: filter
+print("=== filter ===")
+let evens = nums.filter(fn(x) { return x % 2 == 0 })
+print(evens)
+
+// 6. Higher-order: reduce
+print("=== reduce ===")
+let total = nums.reduce(fn(acc, x) { return acc + x }, 0)
+print(total)
+
+// 7. Lexical closures
+print("=== Closures ===")
+let base = 100
+let add_base = fn(x) { return base + x }
+print(add_base(5))
+print(add_base(50))
+
+func make_multiplier(factor) {
+    return fn(x) { return x * factor }
+}
+let triple = make_multiplier(3)
+let quadruple = make_multiplier(4)
+print(triple(7))
+print(quadruple(7))
+
+// 8. Closures + map
+print("=== Closure + map ===")
+let arr = [1, 2, 3, 4, 5]
+let factor = 10
+let scaled = arr.map(fn(x) { return x * factor })
+print(scaled)
+
+// 9. Stdlib
+print("=== Stdlib ===")
+print(len("hello"))
+print(len([1, 2, 3, 4, 5]))
+print(type(42))
+print(type(3.14))
+print(type("hi"))
+print(type(true))
+print(type([]))
+print(int("42"))
+print(float("3.14"))
+print(string(99))
+print(bool(0))
+print(bool(1))
+
+// 10. Range
+print("=== Range ===")
+print(range(5))
+print(range(2, 6))
+print(range(0, 10, 2))
+
+print("all production tests passed")
+

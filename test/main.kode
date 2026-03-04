@@ -1,7 +1,7 @@
 // ================================================
 //   Kode Language Speed Test  -  v0.3.1
-//   Run: kode run mem/main.kode
-//   Time (Windows): Measure-Command { kode run mem/main.kode }
+//   Run: kode mem/main.kode
+//   Time (Windows): Measure-Command { kode mem/main.kode }
 // ================================================
 
 print("====================================")

@@ -169,7 +169,7 @@ Correct implementation following standard programming language conventions:
 ```bash
 ./kode output.kbc              # Shorthand execution
 ./kode output.kbc         # Explicit execution
-./kode run input.kode          # Compile and run
+./kode input.kode          # Compile and run
 ```
 
 ## Demonstration Test Program

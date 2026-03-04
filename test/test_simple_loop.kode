@@ -1,0 +1,5 @@
+print("START SIMPLE LOOP")
+for (let x = 0; x < 2; x = x + 1) {
+  print(x)
+}
+print("END")

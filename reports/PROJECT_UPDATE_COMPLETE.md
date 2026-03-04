@@ -117,7 +117,7 @@ Throughout updated docs:
 ```
 ✓ kode build program.kode (creates .kbc)
 ✓ kode program.kbc (executes bytecode)
-✓ kode run program.kode (compile + execute)
+✓ kode program.kode (compile + execute)
 ✓ Build with --verbose flag works
 ✓ Build with -o custom output works
 ```

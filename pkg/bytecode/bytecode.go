@@ -57,7 +57,8 @@ const (
 	OpJmpIfTrue  // Jump if true (arg: offset)
 
 	// Function call
-	OpCall        // Call function (arg: func index, arg count)
+	OpCall        // Call function (arg: func name, arg count)
+	OpCallDynamic // Call function via stack value (arg: arg count; pops fn-ref then args)
 	OpReturn      // Return from function
 	OpReturnValue // Return with value
 
@@ -66,6 +67,8 @@ const (
 	OpArrayAccess  // Access array element (pops index, pops array, pushes element)
 	OpArrayStore   // Store to array element (pops value, pops index, pops array)
 	OpArrayLen     // Get array length (pops array, pushes length)
+	OpArrayPush    // Append element to array (pops value, pops array, pushes new array)
+	OpArrayPop     // Remove last element from array (pops array, pushes (popped_value, new_array))
 	OpMemberAccess // Member access (arg: member name; pops object, pushes member value)
 
 	// Structs
@@ -79,14 +82,26 @@ const (
 	OpPrint           // Print stack top
 	OpInput           // Read input from user
 	OpInputWithPrompt // Read input from user with prompt
-	OpBreak           // Break from loop
-	OpContinue        // Continue loop
+	OpBreak           // Break from loop (arg: jump offset)
+	OpContinue        // Continue loop (arg: jump offset)
 	OpNoop            // No operation
 	OpHalt            // End execution
+	OpTryBegin        // Begin a try block (arg: catch block offset)
+	OpTryEnd          // End a try block (clear error handler)
+	OpDefer           // Defer a call (registers deferred instructions; arg: jump-over offset)
+	OpThrow           // Throw/raise an error value
+	OpMakeClosure     // Create a closure value (arg: funcName, captureCount; pops captures from stack)
+	OpMethodCall      // Call method on receiver (arg: methodName, argCount; receiver below args on stack)
 )
 
 // Value represents a runtime value
 type Value interface{}
+
+// SourceInfo represents source location information
+type SourceInfo struct {
+	File string
+	Line int
+}
 
 // Instruction represents a single bytecode instruction
 type Instruction struct {
@@ -98,7 +113,9 @@ type Instruction struct {
 type Program struct {
 	Instructions []Instruction
 	Constants    []Value
-	Globals      map[string]int // Variable name -> index
+	Globals      map[string]int     // Variable name -> index
+	Functions    map[string]int     // Function name -> entry pc
+	SourceMap    map[int]SourceInfo // PC -> source location
 }
 
 // Buffer for building bytecode
@@ -107,6 +124,8 @@ type Buffer struct {
 	instructions []Instruction
 	constants    []Value
 	globals      map[string]int
+	functions    map[string]int
+	sourceMap    map[int]SourceInfo
 }
 
 // NewBuffer creates a new bytecode buffer
@@ -115,6 +134,8 @@ func NewBuffer() *Buffer {
 		instructions: make([]Instruction, 0),
 		constants:    make([]Value, 0),
 		globals:      make(map[string]int),
+		functions:    make(map[string]int),
+		sourceMap:    make(map[int]SourceInfo),
 	}
 }
 
@@ -124,6 +145,17 @@ func (b *Buffer) Emit(op OpCode, args ...interface{}) {
 		Op:   op,
 		Args: args,
 	})
+	// For now, don't set source info - will be updated when calls are modified
+}
+
+// EmitWithSource adds an instruction with source location
+func (b *Buffer) EmitWithSource(file string, line int, op OpCode, args ...interface{}) {
+	pc := len(b.instructions)
+	b.instructions = append(b.instructions, Instruction{
+		Op:   op,
+		Args: args,
+	})
+	b.sourceMap[pc] = SourceInfo{File: file, Line: line}
 }
 
 // AddConstant adds a constant value and returns its index
@@ -143,12 +175,27 @@ func (b *Buffer) AddGlobal(name string) int {
 	return idx
 }
 
+// RegisterFunction registers a function entry point
+// Returns the PC where the function starts
+func (b *Buffer) RegisterFunction(name string) int {
+	pc := len(b.instructions)
+	b.functions[name] = pc
+	return pc
+}
+
+// GetFunctionPC gets the entry point PC for a function
+func (b *Buffer) GetFunctionPC(name string) (int, bool) {
+	pc, ok := b.functions[name]
+	return pc, ok
+}
+
 // Build converts the buffer to a Program
 func (b *Buffer) Build() *Program {
 	return &Program{
 		Instructions: b.instructions,
 		Constants:    b.constants,
 		Globals:      b.globals,
+		Functions:    b.functions,
 	}
 }
 
@@ -217,6 +264,23 @@ func (p *Program) Serialize() ([]byte, error) {
 		binary.Write(&buf, binary.LittleEndian, int32(idx))
 	}
 
+	// Write number of functions
+	binary.Write(&buf, binary.LittleEndian, int32(len(p.Functions)))
+
+	// Write functions in sorted order for consistency
+	var funcNames []string
+	for name := range p.Functions {
+		funcNames = append(funcNames, name)
+	}
+	sort.Strings(funcNames)
+	for _, name := range funcNames {
+		entryPC := p.Functions[name]
+		nameBytes := []byte(name)
+		binary.Write(&buf, binary.LittleEndian, int32(len(nameBytes)))
+		buf.Write(nameBytes)
+		binary.Write(&buf, binary.LittleEndian, int32(entryPC))
+	}
+
 	// Write instructions (store as raw buffer for now)
 	instructionData, _ := serializeInstructions(p.Instructions)
 	binary.Write(&buf, binary.LittleEndian, int32(len(instructionData)))
@@ -240,6 +304,7 @@ func Deserialize(data []byte) (*Program, error) {
 		Instructions: make([]Instruction, 0),
 		Constants:    make([]Value, 0),
 		Globals:      make(map[string]int),
+		Functions:    make(map[string]int),
 	}
 
 	// Read number of constants
@@ -289,6 +354,22 @@ func Deserialize(data []byte) (*Program, error) {
 		var idx int32
 		binary.Read(buf, binary.LittleEndian, &idx)
 		prog.Globals[string(nameBytes)] = int(idx)
+	}
+
+	// Read number of functions
+	var numFunctions int32
+	binary.Read(buf, binary.LittleEndian, &numFunctions)
+
+	// Read functions
+	for i := 0; i < int(numFunctions); i++ {
+		var nameLen int32
+		binary.Read(buf, binary.LittleEndian, &nameLen)
+		nameBytes := make([]byte, nameLen)
+		buf.Read(nameBytes)
+
+		var entryPC int32
+		binary.Read(buf, binary.LittleEndian, &entryPC)
+		prog.Functions[string(nameBytes)] = int(entryPC)
 	}
 
 	// Read instructions

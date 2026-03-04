@@ -1,9 +1,9 @@
 # Kode
 
 > A statically typed, compiled programming language built in Go
-> Version **0.3.1** — February 2026
+> Version **0.3.2-dev** — March 2026
 
-[![Version](https://img.shields.io/badge/version-0.3.1-blue)]()
+[![Version](https://img.shields.io/badge/version-0.3.2--dev-blue)]()
 [![Language](https://img.shields.io/badge/written_in-Go-00ADD8)]()
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)]()
@@ -12,7 +12,7 @@
 
 ## What is Kode?
 
-Kode is a statically typed programming language written in Go. It features a complete lexer, parser, type checker, bytecode compiler, and a tree-walking interpreter. Kode has a clean syntax inspired by Go and a fully functional module system for splitting code across files.
+Kode is a statically typed programming language written in Go. It features a complete lexer, parser, type checker, bytecode compiler, and a stack-based VM. Kode has a clean syntax inspired by Go and Rust, a fully functional module system, closures, pattern matching, structured error handling, and an extensive set of built-in functions.
 
 ---
 
@@ -26,10 +26,15 @@ Kode is a statically typed programming language written in Go. It features a com
   - [Constants](#constants)
   - [Types](#types)
   - [Operators](#operators)
-  - [Functions](#functions)
+  - [String Interpolation](#string-interpolation)
+  - [Functions and Closures](#functions-and-closures)
   - [Control Flow](#control-flow)
   - [Arrays](#arrays)
   - [Structs](#structs)
+  - [Enums](#enums)
+  - [Pattern Matching](#pattern-matching)
+  - [Error Handling](#error-handling)
+  - [Defer](#defer)
   - [Module System](#module-system)
   - [Built-in Functions](#built-in-functions)
 - [Working Examples](#working-examples)
@@ -58,7 +63,7 @@ go build -o kode ./cmd/kode
 
 ```bash
 kode version
-# Kode v0.3.1
+# Kode v0.3.2-dev
 # Built with Go go1.21.x
 # Platform: windows/amd64
 ```
@@ -72,7 +77,7 @@ kode version
 echo 'print("Hello, Kode!")' > hello.kode
 
 # Run it
-kode run hello.kode
+kode hello.kode
 # Hello, Kode!
 
 # Compile to bytecode
@@ -85,7 +90,7 @@ kode hello.kbc       # run the bytecode
 ## CLI Commands
 
 ```
-kode run    <file.kode>   Run a source file directly
+kode    <file.kode>   Run a source file directly
 kode build  <file.kode>   Compile to .kbc bytecode
 kode   <file.kbc>    Execute compiled bytecode
 kode check  <file.kode>   Type-check without running
@@ -166,6 +171,25 @@ print(a / b)    // 3   — integer division
 print(a % b)    // 3   — modulo
 ```
 
+#### Compound Assignment
+
+```kode
+let x = 10
+x += 5    // x = 15
+x -= 3    // x = 12
+x *= 2    // x = 24
+x /= 4    // x = 6
+x %= 4    // x = 2
+```
+
+#### Increment / Decrement
+
+```kode
+let n = 5
+n++    // n = 6
+n--    // n = 5
+```
+
 #### Comparison
 
 ```kode
@@ -222,7 +246,26 @@ print(~x)       // -13  — NOT
 
 ---
 
-### Functions
+### String Interpolation
+
+Embed expressions directly inside strings using `${}`:
+
+```kode
+let name = "Kode"
+let version = 3
+
+print("Hello from ${name} v${version}!")
+// Hello from Kode v3!
+
+let x = 10
+let y = 20
+print("Sum of ${x} and ${y} is ${x + y}")
+// Sum of 10 and 20 is 30
+```
+
+---
+
+### Functions and Closures
 
 Two declaration styles:
 
@@ -271,6 +314,25 @@ func factorial(n: int) = if (n <= 1) { 1 } else { n * factorial(n - 1) }
 
 print(factorial(5))    // 120
 print(factorial(10))   // 3628800
+```
+
+#### Closures (first-class functions)
+
+Use `fn` for anonymous functions and closures that capture variables from surrounding scope:
+
+```kode
+let add = fn(a: int, b: int) { return a + b }
+print(add(3, 4))    // 7
+
+// Higher-order: function returning a function
+func makeAdder(n: int) {
+    return fn(x: int) { return x + n }
+}
+
+let add5 = makeAdder(5)
+let add10 = makeAdder(10)
+print(add5(3))     // 8
+print(add10(3))    // 13
 ```
 
 ---
@@ -347,6 +409,29 @@ while (i > 0) {
 // 5 4 3 2 1
 ```
 
+#### For-in loop (array iteration)
+
+```kode
+let fruits = ["apple", "banana", "cherry"]
+for fruit in fruits {
+    print(fruit)
+}
+// apple
+// banana
+// cherry
+```
+
+#### Break and Continue
+
+```kode
+for (let i = 0; i < 10; i++) {
+    if (i == 5) { break }
+    if (i % 2 == 0) { continue }
+    print(i)
+}
+// 1 3
+```
+
 ---
 
 ### Arrays
@@ -406,6 +491,25 @@ print(computed[1])   // 12
 print(computed[2])   // 12
 ```
 
+#### Mutation and dynamic methods
+
+```kode
+let nums = [1, 2, 3]
+
+// In-place assignment
+nums[1] = 99
+print(nums[1])    // 99
+
+// push: append an element
+nums.push(4)
+print(nums.len)   // 4
+
+// pop: remove and return last element
+let last = nums.pop()
+print(last)       // 4
+print(nums.len)   // 3
+```
+
 ---
 
 ### Structs
@@ -444,7 +548,111 @@ print(u.age)      // 30
 print(u.active)   // true
 ```
 
-> Note: Struct field mutation and methods are not yet implemented (v0.4 planned). Field access is read-only.
+> **Limitation:** Struct field mutation after construction and `impl` methods are not yet compiled (v0.4 planned). Field access is read-only.
+
+---
+
+### Enums
+
+```kode
+enum Direction {
+    North,
+    South,
+    East,
+    West
+}
+
+enum Status {
+    Active,
+    Inactive,
+    Pending
+}
+```
+
+> **Limitation:** Enum variant access using `::` syntax (e.g., `Direction::North`) is not yet implemented in the parser. Enum declarations compile cleanly but variant values cannot be used in expressions yet.
+
+---
+
+### Pattern Matching
+
+`match` works on literals, the wildcard `_`, and identifier binding patterns:
+
+```kode
+let x = 42
+
+match x {
+    0 => { print("zero") }
+    42 => { print("the answer") }
+    _ => { print("something else") }
+}
+// the answer
+
+// Bind matched value to a name
+func describe(n: int) {
+    match n {
+        0 => { print("zero") }
+        1 => { print("one") }
+        n => { print("many: ${n}") }
+    }
+}
+
+describe(0)    // zero
+describe(5)    // many: 5
+```
+
+---
+
+### Error Handling
+
+Use `try` / `catch` for structured runtime error handling:
+
+```kode
+try {
+    let result = 10 / 0
+    print(result)
+} catch (e) {
+    print("Error caught: ${e}")
+}
+// Error caught: division by zero
+```
+
+Errors propagate automatically for:
+- Division by zero
+- Modulo by zero
+- Nil value in arithmetic
+- Array index out of bounds
+
+```kode
+func safeDivide(a: int, b: int) int {
+    try {
+        return a / b
+    } catch (e) {
+        print("Error: ${e}")
+        return -1
+    }
+    return 0
+}
+
+print(safeDivide(10, 2))   // 5
+print(safeDivide(10, 0))   // Error: division by zero  →  -1
+```
+
+---
+
+### Defer
+
+`defer` schedules a statement to run just before the enclosing function returns. Multiple defers run in LIFO order:
+
+```kode
+func riskyOp() {
+    defer { print("cleanup done") }
+    print("doing work...")
+}
+
+riskyOp()
+// doing work...
+// cleanup done
+```
 
 ---
 
@@ -531,22 +739,96 @@ Kode searches for modules in:
 
 ### Built-in Functions
 
+#### Output
+
 | Function | Description |
 |----------|-------------|
-| `print(value)` | Print any value to stdout |
+| `print(...)` | Print values to stdout, space-separated, variadic |
+| `println(...)` | Alias for `print` |
+| `printf(fmt, ...)` | Format string output |
+
+#### Input
+
+| Function | Description |
+|----------|-------------|
 | `input()` | Read a line from stdin, returns `string` |
 
-```kode
-print(42)           // 42
-print("hello")      // hello
-print(true)         // true
-print(3.14)         // 3.14
-print([1, 2, 3])    // array output
+#### Type utilities
 
-// Read input
-let name = input()
-print(name)
-```
+| Function | Description |
+|----------|-------------|
+| `type(x)` | Returns type name: `"int"`, `"float"`, `"bool"`, `"string"`, `"array"`, `"struct"`, `"function"`, `"nil"` |
+| `int(x)` | Convert to int |
+| `float(x)` | Convert to float |
+| `string(x)` | Convert to string |
+| `bool(x)` | Convert to bool |
+| `len(x)` | Length of string or array |
+
+#### Range
+
+| Function | Description |
+|----------|-------------|
+| `range(n)` | Returns `[0, 1, ..., n-1]` |
+| `range(start, end)` | Returns `[start, ..., end-1]` |
+| `range(start, end, step)` | Stepped range |
+
+#### Math
+
+| Function | Description |
+|----------|-------------|
+| `abs(n)` | Absolute value |
+| `sqrt(n)` | Square root |
+| `pow(base, exp)` | Power |
+| `floor(n)` | Floor (returns int) |
+| `ceil(n)` | Ceiling (returns int) |
+| `round(n)` | Round to nearest int |
+| `min(a, b)` | Minimum |
+| `max(a, b)` | Maximum |
+| `random()` | Random float in `[0.0, 1.0)` |
+| `math.pi` | π constant |
+| `math.e` | e constant |
+
+Also callable as `math.sqrt(n)`, `math.abs(n)`, etc.
+
+#### String methods
+
+Available as method calls (`s.upper()`) or flat calls (`upper(s)`):
+
+| Method | Description |
+|--------|-------------|
+| `.upper()` | Uppercase |
+| `.lower()` | Lowercase |
+| `.trim()` | Strip leading/trailing whitespace |
+| `.split(sep)` | Split into array of strings |
+| `.contains(sub)` | Substring check |
+| `.startsWith(pre)` | Prefix check |
+| `.endsWith(suf)` | Suffix check |
+| `.replace(old, new)` | Replace all occurrences |
+| `.indexOf(sub)` | First index, `-1` if not found |
+| `.len` | Character count |
+| `.repeat(n)` | Repeat string n times |
+
+#### Array functions
+
+| Function | Description |
+|----------|-------------|
+| `sort(arr)` | Return sorted copy of array |
+| `reverse(arr)` | Return reversed copy |
+| `join(arr, sep)` | Concatenate elements to string |
+| `has(arr, val)` | Check if value exists in array |
+| `keys(struct)` | Field names of a struct |
+| `values(struct)` | Field values of a struct |
+
+#### File I/O
+
+| Function | Description |
+|----------|-------------|
+| `readFile(path)` | Read file as string |
+| `writeFile(path, content)` | Write string to file |
+| `appendFile(path, content)` | Append string to file |
+| `fileExists(path)` | Check if file path exists |
+| `readDir(path)` | List directory entries as string array |
+| `joinPath(...)` | Join path segments |
 
 ---
 
@@ -566,127 +848,200 @@ print(fib(10))   // 55
 ### Sum 1 to N
 
 ```kode
-func sumTo(n: int) {
+func sumTo(n: int) int {
     let total = 0
     let i = 1
     while (i <= n) {
-        total = total + i
-        i = i + 1
+        total += i
+        i++
     }
-    print(total)
+    return total
 }
 
-sumTo(10)    // 55
-sumTo(100)   // 5050
+print(sumTo(10))    // 55
+print(sumTo(100))   // 5050
 ```
 
-### Array sum
+### For-in with range
 
 ```kode
-let nums = [3, 7, 12, 5, 8, 1]
-
 let sum = 0
-for (let i = 0; i < nums.len; i++) {
-    sum = sum + nums[i]
+for n in range(1, 11) {
+    sum += n
 }
-print(sum)   // 36
+print(sum)    // 55
+```
+
+### String interpolation
+
+```kode
+let user = "Alice"
+let score = 97
+print("Player ${user} scored ${score} points!")
+// Player Alice scored 97 points!
+```
+
+### Closures — adder factory
+
+```kode
+func makeAdder(n: int) {
+    return fn(x: int) { return x + n }
+}
+
+let add5 = makeAdder(5)
+print(add5(3))    // 8
+print(add5(10))   // 15
+```
+
+### Try/catch with division
+
+```kode
+func safeDivide(a: int, b: int) int {
+    try {
+        return a / b
+    } catch (e) {
+        print("Error: ${e}")
+        return -1
+    }
+    return 0
+}
+
+print(safeDivide(10, 2))   // 5
+print(safeDivide(10, 0))   // Error: division by zero  →  -1
+```
+
+### Pattern matching
+
+```kode
+func describe(n: int) {
+    match n {
+        0 => { print("zero") }
+        1 => { print("one") }
+        _ => { print("many: ${n}") }
+    }
+}
+
+describe(0)    // zero
+describe(1)    // one
+describe(42)   // many: 42
 ```
 
 ### Calculator with modules
 
 ```kode
 // math.kode
-export func add(a: int, b: int) { print(a + b) }
-export func multiply(a: int, b: int) { print(a * b) }
-export func divide(a: int, b: int) {
-    if (b == 0) { print("Error: division by zero") } else { print(a / b) }
-}
+export func add(a: int, b: int) int { return a + b }
+export func multiply(a: int, b: int) int { return a * b }
 ```
 
 ```kode
 // main.kode
-import { add, multiply, divide } from "math"
+import { add, multiply } from "math"
 
-add(25, 15)        // 40
-multiply(12, 8)    // 96
-divide(144, 12)    // 12
-divide(10, 0)      // Error: division by zero
+print(add(25, 15))        // 40
+print(multiply(12, 8))    // 96
 ```
 
 ### Bitwise flags
 
 ```kode
-const READ: int = 1    // 001
-const WRITE: int = 2   // 010
-const EXEC: int = 4    // 100
+const READ: int = 1
+const WRITE: int = 2
+const EXEC: int = 4
 
-let perms = READ | WRITE   // 011
+let perms = READ | WRITE
 
-if (perms & READ == 1) {
-    print("can read")
-}
-
-if (perms & EXEC == 0) {
-    print("cannot execute")
-}
+if (perms & READ == 1) { print("can read") }
+if (perms & EXEC == 0) { print("cannot execute") }
 ```
 
 ---
 
 ## Feature Status
 
-### Implemented and Working (v0.3.1)
+### Fully Implemented and Working (v0.3.2-dev)
 
 | Feature | Notes |
 |---------|-------|
 | `let` variables | With or without type annotation |
 | `const` constants | Requires explicit type |
 | `int`, `float`, `string`, `bool` types | Full inference |
-| Arithmetic: `+` `-` `*` `/` `%` | Integer and float |
-| Comparison: `==` `!=` `<` `>` `<=` `>=` | Returns bool |
-| Logical: `&&` `\|\|` `!` | Truthy/falsy for int |
+| Array type `[]T` | Homogeneous |
+| Arithmetic: `+` `-` `*` `/` `%` | Integer and float mixed |
+| Compound assignment: `+=` `-=` `*=` `/=` `%=` | All arithmetic operators |
+| Increment/decrement: `++` `--` | Post-increment and post-decrement |
+| Comparison: `==` `!=` `<` `>` `<=` `>=` | Returns `bool` |
+| Logical: `&&` `\|\|` `!` | Truthy/falsy for `int` |
 | Bitwise: `&` `\|` `^` `~` `<<` `>>` | Integer only |
+| String interpolation `"${expr}"` | Arbitrary expressions in strings |
 | `if` / `else` | Nested supported |
 | `for` loop (C-style) | `for (let i=0; i<n; i++)` |
+| `for x in arr` (for-in) | Array element iteration |
 | `while` loop | `while (cond) { }` |
-| Functions — expression body | `func f(x: int) = x + 1` |
-| Functions — block body | Multi-statement |
+| `break` / `continue` | Correct VM jump target patching |
+| Functions — expression body | `func f(x: int) = x + 1` or `=>` |
+| Functions — block body | Multi-statement with `return` |
+| Closures / first-class functions | `fn(x) { ... }` captures outer variables |
 | Recursion | Fully working |
-| Arrays `[1, 2, 3]` | Homogeneous |
+| Arrays `[1, 2, 3]` | Homogeneous literal |
 | Array indexing `arr[i]` | Zero-based |
+| Array assignment `arr[i] = v` | In-place element mutation |
 | Array `.len` property | Returns int |
-| `import { } from ""` | Named destructured imports |
-| `import "" as alias` | Namespace import |
-| `import ""` | Simple import |
-| `export func` | Export functions |
-| `export const` / `export let` | Export values |
-| Module loading at runtime | Full symbol resolution |
-| `print()` built-in | All types |
-| `input()` built-in | Returns string |
-| Structs | Declaration + instantiation + field access — see [Structs](#structs) |
+| Array `.push(v)` / `.pop()` methods | Append / remove last |
+| Structs | Declaration + instantiation + field read |
+| Enums | Declaration + variant object creation in VM |
+| Pattern matching (`match`) | Literal, wildcard `_`, identifier binding |
+| `try` / `catch` error handling | Full bytecode + VM support |
+| `defer` statement | LIFO execution on function return |
+| `nil` literal | Null value |
+| Module system — named import | `import { f, g } from "mod"` |
+| Module system — namespace import | `import "mod" as alias` |
+| Module system — simple import | `import "mod"` |
+| `export func` / `export const` / `export let` | Export from module |
+| Module path resolution | Current dir + `examples/` |
+| `print(...)` | Variadic, all types |
+| `println(...)` / `printf(fmt, ...)` | Aliases and format output |
+| `input()` | Reads line from stdin |
+| `type(x)` | Returns type name string |
+| `int(x)`, `float(x)`, `string(x)`, `bool(x)` | Type conversions |
+| `len(x)` | Length of string or array |
+| `range(n)`, `range(s, e)`, `range(s, e, step)` | Integer range array |
+| Math: `abs`, `sqrt`, `pow`, `floor`, `ceil`, `round`, `min`, `max`, `random` | Numeric |
+| Math constants: `math.pi`, `math.e` | Float64 |
+| String builtins: `upper`, `lower`, `trim`, `split`, `replace`, `contains`, `startsWith`, `endsWith`, `indexOf`, `repeat` | Both flat and method-call |
+| Array functions: `sort`, `reverse`, `join`, `has` | Return new arrays |
+| `keys(struct)`, `values(struct)` | Struct introspection |
+| File I/O: `readFile`, `writeFile`, `appendFile`, `fileExists`, `readDir`, `joinPath` | OS-level |
 | Static type checking | With inference |
-| Bytecode compilation | `.kbc` format |
-| Bytecode execution | Via `kode` |
+| Bytecode compilation | `.kbc` portable format |
+| Bytecode VM execution | Stack-based, 53 opcodes |
+| Line comments `//` and block comments `/* */` | Nested block comments supported |
 
-### Parser-Only (declaration parses, cannot use values)
+### Parsed but Runtime-Limited
 
-| Feature | Notes |
-|---------|-------|
-| Enums (`enum Color { }`) | Can declare variants, cannot access them (`Color::Red` not in parser) |
-| `break` / `continue` | Parsed in loops, runtime handling partial |
+| Feature | Status |
+|---------|--------|
+| Enum variant access `Color::Red` | Lexer/parser not yet implemented — enums declare but values cannot be referenced |
+| `impl` methods on structs | Parsed, but method bodies are not compiled or dispatched |
+| `async` / `await` | Parsed, no async runtime semantics |
+| `spawn` statement | Parsed, silently skipped at compile time |
+| `chan` channels / `select` | Parsed, silently skipped at compile time |
+| `trait` / `impl Trait for Type` | Parsed, type checker aware only |
+| `service` / HTTP routes | Parsed, no HTTP runtime |
 
 ### Not Yet Implemented (v0.4+)
 
 | Feature | Target |
 |---------|--------|
-| Enum variant access and usage | v0.4 |
-| Pattern matching (`match`) | v0.4 — parser partial, no runtime handler |
-| Error handling (`try` / `catch` / `panic`) | v0.4 — no lexer, parser, or runtime support |
-| Struct methods | v0.4 |
-| Concurrency: `spawn`, channels, `select` | v0.5 |
-| Standard library | v0.5 |
+| Struct field mutation after construction | v0.4 |
+| `impl` block method compilation + dispatch | v0.4 |
+| Enum `::` variant access in expressions | v0.4 |
+| Full match destructuring (enum, struct, tuple) | v0.4 |
+| `panic` / `Result` type error model | v0.4 |
+| Concurrency — spawn, channels, `select` | v0.5 |
+| Standard library modules | v0.5 |
 | Generics | v0.6 |
-| Traits and interfaces | v0.6 |
+| Traits and interface dispatch | v0.6 |
 
 ---
 
@@ -698,45 +1053,60 @@ Kode is a multi-phase compiler pipeline:
 Source (.kode)
       │
       ▼
-   Lexer           Tokenizes source into tokens
-      │             internal/lexer
+   Lexer              Tokenizes source into tokens
+      │                internal/lexer  (643 lines)
       ▼
-   Parser          Builds AST via recursive descent
-      │             internal/parser
+   Parser             Recursive descent parser, builds AST
+      │                internal/parser  (1810 lines)
       ▼
-  Type Checker     Static analysis, inference
-      │             internal/typer
+  Type Checker        Static analysis with type inference
+      │                internal/typer  (1000 lines)
       ▼
- IR Generator      Intermediate representation
-      │             pkg/ir
+ IR Generator         Intermediate representation
+      │                pkg/ir / internal/compiler
       ▼
-  ┌───────────┐
-  │           │
-  ▼           ▼
-Bytecode   Runtime       Two execution backends
-Compiler   (tree-walk)   pkg/bytecode  /  pkg/runtime
-  │
-  ▼
- .kbc                    Portable bytecode file
+Bytecode Compiler     Generates stack-based VM instructions
+      │                pkg/bytecode/compiler.go  (1817 lines)
+      ▼
+   .kbc               Portable serialised bytecode file
+      │                pkg/bytecode/bytecode.go  (458 lines)
+      ▼
+   Kode VM            Stack-based virtual machine
+      │                pkg/bytecode/vm.go  (2045 lines)
+      ▼
+   Output / Side Effects
 ```
 
 ### Bytecode VM
 
-Stack-based VM with 37 opcodes:
+Stack-based VM with **53 opcodes**:
 
 ```
-Stack:     OpPush, OpPop, OpDup
-Arith:     OpAdd, OpSub, OpMul, OpDiv, OpMod, OpNeg, OpIncr, OpDecr
-Bitwise:   OpBitAnd, OpBitOr, OpBitXor, OpBitNot, OpBitShl, OpBitShr
-Compare:   OpEq, OpNe, OpLt, OpLte, OpGt, OpGte
-Logic:     OpAnd, OpOr, OpNot
-Vars:      OpLoadGlobal, OpStoreGlobal
-Control:   OpJmp, OpJmpIfFalse, OpJmpIfTrue
-Functions: OpCall, OpReturn, OpReturnValue
-Arrays:    OpArrayCreate, OpArrayAccess, OpArrayStore, OpArrayLen, OpMemberAccess
-I/O:       OpPrint, OpInput
-Other:     OpHalt, OpBreak, OpContinue
+Stack:      OpPush, OpPop, OpDup, OpLoad, OpStore, OpLoadGlobal, OpStoreGlobal
+Arithmetic: OpAdd, OpSub, OpMul, OpDiv, OpMod, OpNeg, OpIncr, OpDecr
+Bitwise:    OpBitAnd, OpBitOr, OpBitXor, OpBitNot, OpBitShl, OpBitShr
+Comparison: OpEq, OpNe, OpLt, OpLte, OpGt, OpGte
+Logic:      OpAnd, OpOr, OpNot
+Control:    OpJmp, OpJmpIfFalse, OpJmpIfTrue, OpBreak, OpContinue
+Functions:  OpCall, OpCallDynamic, OpReturn, OpReturnValue, OpMakeClosure, OpMethodCall
+Arrays:     OpArrayCreate, OpArrayAccess, OpArrayStore, OpArrayLen, OpArrayPush, OpArrayPop
+Structs:    OpStructCreate, OpStructField, OpMemberAccess
+Enums:      OpEnumVariant
+I/O:        OpPrint, OpInput, OpInputWithPrompt
+Errors:     OpTryBegin, OpTryEnd, OpThrow, OpDefer
+Other:      OpNoop, OpHalt
 ```
+
+### Test Status
+
+| Package | Status |
+|---------|--------|
+| `internal/lexer` | ✅ PASS |
+| `internal/parser` | ✅ PASS |
+| `internal/typer` | ✅ PASS |
+| `internal/compiler` | ✅ PASS |
+| `internal/cli` | ❌ `TestBuildCommandProducesBinary` failing |
+| `pkg/bytecode` | — no test files yet |
 
 ---
 
@@ -746,9 +1116,10 @@ Other:     OpHalt, OpBreak, OpContinue
 |---------|-------|--------|
 | v0.1.0 | Lexer, parser, basic interpreter | ✅ Done |
 | v0.2.0 | Bytecode VM, all operators, control flow | ✅ Done |
-| v0.3.0 | Arrays and array indexing | ✅ Done |
-| v0.3.1 | Array methods, module system, operator fixes | ✅ **Current** |
-| v0.4.0 | Structs, enums, pattern matching, error handling | 🚧 Next |
+| v0.3.0 | Arrays, array indexing | ✅ Done |
+| v0.3.1 | Module system, structs, bytecode polish | ✅ Done |
+| v0.3.2 | Closures, try/catch, defer, string interpolation, match, 40+ builtins | 🚧 In Progress |
+| v0.4.0 | Struct mutation + methods, enum variants, full match patterns | ⏳ Next |
 | v0.5.0 | Concurrency — spawn, channels, select | ⏳ Planned |
 | v0.6.0 | Standard library, generics, traits | ⏳ Planned |
 
@@ -761,17 +1132,15 @@ kode/
 ├── cmd/kode/           Entry point
 ├── internal/
 │   ├── cli/            CLI commands (run, build, check, fmt, ...)
-│   ├── lexer/          Tokenizer
-│   ├── parser/         Recursive descent parser
-│   ├── typer/          Type checker
-│   ├── compiler/       Code generation helpers
-│   ├── codegen/        Go backend (wip)
+│   ├── lexer/          Tokenizer (643 lines)
+│   ├── parser/         Recursive descent parser (1810 lines)
+│   ├── typer/          Type checker with inference (1000 lines)
+│   ├── compiler/       IR code generation helpers
 │   └── version/        Version constant
 ├── pkg/
-│   ├── ast/            AST node types
+│   ├── ast/            AST node types (640 lines)
 │   ├── ir/             Intermediate representation
-│   ├── bytecode/       Bytecode compiler + stack VM
-│   ├── runtime/        Tree-walking interpreter
+│   ├── bytecode/       Bytecode compiler (1817 lines) + stack VM (2045 lines)
 │   └── bridge/         Runtime bridge
 ├── examples/           Working .kode programs
 ├── test/               Test .kode files

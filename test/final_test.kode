@@ -1,0 +1,34 @@
+// Consolidated test of all fixes
+print("TEST 1: Break in loop")
+let count = 0
+for (let i = 0; i < 5; i = i + 1) {
+  if (i == 2) {
+    break
+  }
+  count = count + 1
+}
+print(count)
+
+print("TEST 2: Continue in loop")
+let sum = 0
+for (let i = 0; i < 5; i = i + 1) {
+  if (i == 2) {
+    continue
+  }
+  sum = sum + 1
+}
+print(sum)
+
+print("TEST 3: Local var in function")
+func get_local() {
+  let local_x = 42
+  print(local_x)
+}
+get_local()
+
+print("TEST 4: Safe division")
+let x = 10
+let y = 2
+print(x / y)
+
+print("All tests completed")

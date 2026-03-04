@@ -62,6 +62,7 @@ const (
 	TokenIn
 	TokenFrom
 	TokenCatch
+	TokenTry
 	TokenUnderscore
 	TokenTrue
 	TokenFalse
@@ -101,6 +102,19 @@ const (
 	// Walrus operator
 	TokenWalrus
 
+	// Nil literal
+	TokenNil
+
+	// Compound assignment
+	TokenPlusEq
+	TokenMinusEq
+	TokenStarEq
+	TokenSlashEq
+	TokenPercentEq
+
+	// Interpolated string (contains ${...} expressions)
+	TokenStringInterp
+
 	// Symbols
 	TokenLParen
 	TokenRParen
@@ -122,6 +136,14 @@ type Position struct {
 	Column int
 }
 
+// StringInterpPart is one segment of an interpolated string literal.
+// IsExpr==false → Content is a plain text fragment.
+// IsExpr==true  → Content is the raw source of an embedded expression.
+type StringInterpPart struct {
+	IsExpr  bool
+	Content string
+}
+
 type Token struct {
 	Kind  TokenKind
 	Value interface{}
@@ -138,6 +160,7 @@ type Lexer struct {
 var keywords = map[string]TokenKind{
 	"let":      TokenLet,
 	"func":     TokenFunc,
+	"fn":       TokenFunc, // short alias for closures: let f = fn(x) { x + 1 }
 	"return":   TokenReturn,
 	"if":       TokenIf,
 	"else":     TokenElse,
@@ -162,6 +185,12 @@ var keywords = map[string]TokenKind{
 	"select":   TokenSelect,
 	"chan":     TokenChan,
 	"defer":    TokenDefer,
+	"nil":      TokenNil,
+	"try":      TokenTry,
+	"catch":    TokenCatch,
+	"in":       TokenIn,
+	"main":     TokenMain,
+	"go":       TokenGo,
 	"import":   TokenImport,
 	"from":     TokenFrom,
 	"service":  TokenService,
@@ -223,6 +252,10 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				l.consumeChar()
 				l.consumeChar()
 				l.column += 2
+			} else if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenPlusEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
 			} else {
 				tokens = append(tokens, Token{Kind: TokenPlus, Pos: l.GetPosition()})
 				l.consumeChar()
@@ -233,29 +266,49 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				tokens = append(tokens, Token{Kind: TokenMinusMinus, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else if l.peekCharAt(1) == '>' {
 				tokens = append(tokens, Token{Kind: TokenArrow, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
+			} else if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenMinusEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
 			} else {
 				tokens = append(tokens, Token{Kind: TokenMinus, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.column++
 			}
 		case ch == '*':
-			tokens = append(tokens, Token{Kind: TokenStar, Pos: l.GetPosition()})
-			l.consumeChar()
-			l.column++
+			if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenStarEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+			} else {
+				tokens = append(tokens, Token{Kind: TokenStar, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.column++
+			}
 		case ch == '/':
-			tokens = append(tokens, Token{Kind: TokenSlash, Pos: l.GetPosition()})
-			l.consumeChar()
-			l.column++
+			if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenSlashEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+			} else {
+				tokens = append(tokens, Token{Kind: TokenSlash, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.column++
+			}
 		case ch == '%':
-			tokens = append(tokens, Token{Kind: TokenPercent, Pos: l.GetPosition()})
-			l.consumeChar()
-			l.column++
+			if l.peekCharAt(1) == '=' {
+				tokens = append(tokens, Token{Kind: TokenPercentEq, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
+			} else {
+				tokens = append(tokens, Token{Kind: TokenPercent, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.column++
+			}
 		case ch == '.':
 			tokens = append(tokens, Token{Kind: TokenDot, Pos: l.GetPosition()})
 			l.consumeChar()
@@ -265,84 +318,66 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				tokens = append(tokens, Token{Kind: TokenEqualEqual, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
-			} else if l.peekCharAt(1) == ':' {
-				// Note: := is : followed by =, but we check = followed by :
-				// Actually, since we read left to right, when we see :, we should check if next is =
-				// But here we're at =, so if previous was :, but that's not how it works.
-				// Actually, := should be handled when we see :
-				// Let me change this.
-				// Better to handle := when we see :
-				// Let me find the : case.
+			} else if l.peekCharAt(1) == '>' {
+				tokens = append(tokens, Token{Kind: TokenArrow, Pos: l.GetPosition()})
+				l.consumeChar()
+				l.consumeChar()
 			} else {
 				tokens = append(tokens, Token{Kind: TokenEqual, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '!':
 			if l.peekCharAt(1) == '=' {
 				tokens = append(tokens, Token{Kind: TokenNotEqual, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenNot, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '<':
 			if l.peekCharAt(1) == '=' {
 				tokens = append(tokens, Token{Kind: TokenLessThanOrEqual, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else if l.peekCharAt(1) == '<' {
 				tokens = append(tokens, Token{Kind: TokenBitShl, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenLessThan, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '>':
 			if l.peekCharAt(1) == '=' {
 				tokens = append(tokens, Token{Kind: TokenGreaterThanOrEqual, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else if l.peekCharAt(1) == '>' {
 				tokens = append(tokens, Token{Kind: TokenBitShr, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenGreaterThan, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '&':
 			if l.peekCharAt(1) == '&' {
 				tokens = append(tokens, Token{Kind: TokenAnd, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenBitAnd, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '|':
 			if l.peekCharAt(1) == '|' {
 				tokens = append(tokens, Token{Kind: TokenOr, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenBitOr, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '^':
 			tokens = append(tokens, Token{Kind: TokenBitXor, Pos: l.GetPosition()})
@@ -389,11 +424,9 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 				tokens = append(tokens, Token{Kind: TokenWalrus, Pos: l.GetPosition()})
 				l.consumeChar()
 				l.consumeChar()
-				l.column += 2
 			} else {
 				tokens = append(tokens, Token{Kind: TokenColon, Pos: l.GetPosition()})
 				l.consumeChar()
-				l.column++
 			}
 		case ch == '"':
 			token, err := l.readString()
@@ -476,15 +509,15 @@ func (l *Lexer) readNumber() Token {
 func (l *Lexer) readString() (Token, error) {
 	startLine := l.line
 	startCol := l.column
-	l.consumeChar() // "
-	l.column++
+	l.consumeChar() // consume opening "
 	var content strings.Builder
 	escaped := false
+	hasInterp := false
+	var parts []StringInterpPart
 
 	for l.peekChar() != 0 {
 		ch := l.peekChar()
 		l.consumeChar()
-		l.column++
 
 		if escaped {
 			switch ch {
@@ -505,7 +538,44 @@ func (l *Lexer) readString() (Token, error) {
 		} else if ch == '\\' {
 			escaped = true
 		} else if ch == '"' {
-			return Token{Kind: TokenString, Value: content.String(), Pos: Position{Line: l.line, Column: l.column - len(content.String()) - 2}}, nil
+			// End of string
+			pos := Position{Line: startLine, Column: startCol}
+			if !hasInterp {
+				return Token{Kind: TokenString, Value: content.String(), Pos: pos}, nil
+			}
+			// Flush remaining literal
+			parts = append(parts, StringInterpPart{IsExpr: false, Content: content.String()})
+			return Token{Kind: TokenStringInterp, Value: parts, Pos: pos}, nil
+		} else if ch == '$' && l.peekChar() == '{' {
+			// Start of interpolated expression
+			hasInterp = true
+			l.consumeChar() // consume '{'
+			// Flush literal part so far
+			parts = append(parts, StringInterpPart{IsExpr: false, Content: content.String()})
+			content.Reset()
+			// Scan until matching closing '}'
+			var exprBuf strings.Builder
+			depth := 1
+			for l.peekChar() != 0 && depth > 0 {
+				ec := l.peekChar()
+				l.consumeChar()
+				if ec == '{' {
+					depth++
+					exprBuf.WriteRune(ec)
+				} else if ec == '}' {
+					depth--
+					if depth > 0 {
+						exprBuf.WriteRune(ec)
+					}
+				} else {
+					if ec == '\n' {
+						l.line++
+						l.column = 1
+					}
+					exprBuf.WriteRune(ec)
+				}
+			}
+			parts = append(parts, StringInterpPart{IsExpr: true, Content: exprBuf.String()})
 		} else {
 			if ch == '\n' {
 				l.line++

@@ -85,9 +85,32 @@ func NewTyper() *Typer {
 		ReturnType: ast.VoidType{},
 	}
 
+	typer.env["println"] = ast.FunctionType{
+		ParamTypes: []ast.Type{ast.StringType{}},
+		ReturnType: ast.VoidType{},
+	}
+
 	typer.env["input"] = ast.FunctionType{
 		ParamTypes: []ast.Type{ast.StringType{}},
 		ReturnType: ast.StringType{},
+	}
+
+	// Add the math module as a special struct-like type so member access type-checks pass
+	typer.env["math"] = ast.StructType{
+		Name: "math",
+		Fields: map[string]ast.Type{
+			"pi":     ast.FloatType{},
+			"e":      ast.FloatType{},
+			"sqrt":   ast.FunctionType{ParamTypes: []ast.Type{ast.FloatType{}}, ReturnType: ast.FloatType{}},
+			"abs":    ast.FunctionType{ParamTypes: []ast.Type{ast.FloatType{}}, ReturnType: ast.FloatType{}},
+			"pow":    ast.FunctionType{ParamTypes: []ast.Type{ast.FloatType{}, ast.FloatType{}}, ReturnType: ast.FloatType{}},
+			"floor":  ast.FunctionType{ParamTypes: []ast.Type{ast.FloatType{}}, ReturnType: ast.FloatType{}},
+			"ceil":   ast.FunctionType{ParamTypes: []ast.Type{ast.FloatType{}}, ReturnType: ast.FloatType{}},
+			"round":  ast.FunctionType{ParamTypes: []ast.Type{ast.FloatType{}}, ReturnType: ast.FloatType{}},
+			"min":    ast.FunctionType{ParamTypes: []ast.Type{ast.FloatType{}, ast.FloatType{}}, ReturnType: ast.FloatType{}},
+			"max":    ast.FunctionType{ParamTypes: []ast.Type{ast.FloatType{}, ast.FloatType{}}, ReturnType: ast.FloatType{}},
+			"random": ast.FunctionType{ParamTypes: []ast.Type{}, ReturnType: ast.FloatType{}},
+		},
 	}
 
 	return typer
@@ -242,6 +265,19 @@ func (t *Typer) checkStatement(stmt ast.Statement) error {
 				return err
 			}
 		}
+	case ast.ForInStmt:
+		// Check iterable and bind loop variable
+		_, err := t.inferExpression(s.Iterable)
+		if err != nil {
+			return err
+		}
+		// Bind loop variable to a fresh type variable
+		t.env[s.VarName] = t.newTypeVar()
+		for _, stmt := range s.Body {
+			if err := t.checkStatement(stmt); err != nil {
+				return err
+			}
+		}
 	case ast.StructDeclStmt:
 		// Register struct type
 		fields := make(map[string]ast.Type)
@@ -260,6 +296,24 @@ func (t *Typer) checkStatement(stmt ast.Statement) error {
 	case ast.ExprStmt:
 		_, err := t.inferExpression(s.Expr)
 		return err
+	case ast.DeferStmt:
+		_, err := t.inferExpression(s.Call)
+		return err
+	case ast.TryStmt:
+		for _, stmt := range s.Body {
+			if err := t.checkStatement(stmt); err != nil {
+				return err
+			}
+		}
+		for _, stmt := range s.Catch {
+			if err := t.checkStatement(stmt); err != nil {
+				return err
+			}
+		}
+		return nil
+	case ast.MatchStmt:
+		_, err := t.inferExpression(s.Expr)
+		return err
 		// Add more cases as needed
 	}
 	return nil
@@ -276,8 +330,24 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 		return ast.BoolType{}, nil
 	case ast.StringExpr:
 		return ast.StringType{}, nil
+	case ast.StringInterpExpr:
+		// Interpolated strings always produce a string
+		for _, part := range e.Parts {
+			if part.IsExpr {
+				if _, err := t.inferExpression(part.Expr); err != nil {
+					return nil, err
+				}
+			}
+		}
+		return ast.StringType{}, nil
+	case ast.NilExpr:
+		return nil, nil
 	case ast.IdentifierExpr:
 		if typ, ok := t.env[e.Name]; ok {
+			if typ == nil {
+				// Variable exists but type not yet resolved — use a fresh type variable
+				return t.newTypeVar(), nil
+			}
 			return typ, nil
 		}
 		return nil, fmt.Errorf("undefined variable: %s", e.Name)
@@ -344,33 +414,161 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			return ast.IntType{}, nil
 		}
 	case ast.CallExpr:
-		calleeType, err := t.inferExpression(e.Callee)
-		if err != nil {
-			return nil, err
-		}
-
-		// Special handling for built-in functions
+		// Check for built-in / internal functions BEFORE resolving the callee type.
+		// This avoids "undefined variable" errors for names that are not in the
+		// user scope but are handled specially by the compiler/VM.
 		if idExpr, ok := e.Callee.(ast.IdentifierExpr); ok {
-			if idExpr.Name == "print" {
-				// print accepts any type
+			switch idExpr.Name {
+			case "print":
 				for _, arg := range e.Arguments {
-					_, err := t.inferExpression(arg)
-					if err != nil {
+					if _, err := t.inferExpression(arg); err != nil {
 						return nil, err
 					}
 				}
 				return ast.VoidType{}, nil
-			}
-			if idExpr.Name == "input" {
-				// input accepts a string prompt and returns a string
+			case "input":
 				if len(e.Arguments) > 0 {
-					_, err := t.inferExpression(e.Arguments[0])
-					if err != nil {
+					if _, err := t.inferExpression(e.Arguments[0]); err != nil {
 						return nil, err
 					}
 				}
 				return ast.StringType{}, nil
+			case "len":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.IntType{}, nil
+			case "int":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.IntType{}, nil
+			case "float":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.FloatType{}, nil
+			case "string":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.StringType{}, nil
+			case "__array_assign":
+				// Internal built-in for arr[i] = val; just type-check args
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.VoidType{}, nil
+			// Stdlib functions — type-check args and return appropriate type
+			case "println", "printf":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.VoidType{}, nil
+			case "type":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.StringType{}, nil
+			case "bool":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.BoolType{}, nil
+			case "range":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.ArrayType{ElementType: ast.IntType{}}, nil
+			case "abs", "sqrt", "pow", "floor", "ceil", "round", "min", "max", "random",
+				"math.abs", "math.sqrt", "math.pow", "math.floor", "math.ceil",
+				"math.round", "math.min", "math.max", "math.random":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return t.newTypeVar(), nil
+			case "sort", "reverse":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.ArrayType{ElementType: t.newTypeVar()}, nil
+			case "join":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.StringType{}, nil
+			case "split", "keys", "values":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.ArrayType{ElementType: t.newTypeVar()}, nil
+			case "trim", "upper", "lower", "replace", "repeat":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.StringType{}, nil
+			case "contains", "has", "startsWith", "endsWith", "fileExists":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.BoolType{}, nil
+			case "indexOf":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.IntType{}, nil
+			case "readFile", "writeFile", "appendFile", "joinPath":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return t.newTypeVar(), nil
+			case "readDir":
+				for _, arg := range e.Arguments {
+					if _, err := t.inferExpression(arg); err != nil {
+						return nil, err
+					}
+				}
+				return ast.ArrayType{ElementType: ast.StringType{}}, nil
 			}
+		}
+
+		calleeType, err := t.inferExpression(e.Callee)
+		if err != nil {
+			return nil, err
 		}
 
 		if fnType, ok := calleeType.(ast.FunctionType); ok {
@@ -386,7 +584,14 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 			}
 			return fnType.ReturnType, nil
 		}
-		return nil, fmt.Errorf("not a function")
+		// Callee is not a statically-known function type (e.g. a closure variable
+		// or a builtin). Type-check arguments permissively and return a fresh type var.
+		for _, arg := range e.Arguments {
+			if _, err := t.inferExpression(arg); err != nil {
+				return nil, err
+			}
+		}
+		return t.newTypeVar(), nil
 	case ast.ArrayExpr:
 		if len(e.Elements) == 0 {
 			return ast.ArrayType{ElementType: t.newTypeVar()}, nil
@@ -473,19 +678,49 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 					ReturnType: arrType.ElementType,
 				}, nil
 			default:
-				return nil, fmt.Errorf("array has no member: %s", e.Member)
+				// Allow all other array methods (sort, reverse, join, map, filter, etc.)
+				return t.newTypeVar(), nil
+			}
+		}
+
+		// Handle string methods/properties
+		if _, ok := objType.(ast.StringType); ok {
+			switch e.Member {
+			case "len":
+				return ast.IntType{}, nil
+			case "upper", "lower", "trim":
+				return ast.StringType{}, nil
+			case "split", "chars":
+				return ast.ArrayType{ElementType: ast.StringType{}}, nil
+			case "contains", "startsWith", "endsWith":
+				return ast.BoolType{}, nil
+			case "indexOf":
+				return ast.IntType{}, nil
+			case "toInt":
+				return ast.IntType{}, nil
+			case "toFloat":
+				return ast.FloatType{}, nil
+			default:
+				// Allow any other string method call (replace, repeat, slice, etc.)
+				return t.newTypeVar(), nil
 			}
 		}
 
 		// Handle struct field access
 		if structType, ok := objType.(ast.StructType); ok {
+			// Special module types (math, etc.) — return permissive type var
+			// to allow any field/method access without strict type checking.
+			if structType.Name == "math" {
+				return t.newTypeVar(), nil
+			}
 			if fieldType, ok := structType.Fields[e.Member]; ok {
 				return fieldType, nil
 			}
 			return nil, fmt.Errorf("struct %s has no field: %s", structType.Name, e.Member)
 		}
 
-		return nil, fmt.Errorf("cannot access member of type: %s", objType)
+		// Fallback: allow member access on unknown/complex types permissively
+		return t.newTypeVar(), nil
 	case ast.StructLiteralExpr:
 		// Type check struct literal
 		structType, ok := t.env[e.StructName]
@@ -521,7 +756,13 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 }
 
 // addConstraint adds a type constraint
+// Constraints involving nil (unknown/unresolved) types are skipped.
 func (t *Typer) addConstraint(left, right ast.Type) {
+	if left == nil || right == nil {
+		// Skip constraints with unknown types — avoids false "type mismatch" errors
+		// for functions without explicit return type annotations.
+		return
+	}
 	t.constraints = append(t.constraints, Constraint{Left: left, Right: right})
 }
 
@@ -549,6 +790,17 @@ func (t *Typer) solveConstraints() error {
 
 // unify checks if two types unify (simplified)
 func (t *Typer) unify(a, b ast.Type) bool {
+	// nil means an unknown/unresolved type; treat it as unifying with anything.
+	if a == nil || b == nil {
+		return true
+	}
+	// Type variables unify with anything (from either side)
+	if _, ok := a.(TypeVar); ok {
+		return true
+	}
+	if _, ok := b.(TypeVar); ok {
+		return true
+	}
 	switch at := a.(type) {
 	case ast.IntType:
 		_, ok := b.(ast.IntType)

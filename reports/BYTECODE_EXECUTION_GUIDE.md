@@ -3,7 +3,7 @@
 ## Overview
 
 The Kode language supports two execution modes:
-1. **Direct Execution** (`kode run file.kode`) - Uses the runtime engine
+1. **Direct Execution** (`kode file.kode`) - Uses the runtime engine
 2. **Bytecode Compilation** (`kode build file.kode`) - Compiles to bytecode, then executes with the VM
 
 Both modes support most language features, but there are some differences in what they support.
@@ -12,7 +12,7 @@ Both modes support most language features, but there are some differences in wha
 
 ## Execution Modes Comparison
 
-| Feature | `kode run` | Bytecode (`kode build` + `kode exec`) |
+| Feature | `kode` | Bytecode (`kode build` + `kode exec`) |
 |---------|-----------|------|
 | Variables | ✅ | ✅ |
 | Constants | ✅ | ✅ |
@@ -157,7 +157,7 @@ c is greater than a
 
 **Cause**: Using a language feature not yet implemented in the bytecode VM.
 
-**Solution**: Use `kode run` instead, or simplify your code to use only supported features.
+**Solution**: Use `kode` instead, or simplify your code to use only supported features.
 
 ### Issue: Function Output Missing
 
@@ -188,7 +188,7 @@ func add(a: int, b: int) int = a + b
 1. **Use expression-bodied functions** - They compile to fewer instructions
 2. **Avoid unnecessary variables** - Each variable adds to bytecode size
 3. **Pre-calculate constants** - Replace computed values with const declarations
-4. **Use directly without building** - For quick testing, use `kode run`
+4. **Use directly without building** - For quick testing, use `kode`
 
 ---
 
@@ -214,7 +214,7 @@ if (r1 < r2) {
 EOF
 
 # Test with run
-kode run test.kode
+kode test.kode
 
 # Test with bytecode
 kode build test.kode
@@ -248,7 +248,7 @@ kode program.kbc
 ### For Development
 ```bash
 # Use direct execution for immediate feedback
-kode run program.kode
+kode program.kode
 
 # Switch to bytecode testing when ready
 kode build program.kode
@@ -279,4 +279,4 @@ kode program.kbc
 - Advanced type systems
 - Complex closures
 
-**Use `kode run` for everything until you're sure your code works with bytecode!**
+**Use `kode` for everything until you're sure your code works with bytecode!**

@@ -155,7 +155,7 @@ Output
 ./kode build input.kode -o output.kbc   # Compile .kode to bytecode
 ./kode output.kbc                        # Execute bytecode (shorthand)
 ./kode output.kbc                   # Execute bytecode (explicit)
-./kode run input.kode                    # Compile and run in one command
+./kode input.kode                    # Compile and run in one command
 ```
 
 ### Styling Enhancements:

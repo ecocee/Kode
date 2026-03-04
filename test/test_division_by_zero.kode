@@ -1,0 +1,29 @@
+// Test that division by zero produces a runtime error
+// Previously returned 0 silently
+
+func test_div_by_zero() {
+  let result = 10 / 0
+  print(result)
+}
+
+func test_mod_by_zero() {
+  let result = 10 % 0
+  print(result)
+}
+
+// Commenting these out as they would crash with expected error:
+// test_div_by_zero()    // Should show: "division by zero" error
+// test_mod_by_zero()    // Should show: "modulo by zero" error
+
+// Safe division test
+func safe_divide(a: int, b: int) {
+  if (b == 0) {
+    print(-1)
+  } else {
+    print(a / b)
+  }
+}
+
+safe_divide(10, 2)   // Should print 5
+safe_divide(10, 0)   // Should print -1
+safe_divide(20, 4)   // Should print 5

@@ -1,0 +1,60 @@
+// ============================================================
+// Complete feature test: closures, string interpolation, import
+// ============================================================
+
+// ============================
+// 1. STRING INTERPOLATION
+// ============================
+print("=== String Interpolation ===")
+let name = "Kode"
+let version = 3
+print("Language: ${name}")
+print("Version: ${version}")
+print("Welcome to ${name} v${version}!")
+
+let a = 10
+let b = 7
+print("${a} + ${b} = ${a + b}")
+print("${a} * ${b} = ${a * b}")
+
+// ============================
+// 2. CLOSURES (basic)
+// ============================
+print("=== Closures ===")
+
+// Closure stored in a global variable
+let add = fn(x, y) { return x + y }
+print(add(3, 4))   // 7
+
+let multiply = fn(x, y) { return x * y }
+print(multiply(6, 7))  // 42
+
+let greetUser = fn(n) { return "Hi, ${n}!" }
+print(greetUser("Alice"))  // Hi, Alice!
+
+// Closures as arguments to higher-order functions
+func apply(f, x, y) {
+    return f(x, y)
+}
+print(apply(add, 10, 20))       // 30
+print(apply(multiply, 5, 8))    // 40
+
+// ============================
+// 3. MODULE IMPORTS
+// ============================
+print("=== Module Imports ===")
+import { double, greet, square } from "modules/utils"
+
+print(double(21))       // 42
+print(greet("World"))   // Hello, World!
+print(square(9))        // 81
+
+// ============================
+// 4. COMBINED: interp + closures
+// ============================
+print("=== Combined ===")
+let base = 5
+let pow2 = fn(n) { return n * n }
+print("Square of ${base} is ${pow2(base)}")
+
+print("all feature tests passed")
