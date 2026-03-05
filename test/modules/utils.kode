@@ -1,13 +1,13 @@
 // Importable utility functions
 
-func double(n) {
+fn double(n) {
     return n * 2
 }
 
-func greet(name) {
+fn greet(name) {
     return "Hello, " + name + "!"
 }
 
-func square(x) {
+fn square(x) {
     return x * x
 }

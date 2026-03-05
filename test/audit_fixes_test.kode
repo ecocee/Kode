@@ -1,7 +1,7 @@
 // Test for all audit-identified fixes
 
 print("=== FIX 1: Local var assignment inside function ===")
-func counter() {
+fn counter() {
   let x = 0
   x = x + 1
   x = x + 1
@@ -13,7 +13,7 @@ print("should be 3:")
 print(cnt)
 
 print("=== FIX 2: For loop with local var increment ===")
-func sum_to(n: int) {
+fn sum_to(n: int) {
   let total = 0
   for (let i = 1; i <= n; i = i + 1) {
     total = total + i
@@ -25,7 +25,7 @@ print("should be 15:")
 print(s)
 
 print("=== FIX 3: Multiple returns in function (guard pattern) ===")
-func abs_val(x: int) {
+fn abs_val(x: int) {
   if (x < 0) {
     return x * -1
   }
@@ -69,7 +69,7 @@ print("(skipping - would abort program)")
 
 print("=== FIX 8: Local for-loop counter does not leak to global ===")
 let i = 999
-func loop_local() {
+fn loop_local() {
   for (let i = 0; i < 3; i = i + 1) {
     let _ = i
   }
@@ -80,11 +80,11 @@ print("global i should still be 999:")
 print(i)
 
 print("=== FIX 9: Nested function calls with local vars ===")
-func add(a: int, b: int) {
+fn add(a: int, b: int) {
   let result = a + b
   return result
 }
-func double_add(x: int) {
+fn double_add(x: int) {
   let r1 = add(x, x)
   let r2 = add(r1, 1)
   return r2

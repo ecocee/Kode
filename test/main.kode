@@ -1,27 +1,11 @@
-// ================================================
-//   Kode Language Speed Test  -  v0.3.1
-//   Run: kode mem/main.kode
-//   Time (Windows): Measure-Command { kode mem/main.kode }
-// ================================================
+// test - main entry point
+//
+// Run:   kode run   (or: kode run main.kode)
+// Build: kode build (produces target/main.kbc)
+// Exec:  kode target/main.kbc
 
-print("====================================")
-print("  Kode Language Speed Test v0.3.1")
-print("====================================")
-print("")
-
-// -----------------------------------------------
-// TEST 1: CPU Loop  -  sum 0 to 1,000,000
-// -----------------------------------------------
-print("[1] CPU Loop  (sum 0..1,000,000)")
-
-let sum = 0
-let i = 0
-while (i < 1000000) {
-    sum = sum + i
-    i = i + 1
+fn run() {
+    print("Hello from test!")
 }
 
-print("    Result:")
-print(sum)
-print("")
-
+run()

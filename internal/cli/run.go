@@ -26,14 +26,43 @@ func resolveImports(baseDir string, stmts []ast.Statement) ([]ast.Statement, err
 			continue
 		}
 
-		// Resolve the file path: add .kode if missing, resolve relative to baseDir
+		// Resolve the file path: add .kode if missing
 		modPath := imp.Path
 		if !strings.HasSuffix(modPath, ".kode") {
 			modPath += ".kode"
 		}
-		if !filepath.IsAbs(modPath) {
-			modPath = filepath.Join(baseDir, modPath)
+
+		// Normalise: strip leading "./" so "./stdlib/server" == "stdlib/server"
+		normPath := strings.TrimPrefix(modPath, "./")
+
+		// Also derive a bare name (strip any "stdlib/" prefix) so that
+		// "stdlib/server", "./stdlib/server", and "server" all resolve to
+		// stdlib/server.kode when looked up in the stdlib dir.
+		bareName := normPath
+		if strings.HasPrefix(bareName, "stdlib/") || strings.HasPrefix(bareName, "stdlib\\") {
+			bareName = bareName[len("stdlib/"):]
 		}
+
+		// Candidate resolution order:
+		//   1. stdlib/<bareName>          (project-root stdlib dir, highest priority for stdlib imports)
+		//   2. relative to the importing file's directory
+		//   3. cwd-relative path as-is    (handles absolute or explicit cwd paths)
+		var resolvedPath string
+		candidates := []string{
+			filepath.Join("stdlib", bareName),
+			filepath.Join(baseDir, normPath),
+			normPath,
+		}
+		for _, cand := range candidates {
+			if _, err := os.Stat(cand); err == nil {
+				resolvedPath = cand
+				break
+			}
+		}
+		if resolvedPath == "" {
+			return nil, fmt.Errorf("cannot import %q: module not found (searched stdlib/ and relative to %s)", imp.Path, baseDir)
+		}
+		modPath = resolvedPath
 
 		src, err := os.ReadFile(modPath)
 		if err != nil {
@@ -79,12 +108,31 @@ func newRunCmd() *cobra.Command {
 	var release bool
 
 	cmd := &cobra.Command{
-		Use:   "run <file>",
+		Use:   "run [file]",
 		Short: "Run a Kode source file",
-		Long:  "Compile and execute a Kode source file (.kode only)",
-		Args:  requireArgs(1, "a Kode source file to run (e.g., 'kode main.kode')"),
+		Long:  "Compile and execute a Kode source file (.kode only). With no arguments, runs the entry point defined in kode.toml.",
+		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			file := args[0]
+			var file string
+
+			if len(args) == 0 {
+				// Project mode: look for kode.toml in cwd
+				toml := FindProjectToml()
+				if toml == "" {
+					fmt.Fprintf(os.Stderr, "\033[1;31m\u2717 Error\033[0m: no file specified and no kode.toml found in current directory\n")
+					os.Exit(1)
+				}
+				cfg := LoadProjectConfig(toml)
+				if cfg == nil {
+					cfg = &ProjectConfig{RunEntry: "main.kode"}
+				}
+				file = cfg.RunEntry
+				if !quiet {
+					fmt.Printf("\033[1;36m\u25b6 Running\033[0m \033[1;33m%s\033[0m (project: %s v%s)\n", file, cfg.Name, cfg.Version)
+				}
+			} else {
+				file = args[0]
+			}
 
 			if verbose {
 				fmt.Printf("Running file: %s\n", file)

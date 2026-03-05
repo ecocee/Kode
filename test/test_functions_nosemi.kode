@@ -1,6 +1,6 @@
-func add(a: int, b: int) int = a + b
+fn add(a: int, b: int) int = a + b
 
-func multiply(x: int, y: int) int = x * y
+fn multiply(x: int, y: int) int = x * y
 
 let result1 = add(5, 3)
 let result2 = multiply(4, 2)

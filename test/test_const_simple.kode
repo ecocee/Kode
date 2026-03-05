@@ -1,4 +1,4 @@
-func main() {
+fn main() {
     print("test");
 }
 

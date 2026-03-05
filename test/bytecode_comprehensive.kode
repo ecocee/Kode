@@ -43,16 +43,16 @@ for (let i = 0; i < 3; i = i + 1) {
 }
 
 // Test 6: Function calls (expression-bodied)
-func multiply(x: int, y: int) = x * y
-func add(a: int, b: int) = a + b
+fn multiply(x: int, y: int) = x * y
+fn add(a: int, b: int) = a + b
 
 print("=== Function Calls ===")
 print(multiply(4, 5))  // 20
 print(add(10, 20))     // 30
 
 // Test 7: Nested function calls
-func double(n: int) = n * 2
-func triple(n: int) = n * 3
+fn double(n: int) = n * 2
+fn triple(n: int) = n * 3
 
 print("=== Nested Functions ===")
 print(double(triple(2))) // 12

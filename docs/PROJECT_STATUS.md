@@ -1,7 +1,7 @@
 # Kode — Project Status
 
-**Updated:** March 3, 2026
-**Version:** 0.3.2-dev
+**Updated:** March 5, 2026
+**Version:** 0.3.4
 **Codebase:** ~8,400 lines of Go across 21 source files
 
 ---
@@ -78,8 +78,8 @@ Source (.kode)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Block body `func f() { }` | ✅ Working | Multi-statement |
-| Expression body `func f() = expr` or `=>` | ✅ Working | Single expression |
+| Block body `fn f() { }` | ✅ Working | Multi-statement |
+| Expression body `fn f() = expr` or `=>` | ✅ Working | Single expression |
 | Parameters with/without type annotation | ✅ Working | `fn(x: int)` and `fn(x)` |
 | Return type annotation | ✅ Working | Optional |
 | `return value` | ✅ Working | Including from nested branches |
@@ -152,7 +152,8 @@ Source (.kode)
 | `import "mod"` | ✅ Working | Simple import (all exported) |
 | `export func` | ✅ Working | Export function from module |
 | `export const` / `export let` | ✅ Working | Export values from module |
-| Module path resolution | ✅ Working | Current dir → `examples/` dir |
+| Module path resolution | ✅ Working | Current dir → `stdlib/` → `examples/` dir |
+| `server` stdlib module | ✅ Working | `import { newServer, get, post, … } from "server"` |
 
 ### Built-in Functions (VM `callBuiltin`)
 
@@ -197,7 +198,7 @@ String builtins also work as method calls: `s.upper()`, `s.trim()`, `s.split(","
 | `chan` / `select` | Parsed; silently skipped | v0.5 |
 | `trait` declarations | Parsed; type-checker aware only | v0.6 |
 | `impl Trait for Type` | Parsed; not compiled | v0.6 |
-| `service` / HTTP routes | Parsed; no HTTP runtime | future |
+| `service` / Server routes | ✅ Working — native `server` stdlib | v0.3.4 |
 | Walrus `:=` operator | Tokenised; not used in parser | future |
 
 ---
@@ -225,7 +226,8 @@ String builtins also work as method calls: `s.upper()`, `s.trim()`, `s.split(","
 | v0.2.0 | Bytecode VM, operators, control flow | ✅ Done |
 | v0.3.0 | Arrays, array indexing | ✅ Done |
 | v0.3.1 | Module system, structs, bytecode polish | ✅ Done |
-| v0.3.2 | Closures, try/catch, defer, string interp, match, 40+ builtins | 🚧 In Progress |
+| v0.3.2 | Closures, try/catch, defer, string interp, match, 40+ builtins | ✅ Done |
+| v0.3.4 | `server` stdlib module, `fn`-only keyword, production stdlib | ✅ Done |
 | v0.4.0 | Struct mutation + methods, enum variants, full match patterns | ⏳ Next |
 | v0.5.0 | Concurrency — spawn, channels, select | ⏳ Planned |
 | v0.6.0 | Standard library, generics, traits | ⏳ Planned |
@@ -262,5 +264,7 @@ String builtins also work as method calls: `s.upper()`, `s.trim()`, `s.split(","
 | `internal/cli/run.go` | 167 | `kode run` + import resolution |
 | `internal/cli/build.go` | 131 | `kode build` command |
 | `internal/cli/new.go` | 89 | `kode new` scaffold |
-| `internal/version/version.go` | 17 | Version constant (`0.3.2-dev`) |
+| `internal/version/version.go` | 17 | Version constant (`0.3.4`) |
+| `pkg/bytecode/server_module.go` | ~200 | Native Go `server.*` implementation |
+| `stdlib/server.kode` | ~430 | Production server standard library |
 

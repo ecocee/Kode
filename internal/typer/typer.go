@@ -113,6 +113,18 @@ func NewTyper() *Typer {
 		},
 	}
 
+	// Add native module namespaces as special struct-like types so member access type-checks pass.
+	// Fields are left empty — the special-module shortcut in inferExpression handles member access
+	// permissively (returns a fresh type variable) to avoid strict-checking dynamic map returns.
+	typer.env["http"] = ast.StructType{
+		Name:   "http",
+		Fields: map[string]ast.Type{},
+	}
+	typer.env["server"] = ast.StructType{
+		Name:   "server",
+		Fields: map[string]ast.Type{},
+	}
+
 	return typer
 }
 
@@ -708,9 +720,9 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 
 		// Handle struct field access
 		if structType, ok := objType.(ast.StructType); ok {
-			// Special module types (math, etc.) — return permissive type var
+			// Special module types (math, http, server, etc.) — return permissive type var
 			// to allow any field/method access without strict type checking.
-			if structType.Name == "math" {
+			if structType.Name == "math" || structType.Name == "http" || structType.Name == "server" {
 				return t.newTypeVar(), nil
 			}
 			if fieldType, ok := structType.Fields[e.Member]; ok {
@@ -858,20 +870,35 @@ func (t *Typer) resolveModulePathForTyper(importPath string) (string, error) {
 		}
 	}
 
-	// Try with .kode extension
-	kodePath := importPath + ".kode"
+	// Normalise: strip leading "./"
+	normPath := strings.TrimPrefix(importPath, "./")
+
+	// Derive bare name: strip any stdlib/ prefix so "stdlib/server" → "server"
+	bareName := normPath
+	if strings.HasPrefix(bareName, "stdlib/") || strings.HasPrefix(bareName, "stdlib\\") {
+		bareName = bareName[len("stdlib/"):]
+	}
+
+	// stdlib/ directory (project-root-relative) — highest priority
+	stdlibPath := filepath.Join("stdlib", bareName+".kode")
+	if _, err := os.Stat(stdlibPath); err == nil {
+		return stdlibPath, nil
+	}
+
+	// Try with .kode extension (cwd-relative)
+	kodePath := normPath + ".kode"
 	if _, err := os.Stat(kodePath); err == nil {
 		return kodePath, nil
 	}
 
 	// Try in examples directory
-	examplesPath := filepath.Join("examples", importPath+".kode")
+	examplesPath := filepath.Join("examples", normPath+".kode")
 	if _, err := os.Stat(examplesPath); err == nil {
 		return examplesPath, nil
 	}
 
 	// Try in current directory
-	currentPath := filepath.Join(".", importPath+".kode")
+	currentPath := filepath.Join(".", normPath+".kode")
 	if _, err := os.Stat(currentPath); err == nil {
 		return currentPath, nil
 	}

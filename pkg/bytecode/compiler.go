@@ -1402,7 +1402,7 @@ func (c *Compiler) compileCallExpression(expr *ast.CallExpr) error {
 				c.buf.Emit(OpArrayPop)
 			}
 		default:
-			// Check if this is a module-qualified call like math.sqrt(x)
+			// Check if this is a module-qualified call like math.sqrt(x) or http.get(srv, …)
 			if objIdent, ok2 := mem.Object.(ast.IdentifierExpr); ok2 {
 				switch objIdent.Name {
 				case "math":
@@ -1413,6 +1413,15 @@ func (c *Compiler) compileCallExpression(expr *ast.CallExpr) error {
 						}
 					}
 					c.buf.Emit(OpCall, "math."+mem.Member, len(expr.Arguments))
+					return nil
+				case "server":
+					// server.xxx(args) → OpCall("server.xxx", argCount)
+					for _, arg := range expr.Arguments {
+						if err := c.compileExpression(arg); err != nil {
+							return err
+						}
+					}
+					c.buf.Emit(OpCall, "server."+mem.Member, len(expr.Arguments))
 					return nil
 				}
 			}

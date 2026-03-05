@@ -159,8 +159,7 @@ type Lexer struct {
 
 var keywords = map[string]TokenKind{
 	"let":      TokenLet,
-	"func":     TokenFunc,
-	"fn":       TokenFunc, // short alias for closures: let f = fn(x) { x + 1 }
+	"fn":       TokenFunc, // only keyword for function declarations
 	"return":   TokenReturn,
 	"if":       TokenIf,
 	"else":     TokenElse,

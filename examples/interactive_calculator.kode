@@ -2,7 +2,7 @@
 
 import { add, subtract, multiply, divide, power, absoluteValue } from "math";
 
-func showMenu() {
+fn showMenu() {
     print("--- Calculator Menu ---");
     print("1. Add");
     print("2. Subtract");
@@ -13,37 +13,37 @@ func showMenu() {
     print("");
 }
 
-func calculateSum() {
+fn calculateSum() {
     print("Adding: 100 + 50");
     add(100, 50);
 }
 
-func calculateDifference() {
+fn calculateDifference() {
     print("Subtracting: 100 - 35");
     subtract(100, 35);
 }
 
-func calculateProduct() {
+fn calculateProduct() {
     print("Multiplying: 12 * 25");
     multiply(12, 25);
 }
 
-func calculateQuotient() {
+fn calculateQuotient() {
     print("Dividing: 144 / 12");
     divide(144, 12);
 }
 
-func calculatePower() {
+fn calculatePower() {
     print("Power: 5 ^ 3");
     power(5, 3);
 }
 
-func calculateAbsValue() {
+fn calculateAbsValue() {
     print("Absolute Value of -100");
     absoluteValue(0 - 100);
 }
 
-func main() {
+fn main() {
     print("");
     print("╔════════════════════════════╗");
     print("║   Kode Simple Calculator   ║");

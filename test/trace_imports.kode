@@ -4,6 +4,6 @@ import "config" as cfg;
 
 print("After import");
 
-func main() {
+fn main() {
     print("In main");
 }

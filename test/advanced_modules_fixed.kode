@@ -4,7 +4,7 @@ import "config" as cfg;
 import { add, multiply, PI } from "math";
 import { Person, Address, createPerson } from "data";
 
-func main() {
+fn main() {
     print(cfg.APP_NAME);
     print(cfg.VERSION);
     let result = add(10, 5);
@@ -12,17 +12,17 @@ func main() {
 }
 
 // Logger exports
-export func log(message: string) {
+export fn log(message: string) {
     print("[LOG] ");
     print(message);
 }
 
-export func debug(message: string) {
+export fn debug(message: string) {
     print("[DEBUG] ");
     print(message);
 }
 
-export func error(message: string) {
+export fn error(message: string) {
     print("[ERROR] ");
     print(message);
 }
@@ -50,36 +50,36 @@ export const MAX_REQUESTS = 60;
 export let PORT = 8080;
 export let HOST = "localhost";
 
-export func getAppInfo() {
+export fn getAppInfo() {
     print(APP_NAME);
     print(VERSION);
 }
 
 // Utility functions
-export func formatMessage(prefix: string, message: string) {
+export fn formatMessage(prefix: string, message: string) {
     print(prefix);
     print(": ");
     print(message);
 }
 
-export func concatenate(a: string, b: string) {
+export fn concatenate(a: string, b: string) {
     print(a);
     print(b);
 }
 
-export func formatNumber(n: int) {
+export fn formatNumber(n: int) {
     print(n);
 }
 
 // Module with interdependencies
 import { User, Post } from "models";
 
-export func getUserInfo(userId: int) {
+export fn getUserInfo(userId: int) {
     print("Getting user ");
     print(userId);
 }
 
-export func getPostsByUser(userId: int) {
+export fn getPostsByUser(userId: int) {
     print("Getting posts for user ");
     print(userId);
 }

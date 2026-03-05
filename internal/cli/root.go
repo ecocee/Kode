@@ -58,6 +58,21 @@ A modern systems programming language for backend services and AI tooling.`,
 					return
 				}
 			}
+			// No args: if kode.toml exists in cwd run the project entry point
+			if len(args) == 0 {
+				if toml := FindProjectToml(); toml != "" {
+					cfg := LoadProjectConfig(toml)
+					if cfg == nil {
+						cfg = &ProjectConfig{RunEntry: "main.kode"}
+					}
+					entry := cfg.RunEntry
+					if !quiet {
+						fmt.Printf("\033[1;36m▶ Running\033[0m \033[1;33m%s\033[0m (project: %s v%s)\n", entry, cfg.Name, cfg.Version)
+					}
+					runFile(entry)
+					return
+				}
+			}
 			// Otherwise show help
 			cmd.Help()
 		},

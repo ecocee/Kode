@@ -1,4 +1,4 @@
-func add(a: int, b: int) {
+fn add(a: int, b: int) {
   return a + b
 }
 print(add(5, 3))

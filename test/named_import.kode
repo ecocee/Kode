@@ -1,7 +1,7 @@
 // Test named imports
 import { add } from "math";
 
-func main() {
+fn main() {
     print("OK");
 }
 

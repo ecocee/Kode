@@ -97,9 +97,9 @@ print(p >= q)
 // 8. TEST: Functions with Multiple Arguments
 print("")
 print("8. FUNCTIONS:")
-func add(x: int, y: int) = x + y
-func multiply(a: int, b: int) = a * b
-func power(base: int, exp: int) = base * exp
+fn add(x: int, y: int) = x + y
+fn multiply(a: int, b: int) = a * b
+fn power(base: int, exp: int) = base * exp
 
 print("add(10, 5) =")
 print(add(10, 5))
@@ -109,8 +109,8 @@ print(multiply(6, 7))
 // 9. TEST: Nested Function Calls
 print("")
 print("9. NESTED FUNCTION CALLS:")
-func square(n: int) = n * n
-func double(n: int) = n * 2
+fn square(n: int) = n * n
+fn double(n: int) = n * 2
 
 print("square(double(3)) =")
 print(square(double(3)))

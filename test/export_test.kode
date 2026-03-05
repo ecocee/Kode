@@ -1,8 +1,8 @@
-export func add(a: int, b: int) {
+export fn add(a: int, b: int) {
     print(a + b);
 }
 
-func main() {
+fn main() {
     print("OK");
 }
 

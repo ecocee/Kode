@@ -1,5 +1,5 @@
-func square(x: int) = x * x
-func isEven(n: int) = n % 2 == 0
+fn square(x: int) = x * x
+fn isEven(n: int) = n % 2 == 0
 
 print("=== Kode Bytecode Compiler - Final Feature Test ===")
 print("")

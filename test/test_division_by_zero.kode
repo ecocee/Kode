@@ -1,12 +1,12 @@
 // Test that division by zero produces a runtime error
 // Previously returned 0 silently
 
-func test_div_by_zero() {
+fn test_div_by_zero() {
   let result = 10 / 0
   print(result)
 }
 
-func test_mod_by_zero() {
+fn test_mod_by_zero() {
   let result = 10 % 0
   print(result)
 }
@@ -16,7 +16,7 @@ func test_mod_by_zero() {
 // test_mod_by_zero()    // Should show: "modulo by zero" error
 
 // Safe division test
-func safe_divide(a: int, b: int) {
+fn safe_divide(a: int, b: int) {
   if (b == 0) {
     print(-1)
   } else {

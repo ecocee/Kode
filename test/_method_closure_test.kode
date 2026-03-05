@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // Production-level feature test
 // ============================================================
 
@@ -61,7 +61,7 @@ let add_base = fn(x) { return base + x }
 print(add_base(5))
 print(add_base(50))
 
-func make_multiplier(factor) {
+fn make_multiplier(factor) {
     return fn(x) { return x * factor }
 }
 let triple = make_multiplier(3)

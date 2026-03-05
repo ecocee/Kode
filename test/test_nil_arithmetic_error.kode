@@ -1,7 +1,7 @@
 // Test that nil operands in arithmetic produce runtime errors
 // Previously these would silently return nil
 
-func test_undefined_var_arithmetic() {
+fn test_undefined_var_arithmetic() {
   // Using undefined variable should error
   let result = undefined_var + 5
   print(result)
@@ -11,7 +11,7 @@ func test_undefined_var_arithmetic() {
 // test_undefined_var_arithmetic()
 
 // Test with guard to prevent crash
-func safe_add(x: int) {
+fn safe_add(x: int) {
   print(x + 1)
 }
 

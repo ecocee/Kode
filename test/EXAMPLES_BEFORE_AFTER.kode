@@ -1,20 +1,20 @@
 // Kode Language - Examples with and without semicolons
 
 // ============================================
-// FUNCTION SYNTAX (uses 'func' keyword)
+// FUNCTION SYNTAX (uses 'fn' keyword)
 // ============================================
 
 // NO SEMICOLONS
-func add(a: int, b: int) int {
+fn add(a: int, b: int) int {
     return a + b
 }
 
-func greet(name: string) string {
+fn greet(name: string) string {
     return "Hello, " + name
 }
 
 // WITH SEMICOLONS (both work!)
-func subtract(a: int, b: int) int {
+fn subtract(a: int, b: int) int {
     return a - b;
 }
 
@@ -88,7 +88,7 @@ print(a + b + c + d)
 //    - Gradual migration path
 
 // 4. CORRECT SYNTAX REMINDERS
-//    - Use 'func' keyword for functions (not 'fn')
+//    - Use 'fn' keyword for functions (not 'fn')
 //    - Specify return types for functions
 //    - Require parentheses around if conditions: if (condition)
 
