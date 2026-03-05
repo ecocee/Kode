@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	Version = "0.3.2-dev"
+	Version = "0.3.3"
 )
 
 func GetVersion() string {

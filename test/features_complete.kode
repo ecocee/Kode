@@ -33,7 +33,7 @@ let greetUser = fn(n) { return "Hi, ${n}!" }
 print(greetUser("Alice"))  // Hi, Alice!
 
 // Closures as arguments to higher-order functions
-func apply(f, x, y) {
+fn apply(f, x, y) {
     return f(x, y)
 }
 print(apply(add, 10, 20))       // 30

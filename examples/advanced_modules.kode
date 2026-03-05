@@ -2,13 +2,13 @@
 
 import "config" as cfg;
 
-func main() {
+fn main() {
     print("OK");
 }
 
 main();
 
-export func log(message: string) {
+export fn log(message: string) {
     print(message);
 }
 

@@ -31,7 +31,7 @@ struct User {
     email: string
 }
 
-func get_users() []User {
+fn get_users() []User {
     // Mock data
     return [
         User{id: 1, name: "Alice", email: "alice@example.com"},
@@ -39,12 +39,12 @@ func get_users() []User {
     ]
 }
 
-func create_user(user: User) User {
+fn create_user(user: User) User {
     // Mock creation
     return User{id: 3, name: user.name, email: user.email}
 }
 
-func get_user_by_id(id: int) User {
+fn get_user_by_id(id: int) User {
     users := get_users()
 
     for user in users {
@@ -56,25 +56,25 @@ func get_user_by_id(id: int) User {
     return User{id: 0, name: "", email: ""}
 }
 
-func parse_user_from_request() User {
+fn parse_user_from_request() User {
     // Mock parsing
     return User{id: 0, name: "New User", email: "new@example.com"}
 }
 
-func parse_id_from_path() int {
+fn parse_id_from_path() int {
     // Mock parsing
     return 1
 }
 
-func json_response(data: interface{}) Response {
+fn json_response(data: interface{}) Response {
     return Response{status: 200, body: to_json(data)}
 }
 
-func error_response(status: int, message: string) Response {
+fn error_response(status: int, message: string) Response {
     return Response{status: status, body: message}
 }
 
-func to_json(data: interface{}) string {
+fn to_json(data: interface{}) string {
     return "{}" // placeholder
 }
 

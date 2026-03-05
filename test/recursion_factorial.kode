@@ -1,5 +1,5 @@
 // Test function calls
-func test_func() {
+fn test_func() {
     print("Function called")
 }
 

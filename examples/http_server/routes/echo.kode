@@ -1,0 +1,10 @@
+// routes/echo.kode
+// POST /api/echo — echoes the request body back
+// Requires Content-Type: application/json
+
+fn echoRoute(srv) {
+    server.post(srv, "/api/echo", withLog(withJSON(fn(req) {
+        let b = bodyOr(req, "(empty)")
+        return ok(b)
+    })))
+}

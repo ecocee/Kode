@@ -583,7 +583,7 @@ fn main() {
 
 ---
 
-## 📌 Feature Status (v0.3.1+)
+## 📌 Feature Status (v0.3.4)
 
 ### ✅ Fully Implemented
 
@@ -604,10 +604,11 @@ fn main() {
 - ✅ Bytecode VM execution
 - ✅ Go code generation backend
 - ✅ Full line number tracking and error reporting
+- ✅ `fn`-only function keyword (`func` removed)
+- ✅ Production server stdlib (`stdlib/server.kode`) — `import { newServer, get, okJSON } from "server"`
 
 ### ⏳ In Development
 
-- ⏳ Standard library expansion
 - ⏳ File I/O operations
 - ⏳ String manipulation utilities
 - ⏳ Math library functions

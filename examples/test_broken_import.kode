@@ -2,7 +2,7 @@
 
 import { add, broken_function } from "math_broken";
 
-func main() {
+fn main() {
     add(5, 3);
     broken_function(10, 5);
 }

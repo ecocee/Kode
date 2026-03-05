@@ -64,6 +64,15 @@ func newBuildCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
+			// Resolve imports — same as run command
+			baseDir := filepath.Dir(file)
+			statements, err = resolveImports(baseDir, statements)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "\033[1;31m✗ Compiler Error\033[0m in %s\n", file)
+				fmt.Fprintf(os.Stderr, "  \033[1;33m→\033[0m %v\n", err)
+				os.Exit(1)
+			}
+
 			// Compile to IR
 			c := compiler.NewCompiler()
 			ir, err := c.Compile(ast.Program{Statements: statements})

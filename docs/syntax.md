@@ -23,6 +23,7 @@
 - [Pattern Matching](#-pattern-matching)
 - [Error Handling](#-error-handling)
 - [Modules & Imports](#-modules--imports)
+- [Server Module](#-server-module)
 - [Concurrency](#-concurrency)
 - [Keywords](#-keywords)
 
@@ -1368,26 +1369,135 @@ fn main() {
 
 ---
 
-## 📚 Modules
+## 📚 Modules & Imports
 
-### Module Import
+### Named Import (recommended)
 ```kode
-import moduleName;
+import { square, cube } from "math"
+import { newServer, start, get } from "server"
 ```
 
-Example:
+### Namespace Import
 ```kode
-// In math.kode
+import "math" as math
+math.square(5)   // 25
+```
+
+### Simple Import
+```kode
+import "utils"
+```
+
+### Exporting from a module
+```kode
+// math.kode
 fn square(x) {
     return x * x;
 }
-
-// In main.kode
-import math;
-print math.square(5);  // 25
+export { square }
 ```
 
-*Note: Kode v0.2.0 has basic module support without namespaces or selective imports.*
+```kode
+// main.kode
+import { square } from "math"
+print(square(5))  // 25
+```
+
+### stdlib — built-in standard library
+
+Kode includes a `server` stdlib module that ships with the runtime.
+
+```kode
+import { newServer, start, get, okJSON } from "server"
+
+let srv = newServer(3000)
+get(srv, "/health", fn(req) { return okJSON("{\"ok\":true}") })
+start(srv)
+```
+
+The `stdlib/` directory is searched before the project directory, so
+`import ... from "server"` always resolves to the built-in library.
+
+*Note: Kode v0.2.0 had basic module support without namespaces or selective imports.*
+
+---
+
+## 🌐 Server Module
+
+Kode ships a production `server` stdlib backed by Go's `net/http`.
+
+### Quick start
+
+```kode
+import { newServer, start, get, okJSON } from "server"
+
+let srv = newServer(3000)
+
+get(srv, "/api/hello", fn(req) {
+    return okJSON("{\"message\": \"Hello!\"}")
+})
+
+start(srv)   // blocking; Ctrl+C for graceful shutdown
+```
+
+### Route methods
+
+```kode
+get(srv, path, handler)
+post(srv, path, handler)
+put(srv, path, handler)
+delete(srv, path, handler)
+patch(srv, path, handler)
+any(srv, path, handler)      // all methods
+options(srv, path, handler)
+static(srv, urlPrefix, dir)  // serve static files
+```
+
+### Response helpers
+
+| Call | Status | Content-Type |
+|------|--------|--------------|
+| `respond(status, body)` | custom | `text/plain` |
+| `respondJSON(status, body)` | custom | `application/json` |
+| `ok(body)` | 200 | `text/plain` |
+| `okJSON(body)` | 200 | `application/json` |
+| `created(body)` | 201 | `application/json` |
+| `notFound(msg)` | 404 | `text/plain` |
+| `serverError(msg)` | 500 | `text/plain` |
+
+### Request helpers
+
+```kode
+query(req, "name")   // URL query param
+body(req)            // raw request body
+header(req, "X-Hdr") // request header
+method(req)          // "GET" / "POST" ...
+path(req)            // "/api/hello"
+req_ip(req)          // client IP
+req_bearer(req)      // Bearer token
+queryOr(req, "k", "default")  // with default
+```
+
+### Middleware
+
+```kode
+import { withLog, withCORS, withAuth } from "server"
+
+get(srv, "/secure", withLog(withAuth(fn(req) {
+    return okJSON("{\"ok\":true}")
+})))
+```
+
+### Health + static files
+
+```kode
+import { newServer, start, health, static } from "server"
+
+let srv = newServer(8080)
+health(srv)                         // GET /health → {"ok":true}
+static(srv, "/public/", "./public") // serve files
+start(srv)
+```
 
 ---
 
@@ -1415,4 +1525,4 @@ Kode reserves the following keywords:
 
 *Created with ❤️ by Sreeraj V Rajesh*
 
-© 2025 Kode Programming Language
+© 2026 Kode Programming Language

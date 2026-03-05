@@ -1,0 +1,27 @@
+// Kode HTTP Server — run: kode run examples/http_server/main.kode
+// Open: http://localhost:3000/public/index.html
+
+import { newServer, start, health, static, withLog, withCORS, notFoundWith, notFound, pipe2 } from "server"
+import { helloRoute } from "routes/hello"
+import { echoRoute }  from "routes/echo"
+import { infoRoute }  from "routes/info"
+
+let srv = newServer(3000)
+
+// Built-in health check: GET /health
+health(srv)
+
+// Static files under /public/
+static(srv, "/public/", "examples/http_server/public")
+
+// Register routes
+helloRoute(srv)
+echoRoute(srv)
+infoRoute(srv)
+
+// Default handler for unmatched routes
+notFoundWith(srv, fn(req) {
+    return notFound("Route not found")
+})
+
+start(srv)

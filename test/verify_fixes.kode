@@ -24,7 +24,7 @@ print(continue_count)
 
 print("=== TEST 3: Local Let in Function ===")
 let global_var = 100
-func test_local_scope() {
+fn test_local_scope() {
   let local_var = 5
   print("Inside function, local_var =")
   print(local_var)
@@ -37,7 +37,7 @@ print("Function returned:")
 print(result)
 
 print("=== TEST 4: Safe Division ===")
-func safe_divide(a: int, b: int) {
+fn safe_divide(a: int, b: int) {
   if (b == 0) {
     print(-1)
   } else {
@@ -50,7 +50,7 @@ print("10 / 0 (guarded) =")
 safe_divide(10, 0)
 
 print("=== TEST 5: Safe Addition ===")
-func safe_add(a: int, b: int) {
+fn safe_add(a: int, b: int) {
   print(a + b)
 }
 print("5 + 3 =")

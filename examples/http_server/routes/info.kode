@@ -1,0 +1,9 @@
+// routes/info.kode
+// GET /api/info — returns server metadata
+
+fn infoRoute(srv) {
+    server.get(srv, "/api/info", withLog(fn(req) {
+        let ts = string(timestamp())
+        return okJSON("{\"server\":\"Kode\",\"version\":\"1.0\",\"language\":\"Kode\",\"timestamp\":" + ts + "}")
+    }))
+}

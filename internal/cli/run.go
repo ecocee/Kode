@@ -26,14 +26,43 @@ func resolveImports(baseDir string, stmts []ast.Statement) ([]ast.Statement, err
 			continue
 		}
 
-		// Resolve the file path: add .kode if missing, resolve relative to baseDir
+		// Resolve the file path: add .kode if missing
 		modPath := imp.Path
 		if !strings.HasSuffix(modPath, ".kode") {
 			modPath += ".kode"
 		}
-		if !filepath.IsAbs(modPath) {
-			modPath = filepath.Join(baseDir, modPath)
+
+		// Normalise: strip leading "./" so "./stdlib/server" == "stdlib/server"
+		normPath := strings.TrimPrefix(modPath, "./")
+
+		// Also derive a bare name (strip any "stdlib/" prefix) so that
+		// "stdlib/server", "./stdlib/server", and "server" all resolve to
+		// stdlib/server.kode when looked up in the stdlib dir.
+		bareName := normPath
+		if strings.HasPrefix(bareName, "stdlib/") || strings.HasPrefix(bareName, "stdlib\\") {
+			bareName = bareName[len("stdlib/"):]
 		}
+
+		// Candidate resolution order:
+		//   1. stdlib/<bareName>          (project-root stdlib dir, highest priority for stdlib imports)
+		//   2. relative to the importing file's directory
+		//   3. cwd-relative path as-is    (handles absolute or explicit cwd paths)
+		var resolvedPath string
+		candidates := []string{
+			filepath.Join("stdlib", bareName),
+			filepath.Join(baseDir, normPath),
+			normPath,
+		}
+		for _, cand := range candidates {
+			if _, err := os.Stat(cand); err == nil {
+				resolvedPath = cand
+				break
+			}
+		}
+		if resolvedPath == "" {
+			return nil, fmt.Errorf("cannot import %q: module not found (searched stdlib/ and relative to %s)", imp.Path, baseDir)
+		}
+		modPath = resolvedPath
 
 		src, err := os.ReadFile(modPath)
 		if err != nil {

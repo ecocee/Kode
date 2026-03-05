@@ -1699,6 +1699,17 @@ func (vm *VM) callBuiltin(name string, args []interface{}) interface{} {
 		}
 		return false
 
+	// ── http.* module ───────────────────────────────────────────────────────
+	// All http.XXX calls are routed here by the compiler as "http.XXX".
+	case "server.newServer", "server.get", "server.post", "server.put", "server.delete",
+		"server.patch", "server.static", "server.start", "server.any",
+		"server.respond", "server.respondJSON", "server.respondHTML", "server.respondWith",
+		"server.header", "server.query", "server.body", "server.method", "server.path",
+		"server.remoteAddr", "server.setHeader", "server.cors", "server.getPort",
+		"server.timestamp", "server.log", "server.redirect":
+		// Strip the "server." prefix and dispatch into the module.
+		return vm.callServerModule(strings.TrimPrefix(name, "server."), args)
+
 	default:
 		return nil
 	}

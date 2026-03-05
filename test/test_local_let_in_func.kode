@@ -3,7 +3,7 @@
 
 let global_var = 100
 
-func test_local_scope() {
+fn test_local_scope() {
   let local_var = 42
   let another_local = 99
   print(local_var)
@@ -17,12 +17,12 @@ print(global_var)
 
 // Test function should be able to have its own locals
 // that don't interfere with other function locals
-func func_a() {
+fn func_a() {
   let x = 1
   print(x)
 }
 
-func func_b() {
+fn func_b() {
   let x = 2
   print(x)
 }

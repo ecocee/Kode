@@ -148,7 +148,7 @@ func (p *Parser) functionDefinition() (ast.Statement, error) {
 
 	var name string
 	if !isMain {
-		n, err := p.consumeIdentifier("Expected function name after 'func'")
+		n, err := p.consumeIdentifier("Expected function name after 'fn'")
 		if err != nil {
 			return nil, err
 		}

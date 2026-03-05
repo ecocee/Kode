@@ -1,0 +1,598 @@
+// =============================================================================
+// stdlib/server.kode — Kode Server Standard Library  v1.0
+// =============================================================================
+//
+// A production-ready HTTP server library built on Kode's native server module.
+//
+// QUICK START
+// ───────────
+//   import { newServer, get, health, start } from "server"
+//
+//   let srv = newServer(3000)
+//   health(srv)
+//   get(srv, "/", fn(req) { return okJSON("{\"hello\":\"world\"}") })
+//   start(srv)
+//
+// IMPORT GROUPS
+// ─────────────
+//   Lifecycle  : newServer, start, port, timestamp, log, info, warn, err, debug
+//   Routes     : get, post, put, delete, patch, any, options, static
+//   Responses  : respond, respondJSON, respondHTML, respondWith
+//   2xx        : ok, okJSON, okHTML, created, accepted, noContent
+//   3xx        : redirect, permanentRedirect, temporaryRedirect, seeOther
+//   4xx        : badRequest, unauthorized, forbidden, notFound,
+//                methodNotAllowed, conflict, unprocessable, tooManyRequests
+//   5xx        : serverError, notImplemented, serviceUnavailable
+//   Modifiers  : setHeader, withCorsHeaders, cors, cacheFor, noCache
+//   Request    : body, method, path, query, header, remoteAddr,
+//                req_ip, req_bearer, req_userAgent, req_contentType,
+//                req_accept, req_host, req_origin, req_isJSON, req_isForm
+//   Helpers    : queryOr, headerOr, bodyOr
+//   Middleware : withLog, withCORS, withAuth, withJSON, withContentType, withNoCache
+//   Compose    : pipe2, pipe3
+//   Groups     : group
+//   Built-ins  : health, healthAt, notFoundWith
+//   JSON util  : jsonError, jsonSuccess, jsonCreated, jsonMessage
+// =============================================================================
+
+
+// ─── LIFECYCLE ────────────────────────────────────────────────────────────────
+
+// newServer(port) — create a new server.
+// Returns a server handle used by all other functions.
+export fn newServer(port) {
+    return server.newServer(port)
+}
+
+// start(srv) — start listening (blocking). Shuts down gracefully on SIGINT/SIGTERM.
+export fn start(srv) {
+    return server.start(srv)
+}
+
+// port(srv) — get the port number the server was created with.
+export fn port(srv) {
+    return server.getPort(srv)
+}
+
+// timestamp() — current Unix timestamp as an integer.
+export fn timestamp() {
+    return server.timestamp()
+}
+
+// log(level, message) — write a timestamped log line to stderr.
+//   Levels: "info", "warn", "error", "debug"
+export fn log(level, message) {
+    return server.log(level, message)
+}
+
+export fn info(msg) {
+    return server.log("info", msg)
+}
+
+export fn warn(msg) {
+    return server.log("warn", msg)
+}
+
+export fn err(msg) {
+    return server.log("error", msg)
+}
+
+export fn debug(msg) {
+    return server.log("debug", msg)
+}
+
+
+// ─── ROUTE REGISTRATION ───────────────────────────────────────────────────────
+
+// get(srv, path, handler) — register a GET route.
+//   handler is fn(req) → response
+export fn get(srv, path, handler) {
+    return server.get(srv, path, handler)
+}
+
+// post(srv, path, handler) — register a POST route.
+export fn post(srv, path, handler) {
+    return server.post(srv, path, handler)
+}
+
+// put(srv, path, handler) — register a PUT route.
+export fn put(srv, path, handler) {
+    return server.put(srv, path, handler)
+}
+
+// delete(srv, path, handler) — register a DELETE route.
+export fn delete(srv, path, handler) {
+    return server.delete(srv, path, handler)
+}
+
+// patch(srv, path, handler) — register a PATCH route.
+export fn patch(srv, path, handler) {
+    return server.patch(srv, path, handler)
+}
+
+// any(srv, path, handler) — register a route that accepts every HTTP method.
+export fn any(srv, path, handler) {
+    return server.any(srv, path, handler)
+}
+
+// options(srv, path, handler) — register an OPTIONS route (CORS preflight).
+export fn options(srv, path, handler) {
+    return server.any(srv, path, fn(req) {
+        let m = server.method(req)
+        if (m == "OPTIONS") {
+            return server.cors(server.respond(204, ""))
+        }
+        return handler(req)
+    })
+}
+
+// static(srv, urlPrefix, dir) — serve static files from dir under urlPrefix.
+//   static(srv, "/public/", "dist")
+export fn static(srv, urlPrefix, dir) {
+    return server.static(srv, urlPrefix, dir)
+}
+
+
+// ─── CORE RESPONSE PRIMITIVES ─────────────────────────────────────────────────
+
+// respond(status, body) — plain text response.
+export fn respond(status, body) {
+    return server.respond(status, body)
+}
+
+// respondJSON(status, body) — JSON response.
+export fn respondJSON(status, body) {
+    return server.respondJSON(status, body)
+}
+
+// respondHTML(status, body) — HTML response.
+export fn respondHTML(status, body) {
+    return server.respondHTML(status, body)
+}
+
+// respondWith(status, contentType, body) — custom content-type response.
+export fn respondWith(status, contentType, body) {
+    return server.respondWith(status, contentType, body)
+}
+
+
+// ─── 2xx SUCCESS RESPONSES ────────────────────────────────────────────────────
+
+// ok(body) — 200 OK, text/plain.
+export fn ok(body) {
+    return server.respond(200, body)
+}
+
+// okJSON(body) — 200 OK, application/json.
+export fn okJSON(body) {
+    return server.respondJSON(200, body)
+}
+
+// okHTML(body) — 200 OK, text/html.
+export fn okHTML(body) {
+    return server.respondHTML(200, body)
+}
+
+// created(body) — 201 Created, application/json.
+export fn created(body) {
+    return server.respondJSON(201, body)
+}
+
+// accepted(body) — 202 Accepted, text/plain.
+export fn accepted(body) {
+    return server.respond(202, body)
+}
+
+// noContent() — 204 No Content (no body).
+export fn noContent() {
+    return server.respond(204, "")
+}
+
+
+// ─── 3xx REDIRECT RESPONSES ───────────────────────────────────────────────────
+
+// redirect(url) — 302 Found (temporary redirect).
+export fn redirect(url) {
+    return server.redirect(302, url)
+}
+
+// permanentRedirect(url) — 301 Moved Permanently.
+export fn permanentRedirect(url) {
+    return server.redirect(301, url)
+}
+
+// temporaryRedirect(url) — 307 Temporary Redirect (preserves request method).
+export fn temporaryRedirect(url) {
+    return server.redirect(307, url)
+}
+
+// seeOther(url) — 303 See Other (redirect after POST).
+export fn seeOther(url) {
+    return server.redirect(303, url)
+}
+
+
+// ─── 4xx CLIENT ERROR RESPONSES ──────────────────────────────────────────────
+
+// badRequest(msg) — 400 Bad Request.
+export fn badRequest(msg) {
+    return server.respondJSON(400, "{\"error\":\"" + msg + "\",\"status\":400}")
+}
+
+// unauthorized(msg) — 401 Unauthorized.
+export fn unauthorized(msg) {
+    return server.respondJSON(401, "{\"error\":\"" + msg + "\",\"status\":401}")
+}
+
+// forbidden(msg) — 403 Forbidden.
+export fn forbidden(msg) {
+    return server.respondJSON(403, "{\"error\":\"" + msg + "\",\"status\":403}")
+}
+
+// notFound(msg) — 404 Not Found.
+export fn notFound(msg) {
+    return server.respondJSON(404, "{\"error\":\"" + msg + "\",\"status\":404}")
+}
+
+// methodNotAllowed() — 405 Method Not Allowed.
+export fn methodNotAllowed() {
+    return server.respondJSON(405, "{\"error\":\"Method not allowed\",\"status\":405}")
+}
+
+// conflict(msg) — 409 Conflict.
+export fn conflict(msg) {
+    return server.respondJSON(409, "{\"error\":\"" + msg + "\",\"status\":409}")
+}
+
+// unprocessable(msg) — 422 Unprocessable Entity (validation errors).
+export fn unprocessable(msg) {
+    return server.respondJSON(422, "{\"error\":\"" + msg + "\",\"status\":422}")
+}
+
+// tooManyRequests(msg) — 429 Too Many Requests.
+export fn tooManyRequests(msg) {
+    return server.respondJSON(429, "{\"error\":\"" + msg + "\",\"status\":429}")
+}
+
+
+// ─── 5xx SERVER ERROR RESPONSES ──────────────────────────────────────────────
+
+// serverError(msg) — 500 Internal Server Error.
+export fn serverError(msg) {
+    return server.respondJSON(500, "{\"error\":\"" + msg + "\",\"status\":500}")
+}
+
+// notImplemented() — 501 Not Implemented.
+export fn notImplemented() {
+    return server.respondJSON(501, "{\"error\":\"Not implemented\",\"status\":501}")
+}
+
+// serviceUnavailable(msg) — 503 Service Unavailable.
+export fn serviceUnavailable(msg) {
+    return server.respondJSON(503, "{\"error\":\"" + msg + "\",\"status\":503}")
+}
+
+
+// ─── RESPONSE MODIFIERS ───────────────────────────────────────────────────────
+
+// setHeader(resp, name, value) — add or override a header on a response.
+//   let resp = setHeader(okJSON("{}"), "X-Request-Id", "abc123")
+export fn setHeader(resp, name, value) {
+    return server.setHeader(resp, name, value)
+}
+
+// withCorsHeaders(resp) — add standard CORS headers to any response.
+export fn withCorsHeaders(resp) {
+    return server.cors(resp)
+}
+
+// cors(resp) — alias for withCorsHeaders.
+export fn cors(resp) {
+    return server.cors(resp)
+}
+
+// cacheFor(resp, seconds) — set Cache-Control: max-age=<seconds>.
+export fn cacheFor(resp, seconds) {
+    let s = string(seconds)
+    return server.setHeader(resp, "Cache-Control", "public, max-age=" + s)
+}
+
+// noCache(resp) — set Cache-Control: no-store, no-cache.
+export fn noCache(resp) {
+    return server.setHeader(resp, "Cache-Control", "no-store, no-cache, must-revalidate")
+}
+
+
+// ─── REQUEST ACCESSORS ────────────────────────────────────────────────────────
+
+// body(req) — raw request body string.
+export fn body(req) {
+    return server.body(req)
+}
+
+// method(req) — HTTP method: "GET", "POST", "PUT", etc.
+export fn method(req) {
+    return server.method(req)
+}
+
+// path(req) — URL path, e.g. "/api/users".
+export fn path(req) {
+    return server.path(req)
+}
+
+// query(req, name) — URL query parameter by name.
+export fn query(req, name) {
+    return server.query(req, name)
+}
+
+// header(req, name) — request header value (case-insensitive lookup).
+export fn header(req, name) {
+    return server.header(req, name)
+}
+
+// remoteAddr(req) — raw remote address, e.g. "192.168.1.1:54321".
+export fn remoteAddr(req) {
+    return server.remoteAddr(req)
+}
+
+// req_ip(req) — client IP address only (strips the port from remoteAddr).
+export fn req_ip(req) {
+    let addr = server.remoteAddr(req)
+    let parts = split(addr, ":")
+    if (len(parts) == 2) {
+        return parts[0]
+    }
+    return addr
+}
+
+// req_bearer(req) — extract Bearer token from Authorization header.
+//   Returns "" if the header is absent or not a Bearer token.
+export fn req_bearer(req) {
+    let auth = server.header(req, "Authorization")
+    if (startsWith(auth, "Bearer ")) {
+        let parts = split(auth, " ")
+        if (len(parts) >= 2) {
+            return parts[1]
+        }
+    }
+    return ""
+}
+
+// req_userAgent(req) — User-Agent header string.
+export fn req_userAgent(req) {
+    return server.header(req, "User-Agent")
+}
+
+// req_contentType(req) — Content-Type without parameters.
+//   "application/json; charset=utf-8" → "application/json"
+export fn req_contentType(req) {
+    let ct = server.header(req, "Content-Type")
+    let parts = split(ct, ";")
+    return trim(parts[0])
+}
+
+// req_accept(req) — Accept header string.
+export fn req_accept(req) {
+    return server.header(req, "Accept")
+}
+
+// req_host(req) — Host header string.
+export fn req_host(req) {
+    return server.header(req, "Host")
+}
+
+// req_origin(req) — Origin header (set by browsers on cross-origin requests).
+export fn req_origin(req) {
+    return server.header(req, "Origin")
+}
+
+// req_isJSON(req) — true when Content-Type contains "application/json".
+export fn req_isJSON(req) {
+    let ct = req_contentType(req)
+    return contains(ct, "application/json")
+}
+
+// req_isForm(req) — true when Content-Type is application/x-www-form-urlencoded.
+export fn req_isForm(req) {
+    let ct = req_contentType(req)
+    return contains(ct, "application/x-www-form-urlencoded")
+}
+
+// req_isMultipart(req) — true when Content-Type is multipart/form-data.
+export fn req_isMultipart(req) {
+    let ct = req_contentType(req)
+    return contains(ct, "multipart/form-data")
+}
+
+
+// ─── PARAMETER HELPERS WITH DEFAULTS ─────────────────────────────────────────
+
+// queryOr(req, name, defaultValue) — query param with a fallback.
+//   let page = queryOr(req, "page", "1")
+export fn queryOr(req, name, defaultValue) {
+    let val = server.query(req, name)
+    if (val == "") {
+        return defaultValue
+    }
+    return val
+}
+
+// headerOr(req, name, defaultValue) — request header with a fallback.
+export fn headerOr(req, name, defaultValue) {
+    let val = server.header(req, name)
+    if (val == "") {
+        return defaultValue
+    }
+    return val
+}
+
+// bodyOr(req, defaultValue) — request body with a fallback.
+export fn bodyOr(req, defaultValue) {
+    let val = server.body(req)
+    if (val == "") {
+        return defaultValue
+    }
+    return val
+}
+
+
+// ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
+//
+// Middleware wraps a handler and returns a new handler:
+//   let h = withLog(withCORS(myHandler))
+//   get(srv, "/api/data", h)
+
+// withLog(handler) — logs "[METHOD] /path <- IP" to stderr before handling.
+export fn withLog(handler) {
+    return fn(req) {
+        let m = server.method(req)
+        let p = server.path(req)
+        let ip = req_ip(req)
+        server.log("info", m + " " + p + " <- " + ip)
+        return handler(req)
+    }
+}
+
+// withCORS(handler) — adds CORS headers to every response.
+//   Automatically handles OPTIONS preflight with 204 No Content.
+export fn withCORS(handler) {
+    return fn(req) {
+        let m = server.method(req)
+        if (m == "OPTIONS") {
+            return server.cors(server.respond(204, ""))
+        }
+        return server.cors(handler(req))
+    }
+}
+
+// withAuth(secret, handler) — rejects requests with missing or wrong Bearer token.
+//   Returns 401 when the Authorization header is absent.
+//   Returns 401 when the token does not match secret.
+//
+//   let secured = withAuth("my-api-key", myHandler)
+export fn withAuth(secret, handler) {
+    return fn(req) {
+        let token = req_bearer(req)
+        if (token == "") {
+            return unauthorized("Authorization header is required")
+        }
+        if (token != secret) {
+            return unauthorized("Invalid token")
+        }
+        return handler(req)
+    }
+}
+
+// withJSON(handler) — rejects non-GET/HEAD requests without JSON Content-Type.
+//   Use for API routes that only accept a JSON body.
+export fn withJSON(handler) {
+    return fn(req) {
+        let m = server.method(req)
+        if (m != "GET") {
+            if (!req_isJSON(req)) {
+                return badRequest("Content-Type must be application/json")
+            }
+        }
+        return handler(req)
+    }
+}
+
+// withContentType(contentType, handler) — force a Content-Type on all responses.
+export fn withContentType(contentType, handler) {
+    return fn(req) {
+        let resp = handler(req)
+        return server.setHeader(resp, "Content-Type", contentType)
+    }
+}
+
+// withNoCache(handler) — attach no-cache headers to all responses.
+export fn withNoCache(handler) {
+    return fn(req) {
+        let resp = handler(req)
+        return noCache(resp)
+    }
+}
+
+
+// ─── MIDDLEWARE COMPOSITION ───────────────────────────────────────────────────
+
+// pipe2(m1, m2, handler) — compose 2 middleware layers (m1 is outermost).
+//   Equivalent to: m1(m2(handler))
+export fn pipe2(m1, m2, handler) {
+    return m1(m2(handler))
+}
+
+// pipe3(m1, m2, m3, handler) — compose 3 middleware layers (m1 is outermost).
+export fn pipe3(m1, m2, m3, handler) {
+    return m1(m2(m3(handler)))
+}
+
+
+// ─── ROUTE GROUPING ──────────────────────────────────────────────────────────
+
+// group(srv, prefix, setup) — register routes under a URL prefix.
+//   setup receives (srv, prefix) and concatenates the prefix on each path.
+//
+//   group(srv, "/api/v1", fn(s, p) {
+//     get(s, p + "/users",   listUsersHandler)
+//     post(s, p + "/users",  createUserHandler)
+//     get(s, p + "/users/1", getUserHandler)
+//   })
+export fn group(srv, prefix, setup) {
+    setup(srv, prefix)
+}
+
+
+// ─── BUILT-IN UTILITY ROUTES ─────────────────────────────────────────────────
+
+// health(srv) — register GET /health → {"status":"ok","timestamp":<unix>}.
+export fn health(srv) {
+    server.get(srv, "/health", fn(req) {
+        let ts = string(server.timestamp())
+        return server.respondJSON(200, "{\"status\":\"ok\",\"timestamp\":" + ts + "}")
+    })
+}
+
+// healthAt(srv, customPath) — register health check at a custom path.
+export fn healthAt(srv, customPath) {
+    server.get(srv, customPath, fn(req) {
+        let ts = string(server.timestamp())
+        return server.respondJSON(200, "{\"status\":\"ok\",\"timestamp\":" + ts + "}")
+    })
+}
+
+// notFoundWith(srv, handler) — catch-all handler for unmatched routes.
+//   Register this LAST, after all specific routes.
+//
+//   notFoundWith(srv, fn(req) {
+//     return notFound("Route not found")
+//   })
+export fn notFoundWith(srv, handler) {
+    server.any(srv, "/", fn(req) {
+        return handler(req)
+    })
+}
+
+
+// ─── JSON RESPONSE UTILITIES ─────────────────────────────────────────────────
+
+// jsonError(status, message) — {"error":"<msg>","status":<code>}.
+export fn jsonError(status, message) {
+    let s = string(status)
+    return server.respondJSON(status, "{\"error\":\"" + message + "\",\"status\":" + s + "}")
+}
+
+// jsonSuccess(data) — 200 OK with raw JSON data string.
+export fn jsonSuccess(data) {
+    return server.respondJSON(200, data)
+}
+
+// jsonCreated(data) — 201 Created with raw JSON data string.
+export fn jsonCreated(data) {
+    return server.respondJSON(201, data)
+}
+
+// jsonMessage(msg) — 200 OK with {"message":"<msg>"}.
+export fn jsonMessage(msg) {
+    return server.respondJSON(200, "{\"message\":\"" + msg + "\"}")
+}

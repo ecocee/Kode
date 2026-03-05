@@ -10,7 +10,7 @@ import "math" as m;
 // Style 3: Named destructuring import
 import { Person, createPerson, Address } from "data";
 
-func main() {
+fn main() {
     print("=== Module System Demo ===");
     
     // Using config module (Style 1)

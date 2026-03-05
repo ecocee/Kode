@@ -1,18 +1,18 @@
 // math.kode - Simple math operations module
 
-export func add(a: int, b: int) {
+export fn add(a: int, b: int) {
     print(a + b);
 }
 
-export func subtract(a: int, b: int) {
+export fn subtract(a: int, b: int) {
     print(a - b);
 }
 
-export func multiply(a: int, b: int) {
+export fn multiply(a: int, b: int) {
     print(a * b);
 }
 
-export func divide(a: int, b: int) {
+export fn divide(a: int, b: int) {
     if (b == 0) {
         print("Error: Division by zero");
     } else {
@@ -20,7 +20,7 @@ export func divide(a: int, b: int) {
     }
 }
 
-export func power(a: int, b: int) {
+export fn power(a: int, b: int) {
     let result = 1;
     let i = 0;
     while (i < b) {
@@ -30,7 +30,7 @@ export func power(a: int, b: int) {
     print(result);
 }
 
-export func absoluteValue(a: int) {
+export fn absoluteValue(a: int) {
     if (a < 0) {
         print(0 - a);
     } else {

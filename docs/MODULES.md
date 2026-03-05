@@ -335,7 +335,7 @@ func main() {
 
 ## Module Resolution
 
-Kode resolves module paths relative to:
+Kode resolves module paths in this order:
 
 1. **Relative to current file:**
    ```kode
@@ -350,11 +350,16 @@ Kode resolves module paths relative to:
    import "types/models"       // types/models.kode
    ```
 
-3. **Built-in modules (future):**
+3. **`stdlib/` directory (built-in standard library):**
    ```kode
-   import { print, input } from "std"
-   import { read, write } from "fs"
-   import { now } from "time"
+   import { newServer, start } from "server"   // stdlib/server.kode
+   ```
+   The `stdlib/` folder at the project root is searched before the project
+   directory. Use `"server"` (without `stdlib/` prefix).
+
+4. **Built-in modules (available now):**
+   ```kode
+   import { newServer, get, okJSON } from "server"   // ✅ production-ready
    ```
 
 ---
@@ -367,14 +372,14 @@ Circular imports are **NOT allowed** and will result in a compilation error:
 // module_a.kode
 import { funcB } from "module_b"
 
-export func funcA() {
+export fn funcA() {
     funcB()
 }
 
 // module_b.kode  
 import { funcA } from "module_a"  // ERROR: Circular dependency!
 
-export func funcB() {
+export fn funcB() {
     funcA()
 }
 ```
@@ -455,16 +460,16 @@ kode fmt -r .             # Format recursively
 
 ## Limitations & Future Work
 
-### Current Limitations (v0.4)
+### Current Limitations (v0.3.4)
 
-- ⏳ No standard library modules yet (`std`, `fs`, `http`)
-- ⏳ No re-exports from modules
-- ⏳ No conditional exports
-- ⏳ No type-only exports/imports
+- ❌ No re-exports from modules
+- ❌ No conditional exports
+- ❌ No type-only exports/imports
+- ✅ `server` stdlib module available (`import { newServer } from "server"`)
 
 ### Planned (v0.5+)
 
-- 🔜 Built-in modules (std, fs, http, time, etc.)
+- 🔜 More stdlib modules (fs, time, math, etc.)
 - 🔜 Re-exports from multiple modules
 - 🔜 Type-only imports for better static analysis
 - 🔜 Module-level initialization functions

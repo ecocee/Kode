@@ -20,7 +20,7 @@ for (let i = 0; i < 5; i = i + 1) {
 print(sum)
 
 print("TEST 3: Local var in function")
-func get_local() {
+fn get_local() {
   let local_x = 42
   print(local_x)
 }

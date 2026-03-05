@@ -3,7 +3,7 @@ import "config";
 import "math" as m;
 import { Person, createPerson } from "data";
 
-func main() {
+fn main() {
     print("OK");
 }
 

@@ -1,5 +1,5 @@
 // Test functions
-func add(x: int, y: int) = x + y
+fn add(x: int, y: int) = x + y
 
 print("Function test:")
 print(add(5, 3))

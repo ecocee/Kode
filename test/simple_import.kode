@@ -1,7 +1,7 @@
 // Simple import test
 import "math";
 
-func main() {
+fn main() {
     print("test");
 }
 

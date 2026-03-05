@@ -1,0 +1,9 @@
+// routes/hello.kode
+// GET /api/hello?name=...  → {"message":"Hello, <name>!"}
+
+fn helloRoute(srv) {
+    server.get(srv, "/api/hello", fn(req) {
+        let name = queryOr(req, "name", "World")
+        return okJSON("{\"message\":\"Hello, " + name + "!\"}")
+    })
+}

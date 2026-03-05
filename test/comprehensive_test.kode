@@ -1,6 +1,6 @@
-func add(a: int, b: int) = a + b
-func multiply(a: int, b: int) = a * b
-func factorial(n: int) = if (n <= 1) { 1 } else { n * factorial(n - 1) }
+fn add(a: int, b: int) = a + b
+fn multiply(a: int, b: int) = a * b
+fn factorial(n: int) = if (n <= 1) { 1 } else { n * factorial(n - 1) }
 
 print("=== Kode Bytecode Compiler - Comprehensive Feature Test ===")
 print("")

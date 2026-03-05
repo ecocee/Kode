@@ -15,6 +15,7 @@
 | v0.1 | Oct 2025 | Core language, lexer, parser | ✅ Complete |
 | v0.2 | Dec 2025 | Bytecode VM, operators | ✅ Complete |
 | v0.3 | Jan 2026 | Data structures (arrays, structs, enums) | ✅ Complete |
+| v0.3.4 | Mar 2026 | `server` stdlib module, `fn`-only keyword, production server | ✅ Complete |
 | v0.4 | Feb 2026 | Module system (import/export) | ✅ Complete |
 | v0.5 | Feb 2026 | Concurrency (goroutines, channels) | ✅ Complete |
 | v0.6 | Feb 2026 | Standard library, error handling | ✅ Complete |
@@ -128,7 +129,8 @@
 | strings | 🚧 | v1.1 | String utilities |
 | time | 🚧 | v1.1 | Date/time handling |
 | crypto | 🚧 | v1.2 | Hashing, encryption |
-| net | 🚧 | v1.2 | HTTP, TCP/UDP |
+| net | ✅ | v0.3.4 | HTTP server via `server` stdlib (`import from "server"`) | server module |
+| net (TCP/UDP) | 📋 | v1.2 | TCP/UDP clients/servers |
 | database | 🚧 | v1.2 | SQL, ORM |
 | testing | 📋 | Future | Unit testing |
 

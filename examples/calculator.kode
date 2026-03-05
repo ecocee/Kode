@@ -2,7 +2,7 @@
 
 import { add, subtract, multiply, divide, power } from "math";
 
-func main() {
+fn main() {
     print("╔════════════════════════════╗");
     print("║   Kode Simple Calculator   ║");
     print("╚════════════════════════════╝");

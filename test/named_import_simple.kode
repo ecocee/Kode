@@ -1,6 +1,6 @@
 // Test simple import
 import { add };
 
-func main() {
+fn main() {
     print("OK");
 }

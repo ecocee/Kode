@@ -2,15 +2,15 @@
 // Demonstrates all major features working without semicolons
 
 // ============ FUNCTIONS ============
-func add(a: int, b: int) int {
+fn add(a: int, b: int) int {
     return a + b
 }
 
-func multiply(x: int, y: int) int {
+fn multiply(x: int, y: int) int {
     return x * y
 }
 
-func factorial(n: int) int {
+fn factorial(n: int) int {
     let result = 1
     let i = 1
     while (i <= n) {
