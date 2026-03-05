@@ -1,12 +1,15 @@
-# Build artifacts
+# Kode build artifacts
 target/
+*.kbc
+
+# Executables
 *.exe
 *.out
 
-# IDE files
+# IDE
 .vscode/
 .idea/
 
-# OS files
+# OS
 .DS_Store
 Thumbs.db

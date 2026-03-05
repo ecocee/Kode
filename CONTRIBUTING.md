@@ -13,7 +13,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -218,7 +218,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -423,7 +423,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -628,7 +628,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -833,7 +833,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -1038,7 +1038,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -1243,7 +1243,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -1448,7 +1448,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -1653,7 +1653,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -1858,7 +1858,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -2063,7 +2063,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -2268,7 +2268,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -2473,7 +2473,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -2678,7 +2678,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -2883,7 +2883,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -3088,7 +3088,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -3293,7 +3293,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -3498,7 +3498,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -3703,7 +3703,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -3908,7 +3908,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -4113,7 +4113,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -4318,7 +4318,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -4523,7 +4523,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -4728,7 +4728,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -4933,7 +4933,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -5138,7 +5138,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -5343,7 +5343,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -5548,7 +5548,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -5753,7 +5753,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -5958,7 +5958,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -6163,7 +6163,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -6368,7 +6368,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -6573,7 +6573,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -6778,7 +6778,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -6983,7 +6983,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -7188,7 +7188,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -7393,7 +7393,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -7598,7 +7598,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -7803,7 +7803,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -8008,7 +8008,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -8213,7 +8213,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -8418,7 +8418,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -8623,7 +8623,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -8828,7 +8828,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -9033,7 +9033,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -9238,7 +9238,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -9443,7 +9443,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -9648,7 +9648,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -9853,7 +9853,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -10058,7 +10058,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -10263,7 +10263,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -10468,7 +10468,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -10673,7 +10673,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -10878,7 +10878,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -11083,7 +11083,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -11288,7 +11288,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -11493,7 +11493,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -11698,7 +11698,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -11903,7 +11903,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -12108,7 +12108,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -12313,7 +12313,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -12518,7 +12518,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -12723,7 +12723,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -12928,7 +12928,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -13133,7 +13133,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -13338,7 +13338,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -13543,7 +13543,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -13748,7 +13748,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -13953,7 +13953,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -14158,7 +14158,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -14363,7 +14363,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -14568,7 +14568,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -14773,7 +14773,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -14978,7 +14978,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -15183,7 +15183,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -15388,7 +15388,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -15593,7 +15593,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -15798,7 +15798,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -16003,7 +16003,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -16208,7 +16208,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -16413,7 +16413,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -16618,7 +16618,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -16823,7 +16823,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -17028,7 +17028,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -17233,7 +17233,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -17438,7 +17438,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -17643,7 +17643,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -17848,7 +17848,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -18053,7 +18053,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -18258,7 +18258,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -18463,7 +18463,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -18668,7 +18668,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -18873,7 +18873,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -19078,7 +19078,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -19283,7 +19283,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -19488,7 +19488,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -19693,7 +19693,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -19898,7 +19898,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -20103,7 +20103,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -20308,7 +20308,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -20513,7 +20513,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -20718,7 +20718,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -20923,7 +20923,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -21128,7 +21128,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -21333,7 +21333,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -21538,7 +21538,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -21743,7 +21743,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -21948,7 +21948,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -22153,7 +22153,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -22358,7 +22358,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -22563,7 +22563,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -22768,7 +22768,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -22973,7 +22973,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -23178,7 +23178,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -23383,7 +23383,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -23588,7 +23588,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -23793,7 +23793,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -23998,7 +23998,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -24203,7 +24203,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -24408,7 +24408,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -24613,7 +24613,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -24818,7 +24818,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -25023,7 +25023,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -25228,7 +25228,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -25433,7 +25433,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -25638,7 +25638,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -25843,7 +25843,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -26048,7 +26048,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -26253,7 +26253,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -26458,7 +26458,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -26663,7 +26663,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -26868,7 +26868,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -27073,7 +27073,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -27278,7 +27278,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -27483,7 +27483,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -27688,7 +27688,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -27893,7 +27893,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -28098,7 +28098,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -28303,7 +28303,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -28508,7 +28508,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -28713,7 +28713,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -28918,7 +28918,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -29123,7 +29123,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -29328,7 +29328,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -29533,7 +29533,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -29738,7 +29738,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -29943,7 +29943,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -30148,7 +30148,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -30353,7 +30353,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -30558,7 +30558,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -30763,7 +30763,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -30968,7 +30968,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -31173,7 +31173,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -31378,7 +31378,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -31583,7 +31583,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -31788,7 +31788,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -31993,7 +31993,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -32198,7 +32198,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -32403,7 +32403,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -32608,7 +32608,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -32813,7 +32813,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -33018,7 +33018,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -33223,7 +33223,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -33428,7 +33428,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -33633,7 +33633,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -33838,7 +33838,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -34043,7 +34043,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -34248,7 +34248,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -34453,7 +34453,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -34658,7 +34658,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -34863,7 +34863,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -35068,7 +35068,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -35273,7 +35273,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -35478,7 +35478,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -35683,7 +35683,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -35888,7 +35888,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -36093,7 +36093,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -36298,7 +36298,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -36503,7 +36503,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -36708,7 +36708,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -36913,7 +36913,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -37118,7 +37118,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -37323,7 +37323,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -37528,7 +37528,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -37733,7 +37733,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -37938,7 +37938,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -38143,7 +38143,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -38348,7 +38348,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -38553,7 +38553,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -38758,7 +38758,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -38963,7 +38963,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -39168,7 +39168,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -39373,7 +39373,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -39578,7 +39578,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -39783,7 +39783,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -39988,7 +39988,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -40193,7 +40193,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -40398,7 +40398,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -40603,7 +40603,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -40808,7 +40808,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -41013,7 +41013,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 
@@ -41218,7 +41218,7 @@ Thank you for your interest in contributing to Kode! This document provides guid
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ecocee/kode-go.git
+git clone https://github.com/ecocee/kode.git
 cd kode-go
 ```
 

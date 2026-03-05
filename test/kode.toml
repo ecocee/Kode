@@ -1,6 +1,38 @@
-[project]
-name = "test"
-version = "0.1.0"
-edition = "2026"
+# ─────────────────────────────────────────────
+# test — Kode project manifest
+# ─────────────────────────────────────────────
 
+[project]
+name        = "test"
+version     = "0.1.0"
+edition     = "2026"
+description = "A Kode project"
+authors     = ["your name <you@example.com>"]
+kode_version = "0.3.4"
+
+# ── Build settings ────────────────────────────
+# kode build         →  compiles entry → target/output.kbc
+# kode build -o out  →  override output name
+[build]
+entry      = "main.kode"   # source file to compile
+output     = "main"        # output name (without extension)
+bytecode   = true          # emit .kbc bytecode file
+target_dir = "target"      # output directory
+
+# ── Run settings ──────────────────────────────
+# kode run           →  runs entry directly (interpreted)
+# kode run main.kode →  explicit file
+[run]
+entry = "main.kode"
+
+# ── Script shortcuts ──────────────────────────
+# (informational — used by editors/tooling)
+[scripts]
+run   = "kode run main.kode"
+build = "kode build"
+exec  = "kode target/main.kbc"
+clean = "kode clean"
+
+# ── Dependencies ──────────────────────────────
+# (future: kode add <package>)
 [dependencies]

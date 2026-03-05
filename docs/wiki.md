@@ -49,7 +49,7 @@ export PATH=$PATH:$(go env GOPATH)/bin
 ### Build from Source (All Platforms)
 
 ```bash
-git clone https://github.com/ecocee/kode-go
+git clone https://github.com/ecocee/kode
 cd kode-go
 go build -o kode ./cmd/kode
 ./kode version
@@ -631,7 +631,7 @@ Found a bug? Want to contribute code or documentation? See [CONTRIBUTING.md](../
 
 ### Getting Involved
 
-1. **Report Issues**: [GitHub Issues](https://github.com/ecocee/kode-go/issues)
+1. **Report Issues**: [GitHub Issues](https://github.com/ecocee/kode/issues)
 2. **Submit PRs**: Fork → Create branch → Submit pull request
 3. **Join Discussion**: Participate in GitHub Discussions
 4. **Improve Docs**: Update documentation and examples

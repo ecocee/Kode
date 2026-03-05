@@ -113,11 +113,15 @@ func NewTyper() *Typer {
 		},
 	}
 
-	// Add the http module as a special struct-like type so member access type-checks pass.
+	// Add native module namespaces as special struct-like types so member access type-checks pass.
 	// Fields are left empty — the special-module shortcut in inferExpression handles member access
 	// permissively (returns a fresh type variable) to avoid strict-checking dynamic map returns.
 	typer.env["http"] = ast.StructType{
 		Name:   "http",
+		Fields: map[string]ast.Type{},
+	}
+	typer.env["server"] = ast.StructType{
+		Name:   "server",
 		Fields: map[string]ast.Type{},
 	}
 
@@ -716,9 +720,9 @@ func (t *Typer) inferExpression(expr ast.Expression) (ast.Type, error) {
 
 		// Handle struct field access
 		if structType, ok := objType.(ast.StructType); ok {
-			// Special module types (math, http, etc.) — return permissive type var
+			// Special module types (math, http, server, etc.) — return permissive type var
 			// to allow any field/method access without strict type checking.
-			if structType.Name == "math" || structType.Name == "http" {
+			if structType.Name == "math" || structType.Name == "http" || structType.Name == "server" {
 				return t.newTypeVar(), nil
 			}
 			if fieldType, ok := structType.Fields[e.Member]; ok {

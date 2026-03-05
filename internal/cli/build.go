@@ -20,15 +20,42 @@ func newBuildCmd() *cobra.Command {
 	var target string
 
 	cmd := &cobra.Command{
-		Use:   "build <file>",
+		Use:   "build [file]",
 		Short: "Compile a Kode file",
-		Long:  "Compile a Kode source file to bytecode",
-		Args:  requireArgs(1, "a Kode file to build (e.g., 'kode build main.kode')"),
+		Long:  "Compile a Kode source file to bytecode. With no arguments, builds the entry point defined in kode.toml.",
+		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			file := args[0]
+			var file string
+
+			if len(args) == 0 {
+				// Project mode: look for kode.toml in cwd
+				toml := FindProjectToml()
+				if toml == "" {
+					fmt.Fprintf(os.Stderr, "\033[1;31m\u2717 Error\033[0m: no file specified and no kode.toml found in current directory\n")
+					os.Exit(1)
+				}
+				cfg := LoadProjectConfig(toml)
+				if cfg == nil {
+					cfg = &ProjectConfig{BuildEntry: "main.kode", BuildOutput: "main", TargetDir: "target", Bytecode: true}
+				}
+				file = cfg.BuildEntry
+				// output goes into target_dir
+				if output == "" {
+					if err := os.MkdirAll(cfg.TargetDir, 0755); err == nil {
+						output = filepath.Join(cfg.TargetDir, cfg.BuildOutput)
+					} else {
+						output = cfg.BuildOutput
+					}
+				}
+				if !quiet {
+					fmt.Printf("\033[1;36m\u23f3 Building\033[0m \033[1;33m%s\033[0m → \033[1;32m%s.kbc\033[0m (project: %s v%s)\n", file, output, cfg.Name, cfg.Version)
+				}
+			} else {
+				file = args[0]
+			}
 
 			if verbose {
-				fmt.Printf("\033[1;36m⏳ Building file:\033[0m \033[1;33m%s\033[0m\n", file)
+				fmt.Printf("\033[1;36m\u23f3 Building file:\033[0m \033[1;33m%s\033[0m\n", file)
 			}
 
 			// Set default output name
