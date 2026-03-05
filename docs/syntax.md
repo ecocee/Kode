@@ -2,7 +2,7 @@
 
 > A complete reference for the Kode programming language syntax (v0.3.1+)
 
-**Created by Sreeraj V Rajesh**
+**Created by ECOCEE**
 
 ---
 
@@ -985,7 +985,7 @@ spawn {
 
 ---
 
-*Created with ❤️ by Sreeraj V Rajesh*
+*Created with ❤️ by ECOCEE*
 
 © 2026 Kode Programming Language
 
@@ -1523,6 +1523,6 @@ Kode reserves the following keywords:
 
 ---
 
-*Created with ❤️ by Sreeraj V Rajesh*
+*Created with ❤️ by ECOCEE*
 
 © 2026 Kode Programming Language

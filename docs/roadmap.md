@@ -230,4 +230,4 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for details.
 
 *Last updated: February 27, 2026*
 
-*Created by Sreeraj V Rajesh and the Kode community*
+*Created by ECOCEE and the Kode community*
