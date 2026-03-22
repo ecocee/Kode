@@ -73,21 +73,26 @@ jobs:
           BIN_NAME="kode${{ matrix.binary_ext }}"
           GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -trimpath -ldflags="-s -w" -o "dist/${BIN_NAME}" ./cmd/kode
 
-      - name: Package binary
+      - name: Package binary (Linux/macOS)
+        if: matrix.goos != 'windows'
         shell: bash
         run: |
           BIN_NAME="kode${{ matrix.binary_ext }}"
           ARCHIVE_NAME="kode-${PKG_VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive_ext }}"
-          if [[ "${{ matrix.archive_ext }}" == "zip" ]]; then
-            cd dist
-            zip -q "${ARCHIVE_NAME}" "${BIN_NAME}"
-            cd -
-          else
-            tar -C dist -czf "dist/${ARCHIVE_NAME}" "${BIN_NAME}"
-          fi
+          tar -C dist -czf "dist/${ARCHIVE_NAME}" "${BIN_NAME}"
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> "$GITHUB_ENV"
 
-      - name: Generate checksum
+      - name: Package binary (Windows)
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          $binName = "kode${{ matrix.binary_ext }}"
+          $archiveName = "kode-$env:PKG_VERSION-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.archive_ext }}"
+          Compress-Archive -Path "dist/$binName" -DestinationPath "dist/$archiveName" -Force
+          "ARCHIVE_NAME=$archiveName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Generate checksum (Linux/macOS)
+        if: matrix.goos != 'windows'
         shell: bash
         run: |
           CHECKSUM_FILE="${ARCHIVE_NAME}.sha256"
@@ -97,6 +102,15 @@ jobs:
             shasum -a 256 "dist/${ARCHIVE_NAME}" > "dist/${CHECKSUM_FILE}"
           fi
           echo "CHECKSUM_FILE=${CHECKSUM_FILE}" >> "$GITHUB_ENV"
+
+      - name: Generate checksum (Windows)
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          $checksumFile = "$env:ARCHIVE_NAME.sha256"
+          $hash = (Get-FileHash -Path "dist/$env:ARCHIVE_NAME" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $env:ARCHIVE_NAME" | Out-File -FilePath "dist/$checksumFile" -Encoding ascii
+          "CHECKSUM_FILE=$checksumFile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
