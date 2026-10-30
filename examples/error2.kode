@@ -1,0 +1,2 @@
+number = 100 / 0
+print(number)

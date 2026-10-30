@@ -1,0 +1,25 @@
+# Rust build output
+/target/
+
+# Rust generated files
+Cargo.lock
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp
+
+# Debugging
+*.log
+*.profraw
+
+# Temporary files
+*.bak
+*.orig

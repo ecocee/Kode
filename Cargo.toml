@@ -1,0 +1,12 @@
+[package]
+name = "kode"
+version = "0.1.0"
+edition = "2021"
+description = "The KODE programming language"
+license = "MIT"
+
+[[bin]]
+name = "kode"
+path = "src/main.rs"
+
+[dependencies]
