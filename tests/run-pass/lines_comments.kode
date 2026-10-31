@@ -1,0 +1,13 @@
+/* a block
+   comment */
+total = 1 +
+    2 +
+    3 // trailing comment
+print("total:", total)
+print(
+    "a",
+    "b",
+)
+print()
+assert(total == 6)
+print("done")

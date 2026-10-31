@@ -1,0 +1,19 @@
+fn make(n: int) -> string {
+    s = ""
+    for i in 0..n {
+        s = s + "x"
+    }
+    return s
+}
+fn echo(s: string) -> string => s
+total = 0
+for i in 0..2000 {
+    a = make(10)
+    b = echo(a) + echo("!")
+    total += len(b)
+}
+print(total)
+keep = make(3)
+alias = keep
+keep = "other"
+print(alias, keep)

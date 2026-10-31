@@ -1,25 +1,35 @@
-# Rust build output
+
+# Rust build artifacts
 /target/
 
-# Rust generated files
+# Cargo
 Cargo.lock
 
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
 
 # IDEs and editors
 .idea/
 .vscode/
 *.swp
 *.swo
-*.tmp
 
-# Debugging
-*.log
-*.profraw
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
 
 # Temporary files
+*.tmp
 *.bak
-*.orig
+
+# Rust analyzer
+rust-analyzer/

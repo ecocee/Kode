@@ -1,0 +1,16 @@
+a = true
+b = false
+print(a and b, a or b, not a, not b)
+print(1 < 2 and 2 < 3, 1 > 2 or 3 > 2)
+print(a == b, a != b)
+n = 5
+print(n > 3 and n < 10, not n == 5)
+
+fn side(x: bool) -> bool {
+    print("side", x)
+    return x
+}
+
+print(false and side(true))
+print(true or side(false))
+print(true and side(true))

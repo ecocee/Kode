@@ -1,0 +1,15 @@
+fn pick(flag: bool, a: string, b: string) -> string {
+    if flag {
+        return a
+    }
+    tmp = b + "?"
+    return tmp
+}
+print(pick(true, "yes", "no"), pick(false, "yes", "no"))
+fn shout(s: string) -> string {
+    t = s + "!"
+    u = t + "!"
+    return u
+}
+r = shout("hey")
+print(r)

@@ -1,0 +1,9 @@
+[package]
+name = "kode-rt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Kode runtime library, linked into every compiled Kode program"
+
+[lib]
+crate-type = ["staticlib"]

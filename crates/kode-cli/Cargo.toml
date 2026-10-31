@@ -1,0 +1,17 @@
+[package]
+name = "kode-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Kode command line tool"
+
+[dependencies]
+kode-diagnostics = { workspace = true }
+kode-syntax = { workspace = true }
+kode-sema = { workspace = true }
+kode-mir = { workspace = true }
+kode-codegen = { workspace = true }
+
+[[bin]]
+name = "kode"
+path = "src/main.rs"

@@ -1,0 +1,14 @@
+[package]
+name = "kode-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Kode native code generation (Cranelift) and linking"
+
+[dependencies]
+kode-mir = { workspace = true }
+cranelift-codegen = { workspace = true }
+cranelift-frontend = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-object = { workspace = true }
+cranelift-native = { workspace = true }

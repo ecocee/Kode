@@ -1,0 +1,33 @@
+for i in 0..3 {
+    for j in 0..3 {
+        if j == 1 {
+            continue
+        }
+        if i == 2 {
+            break
+        }
+        print(i, j)
+    }
+}
+for k in 5..2 {
+    print("never")
+}
+for k in 3..=3 {
+    print("once", k)
+}
+count = 0
+while true {
+    count += 1
+    if count >= 4 {
+        break
+    }
+}
+print(count)
+grade = 85
+if grade >= 90 {
+    print("A")
+} else if grade >= 80 {
+    print("B")
+} else {
+    print("C")
+}

@@ -1,0 +1,15 @@
+a = "foo"
+b = "bar"
+c = a + b
+print(c, len(c), c == "foobar", c != "foobar", a == b)
+s = ""
+for i in 0..5 {
+    s = s + string(i)
+}
+print(s)
+name = "Asha"
+age = 30
+print("${name} is ${age + 1} years old; pi is ${3.5}; ok=${true}")
+print("nested: ${string(len("héllo"))} chars")
+print("tab\there", "quote\"q", "back\\slash", "dollar \${x}")
+print(string(42) + "!", string(2.5), string(false))

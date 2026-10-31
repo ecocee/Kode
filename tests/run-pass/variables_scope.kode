@@ -1,0 +1,23 @@
+x = 1
+x = x + 1
+x += 10
+x -= 2
+x *= 3
+x /= 2
+x %= 7
+print(x)
+y: int = 5
+z: float = 2.5
+w: string = "typed"
+v: bool = true
+print(y, z, w, v)
+if x > 0 {
+    inner = 100
+    print(inner + x)
+}
+for i in 0..3 {
+    t = i * 2
+    print(t)
+}
+const LIMIT = 3
+print(LIMIT * 2)

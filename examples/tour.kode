@@ -1,0 +1,42 @@
+// A quick tour of Kode v0.1
+const GREETING = "Hello"
+const PI = 3.14159
+
+fn area(r: float) -> float => PI * r * r
+
+fn describe(n: int) -> string {
+    if n % 2 == 0 {
+        return "even"
+    } else if n < 0 {
+        return "negative odd"
+    }
+    return "odd"
+}
+
+fn shout(s: string) -> string => s + "!"
+
+name = "Asha"
+print(shout("${GREETING}, ${name}"))
+print("area:", area(2.0))
+
+total = 0
+for i in 1..=5 {
+    total += i
+}
+print("sum 1..5 =", total)
+
+n = 0
+while n < 6 {
+    n += 1
+    if n == 2 {
+        continue
+    }
+    if n == 5 {
+        break
+    }
+    print(n, describe(n))
+}
+
+ready = n > 3 and not (total == 0)
+print("ready:", ready, "len:", len(name), "int(3.9):", int(3.9), "float(2):", float(2))
+assert(total == 15)

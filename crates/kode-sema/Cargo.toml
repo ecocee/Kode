@@ -1,0 +1,10 @@
+[package]
+name = "kode-sema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Kode name resolution and type checking"
+
+[dependencies]
+kode-diagnostics = { workspace = true }
+kode-syntax = { workspace = true }

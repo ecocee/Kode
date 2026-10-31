@@ -1,0 +1,11 @@
+[package]
+name = "kode-mir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Kode mid-level IR (control-flow graph with explicit reference counting)"
+
+[dependencies]
+kode-diagnostics = { workspace = true }
+kode-syntax = { workspace = true }
+kode-sema = { workspace = true }

@@ -1,0 +1,35 @@
+fn add(a: int, b: int) -> int {
+    return a + b
+}
+fn square(x: int) -> int => x * x
+fn greet(name: string) -> string {
+    return "Hi " + name
+}
+fn log(msg: string) {
+    print("log:", msg)
+}
+fn fact(n: int) -> int {
+    if n <= 1 {
+        return 1
+    }
+    return n * fact(n - 1)
+}
+fn is_even(n: int) -> bool => n % 2 == 0
+fn is_odd(n: int) -> bool {
+    if n == 0 {
+        return false
+    }
+    return is_even(n - 1)
+}
+fn early(n: int) {
+    if n > 2 {
+        return
+    }
+    print("early", n)
+}
+print(add(2, 3), square(7), greet("Asha"), fact(10))
+log("hello")
+print(is_even(10), is_odd(7))
+early(1)
+early(5)
+print(add(square(2), square(3)))

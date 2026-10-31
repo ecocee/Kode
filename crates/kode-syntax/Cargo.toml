@@ -1,0 +1,9 @@
+[package]
+name = "kode-syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Kode lexer, AST and parser"
+
+[dependencies]
+kode-diagnostics = { workspace = true }

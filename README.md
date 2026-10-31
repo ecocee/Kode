@@ -1,62 +1,88 @@
-# KODE
+# Kode
 
-KODE is an experimental, Python-inspired, statically typed language implemented in Rust.
+**A compiled language that is easy to write and cheap to run.**
+Python-readable, JavaScript-familiar, compiled to small native binaries,
+built for cloud backends and for AI agents to write.
 
-## Current status: v0.1.0
+```
+fn fib(n: int) -> int {
+    if n < 2 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
 
-Supported:
-- `print("text")`
-- Multiple statements
-- Comments beginning with `#`
-- Escaped string characters: `\n`, `\r`, `\t`, `\"`, `\\`
-- `kode run` and `kode check`
-
-The current release uses a temporary interpreter. Native compilation, static types,
-ownership checking, and Cranelift integration are future milestones.
-
-## Build
-
-```bash
-cargo build
+name = "Asha"
+print("${name}: fib(30) =", fib(30))
 ```
 
-## Run an example
+Kode is written in Rust. The compiler turns source into a native program:
 
-```bash
-cargo run -- run examples/hello.kode
+```
+source -> lexer -> parser -> AST -> type check -> MIR -> Cranelift -> object file -> linker -> binary
 ```
 
-## Check syntax
+## Status: v0.1 core (working)
 
-```bash
-cargo run -- check examples/hello.kode
+Works today: `int`, `float`, `bool`, `string`; variables, constants, typed declarations;
+arithmetic, comparison and logic operators; `if / else if / else`, `while`, `for` over ranges,
+`break`, `continue`; functions with recursion; reference-counted strings with `+`, `${...}`
+interpolation, `len`, `string()`, `int()`, `float()`; `print`, `assert`; errors with codes and
+JSON output. Planned next: collections, classes, errors and optionals, modules, concurrency.
+See [docs/ROADMAP.md](docs/ROADMAP.md).
+
+Measured on one dev machine (recursive Fibonacci of 35):
+Kode 0.07 s, Python 1.76 s, release binary about 320 KB.
+Treat this as a first data point, not a claim. See `benchmarks/`.
+
+## Build and run
+
+Needs Rust 1.91 or newer and a C compiler (`cc`). On a Mac: `xcode-select --install`.
+
+```
+cargo build --workspace
+cargo test --workspace
+./target/debug/kode run examples/hello.kode
 ```
 
-## Release build
+To type just `kode` in this terminal:
 
-```bash
-cargo build --release
+```
+export PATH="$PWD/target/debug:$PATH"
+kode run examples/tour.kode
 ```
 
-## Design principles
+## Commands
 
-- Python-inspired readable syntax
-- Static typing with inference (planned)
-- Ownership and borrowing (planned)
-- Ahead-of-time native compilation (planned)
-- Custom KODE intermediate representation (planned)
-- Cranelift backend initially (planned)
+| Command | What it does |
+|---|---|
+| `kode run file.kode` | compile and run |
+| `kode build file.kode [-o out] [--release]` | make a native binary |
+| `kode check file.kode` | errors only, no code generation |
+| `kode tokens file.kode` | print tokens (debugging) |
+| `kode ast file.kode` | print the syntax tree (debugging) |
+| `kode mir file.kode` | print the MIR, including retain/release (debugging) |
+| `--format=json` | diagnostics as JSON, for editors and AI agents |
+| `--strict` | warnings count as errors |
 
-## Project structure
+## Repository map
 
-- `kode-lexer`: source text to tokens
-- `kode-parser`: tokens to AST
-- `kode-ast`: language syntax tree
-- `kode-interpreter`: temporary v0.1 execution engine
-- `kode-types`: future type checker
-- `kode-semantics`: future name and scope analysis
-- `kode-borrowck`: future ownership checker
-- `kode-ir`: future compiler IR
-- `kode-codegen`: future native backend
-- `kode-runtime`: future minimal runtime
-- `kode-stdlib`: future standard library
+```
+crates/
+  kode-diagnostics/   spans and error messages (human + JSON)
+  kode-syntax/        tokens, lexer, AST, parser
+  kode-sema/          names and types
+  kode-mir/           mid-level IR, lowering, dump, verifier
+  kode-codegen/       MIR -> Cranelift -> object file -> linker
+  kode-rt/            runtime library linked into every program
+  kode-cli/           the `kode` command
+tests/run-pass/       programs that must run (.kode + .out), checked for leaks
+tests/compile-fail/   programs that must fail (.kode + .err with the error code)
+examples/             small programs
+benchmarks/           proof of the cost claims
+docs/                 spec, design notes, decisions (ADRs), roadmap, error codes
+```
+
+## License
+
+MIT
