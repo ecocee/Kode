@@ -1,6 +1,7 @@
 use std::io::Write;
 
-use crate::string::{bytes, format_float, KStr};
+use crate::object::Header;
+use crate::string::{bytes, format_float};
 
 pub(crate) fn flush() {
     let _ = std::io::stdout().flush();
@@ -26,7 +27,7 @@ pub extern "C" fn kode_print_bool(v: i64) {
 /// # Safety
 /// `p` must be a valid string.
 #[no_mangle]
-pub unsafe extern "C" fn kode_print_str(p: *const KStr) {
+pub unsafe extern "C" fn kode_print_str(p: *const Header) {
     let _ = std::io::stdout().lock().write_all(bytes(p));
 }
 

@@ -1,8 +1,0 @@
-// Test named imports
-import { add } from "math";
-
-fn main() {
-    print("OK");
-}
-
-main();

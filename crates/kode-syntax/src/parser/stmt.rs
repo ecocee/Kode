@@ -18,12 +18,10 @@ impl Parser {
                     return Ok(stmts);
                 }
                 TokenKind::Eof => {
-                    return Err(Diagnostic::error(
-                        "E0106",
-                        "this block is never closed",
-                        open.span,
-                    )
-                    .with_help("add a matching `}`"));
+                    return Err(
+                        Diagnostic::error("E0106", "this block is never closed", open.span)
+                            .with_help("add a matching `}`"),
+                    );
                 }
                 _ => {}
             }
@@ -51,8 +49,27 @@ impl Parser {
                 Ok(Stmt::While { cond, body })
             }
             TokenKind::For => self.parse_for(),
+            TokenKind::Match => self.parse_match(),
             TokenKind::Break => Ok(Stmt::Break(self.bump().span)),
             TokenKind::Continue => Ok(Stmt::Continue(self.bump().span)),
+            TokenKind::Throw => {
+                let span = self.bump().span;
+                let value = self.parse_expr(0)?;
+                Ok(Stmt::Throw { value, span })
+            }
+            TokenKind::Try => {
+                self.bump();
+                let body = self.parse_block()?;
+                self.expect(TokenKind::Catch, "`catch` after the `try` block")?;
+                let (var, var_span) = self.ident("a name for the error after `catch`")?;
+                let handler = self.parse_block()?;
+                Ok(Stmt::Try {
+                    body,
+                    var,
+                    var_span,
+                    handler,
+                })
+            }
             TokenKind::Return => {
                 let span = self.bump().span;
                 let value = if matches!(
@@ -71,43 +88,79 @@ impl Parser {
                 self.span(),
             )
             .with_help("move this `fn` out of the block")),
-            TokenKind::Ident(_) => match self.peek_at(1) {
-                Some(
+            TokenKind::Ident(_) if matches!(self.peek_at(1), Some(TokenKind::Colon)) => {
+                self.parse_typed_decl()
+            }
+            _ => {
+                let e = self.parse_expr(0)?;
+                if matches!(
+                    self.peek(),
                     TokenKind::Assign
-                    | TokenKind::Colon
-                    | TokenKind::PlusEq
-                    | TokenKind::MinusEq
-                    | TokenKind::StarEq
-                    | TokenKind::SlashEq
-                    | TokenKind::PercentEq,
-                ) => self.parse_assign(),
-                _ => Ok(Stmt::Expr(self.parse_expr(0)?)),
-            },
-            _ => Ok(Stmt::Expr(self.parse_expr(0)?)),
+                        | TokenKind::PlusEq
+                        | TokenKind::MinusEq
+                        | TokenKind::StarEq
+                        | TokenKind::SlashEq
+                        | TokenKind::PercentEq
+                ) {
+                    self.parse_assign(e)
+                } else {
+                    Ok(Stmt::Expr(e))
+                }
+            }
         }
     }
 
-    fn parse_assign(&mut self) -> Result<Stmt, Diagnostic> {
-        let name_tok = self.bump();
-        let TokenKind::Ident(name) = name_tok.kind else {
-            unreachable!("parse_assign is only called on an identifier");
-        };
-        let name_span = name_tok.span;
-
-        let mut ty = None;
-        if matches!(self.peek(), TokenKind::Colon) {
-            self.bump();
-            ty = Some(self.type_ann()?);
-            if !matches!(self.peek(), TokenKind::Assign) {
-                return Err(Diagnostic::error(
-                    "E0107",
-                    format!("expected `=` after the type, found {}", self.peek().describe()),
-                    self.span(),
-                )
-                .with_help("write it like `count: int = 0`"));
-            }
+    /// `name: type = value`
+    fn parse_typed_decl(&mut self) -> Result<Stmt, Diagnostic> {
+        let (name, name_span) = self.ident("a variable name")?;
+        self.bump(); // :
+        let ty = self.type_ann()?;
+        if !matches!(self.peek(), TokenKind::Assign) {
+            return Err(Diagnostic::error(
+                "E0107",
+                format!("expected `=` after the type, found {}", self.peek().describe()),
+                self.span(),
+            )
+            .with_help("write it like `count: int = 0`"));
         }
+        self.bump();
+        self.skip_newlines();
+        let value = self.parse_expr(0)?;
+        let span = name_span.join(value.span);
+        Ok(Stmt::Assign {
+            target: Target::Var(name, name_span),
+            ty: Some(ty),
+            value,
+            span,
+        })
+    }
 
+    fn parse_assign(&mut self, lhs: Expr) -> Result<Stmt, Diagnostic> {
+        let target = match &lhs.kind {
+            ExprKind::Ident(n) => Target::Var(n.clone(), lhs.span),
+            ExprKind::Index { obj, index } => Target::Index {
+                obj: (**obj).clone(),
+                index: (**index).clone(),
+            },
+            ExprKind::Member {
+                obj,
+                name,
+                name_span,
+                safe: false,
+            } => Target::Field {
+                obj: (**obj).clone(),
+                name: name.clone(),
+                name_span: *name_span,
+            },
+            _ => {
+                return Err(Diagnostic::error(
+                    "E0112",
+                    "this cannot be assigned to",
+                    lhs.span,
+                )
+                .with_help("assign to a variable, a list item `xs[0]`, a map item `m[\"k\"]` or a field `obj.name`"))
+            }
+        };
         let op_tok = self.bump();
         let compound = match op_tok.kind {
             TokenKind::Assign => None,
@@ -120,28 +173,24 @@ impl Parser {
         };
         self.skip_newlines();
         let rhs = self.parse_expr(0)?;
-
+        let span = lhs.span.join(rhs.span);
         let value = match compound {
             None => rhs,
-            Some(op) => {
-                // `x += e` means `x = x + e`
-                let lhs = self.mk(name_span, ExprKind::Ident(name.clone()));
-                let span = name_span.join(rhs.span);
-                self.mk(
-                    span,
-                    ExprKind::Binary {
-                        op,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    },
-                )
-            }
+            // `x += e` means `x = x + e`
+            Some(op) => self.mk(
+                span,
+                ExprKind::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                },
+            ),
         };
         Ok(Stmt::Assign {
-            name,
-            name_span,
-            ty,
+            target,
+            ty: None,
             value,
+            span,
         })
     }
 
@@ -164,44 +213,90 @@ impl Parser {
 
     fn parse_for(&mut self) -> Result<Stmt, Diagnostic> {
         self.bump(); // for
-        let (var, var_span) = match self.peek().clone() {
-            TokenKind::Ident(n) => {
-                let s = self.bump().span;
-                (n, s)
-            }
-            other => {
-                return Err(Diagnostic::error(
-                    "E0108",
-                    format!("expected a loop variable name, found {}", other.describe()),
-                    self.span(),
-                )
-                .with_help("write it like `for i in 0..10 { ... }`"))
-            }
-        };
+        let mut vars = vec![self.ident("a loop variable name")?];
+        if matches!(self.peek(), TokenKind::Comma) {
+            self.bump();
+            vars.push(self.ident("a second loop variable name")?);
+        }
         self.expect(TokenKind::In, "`in`")?;
-        let start = self.parse_expr(BP_ARITH)?;
+        let first = self.parse_expr(BP_ARITH)?;
         let inclusive = match self.peek() {
-            TokenKind::DotDot => false,
-            TokenKind::DotDotEq => true,
-            other => {
-                return Err(Diagnostic::error(
-                    "E0109",
-                    format!("expected `..` or `..=`, found {}", other.describe()),
-                    self.span(),
-                )
-                .with_help("only ranges such as `0..10` can be looped over so far"))
-            }
+            TokenKind::DotDot => Some(false),
+            TokenKind::DotDotEq => Some(true),
+            _ => None,
         };
-        self.bump();
-        let end = self.parse_expr(BP_ARITH)?;
-        let body = self.parse_block()?;
-        Ok(Stmt::For {
-            var,
-            var_span,
-            start,
-            end,
-            inclusive,
-            body,
+        match inclusive {
+            Some(inclusive) => {
+                if vars.len() != 1 {
+                    return Err(Diagnostic::error(
+                        "E0108",
+                        "a range loop has exactly one variable",
+                        vars[1].1,
+                    ));
+                }
+                self.bump();
+                let end = self.parse_expr(BP_ARITH)?;
+                let body = self.parse_block()?;
+                let (var, var_span) = vars.remove(0);
+                Ok(Stmt::For {
+                    var,
+                    var_span,
+                    start: first,
+                    end,
+                    inclusive,
+                    body,
+                })
+            }
+            None => {
+                let body = self.parse_block()?;
+                Ok(Stmt::ForIn {
+                    vars,
+                    iter: first,
+                    body,
+                })
+            }
+        }
+    }
+
+    fn parse_match(&mut self) -> Result<Stmt, Diagnostic> {
+        let span = self.bump().span; // match
+        let scrutinee = self.parse_expr(0)?;
+        self.expect(TokenKind::LBrace, "`{`")?;
+        let mut arms = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), TokenKind::RBrace) {
+                self.bump();
+                break;
+            }
+            if matches!(self.peek(), TokenKind::Eof) {
+                return Err(Diagnostic::error("E0106", "this `match` is never closed", span));
+            }
+            let pattern_span = self.span();
+            let pattern = match (self.peek().clone(), self.peek_at(1)) {
+                (TokenKind::Ident(n), Some(TokenKind::FatArrow)) if n == "_" => {
+                    self.bump();
+                    Pattern::Wildcard
+                }
+                _ => Pattern::Value(self.parse_expr(BP_ARITH)?),
+            };
+            self.expect(TokenKind::FatArrow, "`=>` after the pattern")?;
+            let body = if matches!(self.peek(), TokenKind::LBrace) {
+                self.parse_block()?
+            } else {
+                vec![self.parse_stmt()?]
+            };
+            arms.push(Arm {
+                pattern,
+                pattern_span,
+                body,
+            });
+            self.expect_end()?;
+        }
+        Ok(Stmt::Match {
+            scrutinee,
+            arms,
+            span,
         })
     }
 }

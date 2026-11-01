@@ -1,0 +1,2 @@
+import "./cycle_a"
+fn b() -> int => 2

@@ -1,0 +1,5 @@
+class A {
+    x: int = 1
+}
+a = A()
+print(a.y)

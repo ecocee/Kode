@@ -13,4 +13,4 @@ t = "${s} (${len(s)} chars)"         # interpolation
 - Run any program with `KODE_LEAK_CHECK=1` to make the runtime fail when a string was not freed.
   The test suite does this for every run-pass program.
 
-Design details: `docs/design/memory-model.md`.
+Lists, maps and class instances follow the same rules. Design details: `docs/design/memory-model.md`.

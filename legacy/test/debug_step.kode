@@ -1,5 +1,0 @@
-fn add(a: int, b: int) => a + b
-
-let result = add(3, 4)
-print("Result is:")
-print(result)

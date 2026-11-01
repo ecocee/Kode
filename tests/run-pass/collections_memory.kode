@@ -1,0 +1,19 @@
+fn build(n: int) -> [string] {
+    out: [string] = []
+    for i in 0..n {
+        out.add("item" + string(i))
+    }
+    return out
+}
+fn count(words: [string]) -> int => len(words)
+total = 0
+for r in 0..500 {
+    ws = build(10)
+    total += count(ws) + len(ws[3])
+}
+print(total)
+m: {string: [int]} = {}
+m["a"] = [1, 2]
+m["b"] = [3]
+m["a"].add(9)
+print(len(m["a"]), m["a"][2], len(m["b"]))

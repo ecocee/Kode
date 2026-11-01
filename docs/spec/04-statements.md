@@ -22,3 +22,4 @@ for i in 0..=5 { print(i) }       # 0 to 5
 - `break` leaves the nearest loop. `continue` jumps to the next round (E0314 outside loops).
 - Braces are required. Parentheses around conditions are not.
 - Top-level statements run in order, like a script.
+- More statements: `for x in list`, `match`, `throw`, `try / catch`; see chapters 8 to 10.

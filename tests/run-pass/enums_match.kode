@@ -1,0 +1,35 @@
+enum Color { Red, Green, Blue }
+
+fn name(c: Color) -> string {
+    match c {
+        Color.Red => { return "red" }
+        Color.Green => { return "green" }
+        Color.Blue => { return "blue" }
+    }
+}
+
+c = Color.Green
+print(name(c), name(Color.Blue), c == Color.Green, c != Color.Red)
+match c {
+    Color.Red => print("is red")
+    _ => print("not red")
+}
+code = 404
+match code {
+    200 => print("ok")
+    404 => print("missing")
+    _ => print("other")
+}
+word = "go"
+match word {
+    "stop" => print("halt")
+    "go" => {
+        print("moving")
+    }
+    _ => print("?")
+}
+flag = true
+match flag {
+    true => print("yes")
+    false => print("no")
+}

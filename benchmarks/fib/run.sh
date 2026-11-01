@@ -1,9 +1,18 @@
-#!/bin/bash
-# Compare Kode with Python on the same recursive Fibonacci.
-# Run from the project root after `cargo build --workspace --release`.
-set -e
-KODE=./target/release/kode
-$KODE build benchmarks/fib/fib.kode --release -o /tmp/fib_kode
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Building KODE..."
+./kode build ackermann.kode --release -o ackermann
+
 TIMEFORMAT='  %R seconds'
-echo "Kode:";   time /tmp/fib_kode
-echo "Python:"; time python3 benchmarks/fib/fib.py
+
+echo ""
+echo "========== KODE vs Python =========="
+
+echo "KODE:"
+time ./ackermann
+
+echo ""
+echo "Python:"
+time python3 ackermann.py

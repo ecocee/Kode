@@ -2,7 +2,7 @@ use kode_diagnostics::Diagnostic;
 
 use super::Parser;
 use crate::ast::*;
-use crate::token::TokenKind;
+use crate::token::{StrPart, TokenKind};
 
 impl Parser {
     pub(crate) fn parse_items(&mut self) -> Vec<Item> {
@@ -12,9 +12,17 @@ impl Parser {
             if matches!(self.peek(), TokenKind::Eof) {
                 break;
             }
+            // `pub` is accepted and reserved for module visibility.
+            if matches!(self.peek(), TokenKind::Pub) {
+                self.bump();
+            }
             let result = match self.peek() {
                 TokenKind::Fn => self.parse_fn().map(Item::Fn),
                 TokenKind::Const => self.parse_const().map(Item::Const),
+                TokenKind::Class => self.parse_class().map(Item::Class),
+                TokenKind::Enum => self.parse_enum().map(Item::Enum),
+                TokenKind::Import | TokenKind::From => self.parse_import().map(Item::Import),
+                TokenKind::Test => self.parse_test().map(Item::Test),
                 _ => self.parse_stmt().map(Item::Stmt),
             };
             let result = match result {
@@ -32,39 +40,15 @@ impl Parser {
         items
     }
 
-    fn parse_fn(&mut self) -> Result<FnDecl, Diagnostic> {
+    pub(crate) fn parse_fn(&mut self) -> Result<FnDecl, Diagnostic> {
         let fn_tok = self.bump();
-        let (name, name_span) = match self.peek().clone() {
-            TokenKind::Ident(n) => {
-                let s = self.bump().span;
-                (n, s)
-            }
-            other => {
-                return Err(Diagnostic::error(
-                    "E0110",
-                    format!("expected a function name, found {}", other.describe()),
-                    self.span(),
-                ))
-            }
-        };
+        let (name, name_span) = self.ident("a function name")?;
 
         self.expect(TokenKind::LParen, "`(`")?;
         self.skip_newlines();
         let mut params = Vec::new();
         while !matches!(self.peek(), TokenKind::RParen) {
-            let (pname, pspan) = match self.peek().clone() {
-                TokenKind::Ident(n) => {
-                    let s = self.bump().span;
-                    (n, s)
-                }
-                other => {
-                    return Err(Diagnostic::error(
-                        "E0110",
-                        format!("expected a parameter name, found {}", other.describe()),
-                        self.span(),
-                    ))
-                }
-            };
+            let (pname, pspan) = self.ident("a parameter name")?;
             if !matches!(self.peek(), TokenKind::Colon) {
                 return Err(Diagnostic::error(
                     "E0111",
@@ -117,19 +101,7 @@ impl Parser {
 
     fn parse_const(&mut self) -> Result<ConstDecl, Diagnostic> {
         self.bump(); // const
-        let (name, name_span) = match self.peek().clone() {
-            TokenKind::Ident(n) => {
-                let s = self.bump().span;
-                (n, s)
-            }
-            other => {
-                return Err(Diagnostic::error(
-                    "E0110",
-                    format!("expected a constant name, found {}", other.describe()),
-                    self.span(),
-                ))
-            }
-        };
+        let (name, name_span) = self.ident("a constant name")?;
         let ty = if matches!(self.peek(), TokenKind::Colon) {
             self.bump();
             Some(self.type_ann()?)
@@ -143,6 +115,134 @@ impl Parser {
             name_span,
             ty,
             value,
+        })
+    }
+
+    fn parse_class(&mut self) -> Result<ClassDecl, Diagnostic> {
+        self.bump(); // class
+        let (name, name_span) = self.ident("a class name")?;
+        let open = self.expect(TokenKind::LBrace, "`{`")?;
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), TokenKind::Pub) {
+                self.bump();
+            }
+            match self.peek().clone() {
+                TokenKind::RBrace => {
+                    self.bump();
+                    break;
+                }
+                TokenKind::Eof => {
+                    return Err(Diagnostic::error("E0106", "this class is never closed", open.span)
+                        .with_help("add a matching `}`"))
+                }
+                TokenKind::Fn => methods.push(self.parse_fn()?),
+                TokenKind::Ident(_) if matches!(self.peek_at(1), Some(TokenKind::Colon)) => {
+                    let (fname, fspan) = self.ident("a field name")?;
+                    self.bump(); // :
+                    let ty = self.type_ann()?;
+                    let default = if matches!(self.peek(), TokenKind::Assign) {
+                        self.bump();
+                        Some(self.parse_expr(0)?)
+                    } else {
+                        None
+                    };
+                    fields.push(FieldDecl {
+                        name: fname,
+                        name_span: fspan,
+                        ty,
+                        default,
+                    });
+                }
+                other => {
+                    return Err(Diagnostic::error(
+                        "E0114",
+                        format!("expected a field or a method, found {}", other.describe()),
+                        self.span(),
+                    )
+                    .with_help("fields look like `name: string`, methods like `fn show() { ... }`"))
+                }
+            }
+            self.expect_end()?;
+        }
+        Ok(ClassDecl {
+            name,
+            name_span,
+            fields,
+            methods,
+        })
+    }
+
+    fn parse_enum(&mut self) -> Result<EnumDecl, Diagnostic> {
+        self.bump(); // enum
+        let (name, name_span) = self.ident("an enum name")?;
+        self.expect(TokenKind::LBrace, "`{`")?;
+        let mut variants = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), TokenKind::RBrace) {
+                self.bump();
+                break;
+            }
+            variants.push(self.ident("a variant name")?);
+            self.skip_newlines();
+            if matches!(self.peek(), TokenKind::Comma) {
+                self.bump();
+            }
+        }
+        Ok(EnumDecl {
+            name,
+            name_span,
+            variants,
+        })
+    }
+
+    /// A plain string token (no `${}`): used for import paths and test names.
+    fn plain_string(&mut self, what: &str) -> Result<(String, kode_diagnostics::Span), Diagnostic> {
+        match self.peek().clone() {
+            TokenKind::Str(parts) if parts.len() == 1 && matches!(parts[0], StrPart::Lit(_)) => {
+                let span = self.bump().span;
+                let StrPart::Lit(s) = &parts[0] else { unreachable!() };
+                Ok((s.clone(), span))
+            }
+            other => Err(Diagnostic::error(
+                "E0116",
+                format!("expected {what}, found {}", other.describe()),
+                self.span(),
+            )),
+        }
+    }
+
+    fn parse_import(&mut self) -> Result<ImportDecl, Diagnostic> {
+        let from = matches!(self.peek(), TokenKind::From);
+        self.bump();
+        let (path, path_span) = self.plain_string("a file path in quotes")?;
+        let mut names = Vec::new();
+        if from {
+            self.expect(TokenKind::Import, "`import`")?;
+            names.push(self.ident("a name to import")?);
+            while matches!(self.peek(), TokenKind::Comma) {
+                self.bump();
+                names.push(self.ident("a name to import")?);
+            }
+        }
+        Ok(ImportDecl {
+            path,
+            path_span,
+            names,
+        })
+    }
+
+    fn parse_test(&mut self) -> Result<TestDecl, Diagnostic> {
+        self.bump(); // test
+        let (name, name_span) = self.plain_string("the test name in quotes")?;
+        let body = self.parse_block()?;
+        Ok(TestDecl {
+            name,
+            name_span,
+            body,
         })
     }
 }

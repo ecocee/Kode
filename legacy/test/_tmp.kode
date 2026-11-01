@@ -1,3 +1,0 @@
-print("hello", "world")
-println("a", "b", "c")
-print("x =", 42, "y =", 3.14)

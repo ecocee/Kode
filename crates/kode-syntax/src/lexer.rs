@@ -86,6 +86,19 @@ impl<'a> Lexer<'a> {
                 ')' => self.single(TokenKind::RParen),
                 '{' => self.single(TokenKind::LBrace),
                 '}' => self.single(TokenKind::RBrace),
+                '[' => self.single(TokenKind::LBracket),
+                ']' => self.single(TokenKind::RBracket),
+                '?' => match self.peek_at(1) {
+                    Some('?') => {
+                        self.push(TokenKind::QuestionQuestion, start, start + 2);
+                        self.i += 2;
+                    }
+                    Some('.') => {
+                        self.push(TokenKind::QuestionDot, start, start + 2);
+                        self.i += 2;
+                    }
+                    _ => self.single(TokenKind::Question),
+                },
                 ',' => self.single(TokenKind::Comma),
                 ':' => self.single(TokenKind::Colon),
                 '+' => self.one_or_two('=', TokenKind::PlusEq, TokenKind::Plus),
@@ -120,9 +133,7 @@ impl<'a> Lexer<'a> {
                         self.push(TokenKind::NotEq, start, start + 2);
                         self.i += 2;
                     } else {
-                        self.error("E0007", "unexpected character `!`", start, start + 1)
-                            .help = Some("use `not` for logical not, for example `not done`".into());
-                        self.i += 1;
+                        self.single(TokenKind::Bang);
                     }
                 }
                 '.' => {
@@ -133,9 +144,7 @@ impl<'a> Lexer<'a> {
                         self.push(TokenKind::DotDot, start, start + 2);
                         self.i += 2;
                     } else {
-                        self.error("E0007", "unexpected character `.`", start, start + 1)
-                            .help = Some("fields and methods are not implemented yet".into());
-                        self.i += 1;
+                        self.single(TokenKind::Dot);
                     }
                 }
                 '/' => self.slash(),

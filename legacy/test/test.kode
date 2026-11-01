@@ -1,2 +1,0 @@
-let a = input("eneter number")
-print(a)

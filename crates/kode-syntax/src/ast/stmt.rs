@@ -4,29 +4,59 @@ use super::expr::Expr;
 
 pub type Block = Vec<Stmt>;
 
-/// A type written in the source, for example `int`.
+/// A type written in the source: `int`, `[int]`, `{string: int}`, `User?`.
 #[derive(Debug, Clone)]
 pub struct TypeAnn {
-    pub name: String,
+    pub kind: TypeAnnKind,
     pub span: Span,
 }
 
 #[derive(Debug, Clone)]
+pub enum TypeAnnKind {
+    Name(String),
+    List(Box<TypeAnn>),
+    /// `{string: T}`: the key is always a string, this is the value type.
+    Map(Box<TypeAnn>),
+    Opt(Box<TypeAnn>),
+}
+
+/// Something that can be assigned to.
+#[derive(Debug, Clone)]
+pub enum Target {
+    Var(String, Span),
+    Index { obj: Expr, index: Expr },
+    Field { obj: Expr, name: String, name_span: Span },
+}
+
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    /// `_`
+    Wildcard,
+    /// A literal or an enum variant such as `Color.Red`.
+    Value(Expr),
+}
+
+#[derive(Debug, Clone)]
+pub struct Arm {
+    pub pattern: Pattern,
+    pub pattern_span: Span,
+    pub body: Block,
+}
+
+#[derive(Debug, Clone)]
 pub enum Stmt {
-    /// `name = value` or `name: type = value`. Compound forms such as
+    /// `target = value` or `name: type = value`. Compound forms such as
     /// `x += 1` are turned into this by the parser.
     Assign {
-        name: String,
-        name_span: Span,
+        target: Target,
         ty: Option<TypeAnn>,
         value: Expr,
+        span: Span,
     },
-    /// An expression on its own line, for example `print("hi")`.
     Expr(Expr),
     If {
         cond: Expr,
         then: Block,
-        /// `else if` is an `else` block holding one `If` statement.
         else_: Option<Block>,
     },
     While {
@@ -41,6 +71,27 @@ pub enum Stmt {
         end: Expr,
         inclusive: bool,
         body: Block,
+    },
+    /// `for x in list`, `for i, x in list`, `for k, v in map`
+    ForIn {
+        vars: Vec<(String, Span)>,
+        iter: Expr,
+        body: Block,
+    },
+    Match {
+        scrutinee: Expr,
+        arms: Vec<Arm>,
+        span: Span,
+    },
+    Throw {
+        value: Expr,
+        span: Span,
+    },
+    Try {
+        body: Block,
+        var: String,
+        var_span: Span,
+        handler: Block,
     },
     Break(Span),
     Continue(Span),

@@ -1,0 +1,4 @@
+fn f() -> int => 1
+x = f() catch e {
+    print(e.message)
+}

@@ -1,6 +1,0 @@
-// Test simple import
-import { add };
-
-fn main() {
-    print("OK");
-}

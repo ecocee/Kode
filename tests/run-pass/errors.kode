@@ -1,0 +1,59 @@
+fn parse_age(s: string) -> int {
+    if s == "bad" {
+        throw "not a number: ${s}"
+    }
+    if s == "neg" {
+        throw Error(message: "negative", code: 7)
+    }
+    return 42
+}
+
+fn wrapper(s: string) -> int {
+    x = parse_age(s)
+    return x + 1
+}
+
+print(parse_age("ok"))
+v = parse_age("bad") catch e {
+    print("caught:", e.message)
+    -1
+}
+print(v)
+w = wrapper("neg") catch e {
+    print("wrapped:", e.message, e.code)
+    0
+}
+print(w)
+try {
+    print("before")
+    parse_age("bad")
+    print("never")
+} catch err {
+    print("try-catch:", err.message)
+}
+for i in 0..3 {
+    n = wrapper("ok") catch e {
+        continue
+    }
+    print(n)
+}
+fn safe(s: string) -> string {
+    r = parse_age(s) catch e {
+        return "failed: ${e.message}"
+    }
+    return "ok ${r}"
+}
+print(safe("bad"), safe("fine"))
+fn nested() -> int {
+    try {
+        wrapper("bad")
+    } catch e {
+        throw "rethrown: ${e.message}"
+    }
+    return 1
+}
+msg = nested() catch e {
+    print(e.message)
+    5
+}
+print(msg)

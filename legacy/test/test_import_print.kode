@@ -1,5 +1,0 @@
-import "config" as cfg;
-
-fn main() {
-    print("With import");
-}

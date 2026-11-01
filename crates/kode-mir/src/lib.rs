@@ -11,4 +11,16 @@ pub mod lower;
 pub mod verify;
 
 pub use ir::*;
-pub use lower::lower;
+
+/// Maps a byte offset to a line number (used for runtime error messages).
+pub trait LineMap {
+    fn line_of(&self, offset: usize) -> i64;
+}
+
+impl LineMap for str {
+    fn line_of(&self, offset: usize) -> i64 {
+        self[..offset.min(self.len())].matches('\n').count() as i64 + 1
+    }
+}
+
+pub use lower::{lower, Mode};

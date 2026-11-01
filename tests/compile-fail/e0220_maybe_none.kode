@@ -1,0 +1,6 @@
+class A {
+    x: int = 1
+}
+fn f(a: A?) -> int {
+    return a.x
+}

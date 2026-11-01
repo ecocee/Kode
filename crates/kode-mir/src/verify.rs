@@ -51,6 +51,16 @@ pub fn verify(p: &MirProgram) -> Result<(), String> {
                             check_op(a)?;
                         }
                     }
+                    Inst::Load { dst, base, .. } => {
+                        if *dst >= nl {
+                            return Err(format!("{}: bb{bi} loads into missing local _{dst}", f.name));
+                        }
+                        check_op(base)?;
+                    }
+                    Inst::Store { base, value, .. } => {
+                        check_op(base)?;
+                        check_op(value)?;
+                    }
                     Inst::Retain(a) | Inst::Release(a) => check_op(a)?,
                 }
             }

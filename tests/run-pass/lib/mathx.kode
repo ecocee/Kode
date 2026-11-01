@@ -1,0 +1,15 @@
+const TAX = 5
+
+pub fn double(x: int) -> int => x * 2
+
+pub class Counter {
+    n: int = 0
+
+    fn inc() {
+        n += 1
+    }
+}
+
+enum Level { Low, High }
+
+fn secret() -> int => 7

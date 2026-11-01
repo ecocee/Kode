@@ -1,3 +1,0 @@
-﻿let li = 5
-let x = li & 1
-print(x)

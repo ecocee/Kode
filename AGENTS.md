@@ -20,9 +20,13 @@ cargo test --workspace      # run the conformance suite
 | grammar | `crates/kode-syntax/src/parser/` (expr, stmt, item) |
 | type rules, error messages | `crates/kode-sema/src/check/` |
 | built-in functions | `kode-sema/src/builtins.rs`, `kode-mir/src/lower/expr.rs`, `kode-codegen/src/runtime.rs`, `kode-rt/src/` |
-| memory management (retain/release) | `crates/kode-mir/src/lower/` |
+| memory management (retain/release) | `crates/kode-mir/src/lower/mod.rs` (rules), `expr.rs`, `data.rs`, `stmt.rs` |
+| lists, maps, classes, optionals, errors in MIR | `crates/kode-mir/src/lower/data.rs` |
+| `kode test` runner | `crates/kode-mir/src/lower/tests.rs`, `crates/kode-cli/src/main.rs` |
+| imports (loading several files) | `crates/kode-cli/src/driver.rs`, `source.rs` |
+| `kode fmt`, `kode explain` | `crates/kode-cli/src/fmt.rs`, `explain.rs` (reads `docs/errors/index.md`) |
 | machine code | `crates/kode-codegen/src/function.rs` |
-| runtime functions | `crates/kode-rt/src/` |
+| runtime functions | `crates/kode-rt/src/` (object, string, list, map, error, io); register new ones in `kode-mir/src/ir.rs` (`RtFn`) and `kode-codegen/src/runtime.rs` |
 
 ## Rules
 

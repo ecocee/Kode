@@ -1,4 +1,0 @@
-﻿let li = 5
-if (li & 1) {
-    print("ok")
-}

@@ -1,0 +1,5 @@
+class A {
+    x: int
+    fn f(x: int) {
+    }
+}

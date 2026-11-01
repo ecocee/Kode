@@ -13,7 +13,13 @@ use crate::token::{Token, TokenKind};
 
 /// Parse tokens into a program. Collects several errors when it can.
 pub fn parse(tokens: Vec<Token>) -> Result<Program, Vec<Diagnostic>> {
-    let mut p = Parser::new(tokens, 0);
+    parse_from(tokens, 0)
+}
+
+/// Like `parse`, but expression ids start at `first_id`. Used when several
+/// files (modules) are merged into one program.
+pub fn parse_from(tokens: Vec<Token>, first_id: u32) -> Result<Program, Vec<Diagnostic>> {
+    let mut p = Parser::new(tokens, first_id);
     let items = p.parse_items();
     if p.errors.is_empty() {
         Ok(Program {
@@ -98,6 +104,20 @@ impl Parser {
         }
     }
 
+    pub(crate) fn ident(&mut self, what: &str) -> Result<(String, Span), Diagnostic> {
+        match self.peek().clone() {
+            TokenKind::Ident(n) => {
+                let s = self.bump().span;
+                Ok((n, s))
+            }
+            other => Err(Diagnostic::error(
+                "E0110",
+                format!("expected {what}, found {}", other.describe()),
+                self.span(),
+            )),
+        }
+    }
+
     /// A statement must end at a new line (or at `}` / the end of the file).
     pub(crate) fn expect_end(&mut self) -> Result<(), Diagnostic> {
         match self.peek() {
@@ -112,17 +132,47 @@ impl Parser {
     }
 
     pub(crate) fn type_ann(&mut self) -> Result<TypeAnn, Diagnostic> {
-        match self.peek().clone() {
+        let start = self.span();
+        let kind = match self.peek().clone() {
             TokenKind::Ident(name) => {
-                let span = self.bump().span;
-                Ok(TypeAnn { name, span })
+                self.bump();
+                TypeAnnKind::Name(name)
             }
-            other => Err(Diagnostic::error(
-                "E0111",
-                format!("expected a type name, found {}", other.describe()),
-                self.span(),
-            )
-            .with_help("types are int, float, bool and string")),
+            TokenKind::LBracket => {
+                self.bump();
+                let inner = self.type_ann()?;
+                self.expect(TokenKind::RBracket, "`]`")?;
+                TypeAnnKind::List(Box::new(inner))
+            }
+            TokenKind::LBrace => {
+                self.bump();
+                let key = self.type_ann()?;
+                if !matches!(&key.kind, TypeAnnKind::Name(n) if n == "string") {
+                    return Err(Diagnostic::error("E0115", "map keys must be strings", key.span)
+                        .with_help("write it like `{string: int}`"));
+                }
+                self.expect(TokenKind::Colon, "`:`")?;
+                let value = self.type_ann()?;
+                self.expect(TokenKind::RBrace, "`}`")?;
+                TypeAnnKind::Map(Box::new(value))
+            }
+            other => {
+                return Err(Diagnostic::error(
+                    "E0111",
+                    format!("expected a type name, found {}", other.describe()),
+                    self.span(),
+                )
+                .with_help("types look like int, [int], {string: int} or User?"))
+            }
+        };
+        let mut ann = TypeAnn { kind, span: start };
+        if matches!(self.peek(), TokenKind::Question) {
+            let q = self.bump().span;
+            ann = TypeAnn {
+                span: start.join(q),
+                kind: TypeAnnKind::Opt(Box::new(ann)),
+            };
         }
+        Ok(ann)
     }
 }

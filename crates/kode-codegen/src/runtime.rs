@@ -33,8 +33,32 @@ pub(crate) fn info(f: RtFn) -> (&'static str, Vec<types::Type>, Option<types::Ty
         RtFn::FloatToStr => ("kode_float_to_str", vec![F], Some(I)),
         RtFn::BoolToStr => ("kode_bool_to_str", vec![I], Some(I)),
         RtFn::StrLen => ("kode_str_len", vec![I], Some(I)),
-        RtFn::AssertFail => ("kode_assert_fail", vec![I], None),
+        RtFn::ListNew => ("kode_list_new", vec![I], Some(I)),
+        RtFn::ListPush => ("kode_list_push", vec![I, I], None),
+        RtFn::ListGet => ("kode_list_get", vec![I, I, I], Some(I)),
+        RtFn::ListSet => ("kode_list_set", vec![I, I, I, I], None),
+        RtFn::ListLen => ("kode_list_len", vec![I], Some(I)),
+        RtFn::MapNew => ("kode_map_new", vec![I], Some(I)),
+        RtFn::MapSet => ("kode_map_set", vec![I, I, I], None),
+        RtFn::MapGet => ("kode_map_get", vec![I, I, I], Some(I)),
+        RtFn::MapHas => ("kode_map_has", vec![I, I], Some(I)),
+        RtFn::MapLen => ("kode_map_len", vec![I], Some(I)),
+        RtFn::MapKeyAt => ("kode_map_key_at", vec![I, I], Some(I)),
+        RtFn::MapValAt => ("kode_map_val_at", vec![I, I], Some(I)),
+        RtFn::MapKeys => ("kode_map_keys", vec![I], Some(I)),
+        RtFn::ObjNew => ("kode_obj_new", vec![I, I], Some(I)),
+        RtFn::ErrThrow => ("kode_err_throw", vec![I], None),
+        RtFn::ErrPending => ("kode_err_pending", vec![], Some(I)),
+        RtFn::ErrTake => ("kode_err_take", vec![], Some(I)),
+        RtFn::Uncaught => ("kode_uncaught", vec![], None),
+        RtFn::UnwrapFail => ("kode_unwrap_fail", vec![I], None),
+        RtFn::Exit => ("kode_exit", vec![I], None),
     }
+}
+
+/// Runtime functions that return 0 or 1 as a 64-bit integer; the compiler turns it into a bool.
+pub(crate) fn returns_bool(f: RtFn) -> bool {
+    matches!(f, RtFn::StrEq | RtFn::MapHas | RtFn::ErrPending)
 }
 
 const ALL: &[RtFn] = &[
@@ -50,7 +74,26 @@ const ALL: &[RtFn] = &[
     RtFn::FloatToStr,
     RtFn::BoolToStr,
     RtFn::StrLen,
-    RtFn::AssertFail,
+    RtFn::ListNew,
+    RtFn::ListPush,
+    RtFn::ListGet,
+    RtFn::ListSet,
+    RtFn::ListLen,
+    RtFn::MapNew,
+    RtFn::MapSet,
+    RtFn::MapGet,
+    RtFn::MapHas,
+    RtFn::MapLen,
+    RtFn::MapKeyAt,
+    RtFn::MapValAt,
+    RtFn::MapKeys,
+    RtFn::ObjNew,
+    RtFn::ErrThrow,
+    RtFn::ErrPending,
+    RtFn::ErrTake,
+    RtFn::Uncaught,
+    RtFn::UnwrapFail,
+    RtFn::Exit,
 ];
 
 fn import(

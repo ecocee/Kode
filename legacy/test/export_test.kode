@@ -1,9 +1,0 @@
-export fn add(a: int, b: int) {
-    print(a + b);
-}
-
-fn main() {
-    print("OK");
-}
-
-main();

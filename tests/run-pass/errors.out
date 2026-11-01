@@ -1,0 +1,13 @@
+42
+caught: not a number: bad
+-1
+wrapped: negative 7
+0
+before
+try-catch: not a number: bad
+43
+43
+43
+failed: not a number: bad ok 42
+rethrown: not a number: bad
+5

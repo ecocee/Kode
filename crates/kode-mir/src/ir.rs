@@ -3,8 +3,8 @@ pub enum Ty {
     Int,
     Float,
     Bool,
-    /// Pointer to a reference-counted string.
-    Str,
+    /// Pointer to a reference-counted heap object (string, list, map, class instance).
+    Ref,
     Unit,
 }
 
@@ -19,7 +19,8 @@ pub enum Operand {
     Bool(bool),
     /// Index into `MirProgram::strings` (a static, never-freed string).
     Str(usize),
-    NullStr,
+    /// A null reference (`none`, or a variable that has no value yet).
+    NullRef,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +49,9 @@ pub enum CastKind {
     IntToFloat,
     FloatToInt,
     BoolToInt,
+    IntToBool,
+    FloatToBits,
+    BitsToFloat,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -73,7 +77,26 @@ pub enum RtFn {
     FloatToStr,
     BoolToStr,
     StrLen,
-    AssertFail,
+    ListNew,
+    ListPush,
+    ListGet,
+    ListSet,
+    ListLen,
+    MapNew,
+    MapSet,
+    MapGet,
+    MapHas,
+    MapLen,
+    MapKeyAt,
+    MapValAt,
+    MapKeys,
+    ObjNew,
+    ErrThrow,
+    ErrPending,
+    ErrTake,
+    Uncaught,
+    UnwrapFail,
+    Exit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,9 +117,22 @@ pub enum Inst {
         callee: Callee,
         args: Vec<Operand>,
     },
-    /// Add one owner to a string.
+    /// Read a field: `dst = *(base + offset)`.
+    Load {
+        dst: LocalId,
+        base: Operand,
+        offset: i32,
+        ty: Ty,
+    },
+    /// Write a field: `*(base + offset) = value`.
+    Store {
+        base: Operand,
+        offset: i32,
+        value: Operand,
+    },
+    /// Add one owner to a heap object.
     Retain(Operand),
-    /// Remove one owner from a string; frees it when the last owner leaves.
+    /// Remove one owner; frees the object when the last owner leaves.
     Release(Operand),
 }
 
@@ -155,7 +191,7 @@ impl MirFunc {
             Operand::Int(_) => Ty::Int,
             Operand::Float(_) => Ty::Float,
             Operand::Bool(_) => Ty::Bool,
-            Operand::Str(_) | Operand::NullStr => Ty::Str,
+            Operand::Str(_) | Operand::NullRef => Ty::Ref,
         }
     }
 }

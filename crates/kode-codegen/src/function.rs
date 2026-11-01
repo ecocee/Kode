@@ -2,7 +2,7 @@
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::immediates::Ieee64;
-use cranelift_codegen::ir::{self, types, InstBuilder, TrapCode, Value};
+use cranelift_codegen::ir::{self, types, InstBuilder, MemFlags, TrapCode, Value};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataId, FuncId, Module};
 use cranelift_object::ObjectModule;
@@ -68,7 +68,7 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                 let gv = self.env.module.declare_data_in_func(self.env.strings[*i], self.b.func);
                 self.b.ins().global_value(types::I64, gv)
             }
-            Operand::NullStr => self.b.ins().iconst(types::I64, 0),
+            Operand::NullRef => self.b.ins().iconst(types::I64, 0),
         }
     }
 
@@ -85,14 +85,14 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
             }
             Inst::Call { dst, callee, args } => {
                 let mut vals: Vec<Value> = args.iter().map(|a| self.val(a)).collect();
-                let (id, is_str_eq) = match callee {
+                let (id, to_bool) = match callee {
                     Callee::User(i) => (self.env.user[*i], false),
                     Callee::Rt(r) => {
                         // bools travel to the runtime as 64-bit integers
                         if matches!(r, RtFn::PrintBool | RtFn::BoolToStr) {
                             vals[0] = self.b.ins().uextend(types::I64, vals[0]);
                         }
-                        (self.env.rt.funcs[r], *r == RtFn::StrEq)
+                        (self.env.rt.funcs[r], runtime::returns_bool(*r))
                     }
                 };
                 if let Callee::Rt(r) = callee {
@@ -101,11 +101,21 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                 let call = self.call_func(id, &vals);
                 if let Some(d) = dst {
                     let mut r = self.b.inst_results(call)[0];
-                    if is_str_eq {
+                    if to_bool {
                         r = self.b.ins().icmp_imm(IntCC::NotEqual, r, 0);
                     }
                     self.b.def_var(self.vars[*d], r);
                 }
+            }
+            Inst::Load { dst, base, offset, ty } => {
+                let b = self.val(base);
+                let v = self.b.ins().load(clif_ty(*ty), MemFlags::trusted(), b, *offset);
+                self.b.def_var(self.vars[*dst], v);
+            }
+            Inst::Store { base, offset, value } => {
+                let b = self.val(base);
+                let v = self.val(value);
+                self.b.ins().store(MemFlags::trusted(), v, b, *offset);
             }
             Inst::Retain(op) => {
                 let v = self.val(op);
@@ -138,13 +148,16 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                     CastKind::IntToFloat => self.b.ins().fcvt_from_sint(types::F64, v),
                     CastKind::FloatToInt => self.b.ins().fcvt_to_sint_sat(types::I64, v),
                     CastKind::BoolToInt => self.b.ins().uextend(types::I64, v),
+                    CastKind::IntToBool => self.b.ins().icmp_imm(IntCC::NotEqual, v, 0),
+                    CastKind::FloatToBits => self.b.ins().bitcast(types::I64, MemFlags::new(), v),
+                    CastKind::BitsToFloat => self.b.ins().bitcast(types::F64, MemFlags::new(), v),
                 }
             }
             Rvalue::Binary(op, x, y) => {
                 let ty = self.f.operand_ty(x);
                 let (a, c) = (self.val(x), self.val(y));
                 match ty {
-                    Ty::Int => self.int_binary(*op, a, c),
+                    Ty::Int | Ty::Ref => self.int_binary(*op, a, c),
                     Ty::Float => self.float_binary(*op, a, c)?,
                     Ty::Bool => match op {
                         BinOp::Eq => self.b.ins().icmp(IntCC::Equal, a, c),

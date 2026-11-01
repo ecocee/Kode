@@ -1,0 +1,10 @@
+from "./lib/mathx" import double, Counter
+import "./lib/strings"
+
+c = Counter()
+c.inc()
+c.inc()
+print(double(21), c.n, TAX)
+print(shout("hi"))
+lvl = Level.High
+print(lvl == Level.High, secret())

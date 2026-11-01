@@ -1,27 +1,16 @@
 # 7. Planned (not implemented yet)
 
-These are designed in the original syntax draft and arrive in the milestones of `docs/ROADMAP.md`.
-
 ```
-class Account {                       # M3
-    owner: string
-    balance: int = 0
-    fn deposit(amount: int) { balance += amount }
-}
-
-user: User? = none                    # M4
-name = user?.name ?? "guest"
-r = load("a.json") catch err { return }
-throw "bad id"
-
-task = spawn fetch(1)                 # M6
+task = spawn fetch(1)                 # M6: concurrency
 price = await task
 
-serve(8080) {                         # M7
+serve(8080) {                         # M7: services
     get("/todos") => todos
 }
 ```
 
-Also planned: lists `[T]`, maps `{K: V}`, `for x in list`, enums, `match`, `import`, `test` blocks,
-interfaces, `weak` references, resource budgets (`memory 64mb`), declared effects (`uses db`),
-typed `ask` / `tool` calls for AI.
+- M6: `spawn` / `await`, channels, atomic reference counts, `shared` classes.
+- M7: HTTP server, JSON, database client, string functions (`split`, `upper`, ...), file I/O.
+- M8: resource budgets (`memory 64mb`), declared effects (`uses db`), typed `ask` / `tool` calls for AI.
+- Later: `weak` references, interfaces, `finally`, `int?`, optional narrowing, integer map keys,
+  list sorting and `map`/`filter`, qualified module names, a package manager, a language server.

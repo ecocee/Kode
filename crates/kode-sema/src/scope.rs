@@ -55,13 +55,13 @@ impl Scopes {
     pub fn use_var(&mut self, name: &str) -> Option<Type> {
         self.find_mut(name).map(|v| {
             v.used = true;
-            v.ty
+            v.ty.clone()
         })
     }
 
     /// Look a variable up without marking it as read.
     pub fn peek_var(&mut self, name: &str) -> Option<Type> {
-        self.find_mut(name).map(|v| v.ty)
+        self.find_mut(name).map(|v| v.ty.clone())
     }
 
     /// Declare a variable in the innermost scope.

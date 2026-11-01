@@ -1,0 +1,4 @@
+x = 1
+match x {
+    1 => print(1)
+}

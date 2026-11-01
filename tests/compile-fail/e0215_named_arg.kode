@@ -1,0 +1,2 @@
+fn f(a: int) -> int => a
+print(f(b: 1))

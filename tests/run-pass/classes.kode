@@ -1,0 +1,46 @@
+class Account {
+    owner: string
+    balance: int = 0
+    tags: [string] = []
+
+    fn deposit(amount: int) {
+        balance += amount
+    }
+
+    fn summary() -> string {
+        return "${owner}: ${balance}"
+    }
+
+    fn rich() -> bool => balance > 100
+}
+
+class Point {
+    x: float
+    y: float
+    fn len2() -> float => x * x + y * y
+}
+
+acct = Account(owner: "Asha")
+acct.deposit(50)
+acct.deposit(75)
+print(acct.summary(), acct.rich(), acct.balance)
+acct.balance = 10
+acct.owner = "Ravi"
+print(acct.summary())
+other = acct
+other.deposit(5)
+print(acct.balance)
+p = Point(x: 3.0, y: 4.0)
+print(p.len2(), p.x)
+acct.tags.add("vip")
+print(len(acct.tags), acct.tags[0])
+b = Account("Maya", 7)
+print(b.summary())
+fn make(n: string) -> Account => Account(owner: n, balance: 1)
+print(make("Z").summary())
+print(make("Q").owner)
+accounts = [Account(owner: "A"), Account(owner: "B", balance: 2)]
+for a in accounts {
+    a.deposit(1)
+}
+print(accounts[0].balance, accounts[1].balance)

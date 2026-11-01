@@ -1,5 +1,0 @@
-fn main() {
-    print("test");
-}
-
-export const VERSION: string = "1.0";

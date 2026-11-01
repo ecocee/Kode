@@ -1,0 +1,26 @@
+xs = [3, 1, 2]
+xs.add(10)
+print(xs.len(), len(xs), xs[0], xs[3])
+xs[1] = 99
+total = 0
+for x in xs {
+    total += x
+}
+print(total)
+for i, x in xs {
+    print(i, x)
+}
+names: [string] = []
+names.add("Asha")
+names.add("Ravi" + "!")
+for n in names {
+    print(n)
+}
+fs = [1.5, 2.5]
+print(fs[0] + fs[1])
+bs = [true, false]
+print(bs[0], bs[1], not bs[1])
+nested = [[1, 2], [3]]
+print(nested[0][1], nested[1][0], len(nested))
+xs2: [int] = []
+print(len(xs2))

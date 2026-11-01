@@ -9,7 +9,7 @@ fn ty(t: Ty) -> &'static str {
         Ty::Int => "int",
         Ty::Float => "float",
         Ty::Bool => "bool",
-        Ty::Str => "string",
+        Ty::Ref => "ref",
         Ty::Unit => "unit",
     }
 }
@@ -21,7 +21,7 @@ fn op(p: &MirProgram, o: &Operand) -> String {
         Operand::Float(v) => format!("{v:?}"),
         Operand::Bool(v) => v.to_string(),
         Operand::Str(i) => format!("{:?}", p.strings[*i]),
-        Operand::NullStr => "null".to_string(),
+        Operand::NullRef => "null".to_string(),
     }
 }
 
@@ -63,6 +63,8 @@ pub fn dump(p: &MirProgram) -> String {
                             None => format!("call {name}({})", args.join(", ")),
                         }
                     }
+                    Inst::Load { dst, base, offset, .. } => format!("_{dst} = load {}+{offset}", op(p, base)),
+                    Inst::Store { base, offset, value } => format!("store {}+{offset}, {}", op(p, base), op(p, value)),
                     Inst::Retain(a) => format!("retain {}", op(p, a)),
                     Inst::Release(a) => format!("release {}", op(p, a)),
                 };

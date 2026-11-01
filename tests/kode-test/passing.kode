@@ -1,0 +1,11 @@
+fn add(a: int, b: int) -> int => a + b
+
+test "add works" {
+    assert(add(2, 3) == 5)
+}
+
+test "strings" {
+    s = "a" + "b"
+    assert(s == "ab")
+    assert(len(s) == 2)
+}

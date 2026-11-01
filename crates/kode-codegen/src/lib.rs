@@ -15,7 +15,7 @@ pub use link::link;
 
 pub(crate) fn clif_ty(t: Ty) -> types::Type {
     match t {
-        Ty::Int | Ty::Str | Ty::Unit => types::I64,
+        Ty::Int | Ty::Ref | Ty::Unit => types::I64,
         Ty::Float => types::F64,
         Ty::Bool => types::I8,
     }
@@ -32,15 +32,16 @@ fn signature(module: &ObjectModule, f: &MirFunc) -> cranelift_codegen::ir::Signa
     sig
 }
 
-/// Static string literals: `[refcount = -1][length][bytes]`.
+/// Static string literals: `[refcount = -1][kind = string][length][bytes]`.
 fn define_strings(module: &mut ObjectModule, strings: &[String]) -> Result<Vec<DataId>, String> {
     let mut ids = Vec::new();
     for s in strings {
         let id = module
             .declare_anonymous_data(false, false)
             .map_err(|e| e.to_string())?;
-        let mut bytes = Vec::with_capacity(16 + s.len());
+        let mut bytes = Vec::with_capacity(24 + s.len());
         bytes.extend_from_slice(&(-1i64).to_le_bytes());
+        bytes.extend_from_slice(&1i64.to_le_bytes());
         bytes.extend_from_slice(&(s.len() as i64).to_le_bytes());
         bytes.extend_from_slice(s.as_bytes());
         let mut desc = DataDescription::new();

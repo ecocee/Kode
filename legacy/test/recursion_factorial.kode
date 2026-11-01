@@ -1,8 +1,0 @@
-// Test function calls
-fn test_func() {
-    print("Function called")
-}
-
-print("Before function call")
-test_func()
-print("After function call")

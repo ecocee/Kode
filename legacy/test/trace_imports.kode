@@ -1,9 +1,0 @@
-print("Before import");
-
-import "config" as cfg;
-
-print("After import");
-
-fn main() {
-    print("In main");
-}

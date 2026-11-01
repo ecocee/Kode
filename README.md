@@ -22,18 +22,22 @@ Kode is written in Rust. The compiler turns source into a native program:
 source -> lexer -> parser -> AST -> type check -> MIR -> Cranelift -> object file -> linker -> binary
 ```
 
-## Status: v0.1 core (working)
+## Status: v0.2 (working)
 
-Works today: `int`, `float`, `bool`, `string`; variables, constants, typed declarations;
-arithmetic, comparison and logic operators; `if / else if / else`, `while`, `for` over ranges,
-`break`, `continue`; functions with recursion; reference-counted strings with `+`, `${...}`
-interpolation, `len`, `string()`, `int()`, `float()`; `print`, `assert`; errors with codes and
-JSON output. Planned next: collections, classes, errors and optionals, modules, concurrency.
-See [docs/ROADMAP.md](docs/ROADMAP.md).
+Works today: `int`, `float`, `bool`, `string`; variables and constants; operators; `if`, `while`,
+`for` over ranges, lists and maps, `break`, `continue`, `match`; functions with recursion and named
+arguments; **lists** `[T]` and **maps** `{string: T}`; **classes** with methods and defaults;
+**enums**; **optionals** `T?` with `?.`, `??`, `!`; **errors** with `throw`, `try / catch` and
+`expr catch e { ... }`; **imports** across files; `test` blocks; reference-counted memory with a leak
+checker; errors with codes, hints and JSON output.
 
-Measured on one dev machine (recursive Fibonacci of 35):
-Kode 0.07 s, Python 1.76 s, release binary about 320 KB.
-Treat this as a first data point, not a claim. See `benchmarks/`.
+Tools: `kode run | build | check | test | fmt | explain | mir`.
+
+Next: concurrency (`spawn` / `await`), an HTTP server and JSON, then budgets and AI features.
+See [docs/ROADMAP.md](docs/ROADMAP.md) and the one-page [cheat sheet](docs/agents/cheatsheet.md).
+
+Measured on one dev machine (recursive Fibonacci of 35): Kode about 0.06 s, Python about 0.9 to 1.8 s,
+release binary about 330 KB. Treat this as a first data point, not a claim. See `benchmarks/`.
 
 ## Build and run
 
@@ -59,6 +63,9 @@ kode run examples/tour.kode
 | `kode run file.kode` | compile and run |
 | `kode build file.kode [-o out] [--release]` | make a native binary |
 | `kode check file.kode` | errors only, no code generation |
+| `kode test [file or folder]` | run `test` blocks |
+| `kode fmt <files or folders> [--check]` | format source files |
+| `kode explain E0201` | explain an error code |
 | `kode tokens file.kode` | print tokens (debugging) |
 | `kode ast file.kode` | print the syntax tree (debugging) |
 | `kode mir file.kode` | print the MIR, including retain/release (debugging) |

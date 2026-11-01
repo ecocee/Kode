@@ -1,0 +1,36 @@
+// Classes, maps, lists, enums, match and errors in one program
+enum Kind { Deposit, Withdraw }
+
+class Account {
+    owner: string
+    balance: int = 0
+    history: [string] = []
+
+    fn apply(kind: Kind, amount: int) {
+        match kind {
+            Kind.Deposit => {
+                balance += amount
+            }
+            Kind.Withdraw => {
+                if amount > balance {
+                    throw Error(message: "insufficient funds for ${owner}", code: 402)
+                }
+                balance -= amount
+            }
+        }
+        history.add("${amount}")
+    }
+}
+
+accounts = {"asha": Account(owner: "Asha"), "ravi": Account(owner: "Ravi", balance: 50)}
+
+accounts["asha"].apply(Kind.Deposit, 100)
+accounts["ravi"].apply(Kind.Withdraw, 20)
+
+accounts["ravi"].apply(Kind.Withdraw, 500) catch e {
+    print("failed:", e.message, e.code)
+}
+
+for name, acct in accounts {
+    print(name, acct.balance, len(acct.history))
+}

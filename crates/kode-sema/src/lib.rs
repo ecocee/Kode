@@ -9,5 +9,5 @@ pub mod scope;
 pub mod suggest;
 pub mod types;
 
-pub use check::{check, Checked, ConstVal, FnSig};
-pub use types::Type;
+pub use check::{check, Checked, ClassInfo, ConstVal, EnumInfo, FieldInfo, FnSig};
+pub use types::{assignable, Type};

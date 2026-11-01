@@ -1,0 +1,22 @@
+ages = {"asha": 30, "ravi": 25}
+ages["maya"] = 28
+print(ages["asha"], ages["maya"], len(ages), ages.len())
+print("ravi" in ages, "zed" in ages, ages.has("maya"))
+ages["asha"] += 1
+print(ages["asha"])
+for k, v in ages {
+    print(k, v)
+}
+for k in ages {
+    print(k)
+}
+ks = ages.keys()
+print(len(ks), ks[0])
+words: {string: string} = {}
+words["a"] = "alpha"
+words["b"] = "beta" + "!"
+print(words["a"], words["b"])
+words["a"] = "ALPHA"
+print(words["a"])
+scores = {"x": 1.5}
+print(scores["x"] * 2.0)

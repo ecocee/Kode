@@ -1,31 +1,38 @@
-use kode_diagnostics::Diagnostic;
+use kode_diagnostics::{Diagnostic, Span};
 use kode_syntax::ast::*;
 
 use super::Checker;
+use crate::suggest::closest;
 use crate::types::Type;
 
-/// True when every path through these statements ends in a `return`.
+pub(crate) fn diverges(s: &Stmt) -> bool {
+    matches!(
+        s,
+        Stmt::Return { .. } | Stmt::Throw { .. } | Stmt::Break(_) | Stmt::Continue(_)
+    )
+}
+
+/// True when every path through these statements ends in `return` or `throw`.
 pub(crate) fn always_returns(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| match s {
-        Stmt::Return { .. } => true,
+        Stmt::Return { .. } | Stmt::Throw { .. } => true,
         Stmt::If {
             then,
             else_: Some(else_),
             ..
         } => always_returns(then) && always_returns(else_),
+        Stmt::Match { arms, .. } => !arms.is_empty() && arms.iter().all(|a| always_returns(&a.body)),
         _ => false,
     })
 }
 
 impl Checker {
-    fn block(&mut self, stmts: &[Stmt]) {
+    pub(crate) fn block(&mut self, stmts: &[Stmt]) {
         self.scopes.push();
         for s in stmts {
             self.stmt(s);
         }
-        let mut warnings = std::mem::take(&mut self.warnings);
-        self.scopes.pop(&mut warnings);
-        self.warnings = warnings;
+        self.pop_scope();
     }
 
     fn condition(&mut self, cond: &Expr, what: &str) {
@@ -37,10 +44,15 @@ impl Checker {
                         format!("the condition of {what} must be a bool, found {}", t.article()),
                         cond.span,
                     )
-                    .with_help("compare it, for example `x != 0`"),
+                    .with_help("compare it, for example `x != 0` or `x != none`"),
                 );
             }
         }
+    }
+
+    pub(crate) fn field_of_current_class(&self, name: &str) -> Option<Type> {
+        let ci = self.cur_class?;
+        self.classes[ci].fields.iter().find(|f| f.name == name).map(|f| f.ty.clone())
     }
 
     pub(crate) fn stmt(&mut self, stmt: &Stmt) {
@@ -48,12 +60,7 @@ impl Checker {
             Stmt::Expr(e) => {
                 self.expr(e);
             }
-            Stmt::Assign {
-                name,
-                name_span,
-                ty,
-                value,
-            } => self.assign(name, *name_span, ty.as_ref(), value),
+            Stmt::Assign { target, ty, value, .. } => self.assign(target, ty.as_ref(), value),
             Stmt::If { cond, then, else_ } => {
                 self.condition(cond, "`if`");
                 self.block(then);
@@ -96,9 +103,46 @@ impl Checker {
                     self.stmt(s);
                 }
                 self.loop_depth -= 1;
-                let mut warnings = std::mem::take(&mut self.warnings);
-                self.scopes.pop(&mut warnings);
-                self.warnings = warnings;
+                self.pop_scope();
+            }
+            Stmt::ForIn { vars, iter, body } => self.for_in(vars, iter, body),
+            Stmt::Match {
+                scrutinee,
+                arms,
+                span,
+            } => self.match_stmt(scrutinee, arms, *span),
+            Stmt::Throw { value, span } => {
+                let t = self.expr(value);
+                if let Some(t) = t {
+                    if t != Type::Str && t != Type::Class("Error".into()) {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0226",
+                                format!("`throw` needs a string or an `Error`, found {}", t.article()),
+                                value.span,
+                            )
+                            .with_help("write `throw \"message\"` or `throw Error(message: \"...\", code: 404)`"),
+                        );
+                    }
+                }
+                let _ = span;
+                if let Some(i) = self.cur_fn {
+                    self.direct_throw[i] = true;
+                }
+            }
+            Stmt::Try {
+                body,
+                var,
+                var_span,
+                handler,
+            } => {
+                self.block(body);
+                self.scopes.push();
+                self.scopes.declare(var, Type::Class("Error".into()), *var_span, true);
+                for s in handler {
+                    self.stmt(s);
+                }
+                self.pop_scope();
             }
             Stmt::Break(span) | Stmt::Continue(span) => {
                 if self.loop_depth == 0 {
@@ -118,10 +162,12 @@ impl Checker {
                     );
                     return;
                 }
+                let ret = self.ret_type.clone();
                 match value {
                     Some(v) => {
-                        if let Some(t) = self.expr(v) {
-                            if self.ret_type == Type::Unit {
+                        let t = self.expr(v);
+                        if let Some(t) = t {
+                            if ret == Type::Unit {
                                 self.errors.push(
                                     Diagnostic::error(
                                         "E0310",
@@ -130,24 +176,16 @@ impl Checker {
                                     )
                                     .with_help(format!("declare the type, for example `-> {}`", t.name())),
                                 );
-                            } else if t != self.ret_type {
-                                self.errors.push(Diagnostic::error(
-                                    "E0310",
-                                    format!(
-                                        "expected to return {}, found {}",
-                                        self.ret_type.article(),
-                                        t.article()
-                                    ),
-                                    v.span,
-                                ));
+                            } else {
+                                self.coerce(v, Some(t), &ret, "the returned value", "E0310");
                             }
                         }
                     }
                     None => {
-                        if self.ret_type != Type::Unit {
+                        if ret != Type::Unit {
                             self.errors.push(Diagnostic::error(
                                 "E0310",
-                                format!("expected to return {}", self.ret_type.article()),
+                                format!("expected to return {}", ret.article()),
                                 *span,
                             ));
                         }
@@ -157,8 +195,80 @@ impl Checker {
         }
     }
 
-    fn assign(&mut self, name: &str, name_span: kode_diagnostics::Span, ty: Option<&TypeAnn>, value: &Expr) {
+    fn assign(&mut self, target: &Target, ty: Option<&TypeAnn>, value: &Expr) {
         let vt = self.expr(value);
+        match target {
+            Target::Var(name, name_span) => self.assign_var(name, *name_span, ty, value, vt),
+            Target::Index { obj, index } => {
+                let ot = self.expr(obj);
+                let it = self.expr(index);
+                let (Some(ot), Some(it)) = (ot, it) else { return };
+                match ot {
+                    Type::List(el) => {
+                        if it != Type::Int {
+                            self.errors.push(Diagnostic::error(
+                                "E0212",
+                                format!("a list index must be an int, found {}", it.article()),
+                                index.span,
+                            ));
+                        }
+                        self.coerce(value, vt, &el, "the item", "E0202");
+                    }
+                    Type::Map(el) => {
+                        if it != Type::Str {
+                            self.errors.push(Diagnostic::error(
+                                "E0212",
+                                format!("a map key must be a string, found {}", it.article()),
+                                index.span,
+                            ));
+                        }
+                        self.coerce(value, vt, &el, "the value", "E0202");
+                    }
+                    other => self.errors.push(Diagnostic::error(
+                        "E0211",
+                        format!("{} cannot be indexed", other.article()),
+                        obj.span,
+                    )),
+                }
+            }
+            Target::Field { obj, name, name_span } => {
+                let Some(ot) = self.expr(obj) else { return };
+                let Type::Class(cn) = &ot else {
+                    let code = if matches!(ot, Type::Opt(_)) { "E0220" } else { "E0218" };
+                    self.errors.push(Diagnostic::error(
+                        code,
+                        format!("cannot assign a field of {}", ot.article()),
+                        obj.span,
+                    ));
+                    return;
+                };
+                let ci = self.class_index[cn];
+                match self.classes[ci].fields.iter().find(|f| f.name == *name).map(|f| f.ty.clone()) {
+                    Some(ft) => {
+                        self.coerce(value, vt, &ft, "the value", "E0202");
+                    }
+                    None => self.unknown_field(cn, name, *name_span),
+                }
+            }
+        }
+    }
+
+    pub(crate) fn unknown_field(&mut self, class: &str, name: &str, span: Span) {
+        let ci = self.class_index[class];
+        let names: Vec<String> = self.classes[ci]
+            .fields
+            .iter()
+            .map(|f| f.name.clone())
+            .chain(self.classes[ci].methods.keys().cloned())
+            .collect();
+        let mut d = Diagnostic::error("E0217", format!("`{class}` has no field or method `{name}`"), span);
+        if let Some(s) = closest(name, names.iter().map(|s| s.as_str())) {
+            d = d.with_help(format!("did you mean `{s}`?"));
+        }
+        self.errors.push(d);
+    }
+
+    fn assign_var(&mut self, name: &str, name_span: Span, ty: Option<&TypeAnn>, value: &Expr, vt: Option<Type>) {
         let ann = ty.and_then(|a| self.resolve_type(a));
         let Some(vt) = vt else { return };
         if vt == Type::Unit {
@@ -180,51 +290,140 @@ impl Checker {
             ));
             return;
         }
-        match self.scopes.peek_var(name) {
-            Some(existing) => {
-                if ty.is_some() {
-                    self.errors.push(
-                        Diagnostic::error(
-                            "E0313",
-                            format!("`{name}` is already declared"),
-                            name_span,
-                        )
+        let existing = self.scopes.peek_var(name).or_else(|| self.field_of_current_class(name));
+        if let Some(existing) = existing {
+            if ty.is_some() {
+                self.errors.push(
+                    Diagnostic::error("E0313", format!("`{name}` is already declared"), name_span)
                         .with_help("write the type only the first time"),
-                    );
-                } else if existing != vt {
-                    self.errors.push(
-                        Diagnostic::error(
-                            "E0202",
-                            format!(
-                                "cannot assign {} to `{name}`, which holds {}",
-                                vt.article(),
-                                existing.article()
-                            ),
-                            value.span,
-                        )
-                        .with_help("a variable keeps the type of its first value"),
-                    );
+                );
+            } else {
+                self.coerce(value, Some(vt), &existing, &format!("the value for `{name}`"), "E0202");
+            }
+            return;
+        }
+        let declared = match ann {
+            Some(a) => {
+                if !self.coerce(value, Some(vt), &a, &format!("the value for `{name}`"), "E0202") {
+                    return;
                 }
+                a
             }
             None => {
-                if let Some(a) = ann {
-                    if a != vt {
-                        self.errors.push(
-                            Diagnostic::error(
-                                "E0202",
-                                format!(
-                                    "`{name}` is declared {} but the value is {}",
-                                    a.article(),
-                                    vt.article()
-                                ),
-                                value.span,
-                            )
-                            .with_help("numbers never convert automatically; use int(x) or float(x)"),
-                        );
-                        return;
+                if vt == Type::NoneT {
+                    self.errors.push(
+                        Diagnostic::error("E0219", "`none` needs a declared type", value.span)
+                            .with_help(format!("write it like `{name}: User? = none`")),
+                    );
+                    return;
+                }
+                if vt.is_empty_collection() {
+                    self.errors.push(
+                        Diagnostic::error("E0222", "an empty list or map needs a declared type", value.span)
+                            .with_help(format!("write it like `{name}: [int] = []`")),
+                    );
+                    return;
+                }
+                vt
+            }
+        };
+        self.scopes.declare(name, declared, name_span, false);
+    }
+
+    fn for_in(&mut self, vars: &[(String, Span)], iter: &Expr, body: &[Stmt]) {
+        let it = self.expr(iter);
+        let tys: Vec<Type> = match &it {
+            Some(Type::List(e)) => {
+                if vars.len() == 1 {
+                    vec![(**e).clone()]
+                } else {
+                    vec![Type::Int, (**e).clone()]
+                }
+            }
+            Some(Type::Map(v)) => {
+                if vars.len() == 1 {
+                    vec![Type::Str]
+                } else {
+                    vec![Type::Str, (**v).clone()]
+                }
+            }
+            Some(t) => {
+                self.errors.push(
+                    Diagnostic::error("E0214", format!("cannot loop over {}", t.article()), iter.span)
+                        .with_help("loop over a range `0..10`, a list or a map"),
+                );
+                vec![Type::Int; vars.len()]
+            }
+            None => vec![Type::Int; vars.len()],
+        };
+        self.scopes.push();
+        for ((name, span), ty) in vars.iter().zip(tys) {
+            self.scopes.declare(name, ty, *span, true);
+        }
+        self.loop_depth += 1;
+        for s in body {
+            self.stmt(s);
+        }
+        self.loop_depth -= 1;
+        self.pop_scope();
+    }
+
+    fn match_stmt(&mut self, scrutinee: &Expr, arms: &[Arm], span: Span) {
+        let st = self.expr(scrutinee);
+        let mut has_wild = false;
+        let mut variants: Vec<String> = Vec::new();
+        let (mut saw_true, mut saw_false) = (false, false);
+        if let Some(t) = &st {
+            if !matches!(t, Type::Int | Type::Str | Type::Bool | Type::Enum(_)) {
+                self.errors.push(
+                    Diagnostic::error("E0223", format!("cannot `match` on {}", t.article()), scrutinee.span)
+                        .with_help("match works on ints, strings, bools and enums"),
+                );
+            }
+        }
+        for arm in arms {
+            match &arm.pattern {
+                Pattern::Wildcard => has_wild = true,
+                Pattern::Value(p) => {
+                    let pt = self.expr(p);
+                    if let (Some(s), Some(pt)) = (&st, &pt) {
+                        if s != pt {
+                            self.errors.push(Diagnostic::error(
+                                "E0223",
+                                format!("this pattern is {} but the value is {}", pt.article(), s.article()),
+                                arm.pattern_span,
+                            ));
+                        } else {
+                            match &p.kind {
+                                ExprKind::Member { name, .. } => variants.push(name.clone()),
+                                ExprKind::Bool(true) => saw_true = true,
+                                ExprKind::Bool(false) => saw_false = true,
+                                _ => {}
+                            }
+                        }
                     }
                 }
-                self.scopes.declare(name, vt, name_span, false);
+            }
+            self.block(&arm.body);
+        }
+        if has_wild {
+            return;
+        }
+        if let Some(t) = &st {
+            let missing: Option<String> = match t {
+                Type::Enum(n) => {
+                    let all = &self.enums[self.enum_index[n]].variants;
+                    let m: Vec<&String> = all.iter().filter(|v| !variants.contains(v)).collect();
+                    (!m.is_empty()).then(|| format!("these cases are missing: {}", m.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")))
+                }
+                Type::Bool => (!(saw_true && saw_false)).then(|| "both true and false must be covered".to_string()),
+                Type::Int | Type::Str => Some("add a `_ =>` arm for all other values".to_string()),
+                _ => None,
+            };
+            if let Some(help) = missing {
+                self.errors.push(
+                    Diagnostic::error("E0224", "this `match` does not cover every case", span).with_help(help),
+                );
             }
         }
     }

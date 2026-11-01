@@ -116,3 +116,70 @@ fn compile_fail() {
         failures.join("\n\n")
     );
 }
+
+fn run_kode(args: &[&str]) -> (i32, String, String) {
+    let r = Command::new(kode()).args(args).output().unwrap();
+    (
+        r.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&r.stdout).to_string(),
+        String::from_utf8_lossy(&r.stderr).to_string(),
+    )
+}
+
+#[test]
+fn kode_test_command() {
+    require_runtime();
+    let dir = tests_dir("kode-test");
+    let pass = dir.join("passing.kode");
+    let (code, out, _) = run_kode(&["test", pass.to_str().unwrap()]);
+    assert_eq!(code, 0);
+    assert_eq!(out, "PASS add works\nPASS strings\n2 passed, 0 failed\n");
+
+    let fail = dir.join("failing.kode");
+    let (code, out, _) = run_kode(&["test", fail.to_str().unwrap()]);
+    assert_eq!(code, 1);
+    assert_eq!(
+        out,
+        "PASS one\nFAIL two: assertion failed at line 6\nPASS three\n2 passed, 1 failed\n"
+    );
+}
+
+#[test]
+fn explain_command() {
+    let (code, out, _) = run_kode(&["explain", "E0201"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("unknown variable"), "{out}");
+    let (code, _, err) = run_kode(&["explain", "E9999"]);
+    assert_eq!(code, 1);
+    assert!(err.contains("unknown error code"), "{err}");
+}
+
+#[test]
+fn fmt_command() {
+    // Our own examples and tests are already formatted.
+    let run_pass = tests_dir("run-pass");
+    let kode_test = tests_dir("kode-test");
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let (code, out, _) = run_kode(&[
+        "fmt",
+        "--check",
+        run_pass.to_str().unwrap(),
+        kode_test.to_str().unwrap(),
+        examples.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "these files should already be formatted:\n{out}");
+
+    // Messy input gets fixed, and the result is stable.
+    let tmp = std::env::temp_dir().join(format!("kode-fmt-test-{}.kode", std::process::id()));
+    std::fs::write(&tmp, "fn f(a: int) -> int {\nreturn a+1\n}\n\n\n\nif true {\nprint( \"x\" )\n  }\n").unwrap();
+    let (code, _, _) = run_kode(&["fmt", tmp.to_str().unwrap()]);
+    assert_eq!(code, 0);
+    let formatted = std::fs::read_to_string(&tmp).unwrap();
+    assert_eq!(
+        formatted,
+        "fn f(a: int) -> int {\n    return a+1\n}\n\nif true {\n    print( \"x\" )\n}\n"
+    );
+    let (code, _, _) = run_kode(&["fmt", "--check", tmp.to_str().unwrap()]);
+    assert_eq!(code, 0);
+    let _ = std::fs::remove_file(&tmp);
+}

@@ -22,7 +22,8 @@ Print it with `kode mir file.kode`.
 |---|---|
 | `dst = use x`, unary, binary, cast | arithmetic and moves on locals and constants |
 | `dst = call f(args)` | call a user function or a runtime function (`rt::...`) |
-| `retain x` / `release x` | change the owner count of a string |
+| `dst = load base+offset` / `store base+offset, x` | read and write a field of a class instance |
+| `retain x` / `release x` | change the owner count of a heap value |
 
 | Terminator | Meaning |
 |---|---|
@@ -31,7 +32,8 @@ Print it with `kode mir file.kode`.
 | `return [x]` | leave the function |
 | `unreachable` | cannot happen (after a diverging call) |
 
-`and`, `or`, `if`, `while` and `for` are all lowered to blocks and jumps here.
+`and`, `or`, `??`, `if`, `while`, `for`, `match`, `try` / `catch` and all error handling are lowered to blocks and jumps here.
+A value of type `ref` is any reference-counted heap value.
 `kode_mir::verify` checks the graph after lowering; a failure is a compiler bug.
 
 Why a MIR: memory management, control flow and (later) optimizations are far easier on

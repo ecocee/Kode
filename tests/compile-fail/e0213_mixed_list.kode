@@ -1,0 +1,2 @@
+xs = [1, "a"]
+print(len(xs))

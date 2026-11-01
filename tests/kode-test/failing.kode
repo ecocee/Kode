@@ -1,0 +1,12 @@
+test "one" {
+    assert(1 == 1)
+}
+
+test "two" {
+    assert(1 == 2)
+}
+
+test "three" {
+    xs = [1, 2]
+    assert(len(xs) == 2)
+}

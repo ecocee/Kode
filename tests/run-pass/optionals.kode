@@ -1,0 +1,31 @@
+class User {
+    name: string
+    nickname: string? = none
+    friend: User? = none
+}
+
+fn find(users: [User], name: string) -> User? {
+    for u in users {
+        if u.name == name {
+            return u
+        }
+    }
+    return none
+}
+
+users = [User(name: "Asha"), User(name: "Ravi", nickname: "R")]
+a = find(users, "Asha")
+z = find(users, "Zed")
+print(a == none, z == none, a != none)
+print(a!.name, (z ?? User(name: "default")).name)
+print(users[1].nickname ?? "no nick", users[0].nickname ?? "no nick")
+print(a?.nickname ?? "none")
+r: User? = users[1]
+print(r?.name ?? "?")
+s: string? = none
+print(s ?? "empty")
+s = "set"
+print(s ?? "empty")
+users[0].friend = users[1]
+print(users[0].friend?.name ?? "alone")
+print(users[1].friend?.name ?? "alone")
