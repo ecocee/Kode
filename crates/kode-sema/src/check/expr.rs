@@ -336,6 +336,16 @@ impl Checker {
                 }
             }
         }
+        // `math.pi` and other module constants.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.scopes.peek_var(n).is_none()
+                && !self.consts.contains_key(n)
+                && self.field_of_current_class(n).is_none()
+                && crate::modules::constant(n, name).is_some()
+            {
+                return Some(Type::Float);
+            }
+        }
         let ot = self.expr(obj)?;
         let (class_ty, is_opt) = match &ot {
             Type::Opt(inner) => ((**inner).clone(), true),
@@ -390,8 +400,16 @@ impl Checker {
         match (op, &t) {
             (UnOp::Neg, Type::Int) | (UnOp::Neg, Type::Float) => Some(t),
             (UnOp::Not, Type::Bool) => Some(Type::Bool),
+            (UnOp::BitNot, Type::Int) => Some(Type::Int),
             (UnOp::Neg, _) => {
                 self.errors.push(Diagnostic::error("E0203", format!("cannot negate {}", t.article()), span));
+                None
+            }
+            (UnOp::BitNot, _) => {
+                self.errors.push(
+                    Diagnostic::error("E0203", format!("`~` needs an int, found {}", t.article()), span)
+                        .with_help("bit operators work on ints; use `not` for bools"),
+                );
                 None
             }
             (UnOp::Not, _) => {
@@ -464,6 +482,19 @@ impl Checker {
                     Some(Type::Bool)
                 } else {
                     self.bad_operands(op, &l, &r, span, "`and` and `or` need two bools")
+                }
+            }
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                if l == Type::Int && r == Type::Int {
+                    Some(Type::Int)
+                } else {
+                    self.bad_operands(
+                        op,
+                        &l,
+                        &r,
+                        span,
+                        "bit operators work on two ints; use `and` and `or` for bools",
+                    )
                 }
             }
             BinOp::In => {
@@ -821,6 +852,28 @@ impl Checker {
                 && self.field_of_current_class(n).is_none()
             {
                 return self.response_static(name, name_span, args, span);
+            }
+        }
+        // `json.parse(...)`, `math.sqrt(...)`: standard-library namespaces.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.scopes.peek_var(n).is_none()
+                && !self.consts.contains_key(n)
+                && self.field_of_current_class(n).is_none()
+            {
+                if let Some(f) = crate::modules::function(n, name) {
+                    let mut tys = Vec::new();
+                    for a in args {
+                        tys.push(self.expr(&a.value));
+                    }
+                    return self.std_call(f, None, args, &tys, span);
+                }
+                if crate::modules::constant(n, name).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0217", format!("`{n}.{name}` is a value, not a method"), name_span)
+                            .with_help("write it without `()`"),
+                    );
+                    return None;
+                }
             }
         }
         let ot = self.expr(obj);

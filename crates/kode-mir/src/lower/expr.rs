@@ -19,6 +19,11 @@ fn mir_binop(op: ast::BinOp) -> BinOp {
         ast::BinOp::Le => BinOp::Le,
         ast::BinOp::Gt => BinOp::Gt,
         ast::BinOp::Ge => BinOp::Ge,
+        ast::BinOp::BitAnd => BinOp::BitAnd,
+        ast::BinOp::BitOr => BinOp::BitOr,
+        ast::BinOp::BitXor => BinOp::BitXor,
+        ast::BinOp::Shl => BinOp::Shl,
+        ast::BinOp::Shr => BinOp::Shr,
         _ => unreachable!("lowered separately"),
     }
 }
@@ -39,6 +44,7 @@ impl<'a> Lowerer<'a> {
                 let op = match op {
                     ast::UnOp::Neg => UnOp::Neg,
                     ast::UnOp::Not => UnOp::Not,
+                    ast::UnOp::BitNot => UnOp::BitNot,
                 };
                 self.emit(Inst::Assign {
                     dst: t,

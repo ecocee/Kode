@@ -195,6 +195,17 @@ impl<'a> Lowerer<'a> {
     }
 
     pub(crate) fn member(&mut self, obj: &Expr, name: &str, safe: bool) -> V {
+        // `math.pi` and other module constants.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.lookup(n).is_none()
+                && !self.checked.consts.contains_key(n)
+                && self.this_field(n).is_none()
+            {
+                if let Some(v) = kode_sema::modules::constant(n, name) {
+                    return V::val(Operand::Float(v));
+                }
+            }
+        }
         // `Color.Red`
         if let ExprKind::Ident(n) = &obj.kind {
             if self.lookup(n).is_none()
@@ -272,6 +283,17 @@ impl<'a> Lowerer<'a> {
                 }
                 .expect("the type checker validated the static method");
                 return self.std_call(f, None, args);
+            }
+        }
+        // `json.parse(...)`, `math.sqrt(...)`: standard-library namespaces.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.lookup(n).is_none()
+                && !self.checked.consts.contains_key(n)
+                && self.this_field(n).is_none()
+            {
+                if let Some(f) = kode_sema::modules::function(n, name) {
+                    return self.std_call(f, None, args);
+                }
             }
         }
         let ot = self.expr_type(obj);

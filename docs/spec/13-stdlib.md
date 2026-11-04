@@ -31,6 +31,31 @@ Adding one means one table row and one `extern "C"` function in `crates/kode-rt/
 | `exit(code)` | |
 | `sleep(ms)` `now_ms()` | |
 
+## Modules
+
+The library is also reachable with Python-style names:
+
+```
+data = json.parse(text)
+print(json.stringify(data))
+
+print(math.sqrt(2.0), math.pi, math.floor(2.9))
+now = time.now_ms()
+text = fs.read("notes.txt")
+res = http.get("http://localhost:8080/hello")
+```
+
+| Module | Functions |
+|---|---|
+| `json` | `parse`, `stringify`, `object`, `null`, `bool`, `int`, `float`, `string`, `list`, `map` |
+| `http` | `get`, `post`, `request` |
+| `fs` | `read`, `write` |
+| `time` | `now_ms`, `sleep` |
+| `math` | `sqrt`, `abs`, `floor`, `ceil`, `round`, `pow`, `min`, `max`, `sin`, `cos`, `tan`, `log`, `exp`; constants `pi` and `e` |
+
+`math.min` and `math.max` take two floats. `floor`, `ceil` and `round` return floats, like
+Python. A variable with the same name shadows a module.
+
 ## Web server
 
 ```

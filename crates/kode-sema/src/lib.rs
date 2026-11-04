@@ -4,6 +4,7 @@
 //! expression and the signature of every function, or a list of errors.
 
 pub mod builtins;
+pub mod modules;
 mod check;
 pub mod scope;
 pub mod std_fns;

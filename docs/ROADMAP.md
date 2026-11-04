@@ -15,6 +15,7 @@ working, tested compiler.
 | **M5 Tooling** | `import` and modules, `test` blocks and `kode test`, `kode fmt`, `kode explain`, agent cheat sheet (project file and qualified module names still to come) | **Done** |
 | **M6 Concurrency** | `spawn` / `await`, `Task<T>`, atomic reference counts, per-thread errors (channels and `shared` classes still to come) | **Done** |
 | **M7 Services** | `serve(port, handler)`, strings, files, args, environment, sorting, JSON, HTTP client, Router/`Request`/`Response` (database client and the REST benchmark still to come) | **Done** (core) |
+| **M7.5 Ergonomics** | integer bit operators and compound assignment; Python-style stdlib namespaces (`json.parse`, `math.sqrt`, `http.get`, `fs.read`, `time.now_ms`) | **Done** |
 | **M8 Budgets and AI** | `memory` budgets, declared effects (`uses`), typed `ask` / `tool` calls | Planned |
 | **M9 Release** | LLVM backend for `--release` (optional), Windows, language server, docs site, open source | Planned |
 

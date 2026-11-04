@@ -101,6 +101,11 @@ impl Parser {
                         | TokenKind::StarEq
                         | TokenKind::SlashEq
                         | TokenKind::PercentEq
+                        | TokenKind::AmpEq
+                        | TokenKind::PipeEq
+                        | TokenKind::CaretEq
+                        | TokenKind::ShlEq
+                        | TokenKind::ShrEq
                 ) {
                     self.parse_assign(e)
                 } else {
@@ -169,6 +174,11 @@ impl Parser {
             TokenKind::StarEq => Some(BinOp::Mul),
             TokenKind::SlashEq => Some(BinOp::Div),
             TokenKind::PercentEq => Some(BinOp::Rem),
+            TokenKind::AmpEq => Some(BinOp::BitAnd),
+            TokenKind::PipeEq => Some(BinOp::BitOr),
+            TokenKind::CaretEq => Some(BinOp::BitXor),
+            TokenKind::ShlEq => Some(BinOp::Shl),
+            TokenKind::ShrEq => Some(BinOp::Shr),
             _ => unreachable!("checked by parse_stmt"),
         };
         self.skip_newlines();

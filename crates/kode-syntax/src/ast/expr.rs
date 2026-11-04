@@ -97,6 +97,8 @@ pub enum InterpPart {
 pub enum UnOp {
     Neg,
     Not,
+    /// `~x`
+    BitNot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +116,11 @@ pub enum BinOp {
     Ge,
     And,
     Or,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
     /// `key in map`
     In,
 }
@@ -132,6 +139,11 @@ impl BinOp {
             BinOp::Le => "<=",
             BinOp::Gt => ">",
             BinOp::Ge => ">=",
+            BinOp::BitAnd => "&",
+            BinOp::BitOr => "|",
+            BinOp::BitXor => "^",
+            BinOp::Shl => "<<",
+            BinOp::Shr => ">>",
             BinOp::And => "and",
             BinOp::Or => "or",
             BinOp::In => "in",

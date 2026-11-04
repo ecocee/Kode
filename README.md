@@ -29,12 +29,15 @@ Works today: `int`, `float`, `bool`, `string`; variables and constants; operator
 arguments; **lists** `[T]` and **maps** `{string: T}`; **classes** with methods and defaults;
 **enums**; **optionals** `T?` with `?.`, `??`, `!`; **errors** with `throw`, `try / catch` and
 `expr catch e { ... }`; **imports** across files; `test` blocks; reference-counted memory with a leak
-checker; errors with codes, hints and JSON output.
+checker; errors with codes, hints and JSON output; **bit operators** `& | ^ ~ << >>` with
+compound assignment; and **standard-library namespaces** like `json.parse`, `math.sqrt` and
+`http.get`.
 
 Tools: `kode run | build | check | test | fmt | explain | mir`.
 
 **Tasks** (`spawn` / `await`), a **web server** (`serve`, or a **Router** with `Request`/`Response`), **JSON**, an **HTTP client**, strings, files, arguments and sorting are in too.
-Next: budgets and AI features (M8), then Windows, an LLVM backend and a language server (M9).
+Next: interfaces and function values, then services, budgets and AI features (M8), tooling and
+portability (M9).
 See [docs/ROADMAP.md](docs/ROADMAP.md) and the one-page [cheat sheet](docs/agents/cheatsheet.md).
 
 Measured on one dev machine (recursive Fibonacci of 35): Kode about 0.06 s, Python about 0.9 to 1.8 s,

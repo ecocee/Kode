@@ -17,6 +17,7 @@ mod json;
 mod json_parse;
 mod list;
 mod map;
+mod math;
 mod object;
 mod router;
 mod std_fns;

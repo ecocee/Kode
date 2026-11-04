@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Integer bit operators `&`, `|`, `^`, `~`, `<<`, `>>` and compound assignment `&=`, `|=`, `^=`,
+  `<<=`, `>>=`; shifts of 64 or more (or a negative count) give 0, and `>>` keeps the sign.
+- Python-style standard-library namespaces: `json.parse` / `json.stringify` / `json.object`,
+  `http.get` / `http.post` / `http.request`, `fs.read` / `fs.write`, `time.now_ms` / `time.sleep`,
+  and `math.*` (`sqrt`, `abs`, `floor`, `ceil`, `round`, `pow`, `min`, `max`, `sin`, `cos`,
+  `tan`, `log`, `exp`, plus `math.pi` and `math.e`).
 - JSON: `json_parse`, `json_null/bool/int/float/string/list/map`, a built-in `Json` class with
   `JsonKind` and `is_null`, `as_*`, `len`, `has`, `encode`, and read-only `j["key"]` / `j[i]` indexing.
   Strict parser with a depth limit; parse errors are catchable and do not leak.

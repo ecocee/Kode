@@ -53,6 +53,8 @@ Request/Response: `req.params["id"] req.query req.headers req.body req.json()`  
 JSON: `j = json_parse(t)`  `j["k"] j[0]`  `j.as_string() as_int() as_float() as_bool() as_list() as_map()`  `j.is_null() j.len() j.has(k) j.encode()`
 Build: `json_map({"a": json_int(1)})`  `json_list([...])`  `json_null/bool/int/float/string`
 HTTP: `r = http_get(url)`  `r.status r.body r.headers["content-type"]`  `http_post(url, body, ctype)`  `http_request(m, url, {}, body)`  (plain http only)
+Modules: `json.parse(t) json.stringify(v) json.object()`  `math.sqrt(2.0) math.pi`  `fs.read(p) fs.write(p,t)`  `time.now_ms() time.sleep(ms)`  `http.get(url)`
+Bits: `a & b  a | b  a ^ b  ~a  a << n  a >> n`  `x &= y  x |= y  x ^= y  x <<= n  x >>= n`  (ints only; shifts of 64+ give 0)
 
 Built-ins: `print(...)`, `len(x)`, `int(x)`, `float(x)`, `string(x)`, `assert(cond)`.
 Commands: `kode run|build|check|test|fmt|explain|mir`. Use `kode check --format=json` for errors

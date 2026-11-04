@@ -1,0 +1,23 @@
+// Integer bit operators
+print(6 & 3, 6 | 3, 6 ^ 3)
+print(1 << 4, 256 >> 4)
+print(~0, -8 >> 1)
+print(1 << 2 + 1)
+
+mask = 1
+mask |= 4
+mask ^= 2
+mask &= 7
+mask <<= 2
+mask >>= 1
+print(mask)
+
+print((15 & 8) == 8)
+
+bits = 0
+for i in 0..4 {
+    bits = bits | (1 << i)
+}
+print(bits)
+
+print(1 << 64, -1 >> 64)
