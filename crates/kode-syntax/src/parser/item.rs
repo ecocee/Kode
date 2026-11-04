@@ -20,6 +20,7 @@ impl Parser {
                 TokenKind::Fn => self.parse_fn().map(Item::Fn),
                 TokenKind::Const => self.parse_const().map(Item::Const),
                 TokenKind::Class => self.parse_class().map(Item::Class),
+                TokenKind::Interface => self.parse_interface().map(Item::Interface),
                 TokenKind::Enum => self.parse_enum().map(Item::Enum),
                 TokenKind::Import | TokenKind::From => self.parse_import().map(Item::Import),
                 TokenKind::Test => self.parse_test().map(Item::Test),
@@ -121,6 +122,18 @@ impl Parser {
     fn parse_class(&mut self) -> Result<ClassDecl, Diagnostic> {
         self.bump(); // class
         let (name, name_span) = self.ident("a class name")?;
+        let mut implements = Vec::new();
+        if matches!(self.peek(), TokenKind::Implements) {
+            self.bump();
+            loop {
+                implements.push(self.ident("an interface name")?);
+                if matches!(self.peek(), TokenKind::Comma) {
+                    self.bump();
+                } else {
+                    break;
+                }
+            }
+        }
         let open = self.expect(TokenKind::LBrace, "`{`")?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -170,8 +183,102 @@ impl Parser {
         Ok(ClassDecl {
             name,
             name_span,
+            implements,
             fields,
             methods,
+        })
+    }
+
+    fn parse_interface(&mut self) -> Result<InterfaceDecl, Diagnostic> {
+        self.bump(); // interface
+        let (name, name_span) = self.ident("an interface name")?;
+        let open = self.expect(TokenKind::LBrace, "`{`")?;
+        let mut methods = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), TokenKind::Pub) {
+                self.bump();
+            }
+            match self.peek().clone() {
+                TokenKind::RBrace => {
+                    self.bump();
+                    break;
+                }
+                TokenKind::Eof => {
+                    return Err(Diagnostic::error("E0106", "this interface is never closed", open.span)
+                        .with_help("add a matching `}`"))
+                }
+                TokenKind::Fn => methods.push(self.parse_iface_method()?),
+                other => {
+                    return Err(Diagnostic::error(
+                        "E0114",
+                        format!("expected a method signature, found {}", other.describe()),
+                        self.span(),
+                    )
+                    .with_help("method signatures look like `fn area() -> float`"))
+                }
+            }
+            self.expect_end()?;
+        }
+        Ok(InterfaceDecl {
+            name,
+            name_span,
+            methods,
+        })
+    }
+
+    fn parse_iface_method(&mut self) -> Result<IfaceMethod, Diagnostic> {
+        let fn_tok = self.bump(); // fn
+        let (name, name_span) = self.ident("a method name")?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        self.skip_newlines();
+        let mut params = Vec::new();
+        while !matches!(self.peek(), TokenKind::RParen) {
+            let (pname, pspan) = self.ident("a parameter name")?;
+            if !matches!(self.peek(), TokenKind::Colon) {
+                return Err(Diagnostic::error(
+                    "E0111",
+                    format!("parameter `{pname}` needs a type"),
+                    pspan,
+                )
+                .with_help(format!("write it like `{pname}: int`")));
+            }
+            self.bump();
+            let ty = self.type_ann()?;
+            params.push(Param {
+                name: pname,
+                name_span: pspan,
+                ty,
+            });
+            self.skip_newlines();
+            if matches!(self.peek(), TokenKind::Comma) {
+                self.bump();
+                self.skip_newlines();
+            } else {
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)`")?;
+        let ret = if matches!(self.peek(), TokenKind::Arrow) {
+            self.bump();
+            Some(self.type_ann()?)
+        } else {
+            None
+        };
+        if matches!(self.peek(), TokenKind::LBrace | TokenKind::FatArrow) {
+            return Err(Diagnostic::error(
+                "E0236",
+                "an interface method has no body",
+                fn_tok.span.join(name_span),
+            )
+            .with_help("write only the signature; the implementing class writes the body"));
+        }
+        Ok(IfaceMethod {
+            span: fn_tok.span.join(name_span),
+            name,
+            name_span,
+            params,
+            ret,
         })
     }
 

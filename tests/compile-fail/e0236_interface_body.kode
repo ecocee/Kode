@@ -1,0 +1,3 @@
+interface Shape {
+    fn area() -> int { return 1 }
+}

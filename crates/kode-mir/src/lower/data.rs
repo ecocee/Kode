@@ -297,6 +297,38 @@ impl<'a> Lowerer<'a> {
             }
         }
         let ot = self.expr_type(obj);
+        if let Type::Interface(iname) = ot {
+            let ii = self.checked.interface_index[iname];
+            let sig = self.checked.interfaces[ii]
+                .methods
+                .iter()
+                .find(|m| m.name == name)
+                .expect("the type checker checked the method")
+                .clone();
+            let idx = *self
+                .iface_dispatch
+                .get(&(iname.clone(), name.to_string()))
+                .expect("dispatch was generated");
+            let ov = self.expr(obj);
+            let vals = self.call_vals(e.id, args, Some(ov), sig.params.len());
+            let ret = mir_ty(&sig.ret);
+            let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
+            let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
+            self.emit(Inst::Call {
+                dst,
+                callee: Callee::User(idx),
+                args: ops,
+            });
+            self.error_check();
+            for v in vals {
+                self.release_if_owned(v);
+            }
+            return match dst {
+                Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
+                Some(d) => V::val(Operand::Local(d)),
+                None => V::unit(),
+            };
+        }
         if matches!(ot, Type::Class(n) if n == "Router") {
             return self.router_add(obj, name, args);
         }
@@ -406,8 +438,8 @@ impl<'a> Lowerer<'a> {
         let p = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
             dst: Some(p),
-            callee: Callee::Rt(RtFn::ObjNew),
-            args: vec![Operand::Int(fields.len() as i64), Operand::Int(mask)],
+            callee: Callee::Rt(RtFn::ObjNewClass),
+            args: vec![Operand::Int(fields.len() as i64), Operand::Int(mask), Operand::Int(ci as i64)],
         });
         let obj = self.owned(Operand::Local(p));
         let slots = checked.call_args[&e.id].clone();

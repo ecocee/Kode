@@ -33,6 +33,21 @@ pub struct ClassInfo {
     pub fields: Vec<FieldInfo>,
     /// method name -> index into `Checked::fns`
     pub methods: HashMap<String, usize>,
+    /// Interfaces this class declares with `implements`.
+    pub implements: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct IfaceMethod {
+    pub name: String,
+    pub params: Vec<(String, Type)>,
+    pub ret: Type,
+}
+
+#[derive(Clone, Debug)]
+pub struct InterfaceInfo {
+    pub name: String,
+    pub methods: Vec<IfaceMethod>,
 }
 
 #[derive(Clone, Debug)]
@@ -62,6 +77,8 @@ pub struct Checked {
     pub class_index: HashMap<String, usize>,
     pub enums: Vec<EnumInfo>,
     pub enum_index: HashMap<String, usize>,
+    pub interfaces: Vec<InterfaceInfo>,
+    pub interface_index: HashMap<String, usize>,
     pub consts: HashMap<String, (Type, ConstVal)>,
     /// For each call: which argument fills each parameter (`None` = use the default).
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
@@ -80,6 +97,8 @@ pub(crate) struct Checker {
     pub class_index: HashMap<String, usize>,
     pub enums: Vec<EnumInfo>,
     pub enum_index: HashMap<String, usize>,
+    pub interfaces: Vec<InterfaceInfo>,
+    pub interface_index: HashMap<String, usize>,
     pub consts: HashMap<String, (Type, ConstVal)>,
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
     pub direct_throw: Vec<bool>,
@@ -93,6 +112,23 @@ pub(crate) struct Checker {
 }
 
 impl Checker {
+    /// Interface values are class references, so a class can go anywhere its
+    /// interfaces are expected. Everything else uses the plain type rules.
+    pub(crate) fn assignable(&self, from: &Type, to: &Type) -> bool {
+        if from == to || crate::types::assignable(from, to) {
+            return true;
+        }
+        match (from, to) {
+            (Type::Class(c), Type::Interface(i)) => self
+                .class_index
+                .get(c)
+                .map(|&ci| self.classes[ci].implements.iter().any(|x| x == i))
+                .unwrap_or(false),
+            (_, Type::Opt(inner)) => self.assignable(from, inner),
+            _ => false,
+        }
+    }
+
     fn new(program: &Program) -> Self {
         let n = program.expr_count as usize;
         let mut expr_types = vec![Type::Unit; n + 1];
@@ -116,6 +152,7 @@ impl Checker {
                 },
             ],
             methods: HashMap::new(),
+            implements: Vec::new(),
         };
         // Built-in `Json` (a dynamic JSON value) and `HttpResponse`.
         // Field order and types are mirrored by `kode-rt/src/json.rs` and
@@ -156,6 +193,7 @@ impl Checker {
                 },
             ],
             methods: HashMap::new(),
+            implements: Vec::new(),
         };
         let response_class = ClassInfo {
             name: "HttpResponse".into(),
@@ -177,6 +215,7 @@ impl Checker {
                 },
             ],
             methods: HashMap::new(),
+            implements: Vec::new(),
         };
         // `Request`, `Response` and `Router` are the simple web API layer.
         // Field order is mirrored by `kode-rt/src/router.rs`; change both together.
@@ -215,6 +254,7 @@ impl Checker {
                 },
             ],
             methods: HashMap::new(),
+            implements: Vec::new(),
         };
         let reply_class = ClassInfo {
             name: "Response".into(),
@@ -236,6 +276,7 @@ impl Checker {
                 },
             ],
             methods: HashMap::new(),
+            implements: Vec::new(),
         };
         let router_class = ClassInfo {
             name: "Router".into(),
@@ -245,6 +286,7 @@ impl Checker {
                 default: None,
             }],
             methods: HashMap::new(),
+            implements: Vec::new(),
         };
         let mut class_index = HashMap::new();
         class_index.insert("Error".to_string(), 0);
@@ -272,6 +314,8 @@ impl Checker {
             class_index,
             enums: vec![json_kind],
             enum_index,
+            interfaces: Vec::new(),
+            interface_index: HashMap::new(),
             consts: HashMap::new(),
             call_args: HashMap::new(),
             direct_throw: Vec::new(),
@@ -360,6 +404,8 @@ pub fn check(program: &Program) -> Result<Checked, Vec<Diagnostic>> {
         class_index: c.class_index,
         enums: c.enums,
         enum_index: c.enum_index,
+        interfaces: c.interfaces,
+        interface_index: c.interface_index,
         consts: c.consts,
         call_args: c.call_args,
         throws,

@@ -108,6 +108,9 @@ pub enum RtFn {
     MapValAt,
     MapKeys,
     ObjNew,
+    /// Like `ObjNew`, but records the class id in the object header for
+    /// interface dispatch.
+    ObjNewClass,
     ErrThrow,
     ErrPending,
     ErrTake,

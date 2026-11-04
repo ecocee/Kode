@@ -6,7 +6,7 @@ use super::Checker;
 use crate::builtins::{self, Builtin, BUILTIN_NAMES};
 use crate::suggest::closest;
 use crate::std_fns::{self, StdFn};
-use crate::types::{assignable, Type};
+use crate::types::Type;
 
 impl Checker {
     /// If `e` is an empty `[]`, `{}` or `none`, remember the type it was given.
@@ -26,7 +26,7 @@ impl Checker {
     /// Check that a value of type `got` can go where `want` is expected.
     pub(crate) fn coerce(&mut self, e: &Expr, got: Option<Type>, want: &Type, what: &str, code: &'static str) -> bool {
         let Some(got) = got else { return false };
-        if assignable(&got, want) {
+        if self.assignable(&got, want) {
             self.retype(e, want);
             return true;
         }
@@ -38,7 +38,7 @@ impl Checker {
         if matches!((&got, want), (Type::Int, Type::Float) | (Type::Float, Type::Int)) {
             d = d.with_help("numbers never convert automatically; use int(x) or float(x)");
         } else if let Type::Opt(inner) = &got {
-            if assignable(inner, want) {
+            if self.assignable(inner, want) {
                 d = d.with_help("this may be none: use `x ?? default` or `x!`");
             }
         }
@@ -197,7 +197,7 @@ impl Checker {
         for x in &items[1..] {
             let t = self.expr(x);
             if let (Some(f), Some(t)) = (&first, t) {
-                if !assignable(&t, f) {
+                if !self.assignable(&t, f) {
                     self.errors.push(Diagnostic::error(
                         "E0213",
                         format!("list items must all have the same type: expected {}, found {}", f.article(), t.article()),
@@ -237,7 +237,7 @@ impl Checker {
             let t = self.expr(v);
             match (&val, t) {
                 (None, Some(t)) => val = Some(t),
-                (Some(f), Some(t)) if !assignable(&t, f) => {
+                (Some(f), Some(t)) if !self.assignable(&t, f) => {
                     self.errors.push(Diagnostic::error(
                         "E0213",
                         format!("map values must all have the same type: expected {}, found {}", f.article(), t.article()),
@@ -347,6 +347,17 @@ impl Checker {
             }
         }
         let ot = self.expr(obj)?;
+        if let Type::Interface(iname) = &ot {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0218",
+                    format!("the interface `{iname}` has no fields"),
+                    name_span,
+                )
+                .with_help("interfaces only have methods; call one instead"),
+            );
+            return None;
+        }
         let (class_ty, is_opt) = match &ot {
             Type::Opt(inner) => ((**inner).clone(), true),
             t => (t.clone(), false),
@@ -518,10 +529,10 @@ impl Checker {
             );
             return None;
         };
-        if assignable(&r, inner) {
+        if self.assignable(&r, inner) {
             self.retype(rhs, inner);
             Some((**inner).clone())
-        } else if assignable(&r, &l) {
+        } else if self.assignable(&r, &l) {
             self.retype(rhs, &l);
             Some(l.clone())
         } else {
@@ -886,6 +897,23 @@ impl Checker {
             tys.push(self.expr(&a.value));
         }
         let ot = ot?;
+        if let Type::Interface(iname) = &ot {
+            let ii = self.interface_index[iname];
+            let Some(m) = self.interfaces[ii].methods.iter().find(|m| m.name == name).cloned() else {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0217",
+                        format!("the interface `{iname}` has no method `{name}`"),
+                        name_span,
+                    )
+                    .with_help("check the method list in the interface declaration"),
+                );
+                return None;
+            };
+            let no_defaults = vec![false; m.params.len()];
+            self.check_call_args(id, &m.params, args, &tys, &no_defaults, span, &format!("{iname}.{name}"));
+            return Some(m.ret);
+        }
         if let Some(f) = std_fns::find_method(&ot, name) {
             return self.std_call(f, Some(&ot), args, &tys, span);
         }

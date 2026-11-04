@@ -19,7 +19,7 @@ mod tests;
 
 use std::collections::HashMap;
 
-use kode_sema::{Checked, ConstVal, Type};
+use kode_sema::{Checked, ConstVal, IfaceMethod, InterfaceInfo, Type};
 use kode_syntax::ast::{Expr, FnBody, FnDecl, Item, Program};
 
 use crate::ir::*;
@@ -37,13 +37,18 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
     let mut strings = Strings::default();
     let mut funcs = Vec::new();
 
+    let n_user = program.fn_decls().len();
+    let mut dispatches = Vec::new();
+    let iface_dispatch = plan_dispatches(checked, &mut strings, n_user, &mut dispatches);
+
     for (i, (cls, f)) in program.fn_decls().into_iter().enumerate() {
-        funcs.push(lower_fn(f, i, cls.is_some(), checked, src, &mut strings));
+        funcs.push(lower_fn(f, i, cls.is_some(), checked, src, &mut strings, &iface_dispatch));
     }
+    funcs.extend(dispatches);
 
     let entry = match mode {
         Mode::Run => {
-            let mut lw = Lowerer::new(checked, src, &mut strings, Ty::Unit, true);
+            let mut lw = Lowerer::new(checked, src, &mut strings, &iface_dispatch, Ty::Unit, true);
             for item in &program.items {
                 if let Item::Stmt(s) = item {
                     lw.stmt(s);
@@ -54,7 +59,7 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
             funcs.push(lw.finish("<main>".to_string()));
             e
         }
-        Mode::Test => tests::lower_tests(program, checked, src, &mut strings, &mut funcs),
+        Mode::Test =>            tests::lower_tests(program, checked, src, &mut strings, &mut funcs, &iface_dispatch),
     };
 
     let thunks: Vec<MirFunc> = strings.thunk_specs.iter().map(|&i| make_thunk(checked, i)).collect();
@@ -138,10 +143,130 @@ fn make_thunk(checked: &Checked, idx: usize) -> MirFunc {
     }
 }
 
-fn lower_fn(f: &FnDecl, index: usize, is_method: bool, checked: &Checked, src: &dyn LineMap, strings: &mut Strings) -> MirFunc {
+/// Build one dispatch function per interface method. Each compares the object's
+/// class id (stored in the object header) with every implementing class and
+/// calls that class's method. Indexes are assigned after the user functions.
+fn plan_dispatches(
+    checked: &Checked,
+    strings: &mut Strings,
+    offset: usize,
+    out: &mut Vec<MirFunc>,
+) -> HashMap<(String, String), usize> {
+    let mut map = HashMap::new();
+    for iface in &checked.interfaces {
+        for m in &iface.methods {
+            let mut impls: Vec<(i64, usize)> = Vec::new();
+            for (ci, class) in checked.classes.iter().enumerate() {
+                if class.implements.iter().any(|x| x == &iface.name) {
+                    if let Some(&mi) = class.methods.get(&m.name) {
+                        impls.push((ci as i64, mi));
+                    }
+                }
+            }
+            map.insert((iface.name.clone(), m.name.clone()), offset + out.len());
+            out.push(build_dispatch(iface, m, &impls, strings));
+        }
+    }
+    map
+}
+
+fn build_dispatch(
+    iface: &InterfaceInfo,
+    m: &IfaceMethod,
+    impls: &[(i64, usize)],
+    strings: &mut Strings,
+) -> MirFunc {
+    let ret = mir_ty(&m.ret);
+    let mut locals = vec![LocalDecl {
+        ty: Ty::Ref,
+        name: Some("this".into()),
+    }];
+    for (name, ty) in &m.params {
+        locals.push(LocalDecl {
+            ty: mir_ty(ty),
+            name: Some(name.clone()),
+        });
+    }
+    let n = impls.len();
+    if n == 0 {
+        return MirFunc {
+            name: format!("{}.{}", iface.name, m.name),
+            param_count: 1 + m.params.len(),
+            ret,
+            locals,
+            blocks: vec![Block {
+                insts: Vec::new(),
+                term: Terminator::Unreachable,
+            }],
+        };
+    }
+    let kind = locals.len();
+    locals.push(LocalDecl { ty: Ty::Int, name: None });
+    let conds: Vec<LocalId> = (0..n)
+        .map(|_| {
+            locals.push(LocalDecl { ty: Ty::Bool, name: None });
+            locals.len() - 1
+        })
+        .collect();
+    let dst = if ret == Ty::Unit {
+        None
+    } else {
+        locals.push(LocalDecl { ty: ret, name: None });
+        Some(locals.len() - 1)
+    };
+    let mut blocks: Vec<Block> = (0..2 * n + 1)
+        .map(|_| Block {
+            insts: Vec::new(),
+            term: Terminator::Unreachable,
+        })
+        .collect();
+    let class_sig = strings.std_sig("kode_obj_class", vec![Ty::Ref], Ty::Int);
+    blocks[0].insts.push(Inst::Call {
+        dst: Some(kind),
+        callee: Callee::Std(class_sig),
+        args: vec![Operand::Local(0)],
+    });
+    let args: Vec<Operand> = (0..=m.params.len()).map(Operand::Local).collect();
+    for (i, (cid, mi)) in impls.iter().enumerate() {
+        let cmp = 2 * i;
+        blocks[cmp].insts.push(Inst::Assign {
+            dst: conds[i],
+            rv: Rvalue::Binary(BinOp::Eq, Operand::Local(kind), Operand::Int(*cid)),
+        });
+        let next = if i + 1 < n { 2 * (i + 1) } else { 2 * n };
+        blocks[cmp].term = Terminator::Branch {
+            cond: Operand::Local(conds[i]),
+            then_bb: cmp + 1,
+            else_bb: next,
+        };
+        blocks[cmp + 1].insts.push(Inst::Call {
+            dst,
+            callee: Callee::User(*mi),
+            args: args.clone(),
+        });
+        blocks[cmp + 1].term = Terminator::Return(dst.map(Operand::Local));
+    }
+    MirFunc {
+        name: format!("{}.{}", iface.name, m.name),
+        param_count: 1 + m.params.len(),
+        ret,
+        locals,
+        blocks,
+    }
+}
+
+fn lower_fn(
+    f: &FnDecl,
+    index: usize,
+    is_method: bool,
+    checked: &Checked,
+    src: &dyn LineMap,
+    strings: &mut Strings,
+    dispatch: &HashMap<(String, String), usize>,
+) -> MirFunc {
     let sig = &checked.fns[index];
     let ret = mir_ty(&sig.ret);
-    let mut lw = Lowerer::new(checked, src, strings, ret, false);
+    let mut lw = Lowerer::new(checked, src, strings, dispatch, ret, false);
     for (name, ty) in &sig.params {
         let id = lw.new_local(mir_ty(ty), Some(name.clone()));
         lw.declare(name, id);
@@ -191,7 +316,7 @@ pub(crate) struct Strings {
 
 impl Strings {
     /// Register a runtime library function (once per name) and return its index.
-    pub fn std_sig(&mut self, name: &'static str, params: Vec<Ty>, ret: Ty) -> usize {
+    pub(crate) fn std_sig(&mut self, name: &'static str, params: Vec<Ty>, ret: Ty) -> usize {
         if let Some(i) = self.std_sigs.iter().position(|s| s.name == name) {
             return i;
         }
@@ -256,10 +381,18 @@ pub(crate) struct Lowerer<'a> {
     pub is_script: bool,
     pub this_local: Option<LocalId>,
     pub cur_class: Option<usize>,
+    pub iface_dispatch: &'a HashMap<(String, String), usize>,
 }
 
 impl<'a> Lowerer<'a> {
-    pub(crate) fn new(checked: &'a Checked, src: &'a dyn LineMap, strings: &'a mut Strings, ret: Ty, is_script: bool) -> Self {
+    pub(crate) fn new(
+        checked: &'a Checked,
+        src: &'a dyn LineMap,
+        strings: &'a mut Strings,
+        iface_dispatch: &'a HashMap<(String, String), usize>,
+        ret: Ty,
+        is_script: bool,
+    ) -> Self {
         let mut lw = Lowerer {
             checked,
             src,
@@ -283,6 +416,7 @@ impl<'a> Lowerer<'a> {
             is_script,
             this_local: None,
             cur_class: None,
+            iface_dispatch,
         };
         lw.exit_bb = lw.new_block();
         lw

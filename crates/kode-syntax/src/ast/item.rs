@@ -14,6 +14,7 @@ pub enum Item {
     Fn(FnDecl),
     Const(ConstDecl),
     Class(ClassDecl),
+    Interface(InterfaceDecl),
     Enum(EnumDecl),
     Import(ImportDecl),
     Test(TestDecl),
@@ -65,8 +66,26 @@ pub struct FieldDecl {
 pub struct ClassDecl {
     pub name: String,
     pub name_span: Span,
+    pub implements: Vec<(String, Span)>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FnDecl>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceDecl {
+    pub name: String,
+    pub name_span: Span,
+    pub methods: Vec<IfaceMethod>,
+}
+
+/// A method signature inside an interface: no body, no defaults.
+#[derive(Debug, Clone)]
+pub struct IfaceMethod {
+    pub name: String,
+    pub name_span: Span,
+    pub params: Vec<Param>,
+    pub ret: Option<TypeAnn>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]

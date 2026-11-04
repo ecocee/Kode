@@ -1,0 +1,6 @@
+interface Shape {
+    fn area() -> int
+}
+
+class Dot implements Shape {
+}
