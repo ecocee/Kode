@@ -12,7 +12,7 @@ use crate::string::{bytes, from_bytes};
 
 type Handler = extern "C" fn(*mut Header, *mut Header, *mut Header) -> *mut Header;
 
-fn status_text(code: i64) -> &'static str {
+pub(crate) fn status_text(code: i64) -> &'static str {
     match code {
         200 => "OK",
         201 => "Created",

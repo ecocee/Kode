@@ -17,6 +17,8 @@ pub enum Recv {
     Map,
     /// the built-in dynamic JSON value
     Json,
+    /// the request a route handler receives
+    Request,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +117,12 @@ pub static STD: &[StdFn] = &[
     f!("http_get", Free, [T::Str], T::Resp, true, "kode_http_get"),
     f!("http_post", Free, [T::Str, T::Str, T::Str], T::Resp, true, "kode_http_post"),
     f!("http_request", Free, [T::Str, T::Str, T::MapStrStr, T::Str], T::Resp, true, "kode_http_request"),
+    // web API helpers: build JSON objects, build responses, read a request body
+    f!("json_obj", Free, [], T::MapJson, false, "kode_json_obj"),
+    f!("response_json", Free, [T::Json], T::Resp, true, "kode_response_json"),
+    f!("response_text", Free, [T::Str], T::Resp, false, "kode_response_text"),
+    f!("response", Free, [T::Int, T::Str, T::Str], T::Resp, false, "kode_response_new"),
+    f!("json", Request, [], T::Json, true, "kode_request_json"),
 ];
 
 pub fn find_free(name: &str) -> Option<&'static StdFn> {
@@ -134,6 +142,7 @@ fn recvs_of(t: &Type) -> Vec<Recv> {
         },
         Type::Map(_) => vec![Map],
         Type::Class(n) if n == "Json" => vec![Json],
+        Type::Class(n) if n == "Request" => vec![Request],
         _ => vec![],
     }
 }

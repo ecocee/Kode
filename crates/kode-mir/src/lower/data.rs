@@ -258,7 +258,26 @@ impl<'a> Lowerer<'a> {
     }
 
     pub(crate) fn method_call(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> V {
+        // `Response.json(value)` / `Response.text(text)`
+        if let ExprKind::Ident(n) = &obj.kind {
+            if n == "Response"
+                && self.lookup(n).is_none()
+                && !self.checked.consts.contains_key(n)
+                && self.this_field(n).is_none()
+            {
+                let f = match name {
+                    "json" => kode_sema::std_fns::find_free("response_json"),
+                    "text" => kode_sema::std_fns::find_free("response_text"),
+                    _ => None,
+                }
+                .expect("the type checker validated the static method");
+                return self.std_call(f, None, args);
+            }
+        }
         let ot = self.expr_type(obj);
+        if matches!(ot, Type::Class(n) if n == "Router") {
+            return self.router_add(obj, name, args);
+        }
         if let Some(f) = kode_sema::std_fns::find_method(ot, name) {
             return self.std_call(f, Some(obj), args);
         }
@@ -322,6 +341,35 @@ impl<'a> Lowerer<'a> {
             }
             _ => unreachable!("the type checker rejects this"),
         }
+    }
+
+    /// `router.get("/users/:id", handler)`
+    fn router_add(&mut self, obj: &Expr, name: &str, args: &[Arg]) -> V {
+        let checked = self.checked;
+        let ExprKind::Ident(handler) = &args[1].value.kind else {
+            unreachable!("the type checker made sure the handler is a function name")
+        };
+        let idx = checked.fn_index[handler];
+        let method = match name {
+            "get" => "GET",
+            "post" => "POST",
+            "put" => "PUT",
+            "patch" => "PATCH",
+            "delete" => "DELETE",
+            _ => unreachable!("the type checker checked the method"),
+        };
+        let router = self.expr(obj);
+        let path = self.expr(&args[0].value);
+        let m = Operand::Str(self.intern(method));
+        let sig = self.std_sig("kode_router_add", vec![Ty::Ref, Ty::Ref, Ty::Ref, Ty::Int], Ty::Unit);
+        self.emit(Inst::Call {
+            dst: None,
+            callee: Callee::Std(sig),
+            args: vec![router.op.clone(), m, path.op.clone(), Operand::FuncAddr(idx)],
+        });
+        self.release_if_owned(path);
+        self.release_if_owned(router);
+        V::unit()
     }
 
     /// `ClassName(field: value, ...)`

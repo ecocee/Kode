@@ -1,0 +1,27 @@
+// Request/Response values and the helpers route handlers use
+req = Request(method: "POST", path: "/users/7", params: {"id": "7"}, query: {"limit": "5"}, headers: {"content-type": "application/json"}, body: "{\"name\":\"Asha\",\"tags\":[\"ai\"]}")
+print(req.method, req.path)
+print(req.params["id"], req.query["limit"], req.headers["content-type"])
+
+doc = req.json()
+print(doc["name"].as_string())
+
+empty = Request(method: "GET", path: "/", params: {}, query: {}, headers: {}, body: "")
+bad = empty.json() catch e {
+    print("bad body caught")
+    json_null()
+}
+print(bad.is_null())
+
+res = Response.json(doc)
+print(res.status, res.content_type, res.body)
+res2 = Response.text("hello")
+print(res2.status, res2.content_type, res2.body)
+
+made = json_obj()
+made["id"] = json_int(7)
+made["ok"] = json_bool(true)
+print(json_map(made).encode())
+
+manual = response(201, "created", "text/plain")
+print(manual.status, manual.body)

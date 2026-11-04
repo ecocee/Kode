@@ -33,7 +33,7 @@ checker; errors with codes, hints and JSON output.
 
 Tools: `kode run | build | check | test | fmt | explain | mir`.
 
-**Tasks** (`spawn` / `await`), a **web server** (`serve`), **JSON**, an **HTTP client**, strings, files, arguments and sorting are in too.
+**Tasks** (`spawn` / `await`), a **web server** (`serve`, or a **Router** with `Request`/`Response`), **JSON**, an **HTTP client**, strings, files, arguments and sorting are in too.
 Next: budgets and AI features (M8), then Windows, an LLVM backend and a language server (M9).
 See [docs/ROADMAP.md](docs/ROADMAP.md) and the one-page [cheat sheet](docs/agents/cheatsheet.md).
 

@@ -576,7 +576,84 @@ impl Checker {
         Some(std_fns::to_type(f.ret, elem))
     }
 
-    /// `serve(port, handler)`: the handler is a function `(string, string, string) -> string`.
+    /// `Response.json(value)` / `Response.text(text)`.
+    fn response_static(&mut self, name: &str, name_span: Span, args: &[Arg], span: Span) -> Option<Type> {
+        let f = match name {
+            "json" => std_fns::find_free("response_json").expect("the table has response_json"),
+            "text" => std_fns::find_free("response_text").expect("the table has response_text"),
+            _ => {
+                self.errors.push(
+                    Diagnostic::error("E0217", format!("`Response` has no static method `{name}`"), name_span)
+                        .with_help("use `Response.json(value)` or `Response.text(text)`"),
+                );
+                return None;
+            }
+        };
+        let mut tys = Vec::new();
+        for a in args {
+            tys.push(self.expr(&a.value));
+        }
+        if args.len() != 1 {
+            self.errors.push(Diagnostic::error(
+                "E0207",
+                format!("`Response.{name}` takes 1 argument, found {}", args.len()),
+                span,
+            ));
+            return Some(Type::Class("Response".into()));
+        }
+        let want = std_fns::to_type(f.params[0], None);
+        self.coerce(&args[0].value, tys[0].clone(), &want, "the value", "E0208");
+        if f.throws {
+            if let Some(i) = self.cur_fn {
+                self.direct_throw[i] = true;
+            }
+        }
+        Some(Type::Class("Response".into()))
+    }
+
+    /// `router.get(path, handler)` and friends.
+    fn router_method(&mut self, name: &str, name_span: Span, args: &[Arg], span: Span) -> Option<Type> {
+        if !matches!(name, "get" | "post" | "put" | "patch" | "delete") {
+            self.errors.push(
+                Diagnostic::error("E0217", format!("`Router` has no method `{name}`"), name_span)
+                    .with_help("add routes with get, post, put, patch or delete"),
+            );
+            return None;
+        }
+        if args.len() != 2 {
+            self.errors.push(Diagnostic::error(
+                "E0207",
+                format!("`Router.{name}` takes 2 arguments, found {}", args.len()),
+                span,
+            ));
+            return Some(Type::Unit);
+        }
+        let path_ty = self.expr(&args[0].value);
+        self.coerce(&args[0].value, path_ty, &Type::Str, "the route path", "E0208");
+        let handler_ok = match &args[1].value.kind {
+            ExprKind::Ident(h) => self.fn_index.get(h).map(|&i| {
+                let s = &self.fns[i];
+                s.class.is_none()
+                    && s.params.len() == 1
+                    && s.params[0].1 == Type::Class("Request".into())
+                    && s.ret == Type::Class("Response".into())
+            }),
+            _ => None,
+        };
+        if handler_ok != Some(true) {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0233",
+                    "the route handler must be the name of a function `fn name(req: Request) -> Response`",
+                    args[1].value.span,
+                )
+                .with_help("define it first, then pass it like `routes.get(\"/users/:id\", get_user)`"),
+            );
+        }
+        Some(Type::Unit)
+    }
+
+    /// `serve(port, handler)` or `serve(port, router)`.
     fn serve_call(&mut self, args: &[Arg], span: Span) -> Option<Type> {
         if args.len() != 2 {
             self.errors.push(Diagnostic::error("E0207", format!("`serve` takes 2 arguments, found {}", args.len()), span));
@@ -584,17 +661,26 @@ impl Checker {
         }
         let pt = self.expr(&args[0].value);
         self.coerce(&args[0].value, pt, &Type::Int, "the port", "E0208");
-        let ok = match &args[1].value.kind {
-            ExprKind::Ident(n) => self.fn_index.get(n).map(|&i| {
+        let is_fn = matches!(&args[1].value.kind, ExprKind::Ident(n) if self.fn_index.contains_key(n));
+        if is_fn {
+            let ExprKind::Ident(n) = &args[1].value.kind else { unreachable!() };
+            let ok = self.fn_index.get(n).map(|&i| {
                 let s = &self.fns[i];
                 s.params.iter().map(|p| &p.1).collect::<Vec<_>>() == vec![&Type::Str, &Type::Str, &Type::Str] && s.ret == Type::Str
-            }),
-            _ => None,
-        };
-        if ok != Some(true) {
+            });
+            if ok != Some(true) {
+                self.errors.push(
+                    Diagnostic::error("E0232", "the handler must be the name of a function `fn name(method: string, path: string, body: string) -> string`", args[1].value.span)
+                        .with_help("it receives the HTTP method, the path and the body, and returns the response text"),
+                );
+            }
+            return Some(Type::Unit);
+        }
+        let ht = self.expr(&args[1].value);
+        if !matches!(ht, Some(Type::Class(ref n)) if n == "Router") {
             self.errors.push(
-                Diagnostic::error("E0232", "the handler must be the name of a function `fn name(method: string, path: string, body: string) -> string`", args[1].value.span)
-                    .with_help("it receives the HTTP method, the path and the body, and returns the response text"),
+                Diagnostic::error("E0232", "`serve` needs a `Router` or a handler function", args[1].value.span)
+                    .with_help("build one with `routes = Router()` and `routes.get(path, handler)`, or pass `fn name(method: string, path: string, body: string) -> string`"),
             );
         }
         Some(Type::Unit)
@@ -727,7 +813,21 @@ impl Checker {
     }
 
     fn method_call(&mut self, id: ExprId, obj: &Expr, name: &str, name_span: Span, args: &[Arg], span: Span) -> Option<Type> {
+        // `Response.json(doc)` / `Response.text(text)` read like Express helpers.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if n == "Response"
+                && self.scopes.peek_var(n).is_none()
+                && !self.consts.contains_key(n)
+                && self.field_of_current_class(n).is_none()
+            {
+                return self.response_static(name, name_span, args, span);
+            }
+        }
         let ot = self.expr(obj);
+        // A route handler is a function name, not an expression: do not evaluate it.
+        if matches!(&ot, Some(Type::Class(n)) if n == "Router") {
+            return self.router_method(name, name_span, args, span);
+        }
         let mut tys = Vec::new();
         for a in args {
             tys.push(self.expr(&a.value));
@@ -816,6 +916,17 @@ impl Checker {
         let mut tys: Vec<Option<Type>> = Vec::new();
         for a in args {
             tys.push(self.expr(&a.value));
+        }
+
+        if callee == "Router" {
+            if !args.is_empty() {
+                self.errors.push(Diagnostic::error(
+                    "E0207",
+                    format!("`Router` takes no arguments, found {}", args.len()),
+                    span,
+                ));
+            }
+            return Some(Type::Class("Router".into()));
         }
 
         if let Some(b) = builtins::lookup(callee) {

@@ -178,10 +178,81 @@ impl Checker {
             ],
             methods: HashMap::new(),
         };
+        // `Request`, `Response` and `Router` are the simple web API layer.
+        // Field order is mirrored by `kode-rt/src/router.rs`; change both together.
+        let request_class = ClassInfo {
+            name: "Request".into(),
+            fields: vec![
+                FieldInfo {
+                    name: "method".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "path".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "params".into(),
+                    ty: Type::Map(Box::new(Type::Str)),
+                    default: None,
+                },
+                FieldInfo {
+                    name: "query".into(),
+                    ty: Type::Map(Box::new(Type::Str)),
+                    default: None,
+                },
+                FieldInfo {
+                    name: "headers".into(),
+                    ty: Type::Map(Box::new(Type::Str)),
+                    default: None,
+                },
+                FieldInfo {
+                    name: "body".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+            ],
+            methods: HashMap::new(),
+        };
+        let reply_class = ClassInfo {
+            name: "Response".into(),
+            fields: vec![
+                FieldInfo {
+                    name: "status".into(),
+                    ty: Type::Int,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "body".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "content_type".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+            ],
+            methods: HashMap::new(),
+        };
+        let router_class = ClassInfo {
+            name: "Router".into(),
+            fields: vec![FieldInfo {
+                name: "id".into(),
+                ty: Type::Int,
+                default: None,
+            }],
+            methods: HashMap::new(),
+        };
         let mut class_index = HashMap::new();
         class_index.insert("Error".to_string(), 0);
         class_index.insert("Json".to_string(), 1);
         class_index.insert("HttpResponse".to_string(), 2);
+        class_index.insert("Request".to_string(), 3);
+        class_index.insert("Response".to_string(), 4);
+        class_index.insert("Router".to_string(), 5);
         let json_kind = EnumInfo {
             name: "JsonKind".into(),
             variants: ["Null", "Bool", "Int", "Float", "Str", "List", "Map"]
@@ -197,7 +268,7 @@ impl Checker {
             expr_types,
             fns: Vec::new(),
             fn_index: HashMap::new(),
-            classes: vec![error_class, json_class, response_class],
+            classes: vec![error_class, json_class, response_class, request_class, reply_class, router_class],
             class_index,
             enums: vec![json_kind],
             enum_index,

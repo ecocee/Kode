@@ -69,7 +69,8 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0228 | parameter has the same name as a field |
 | E0230 | `spawn` needs one of your functions with int, float, bool or string parameters |
 | E0231 | `await` needs a task |
-| E0232 | the `serve` handler must be a function `(string, string, string) -> string` |
+| E0232 | the `serve` handler must be a function `(string, string, string) -> string`, or a `Router` |
+| E0233 | the route handler must be a function `(req: Request) -> Response` |
 
 ## Declarations and statements (E03xx)
 

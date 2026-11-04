@@ -4,6 +4,11 @@
 - JSON: `json_parse`, `json_null/bool/int/float/string/list/map`, a built-in `Json` class with
   `JsonKind` and `is_null`, `as_*`, `len`, `has`, `encode`, and read-only `j["key"]` / `j[i]` indexing.
   Strict parser with a depth limit; parse errors are catchable and do not leak.
+- Web API layer: `Router()` with `get`, `post`, `put`, `patch` and `delete`, built-in `Request`
+  (`method`, `path`, `params`, `query`, `headers`, `body`, `req.json()`) and `Response`
+  (`status`, `body`, `content_type`), `Response.json` / `Response.text`, `response(status, body,
+  content_type)` and `json_obj()`. `serve(port, router)` dispatches `:name` and `*name` patterns,
+  answers 404/405, and keeps the old `serve(port, handler)` form working.
 - HTTP client: `http_get`, `http_post`, `http_request`, built-in `HttpResponse`
   (`status`, `body`, `headers`). Plain `http://` only; `Content-Length` and chunked responses;
   30 s timeout; 64 MiB limit; redirects are not followed.

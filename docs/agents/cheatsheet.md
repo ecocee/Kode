@@ -48,6 +48,8 @@ test "name" { assert(1 + 1 == 2) }                   // run with: kode test
 Tasks: `t = spawn work(1, "a")` (int/float/bool/string args)   `r = await t`   `Task<int>`
 Library: `s.size() s.slice(a,b) s.split(",") s.find(t) s.upper() s.trim() s.to_int()`  `xs.sort() xs.pop()`  `words.join(",")`
 `read_file(p) write_file(p,t) args() env(n) exit(c) sleep(ms) now_ms() chr(n)`   `serve(8080, handler)`
+Router: `routes = Router()`  `routes.get("/users/:id", handler)`  handlers are `fn name(req: Request) -> Response`
+Request/Response: `req.params["id"] req.query req.headers req.body req.json()`  `Response.json(doc)` `Response.text(s)` `response(201, body, ctype)`
 JSON: `j = json_parse(t)`  `j["k"] j[0]`  `j.as_string() as_int() as_float() as_bool() as_list() as_map()`  `j.is_null() j.len() j.has(k) j.encode()`
 Build: `json_map({"a": json_int(1)})`  `json_list([...])`  `json_null/bool/int/float/string`
 HTTP: `r = http_get(url)`  `r.status r.body r.headers["content-type"]`  `http_post(url, body, ctype)`  `http_request(m, url, {}, body)`  (plain http only)

@@ -182,13 +182,19 @@ pub unsafe extern "C" fn kode_json_parse(s: *const Header) -> *mut Header {
     }
 }
 
+/// Encode a value, leaving the error to the caller (the router builds a response from it).
+pub(crate) unsafe fn encode_value(j: *mut Header) -> Result<String, String> {
+    let mut out = Vec::new();
+    encode(j, &mut out, 0)?;
+    String::from_utf8(out).map_err(|_| "the encoded JSON is not valid UTF-8".to_string())
+}
+
 /// # Safety
 /// `j` must be a valid JSON value.
 #[no_mangle]
 pub unsafe extern "C" fn kode_json_encode(j: *mut Header) -> *mut Header {
-    let mut out = Vec::new();
-    match encode(j, &mut out, 0) {
-        Ok(()) => from_bytes(&out),
+    match encode_value(j) {
+        Ok(text) => from_bytes(text.as_bytes()),
         Err(msg) => fail(msg),
     }
 }

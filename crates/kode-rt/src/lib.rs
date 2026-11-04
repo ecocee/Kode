@@ -6,6 +6,7 @@
 //! * `error`: `throw`, `catch` and runtime errors
 //! * `task`: `spawn` / `await`; `http`: the web server; `http_client`: the HTTP client
 //! * `json`: dynamic JSON values and their parser; `std_fns`: strings, files, sorting, ...
+//! * `router`: the `Router` / `Request` / `Response` web API layer
 //! * `io`: printing
 
 mod error;
@@ -17,6 +18,7 @@ mod json_parse;
 mod list;
 mod map;
 mod object;
+mod router;
 mod std_fns;
 mod string;
 mod task;

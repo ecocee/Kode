@@ -48,6 +48,43 @@ receives the method, the path (with the query) and the body, and returns the res
 that status; any other error is a 500. Try it: `kode run tests/http/server.kode -- 8080`
 and `curl localhost:8080/hello`.
 
+For an API, `Router()` with `Request` and `Response` reads like Express or FastAPI:
+
+```
+fn get_user(req: Request) -> Response {
+    user = json_obj()
+    user["id"] = json_int(req.params["id"].to_int())
+    user["name"] = json_string("Asha")
+    return Response.json(json_map(user))
+}
+
+fn create_user(req: Request) -> Response {
+    doc = req.json()
+    return Response(status: 201, body: doc.encode(), content_type: "application/json")
+}
+
+routes = Router()
+routes.get("/users/:id", get_user)
+routes.post("/users", create_user)
+serve(8080, routes)
+```
+
+`routes.get`, `post`, `put`, `patch` and `delete` take a path and the name of a function
+`fn name(req: Request) -> Response`. A pattern matches one segment with `:name` and the rest
+with `*name`; captured values are in `req.params`. `Request` has `method`, `path`, `params`,
+`query`, `headers` (names lowercased) and `body`, plus `req.json()`, which parses the body and
+raises a catchable error when it is not JSON.
+
+`Response` has `status`, `body` and `content_type`. Build one with `Response.json(value)`,
+`Response.text(text)`, `response(status, body, content_type)` or
+`Response(status: ..., body: ..., content_type: ...)`; an empty content type is inferred from
+the body. Unknown paths answer 404, and a known path with the wrong method answers 405. An
+uncaught error answers with its `code` (400 to 599) or 500, as with the plain handler.
+`json_obj()` returns an empty `{string: Json}` to fill key by key. Query and captured path
+values are not percent-decoded yet.
+
+Try it: `kode run examples/api.kode -- 8080`, then `curl localhost:8080/users/7`.
+
 ## JSON
 
 ```
