@@ -22,7 +22,7 @@ Kode is written in Rust. The compiler turns source into a native program:
 source -> lexer -> parser -> AST -> type check -> MIR -> Cranelift -> object file -> linker -> binary
 ```
 
-## Status: v0.2 (working)
+## Status: v0.3 (working)
 
 Works today: `int`, `float`, `bool`, `string`; variables and constants; operators; `if`, `while`,
 `for` over ranges, lists and maps, `break`, `continue`, `match`; functions with recursion and named
@@ -33,7 +33,8 @@ checker; errors with codes, hints and JSON output.
 
 Tools: `kode run | build | check | test | fmt | explain | mir`.
 
-Next: concurrency (`spawn` / `await`), an HTTP server and JSON, then budgets and AI features.
+**Tasks** (`spawn` / `await`), a **web server** (`serve`), strings, files, arguments and sorting are in too.
+Next: JSON, an HTTP client, budgets and AI features (M8), then Windows, an LLVM backend and a language server (M9).
 See [docs/ROADMAP.md](docs/ROADMAP.md) and the one-page [cheat sheet](docs/agents/cheatsheet.md).
 
 Measured on one dev machine (recursive Fibonacci of 35): Kode about 0.06 s, Python about 0.9 to 1.8 s,

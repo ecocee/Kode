@@ -8,6 +8,7 @@
 pub mod dump;
 pub mod ir;
 pub mod lower;
+pub mod opt;
 pub mod verify;
 
 pub use ir::*;

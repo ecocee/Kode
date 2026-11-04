@@ -27,6 +27,7 @@ impl Checker {
             }
             TypeAnnKind::List(inner) => Some(Type::List(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Map(inner) => Some(Type::Map(Box::new(self.resolve_type(inner)?))),
+            TypeAnnKind::Task(inner) => Some(Type::Task(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Opt(inner) => {
                 let t = self.resolve_type(inner)?;
                 if !t.is_ref() {
@@ -203,7 +204,7 @@ impl Checker {
             let index = self.fns.len();
             let name = match cls {
                 None => {
-                    if builtins::lookup(&f.name).is_some() {
+                    if builtins::lookup(&f.name).is_some() || crate::std_fns::find_free(&f.name).is_some() || f.name == "serve" {
                         self.errors.push(
                             Diagnostic::error(
                                 "E0302",

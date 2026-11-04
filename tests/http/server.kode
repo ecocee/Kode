@@ -1,0 +1,58 @@
+
+fn get(method: string, path: string, body: string) -> string {
+    if path == "/" {
+        return "Hello World from KODE"
+    }
+
+    if path == "/hello" {
+        return "Hello from Kode"
+    }
+
+    throw Error(message: "Not Found", code: 404)
+}
+
+fn post(method: string, path: string, body: string) -> string {
+    if path == "/users" {
+        return "User created: " + body
+    }
+
+    throw Error(message: "Not Found", code: 404)
+}
+
+fn put(method: string, path: string, body: string) -> string {
+    if path == "/users" {
+        return "User updated: " + body
+    }
+
+    throw Error(message: "Not Found", code: 404)
+}
+
+fn delete(method: string, path: string, body: string) -> string {
+    if path == "/users" {
+        return "User deleted"
+    }
+
+    throw Error(message: "Not Found", code: 404)
+}
+
+fn handle(method: string, path: string, body: string) -> string {
+    if method == "GET" {
+        return get(method, path, body)
+    }
+
+    if method == "POST" {
+        return post(method, path, body)
+    }
+
+    if method == "PUT" {
+        return put(method, path, body)
+    }
+
+    if method == "DELETE" {
+        return delete(method, path, body)
+    }
+
+    throw Error(message: "Method Not Allowed", code: 405)
+}
+
+serve(8080, handle)

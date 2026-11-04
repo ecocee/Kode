@@ -1,4 +1,5 @@
 use kode_sema::builtins::{self, Builtin};
+use kode_sema::std_fns::{self, StdFn, StdTy};
 use kode_sema::Type;
 use kode_syntax::ast::{self, Arg, Expr, ExprKind, InterpPart};
 
@@ -54,6 +55,8 @@ impl<'a> Lowerer<'a> {
             ExprKind::Member { obj, name, safe, .. } => self.member(obj, name, *safe),
             ExprKind::MethodCall { obj, name, args, .. } => self.method_call(e, obj, name, args),
             ExprKind::Call { callee, args, .. } => self.call(e, callee, args),
+            ExprKind::Spawn { callee, args, .. } => self.spawn(e, callee, args),
+            ExprKind::Await(inner) => self.await_expr(inner, e),
             ExprKind::Catch { expr, var, block, .. } => self.catch_expr(expr, var, block),
         }
     }
@@ -88,6 +91,9 @@ impl<'a> Lowerer<'a> {
     fn binary(&mut self, op: ast::BinOp, lhs: &Expr, rhs: &Expr, e: &Expr) -> V {
         if matches!(op, ast::BinOp::And | ast::BinOp::Or) {
             return self.short_circuit(op, lhs, rhs);
+        }
+        if let Some(v) = self.even_check(op, lhs, rhs) {
+            return v;
         }
         let lt = self.expr_type(lhs);
         let l = self.expr(lhs);
@@ -149,6 +155,31 @@ impl<'a> Lowerer<'a> {
         self.release_if_owned(l);
         self.release_if_owned(r);
         V::val(Operand::Local(t))
+    }
+
+    /// `x % 2 == 0` (or `!= 0`) with a power of two: a bit test is much cheaper than a division.
+    fn even_check(&mut self, op: ast::BinOp, lhs: &Expr, rhs: &Expr) -> Option<V> {
+        if !matches!(op, ast::BinOp::Eq | ast::BinOp::Ne) {
+            return None;
+        }
+        let ExprKind::Int(0) = rhs.kind else { return None };
+        let ExprKind::Binary { op: ast::BinOp::Rem, lhs: x, rhs: m } = &lhs.kind else { return None };
+        let ExprKind::Int(c) = m.kind else { return None };
+        if c <= 0 || c & (c - 1) != 0 {
+            return None;
+        }
+        let xv = self.expr(x);
+        let masked = self.new_temp(Ty::Int);
+        self.emit(Inst::Assign {
+            dst: masked,
+            rv: Rvalue::Binary(BinOp::BitAnd, xv.op, Operand::Int(c - 1)),
+        });
+        let t = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: t,
+            rv: Rvalue::Binary(mir_binop(op), Operand::Local(masked), Operand::Int(0)),
+        });
+        Some(V::val(Operand::Local(t)))
     }
 
     /// `a and b` / `a or b`: the right side runs only when needed.
@@ -324,8 +355,14 @@ impl<'a> Lowerer<'a> {
     }
 
     fn call(&mut self, e: &Expr, callee: &str, args: &[Arg]) -> V {
+        if callee == "serve" {
+            return self.serve(args);
+        }
         if let Some(b) = builtins::lookup(callee) {
             return self.builtin(b, args, e);
+        }
+        if let Some(f) = std_fns::find_free(callee) {
+            return self.std_call(f, None, args);
         }
         let checked = self.checked;
         if let Some(&idx) = checked.fn_index.get(callee) {
@@ -343,6 +380,155 @@ impl<'a> Lowerer<'a> {
         let n = checked.fns[mi].params.len() - 1;
         let vals = self.call_vals(e.id, args, Some(this), n);
         self.emit_call(mi, vals)
+    }
+
+    /// The MIR type of a table type (`elem` is the item type for `Elem`).
+    fn std_ty(t: StdTy, elem: Option<&Type>) -> Ty {
+        match t {
+            StdTy::Int => Ty::Int,
+            StdTy::Float => Ty::Float,
+            StdTy::Bool => Ty::Bool,
+            StdTy::Unit => Ty::Unit,
+            StdTy::Str | StdTy::ListStr | StdTy::OptStr => Ty::Ref,
+            StdTy::Elem => elem.map(mir_ty).unwrap_or(Ty::Int),
+        }
+    }
+
+    /// A call to a runtime library function from the standard-library table.
+    pub(crate) fn std_call(&mut self, f: &'static StdFn, recv: Option<&Expr>, args: &[Arg]) -> V {
+        let recv_type = recv.map(|r| self.expr_type(r));
+        let elem: Option<&Type> = match recv_type {
+            Some(Type::List(el)) => Some(el),
+            _ => None,
+        };
+        let mut vals: Vec<V> = Vec::new();
+        let mut ptys: Vec<Ty> = Vec::new();
+        if let Some(r) = recv {
+            vals.push(self.expr(r));
+            ptys.push(Ty::Ref);
+        }
+        for (a, p) in args.iter().zip(f.params) {
+            vals.push(self.expr(&a.value));
+            ptys.push(Self::std_ty(*p, elem));
+        }
+        let rty = Self::std_ty(f.ret, elem);
+        // a float item comes back from the runtime as raw bits
+        let float_item = f.ret == StdTy::Elem && rty == Ty::Float;
+        let sig_ret = if float_item { Ty::Int } else { rty };
+        let sig = self.std_sig(f.sym, ptys, sig_ret);
+        let dst = (sig_ret != Ty::Unit).then(|| self.new_temp(sig_ret));
+        let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
+        self.emit(Inst::Call {
+            dst,
+            callee: Callee::Std(sig),
+            args: ops,
+        });
+        if f.throws {
+            self.error_check();
+        }
+        for v in vals {
+            self.release_if_owned(v);
+        }
+        match dst {
+            Some(d) if float_item => {
+                let c = self.new_temp(Ty::Float);
+                self.emit(Inst::Assign {
+                    dst: c,
+                    rv: Rvalue::Cast(CastKind::BitsToFloat, Operand::Local(d)),
+                });
+                V::val(Operand::Local(c))
+            }
+            Some(d) if rty == Ty::Ref => self.owned(Operand::Local(d)),
+            Some(d) => V::val(Operand::Local(d)),
+            None => V::unit(),
+        }
+    }
+
+    /// `serve(port, handler)`
+    fn serve(&mut self, args: &[Arg]) -> V {
+        let port = self.expr(&args[0].value);
+        let ExprKind::Ident(name) = &args[1].value.kind else { unreachable!("checked") };
+        let idx = self.checked.fn_index[name];
+        let sig = self.std_sig("kode_http_serve", vec![Ty::Int, Ty::Int], Ty::Unit);
+        self.emit(Inst::Call {
+            dst: None,
+            callee: Callee::Std(sig),
+            args: vec![port.op, Operand::FuncAddr(idx)],
+        });
+        V::unit()
+    }
+
+    /// `spawn f(args)`: pack the arguments into a block and start a task.
+    fn spawn(&mut self, e: &Expr, callee: &str, args: &[Arg]) -> V {
+        let checked = self.checked;
+        let idx = checked.fn_index[callee];
+        let sig_fn = &checked.fns[idx];
+        let slots = checked.call_args[&e.id].clone();
+        let n = sig_fn.params.len();
+        let mask: i64 = sig_fn
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| mir_ty(&p.1) == Ty::Ref)
+            .fold(0, |m, (i, _)| m | (1 << i));
+        let p = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(p),
+            callee: Callee::Rt(RtFn::ObjNew),
+            args: vec![Operand::Int(n as i64), Operand::Int(mask)],
+        });
+        let block = self.owned(Operand::Local(p));
+        for (i, (_, ty)) in sig_fn.params.iter().enumerate() {
+            let v = self.expr(&args[slots[i].expect("checked")].value);
+            let op = if mir_ty(ty) == Ty::Ref { self.own(v) } else { v.op };
+            self.emit(Inst::Store {
+                base: Operand::Local(p),
+                offset: 24 + 8 * i as i32,
+                value: op,
+            });
+        }
+        let thunk = self.thunk(idx);
+        let result_is_ref = mir_ty(&sig_fn.ret) == Ty::Ref;
+        let task = self.new_temp(Ty::Ref);
+        let sig = self.std_sig("kode_task_spawn", vec![Ty::Int, Ty::Ref, Ty::Int], Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(task),
+            callee: Callee::Std(sig),
+            args: vec![Operand::Thunk(thunk), Operand::Local(p), Operand::Int(result_is_ref as i64)],
+        });
+        self.own(block); // the task now owns the argument block
+        self.owned(Operand::Local(task))
+    }
+
+    /// `await task`
+    fn await_expr(&mut self, inner: &Expr, e: &Expr) -> V {
+        let ty = self.expr_type(e);
+        let tv = self.expr(inner);
+        let m = mir_ty(ty);
+        let raw_ty = if m == Ty::Ref { Ty::Ref } else { Ty::Int };
+        let sig = self.std_sig("kode_task_await", vec![Ty::Ref], raw_ty);
+        let t = self.new_temp(raw_ty);
+        self.emit(Inst::Call {
+            dst: Some(t),
+            callee: Callee::Std(sig),
+            args: vec![tv.op.clone()],
+        });
+        self.error_check();
+        self.release_if_owned(tv);
+        match m {
+            Ty::Ref => self.owned(Operand::Local(t)),
+            Ty::Bool | Ty::Float => {
+                let kind = if m == Ty::Bool { CastKind::IntToBool } else { CastKind::BitsToFloat };
+                let c = self.new_temp(m);
+                self.emit(Inst::Assign {
+                    dst: c,
+                    rv: Rvalue::Cast(kind, Operand::Local(t)),
+                });
+                V::val(Operand::Local(c))
+            }
+            Ty::Unit => V::unit(),
+            Ty::Int => V::val(Operand::Local(t)),
+        }
     }
 
     fn builtin(&mut self, b: Builtin, args: &[Arg], e: &Expr) -> V {

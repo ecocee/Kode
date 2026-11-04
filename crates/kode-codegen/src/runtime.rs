@@ -13,6 +13,7 @@ pub(crate) struct Rt {
     pub release: FuncId,
     pub div_zero: FuncId,
     pub finish: FuncId,
+    pub init: FuncId,
 }
 
 const I: types::Type = types::I64;
@@ -38,6 +39,10 @@ pub(crate) fn info(f: RtFn) -> (&'static str, Vec<types::Type>, Option<types::Ty
         RtFn::ListGet => ("kode_list_get", vec![I, I, I], Some(I)),
         RtFn::ListSet => ("kode_list_set", vec![I, I, I, I], None),
         RtFn::ListLen => ("kode_list_len", vec![I], Some(I)),
+        RtFn::ListNewPacked => ("kode_list_new_packed", vec![], Some(I)),
+        RtFn::ListPush8 => ("kode_list_push8", vec![I, I], None),
+        RtFn::ListGet8 => ("kode_list_get8", vec![I, I, I], Some(I)),
+        RtFn::ListSet8 => ("kode_list_set8", vec![I, I, I, I], None),
         RtFn::MapNew => ("kode_map_new", vec![I], Some(I)),
         RtFn::MapSet => ("kode_map_set", vec![I, I, I], None),
         RtFn::MapGet => ("kode_map_get", vec![I, I, I], Some(I)),
@@ -53,6 +58,7 @@ pub(crate) fn info(f: RtFn) -> (&'static str, Vec<types::Type>, Option<types::Ty
         RtFn::Uncaught => ("kode_uncaught", vec![], None),
         RtFn::UnwrapFail => ("kode_unwrap_fail", vec![I], None),
         RtFn::Exit => ("kode_exit", vec![I], None),
+        RtFn::ListOob => ("kode_list_oob", vec![I, I, I], None),
     }
 }
 
@@ -79,6 +85,10 @@ const ALL: &[RtFn] = &[
     RtFn::ListGet,
     RtFn::ListSet,
     RtFn::ListLen,
+    RtFn::ListNewPacked,
+    RtFn::ListPush8,
+    RtFn::ListGet8,
+    RtFn::ListSet8,
     RtFn::MapNew,
     RtFn::MapSet,
     RtFn::MapGet,
@@ -94,6 +104,7 @@ const ALL: &[RtFn] = &[
     RtFn::Uncaught,
     RtFn::UnwrapFail,
     RtFn::Exit,
+    RtFn::ListOob,
 ];
 
 fn import(
@@ -126,5 +137,6 @@ pub(crate) fn declare(module: &mut ObjectModule) -> Result<Rt, String> {
         release: import(module, "kode_release", &[I], None)?,
         div_zero: import(module, "kode_div_zero", &[], None)?,
         finish: import(module, "kode_rt_finish", &[], None)?,
+        init: import(module, "kode_rt_init", &[], None)?,
     })
 }

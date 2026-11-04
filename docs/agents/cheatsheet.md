@@ -1,4 +1,4 @@
-# Kode cheat sheet (v0.2)
+# Kode cheat sheet (v0.3)
 
 Compiled language, one statement per line, no semicolons. Types: `int float bool string`,
 `[T]` list, `{string: T}` map, `T?` optional (string, list, map, class), classes, enums.
@@ -44,6 +44,10 @@ try { f() } catch e { print(e.message) }
 import "./util"        from "./util" import helper   // modules share one namespace
 test "name" { assert(1 + 1 == 2) }                   // run with: kode test
 ```
+
+Tasks: `t = spawn work(1, "a")` (int/float/bool/string args)   `r = await t`   `Task<int>`
+Library: `s.size() s.slice(a,b) s.split(",") s.find(t) s.upper() s.trim() s.to_int()`  `xs.sort() xs.pop()`  `words.join(",")`
+`read_file(p) write_file(p,t) args() env(n) exit(c) sleep(ms) now_ms() chr(n)`   `serve(8080, handler)`
 
 Built-ins: `print(...)`, `len(x)`, `int(x)`, `float(x)`, `string(x)`, `assert(cond)`.
 Commands: `kode run|build|check|test|fmt|explain|mir`. Use `kode check --format=json` for errors

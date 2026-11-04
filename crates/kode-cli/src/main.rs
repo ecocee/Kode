@@ -19,6 +19,9 @@ use source::SourceMap;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The runtime library, built by `build.rs` and embedded in this binary.
+static RUNTIME: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libkode_rt.a"));
+
 fn main() -> ExitCode {
     let opts = match args::parse() {
         Ok(o) => o,
@@ -86,19 +89,34 @@ fn front_end(opts: &Options, file: &str) -> Result<Front, u8> {
 }
 
 fn object_for(opts: &Options, f: &Front, mode: Mode) -> Result<Vec<u8>, String> {
-    let mir = kode_mir::lower(&f.program, &f.checked, &f.map, mode);
+    let mut mir = kode_mir::lower(&f.program, &f.checked, &f.map, mode);
+    if !opts.debug {
+        kode_mir::opt::optimize(&mut mir);
+    }
     kode_mir::verify::verify(&mir).map_err(|e| format!("internal compiler error: {e}"))?;
-    kode_codegen::compile_to_object(&mir, opts.release)
+    kode_codegen::compile_to_object(&mir, !opts.debug)
 }
 
-/// Link into a temporary folder, run, clean up. Returns the program's exit code.
-fn run_object(object: &[u8], tag: &str) -> Result<u8, String> {
-    let rt = runtime_lib()?;
+/// Write the embedded runtime library to `dir` and return its path.
+/// `KODE_RT_LIB` can point at another runtime (for compiler development).
+fn runtime_lib(dir: &Path) -> Result<PathBuf, String> {
+    if let Ok(p) = std::env::var("KODE_RT_LIB") {
+        return Ok(PathBuf::from(p));
+    }
+    let path = dir.join("libkode_rt.a");
+    std::fs::write(&path, RUNTIME).map_err(|e| format!("cannot write the runtime library: {e}"))?;
+    Ok(path)
+}
+
+/// Link into a temporary folder, run with the program arguments, clean up.
+/// Returns the program's exit code.
+fn run_object(object: &[u8], tag: &str, prog_args: &[String]) -> Result<u8, String> {
     let dir = std::env::temp_dir().join(format!("kode-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let exe = dir.join("program");
-    let result = kode_codegen::link(object, &exe, &rt, false).and_then(|_| {
+    let result = runtime_lib(&dir).and_then(|rt| kode_codegen::link(object, &exe, &rt, false)).and_then(|_| {
         Command::new(&exe)
+            .args(prog_args)
             .status()
             .map_err(|e| format!("cannot run the program: {e}"))
     });
@@ -176,11 +194,15 @@ fn run_command(opts: &Options) -> Result<u8, String> {
                     .unwrap_or_else(|| "a".to_string()),
             ),
         };
-        kode_codegen::link(&object, &out, &runtime_lib()?, opts.release)?;
+        let tmp = std::env::temp_dir().join(format!("kode-build-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+        let linked = runtime_lib(&tmp).and_then(|rt| kode_codegen::link(&object, &out, &rt, opts.release));
+        let _ = std::fs::remove_dir_all(&tmp);
+        linked?;
         eprintln!("built {}", out.display());
         return Ok(0);
     }
-    run_object(&object, "run")
+    run_object(&object, "run", &opts.program_args)
 }
 
 // ---- kode test ---------------------------------------------------------
@@ -213,7 +235,7 @@ fn test_command(opts: &Options) -> Result<u8, String> {
         }
         ran += 1;
         let object = object_for(opts, &front, Mode::Test)?;
-        let code = run_object(&object, &format!("test{n}"))?;
+        let code = run_object(&object, &format!("test{n}"), &[])?;
         if code != 0 {
             failed = true;
         }
@@ -292,31 +314,4 @@ fn collect_kode_files(paths: &[String]) -> Result<Vec<PathBuf>, String> {
         }
     }
     Ok(out)
-}
-
-/// Find the runtime library (`libkode_rt.a`).
-/// Order: the KODE_RT_LIB variable, next to the `kode` binary, then the
-/// `target` folder of this project (so a copied `kode` binary still works).
-fn runtime_lib() -> Result<PathBuf, String> {
-    if let Ok(p) = std::env::var("KODE_RT_LIB") {
-        return Ok(PathBuf::from(p));
-    }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let beside = exe.parent().unwrap().join("libkode_rt.a");
-    if beside.exists() {
-        return Ok(beside);
-    }
-    for profile in ["debug", "release"] {
-        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target")
-            .join(profile)
-            .join("libkode_rt.a");
-        if p.exists() {
-            return Ok(p);
-        }
-    }
-    Err(format!(
-        "runtime library not found next to {}; run `cargo build --workspace` first",
-        exe.display()
-    ))
 }

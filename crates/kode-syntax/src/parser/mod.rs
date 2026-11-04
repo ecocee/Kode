@@ -134,6 +134,13 @@ impl Parser {
     pub(crate) fn type_ann(&mut self) -> Result<TypeAnn, Diagnostic> {
         let start = self.span();
         let kind = match self.peek().clone() {
+            TokenKind::Ident(name) if name == "Task" && matches!(self.peek_at(1), Some(TokenKind::Lt)) => {
+                self.bump();
+                self.bump(); // <
+                let inner = self.type_ann()?;
+                self.expect(TokenKind::Gt, "`>`")?;
+                TypeAnnKind::Task(Box::new(inner))
+            }
             TokenKind::Ident(name) => {
                 self.bump();
                 TypeAnnKind::Name(name)

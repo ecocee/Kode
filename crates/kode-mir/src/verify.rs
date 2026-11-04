@@ -12,6 +12,8 @@ pub fn verify(p: &MirProgram) -> Result<(), String> {
         let check_op = |o: &Operand| -> Result<(), String> {
             match o {
                 Operand::Local(i) if *i >= nl => Err(format!("{}: local _{i} does not exist", f.name)),
+                Operand::Thunk(i) if *i >= p.thunks.len() => Err(format!("{}: thunk {i} does not exist", f.name)),
+                Operand::FuncAddr(i) if *i >= p.funcs.len() => Err(format!("{}: function {i} does not exist", f.name)),
                 Operand::Str(i) if *i >= p.strings.len() => {
                     Err(format!("{}: string #{i} does not exist", f.name))
                 }
@@ -34,12 +36,22 @@ pub fn verify(p: &MirProgram) -> Result<(), String> {
                                 check_op(a)?;
                                 check_op(c)?;
                             }
+                            Rvalue::Select(c, a, b) => {
+                                check_op(c)?;
+                                check_op(a)?;
+                                check_op(b)?;
+                            }
                         }
                     }
                     Inst::Call { dst, callee, args } => {
                         if let Some(d) = dst {
                             if *d >= nl {
                                 return Err(format!("{}: bb{bi} call result _{d} missing", f.name));
+                            }
+                        }
+                        if let Callee::Std(i) = callee {
+                            if *i >= p.std_sigs.len() {
+                                return Err(format!("{}: bb{bi} calls a missing library function", f.name));
                             }
                         }
                         if let Callee::User(i) = callee {

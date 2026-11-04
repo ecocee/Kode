@@ -33,6 +33,7 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0114 | expected a field or a method in a class |
 | E0115 | map keys must be strings |
 | E0116 | expected a quoted file path or name |
+| E0117 | `spawn` needs a function call |
 
 ## Type checker (E02xx)
 
@@ -66,6 +67,9 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0226 | `throw` needs a string or an `Error` |
 | E0227 | `catch` block does not end with a value |
 | E0228 | parameter has the same name as a field |
+| E0230 | `spawn` needs one of your functions with int, float, bool or string parameters |
+| E0231 | `await` needs a task |
+| E0232 | the `serve` handler must be a function `(string, string, string) -> string` |
 
 ## Declarations and statements (E03xx)
 

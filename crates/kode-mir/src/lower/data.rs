@@ -14,6 +14,24 @@ fn strip_opt(t: &Type) -> &Type {
     }
 }
 
+/// Lists of `bool` are stored with one byte per item.
+pub(crate) fn packed(el: &Type) -> bool {
+    *el == Type::Bool
+}
+
+/// The runtime function for a list operation, depending on the item type.
+pub(crate) fn list_rt(el: &Type, base: RtFn) -> RtFn {
+    if !packed(el) {
+        return base;
+    }
+    match base {
+        RtFn::ListPush => RtFn::ListPush8,
+        RtFn::ListGet => RtFn::ListGet8,
+        RtFn::ListSet => RtFn::ListSet8,
+        other => other,
+    }
+}
+
 impl<'a> Lowerer<'a> {
     /// Store a value in a 64-bit slot (list item, map value).
     pub fn to_raw(&mut self, op: Operand, ty: &Type) -> Operand {
@@ -100,8 +118,8 @@ impl<'a> Lowerer<'a> {
         let t = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
             dst: Some(t),
-            callee: Callee::Rt(RtFn::ListNew),
-            args: vec![Operand::Int((el.is_ref() && *el != Type::NoneT) as i64)],
+            callee: Callee::Rt(if packed(el) { RtFn::ListNewPacked } else { RtFn::ListNew }),
+            args: if packed(el) { vec![] } else { vec![Operand::Int((el.is_ref() && *el != Type::NoneT) as i64)] },
         });
         let lv = self.owned(Operand::Local(t));
         for x in items {
@@ -110,7 +128,7 @@ impl<'a> Lowerer<'a> {
             let raw = self.to_raw(op, el);
             self.emit(Inst::Call {
                 dst: None,
-                callee: Callee::Rt(RtFn::ListPush),
+                callee: Callee::Rt(list_rt(el, RtFn::ListPush)),
                 args: vec![Operand::Local(t), raw],
             });
         }
@@ -148,7 +166,11 @@ impl<'a> Lowerer<'a> {
         let ov = self.expr(obj);
         let iv = self.expr(index);
         let line = Operand::Int(self.line_of(e.span.start));
-        let rt = if matches!(ot, Type::Map(_)) { RtFn::MapGet } else { RtFn::ListGet };
+        let rt = match ot {
+            Type::Map(_) => RtFn::MapGet,
+            Type::List(el) => list_rt(el, RtFn::ListGet),
+            _ => unreachable!("checked: a list or map"),
+        };
         let result = self.call_raw(rt, vec![ov.op.clone(), iv.op.clone(), line], res_ty);
         self.release_if_owned(iv);
         self.borrow_result(ov, result, res_ty)
@@ -219,6 +241,9 @@ impl<'a> Lowerer<'a> {
 
     pub(crate) fn method_call(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> V {
         let ot = self.expr_type(obj);
+        if let Some(f) = kode_sema::std_fns::find_method(ot, name) {
+            return self.std_call(f, Some(obj), args);
+        }
         let ov = self.expr(obj);
         match (ot, name) {
             (Type::Str, "len") | (Type::List(_), "len") | (Type::Map(_), "len") => {
@@ -242,7 +267,7 @@ impl<'a> Lowerer<'a> {
                 let raw = self.to_raw(op, el);
                 self.emit(Inst::Call {
                     dst: None,
-                    callee: Callee::Rt(RtFn::ListPush),
+                    callee: Callee::Rt(list_rt(el, RtFn::ListPush)),
                     args: vec![ov.op.clone(), raw],
                 });
                 self.release_if_owned(ov);

@@ -18,6 +18,8 @@ pub enum TypeAnnKind {
     /// `{string: T}`: the key is always a string, this is the value type.
     Map(Box<TypeAnn>),
     Opt(Box<TypeAnn>),
+    /// `Task<T>`
+    Task(Box<TypeAnn>),
 }
 
 /// Something that can be assigned to.

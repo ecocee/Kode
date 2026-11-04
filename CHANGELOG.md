@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 (M6, M7, performance)
+- Tasks: `spawn f(args)`, `await t`, type `Task<T>`; atomic reference counts when threads exist; one error slot per thread.
+- Standard library table: string, list, map, file, environment, time functions (see docs/spec/13-stdlib.md).
+- `serve(port, handler)`: HTTP/1.1 server with keep-alive on a thread pool.
+- The runtime library is embedded in the compiler (no stale runtime, `kode` works from any folder).
+- `kode run file.kode -- args`; optimization is on by default (`--debug` turns it off).
+- Faster code: constant division without checks, `x % 2 == 0` as a bit test, inlined list access and `add`,
+  1-byte `[bool]` lists, loop rotation, conditions that branch directly, `if/else` to `select`, a small-function
+  inliner, no frame pointers.
+- Benchmark suite and harness in `benchmarks/` (Kode, C, C++, Go, JavaScript, Python; real peak memory).
+
 ## 0.2.0 (M2 to M5)
 - Lists `[T]` and maps `{string: T}`: literals, indexing, `.add`, `.len`, `in`, `.keys`, `for x in list`, `for k, v in map`.
 - Classes with fields, defaults, methods and named constructor arguments; enums; `match`.

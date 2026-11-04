@@ -1,0 +1,53 @@
+fn work(n: int) -> int {
+    total = 0
+    for i in 0..n {
+        total += i
+    }
+    return total
+}
+
+fn greet(name: string) -> string {
+    return "hi " + name + "!"
+}
+
+fn half(x: float) -> float => x / 2.0
+
+fn is_big(n: int) -> bool => n > 10
+
+fn tick() {
+}
+
+fn fails() -> int {
+    throw "boom"
+}
+
+t1 = spawn work(100)
+t2 = spawn work(1000)
+print(await t1, await t2)
+
+tasks: [Task<int>] = []
+for i in 1..=4 {
+    tasks.add(spawn work(i * 10))
+}
+sum = 0
+for t in tasks {
+    sum += await t
+}
+print(sum)
+
+s = spawn greet("Asha")
+print(await s)
+print(await spawn half(5.0), await spawn is_big(50))
+
+t = spawn tick()
+await t
+
+boom = spawn fails()
+r = await boom catch e {
+    print("task failed:", e.message)
+    -1
+}
+print(r)
+
+unused = spawn work(10)
+print("done")

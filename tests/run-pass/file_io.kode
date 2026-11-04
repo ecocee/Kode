@@ -1,0 +1,14 @@
+write_file("/tmp/kode_io_test.txt", "line1\nline2\n")
+text = read_file("/tmp/kode_io_test.txt")
+lines = text.trim().split("\n")
+print(len(lines), lines[1])
+missing = read_file("/tmp/definitely/not/here.txt") catch e {
+    print("read failed")
+    ""
+}
+print(missing.size())
+t0 = now_ms()
+sleep(20)
+print(now_ms() - t0 >= 15)
+print(env("KODE_SURELY_NOT_SET") ?? "unset")
+print(len(args()))

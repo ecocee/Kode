@@ -22,6 +22,8 @@ fn op(p: &MirProgram, o: &Operand) -> String {
         Operand::Bool(v) => v.to_string(),
         Operand::Str(i) => format!("{:?}", p.strings[*i]),
         Operand::NullRef => "null".to_string(),
+        Operand::Thunk(i) => format!("thunk{i}"),
+        Operand::FuncAddr(i) => format!("&fn{i}"),
     }
 }
 
@@ -49,6 +51,7 @@ pub fn dump(p: &MirProgram) -> String {
                                 format!("{} {}, {}", format!("{b:?}").to_lowercase(), op(p, x), op(p, y))
                             }
                             Rvalue::Cast(c, a) => format!("cast {c:?} {}", op(p, a)),
+                            Rvalue::Select(c, a, b) => format!("select {}, {}, {}", op(p, c), op(p, a), op(p, b)),
                         };
                         format!("_{dst} = {r}")
                     }
@@ -56,6 +59,7 @@ pub fn dump(p: &MirProgram) -> String {
                         let name = match callee {
                             Callee::User(i) => p.funcs[*i].name.clone(),
                             Callee::Rt(r) => format!("rt::{r:?}"),
+                            Callee::Std(i) => format!("std::{}", p.std_sigs[*i].name),
                         };
                         let args: Vec<String> = args.iter().map(|a| op(p, a)).collect();
                         match dst {

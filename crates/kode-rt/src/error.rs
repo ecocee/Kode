@@ -4,13 +4,35 @@
 //! compiled code asks `kode_err_pending` and jumps to its handler if set.
 
 use std::io::Write;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::cell::Cell;
 
 use crate::io::flush;
 use crate::object::{kode_release, Header};
 use crate::string::bytes;
 
-static ERR: AtomicPtr<Header> = AtomicPtr::new(std::ptr::null_mut());
+thread_local! {
+    static ERR: Cell<*mut Header> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+/// Take this thread's pending error (null if none).
+pub fn take_err() -> *mut Header {
+    ERR.with(|e| e.replace(std::ptr::null_mut()))
+}
+
+/// Build an `Error` object (message and code).
+pub fn make_error(msg: &str, code: i64) -> *mut Header {
+    unsafe {
+        let e = crate::object::kode_obj_new(2, 1);
+        *((e as *mut *mut Header).add(3)) = crate::string::from_bytes(msg.as_bytes());
+        *((e as *mut i64).add(4)) = code;
+        e
+    }
+}
+
+/// Raise an error with a message from inside a runtime function.
+pub fn throw_msg(msg: &str) {
+    unsafe { kode_err_throw(make_error(msg, 0)) }
+}
 
 /// Stop the program with a runtime error.
 pub fn fatal(msg: &str) -> ! {
@@ -23,19 +45,19 @@ pub fn fatal(msg: &str) -> ! {
 /// `obj` must be an `Error` object; the runtime takes ownership.
 #[no_mangle]
 pub unsafe extern "C" fn kode_err_throw(obj: *mut Header) {
-    let old = ERR.swap(obj, Ordering::SeqCst);
+    let old = ERR.with(|e| e.replace(obj));
     kode_release(old);
 }
 
 #[no_mangle]
 pub extern "C" fn kode_err_pending() -> i64 {
-    (!ERR.load(Ordering::SeqCst).is_null()) as i64
+    ERR.with(|e| !e.get().is_null()) as i64
 }
 
 /// Take the pending error; the caller owns it.
 #[no_mangle]
 pub extern "C" fn kode_err_take() -> *mut Header {
-    ERR.swap(std::ptr::null_mut(), Ordering::SeqCst)
+    take_err()
 }
 
 /// An error reached the top of the program.

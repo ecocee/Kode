@@ -1,0 +1,25 @@
+n = 10000000
+flags: [bool] = []
+for i in 0..n + 1 {
+    flags.add(true)
+}
+flags[0] = false
+flags[1] = false
+i = 2
+while i * i <= n {
+    if flags[i] {
+        j = i * i
+        while j <= n {
+            flags[j] = false
+            j += i
+        }
+    }
+    i += 1
+}
+count = 0
+for k in 0..n + 1 {
+    if flags[k] {
+        count += 1
+    }
+}
+print(count)

@@ -133,3 +133,24 @@ pub unsafe extern "C" fn kode_map_keys(p: *mut Header) -> *mut Header {
     }
     list
 }
+
+/// Remove a key (and release its value). Missing keys are ignored.
+///
+/// # Safety
+/// `p` must be a valid map and `key` a valid string.
+#[no_mangle]
+pub unsafe extern "C" fn kode_map_remove(p: *mut Header, key: *mut Header) {
+    let m = inner(p);
+    let Some(i) = m.index.remove(bytes(key)) else { return };
+    let k = m.keys.remove(i);
+    let v = m.vals.remove(i);
+    kode_release(k);
+    if is_refs(p) {
+        kode_release(v as *mut Header);
+    }
+    for pos in m.index.values_mut() {
+        if *pos > i {
+            *pos -= 1;
+        }
+    }
+}

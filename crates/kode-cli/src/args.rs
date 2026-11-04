@@ -2,7 +2,7 @@ pub const HELP: &str = "\
 kode - the Kode compiler
 
 USAGE:
-    kode run <file.kode>              compile and run a program
+    kode run <file.kode> [-- args]    compile and run a program (args go to the program)
     kode build <file.kode> [-o out]   compile to a native binary
     kode check <file.kode>            check for errors only (fast)
     kode test [file-or-folder]        run the `test` blocks (default: current folder)
@@ -15,7 +15,8 @@ USAGE:
 OPTIONS:
     --format=json     print diagnostics as JSON (for editors and AI agents)
     --strict          treat warnings as errors
-    --release         optimize the generated code
+    --release         strip symbols from the built binary
+    --debug           do not optimize the generated code (faster to compile)
     --check           with `fmt`: do not write, exit 1 if a file would change
     -o <file>         output file for `build`
     -h, --help        show this help
@@ -30,7 +31,10 @@ pub struct Options {
     pub json: bool,
     pub strict: bool,
     pub release: bool,
+    pub debug: bool,
     pub check: bool,
+    pub simple: bool,
+    pub program_args: Vec<String>,
 }
 
 impl Options {
@@ -49,6 +53,12 @@ pub fn parse() -> Result<Options, String> {
             "--format=json" => opts.json = true,
             "--strict" => opts.strict = true,
             "--release" => opts.release = true,
+            "--debug" => opts.debug = true,
+            "--simple" => opts.simple = true,
+            "--" => {
+                opts.program_args = args.by_ref().collect();
+                break;
+            }
             "--check" => opts.check = true,
             "-o" => opts.output = Some(args.next().ok_or("`-o` needs a file name")?),
             other if other.starts_with('-') => return Err(format!("unknown option `{other}`")),

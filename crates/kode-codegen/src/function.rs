@@ -7,6 +7,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataId, FuncId, Module};
 use cranelift_object::ObjectModule;
 use kode_mir::*;
+use kode_mir::StdSig;
 
 use crate::clif_ty;
 use crate::runtime::{self, Rt};
@@ -15,7 +16,10 @@ pub(crate) struct Env<'a> {
     pub module: &'a mut ObjectModule,
     pub rt: &'a Rt,
     pub user: &'a [FuncId],
+    pub thunks: &'a [FuncId],
     pub strings: &'a [DataId],
+    pub std: &'a [FuncId],
+    pub std_sigs: &'a [StdSig],
 }
 
 struct Gen<'a, 'b, 'c> {
@@ -69,6 +73,14 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                 self.b.ins().global_value(types::I64, gv)
             }
             Operand::NullRef => self.b.ins().iconst(types::I64, 0),
+            Operand::Thunk(i) => {
+                let r = self.env.module.declare_func_in_func(self.env.thunks[*i], self.b.func);
+                self.b.ins().func_addr(types::I64, r)
+            }
+            Operand::FuncAddr(i) => {
+                let r = self.env.module.declare_func_in_func(self.env.user[*i], self.b.func);
+                self.b.ins().func_addr(types::I64, r)
+            }
         }
     }
 
@@ -83,10 +95,20 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                 let v = self.rvalue(rv)?;
                 self.b.def_var(self.vars[*dst], v);
             }
+            Inst::Call { dst, callee, args } if self.try_inline_list(dst, callee, args) => {}
             Inst::Call { dst, callee, args } => {
                 let mut vals: Vec<Value> = args.iter().map(|a| self.val(a)).collect();
                 let (id, to_bool) = match callee {
                     Callee::User(i) => (self.env.user[*i], false),
+                    Callee::Std(i) => {
+                        // bools travel to the runtime as 64-bit integers
+                        for (k, a) in args.iter().enumerate() {
+                            if self.f.operand_ty(a) == Ty::Bool {
+                                vals[k] = self.b.ins().uextend(types::I64, vals[k]);
+                            }
+                        }
+                        (self.env.std[*i], self.env.std_sigs[*i].ret == Ty::Bool)
+                    }
                     Callee::Rt(r) => {
                         // bools travel to the runtime as 64-bit integers
                         if matches!(r, RtFn::PrintBool | RtFn::BoolToStr) {
@@ -129,6 +151,105 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
         Ok(())
     }
 
+    /// Inline `len`, item reads and item writes of lists (no function call).
+    /// Layout: `[rc][kind][len][capacity][data pointer]`, 8 bytes per item.
+    fn try_inline_list(&mut self, dst: &Option<LocalId>, callee: &Callee, args: &[Operand]) -> bool {
+        let Callee::Rt(rt) = callee else { return false };
+        match rt {
+            RtFn::ListLen => {
+                let list = self.val(&args[0]);
+                let len = self.b.ins().load(types::I64, MemFlags::trusted(), list, 16);
+                self.b.def_var(self.vars[dst.unwrap()], len);
+                true
+            }
+            RtFn::ListGet => {
+                let list = self.val(&args[0]);
+                let idx = self.val(&args[1]);
+                let line = self.val(&args[2]);
+                let addr = self.checked_item_addr(list, idx, line, 3);
+                let v = self.b.ins().load(types::I64, MemFlags::trusted(), addr, 0);
+                self.b.def_var(self.vars[dst.unwrap()], v);
+                true
+            }
+            RtFn::ListGet8 => {
+                let list = self.val(&args[0]);
+                let idx = self.val(&args[1]);
+                let line = self.val(&args[2]);
+                let addr = self.checked_item_addr(list, idx, line, 0);
+                let v = self.b.ins().uload8(types::I64, MemFlags::trusted(), addr, 0);
+                self.b.def_var(self.vars[dst.unwrap()], v);
+                true
+            }
+            RtFn::ListSet8 => {
+                let list = self.val(&args[0]);
+                let idx = self.val(&args[1]);
+                let raw = self.val(&args[2]);
+                let line = self.val(&args[3]);
+                let addr = self.checked_item_addr(list, idx, line, 0);
+                self.b.ins().istore8(MemFlags::trusted(), raw, addr, 0);
+                true
+            }
+            RtFn::ListPush | RtFn::ListPush8 => {
+                let packed = *rt == RtFn::ListPush8;
+                let list = self.val(&args[0]);
+                let raw = self.val(&args[1]);
+                let len = self.b.ins().load(types::I64, MemFlags::trusted(), list, 16);
+                let cap = self.b.ins().load(types::I64, MemFlags::trusted(), list, 24);
+                let full = self.b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, len, cap);
+                let slow = self.b.create_block();
+                let fast = self.b.create_block();
+                let join = self.b.create_block();
+                self.b.set_cold_block(slow);
+                self.b.ins().brif(full, slow, &[], fast, &[]);
+                self.b.switch_to_block(fast);
+                let data = self.b.ins().load(types::I64, MemFlags::trusted(), list, 32);
+                let off = if packed { len } else { self.b.ins().ishl_imm(len, 3) };
+                let addr = self.b.ins().iadd(data, off);
+                if packed {
+                    self.b.ins().istore8(MemFlags::trusted(), raw, addr, 0);
+                } else {
+                    self.b.ins().store(MemFlags::trusted(), raw, addr, 0);
+                }
+                let new_len = self.b.ins().iadd_imm(len, 1);
+                self.b.ins().store(MemFlags::trusted(), new_len, list, 16);
+                self.b.ins().jump(join, &[]);
+                self.b.switch_to_block(slow);
+                self.call_func(self.env.rt.funcs[rt], &[list, raw]);
+                self.b.ins().jump(join, &[]);
+                self.b.switch_to_block(join);
+                true
+            }
+            // Items that are heap values must release the old item: use the runtime.
+            RtFn::ListSet if self.f.operand_ty(&args[2]) != Ty::Ref => {
+                let list = self.val(&args[0]);
+                let idx = self.val(&args[1]);
+                let raw = self.val(&args[2]);
+                let line = self.val(&args[3]);
+                let addr = self.checked_item_addr(list, idx, line, 3);
+                self.b.ins().store(MemFlags::trusted(), raw, addr, 0);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Bounds-check `idx` (unsigned compare also catches negatives) and return the item address.
+    fn checked_item_addr(&mut self, list: Value, idx: Value, line: Value, shift: i64) -> Value {
+        let len = self.b.ins().load(types::I64, MemFlags::trusted(), list, 16);
+        let oob = self.b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx, len);
+        let bad = self.b.create_block();
+        let ok = self.b.create_block();
+        self.b.set_cold_block(bad);
+        self.b.ins().brif(oob, bad, &[], ok, &[]);
+        self.b.switch_to_block(bad);
+        self.call_func(self.env.rt.funcs[&RtFn::ListOob], &[idx, len, line]);
+        self.b.ins().trap(TrapCode::INTEGER_OVERFLOW);
+        self.b.switch_to_block(ok);
+        let data = self.b.ins().load(types::I64, MemFlags::trusted(), list, 32);
+        let off = if shift == 0 { idx } else { self.b.ins().ishl_imm(idx, shift) };
+        self.b.ins().iadd(data, off)
+    }
+
     fn rvalue(&mut self, rv: &Rvalue) -> Result<Value, String> {
         Ok(match rv {
             Rvalue::Use(a) => self.val(a),
@@ -153,11 +274,16 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                     CastKind::BitsToFloat => self.b.ins().bitcast(types::F64, MemFlags::new(), v),
                 }
             }
+            Rvalue::Select(c, a, b) => {
+                let (cv, av, bv) = (self.val(c), self.val(a), self.val(b));
+                self.b.ins().select(cv, av, bv)
+            }
             Rvalue::Binary(op, x, y) => {
                 let ty = self.f.operand_ty(x);
                 let (a, c) = (self.val(x), self.val(y));
+                let k = if let Operand::Int(k) = y { Some(*k) } else { None };
                 match ty {
-                    Ty::Int | Ty::Ref => self.int_binary(*op, a, c),
+                    Ty::Int | Ty::Ref => self.int_binary(*op, a, c, k),
                     Ty::Float => self.float_binary(*op, a, c)?,
                     Ty::Bool => match op {
                         BinOp::Eq => self.b.ins().icmp(IntCC::Equal, a, c),
@@ -170,14 +296,19 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
         })
     }
 
-    fn int_binary(&mut self, op: BinOp, a: Value, c: Value) -> Value {
+    fn int_binary(&mut self, op: BinOp, a: Value, c: Value, k: Option<i64>) -> Value {
         let ins = |g: &mut Self, cc| g.b.ins().icmp(cc, a, c);
         match op {
             BinOp::Add => self.b.ins().iadd(a, c),
             BinOp::Sub => self.b.ins().isub(a, c),
             BinOp::Mul => self.b.ins().imul(a, c),
+            // A constant divisor other than 0 and -1 needs no checks, and Cranelift
+            // turns the division into multiplications and shifts.
+            BinOp::Div if matches!(k, Some(k) if k != 0 && k != -1) => self.b.ins().sdiv(a, c),
+            BinOp::Rem if matches!(k, Some(k) if k != 0 && k != -1) => self.b.ins().srem(a, c),
             BinOp::Div => self.divide(a, c, false),
             BinOp::Rem => self.divide(a, c, true),
+            BinOp::BitAnd => self.b.ins().band(a, c),
             BinOp::Eq => ins(self, IntCC::Equal),
             BinOp::Ne => ins(self, IntCC::NotEqual),
             BinOp::Lt => ins(self, IntCC::SignedLessThan),
@@ -200,7 +331,7 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
             BinOp::Le => cmp(self, FloatCC::LessThanOrEqual),
             BinOp::Gt => cmp(self, FloatCC::GreaterThan),
             BinOp::Ge => cmp(self, FloatCC::GreaterThanOrEqual),
-            BinOp::Rem => return Err("`%` on floats is not supported".into()),
+            BinOp::Rem | BinOp::BitAnd => return Err("this operator is not supported on floats".into()),
         })
     }
 

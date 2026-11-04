@@ -9,7 +9,7 @@ use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{default_libcall_names, DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
-use kode_mir::{MirFunc, MirProgram, Ty};
+use kode_mir::{MirFunc, MirProgram, StdSig, Ty};
 
 pub use link::link;
 
@@ -30,6 +30,21 @@ fn signature(module: &ObjectModule, f: &MirFunc) -> cranelift_codegen::ir::Signa
         sig.returns.push(AbiParam::new(clif_ty(f.ret)));
     }
     sig
+}
+
+fn declare_std(module: &mut ObjectModule, s: &StdSig) -> Result<FuncId, String> {
+    let mut sig = module.make_signature();
+    for p in &s.params {
+        sig.params.push(AbiParam::new(if *p == Ty::Float { types::F64 } else { types::I64 }));
+    }
+    match s.ret {
+        Ty::Unit => {}
+        Ty::Float => sig.returns.push(AbiParam::new(types::F64)),
+        _ => sig.returns.push(AbiParam::new(types::I64)),
+    }
+    module
+        .declare_function(s.name, Linkage::Import, &sig)
+        .map_err(|e| e.to_string())
 }
 
 /// Static string literals: `[refcount = -1][kind = string][length][bytes]`.
@@ -60,6 +75,8 @@ pub fn compile_to_object(program: &MirProgram, optimize: bool) -> Result<Vec<u8>
         .set("opt_level", if optimize { "speed" } else { "none" })
         .map_err(|e| e.to_string())?;
     flags.set("is_pic", "true").map_err(|e| e.to_string())?;
+    // No frame pointer: one more register and a shorter function entry and exit.
+    flags.set("preserve_frame_pointers", "false").map_err(|e| e.to_string())?;
     let isa = cranelift_native::builder()
         .map_err(|e| e.to_string())?
         .finish(settings::Flags::new(flags))
@@ -88,17 +105,35 @@ pub fn compile_to_object(program: &MirProgram, optimize: bool) -> Result<Vec<u8>
                 .map_err(|e| e.to_string())?,
         );
     }
+    // Task thunks come after the user functions in `ids`.
+    let nfuncs = program.funcs.len();
+    for (i, f) in program.thunks.iter().enumerate() {
+        let sig = signature(&module, f);
+        ids.push(
+            module
+                .declare_function(&format!("kode_thunk_{i}"), Linkage::Local, &sig)
+                .map_err(|e| e.to_string())?,
+        );
+    }
+    // Runtime library functions called by name.
+    let mut std_ids: Vec<FuncId> = Vec::new();
+    for s in &program.std_sigs {
+        std_ids.push(declare_std(&mut module, s)?);
+    }
 
     let mut fb_ctx = FunctionBuilderContext::new();
-    for (i, f) in program.funcs.iter().enumerate() {
+    for (i, f) in program.funcs.iter().chain(program.thunks.iter()).enumerate() {
         let mut ctx = module.make_context();
         ctx.func.signature = signature(&module, f);
         {
             let mut env = function::Env {
                 module: &mut module,
                 rt: &rt,
-                user: &ids,
+                user: &ids[..nfuncs],
+                thunks: &ids[nfuncs..],
                 strings: &strings,
+                std: &std_ids,
+                std_sigs: &program.std_sigs,
             };
             function::translate(f, &mut ctx.func, &mut fb_ctx, &mut env)
                 .map_err(|e| format!("in `{}`: {e}", f.name))?;
@@ -119,6 +154,8 @@ pub fn compile_to_object(program: &MirProgram, optimize: bool) -> Result<Vec<u8>
         let mut b = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
         let entry = b.create_block();
         b.switch_to_block(entry);
+        let init = module.declare_func_in_func(rt.init, b.func);
+        b.ins().call(init, &[]);
         let script = module.declare_func_in_func(ids[program.entry], b.func);
         b.ins().call(script, &[]);
         let fin = module.declare_func_in_func(rt.finish, b.func);

@@ -89,6 +89,27 @@ impl Parser {
     }
 
     fn parse_prefix(&mut self) -> Result<Expr, Diagnostic> {
+        match self.peek() {
+            TokenKind::Await => {
+                let start = self.bump().span;
+                let operand = self.parse_expr(BP_UNARY)?;
+                let span = start.join(operand.span);
+                return Ok(self.mk(span, ExprKind::Await(Box::new(operand))));
+            }
+            TokenKind::Spawn => {
+                let start = self.bump().span;
+                let call = self.parse_postfix()?;
+                return match call.kind {
+                    ExprKind::Call { callee, callee_span, args } => {
+                        let span = start.join(call.span);
+                        Ok(self.mk(span, ExprKind::Spawn { callee, callee_span, args }))
+                    }
+                    _ => Err(Diagnostic::error("E0117", "`spawn` needs a function call", call.span)
+                        .with_help("write it like `spawn work(1, 2)`")),
+                };
+            }
+            _ => {}
+        }
         let (op, bp) = match self.peek() {
             TokenKind::Minus => (UnOp::Neg, BP_UNARY),
             TokenKind::Not => (UnOp::Not, BP_NOT_OPERAND),

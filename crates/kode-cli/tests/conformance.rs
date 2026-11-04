@@ -7,7 +7,7 @@
 //!   must fail and report the diagnostic code written in `name.err`.
 //!
 //! These files, not the Rust code, are the source of truth for the language.
-//! The runtime library is built automatically if it is missing.
+//! The runtime library is rebuilt automatically before the tests run.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -32,27 +32,8 @@ fn kode_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// `cargo test` does not build the runtime library by itself, so build it here if needed.
-fn require_runtime() {
-    let rt = Path::new(kode()).parent().unwrap().join("libkode_rt.a");
-    if !rt.exists() {
-        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
-        let status = Command::new(cargo)
-            .args(["build", "-p", "kode-rt"])
-            .status()
-            .expect("could not run cargo to build the runtime library");
-        assert!(status.success(), "building the runtime library failed");
-    }
-    assert!(
-        rt.exists(),
-        "runtime library missing at {}: run `cargo build --workspace`",
-        rt.display()
-    );
-}
-
 #[test]
 fn run_pass() {
-    require_runtime();
     let files = kode_files(&tests_dir("run-pass"));
     assert!(!files.is_empty(), "no run-pass programs found");
     let mut failures = Vec::new();
@@ -128,7 +109,6 @@ fn run_kode(args: &[&str]) -> (i32, String, String) {
 
 #[test]
 fn kode_test_command() {
-    require_runtime();
     let dir = tests_dir("kode-test");
     let pass = dir.join("passing.kode");
     let (code, out, _) = run_kode(&["test", pass.to_str().unwrap()]);

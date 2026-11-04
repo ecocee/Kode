@@ -6,6 +6,7 @@
 pub mod builtins;
 mod check;
 pub mod scope;
+pub mod std_fns;
 pub mod suggest;
 pub mod types;
 

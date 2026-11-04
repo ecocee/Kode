@@ -70,6 +70,14 @@ pub enum ExprKind {
         callee_span: Span,
         args: Vec<Arg>,
     },
+    /// `spawn f(args)`: run `f` as a task and get a `Task<T>`.
+    Spawn {
+        callee: String,
+        callee_span: Span,
+        args: Vec<Arg>,
+    },
+    /// `await task`
+    Await(Box<Expr>),
     /// `expr catch err { ... }`
     Catch {
         expr: Box<Expr>,

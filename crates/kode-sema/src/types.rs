@@ -15,6 +15,8 @@ pub enum Type {
     Opt(Box<Type>),
     /// The type of the `none` literal.
     NoneT,
+    /// `Task<T>`: a running task that will produce a `T`.
+    Task(Box<Type>),
 }
 
 impl Type {
@@ -30,6 +32,7 @@ impl Type {
             Type::Class(n) | Type::Enum(n) => n.clone(),
             Type::Opt(t) => format!("{}?", t.name()),
             Type::NoneT => "none".into(),
+            Type::Task(t) => format!("Task<{}>", t.name()),
         }
     }
 
@@ -49,7 +52,7 @@ impl Type {
     pub fn is_ref(&self) -> bool {
         matches!(
             self,
-            Type::Str | Type::List(_) | Type::Map(_) | Type::Class(_) | Type::Opt(_) | Type::NoneT
+            Type::Str | Type::List(_) | Type::Map(_) | Type::Class(_) | Type::Opt(_) | Type::NoneT | Type::Task(_)
         )
     }
 

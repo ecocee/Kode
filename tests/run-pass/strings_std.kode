@@ -1,0 +1,27 @@
+s = "Hello, World"
+print(s.size(), s.upper(), s.lower(), s.contains("World"), s.starts_with("He"), s.ends_with("x"))
+print(s.find("World"), s.find("zzz"), s.slice(0, 5), s.replace("l", "L"))
+words = "a,b,,c".split(",")
+print(len(words), words.join("|"))
+print("  padded ".trim() + "!", "ab".repeat(3))
+print("42".to_int() + 1, "2.5".to_float() * 2.0, chr(65) + chr(97))
+bad = "x1".to_int() catch e {
+    print(e.message)
+    -1
+}
+print(bad)
+print(s.byte_at(0))
+nums = [5, 2, 9, 1]
+nums.sort()
+print(nums[0], nums[3], nums.pop(), len(nums))
+names = ["zed", "amy", "bob"]
+names.sort()
+print(names.join(","))
+fs = [2.5, 1.5]
+fs.sort()
+print(fs[0], fs.pop())
+nums.clear()
+print(len(nums))
+m = {"a": 1, "b": 2, "c": 3}
+m.remove("b")
+print(len(m), "b" in m, m.keys().join(""))

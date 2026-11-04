@@ -21,6 +21,10 @@ pub enum Operand {
     Str(usize),
     /// A null reference (`none`, or a variable that has no value yet).
     NullRef,
+    /// The address of generated task thunk `i` (see `MirProgram::thunks`).
+    Thunk(usize),
+    /// The address of user function `i`.
+    FuncAddr(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +40,8 @@ pub enum BinOp {
     Le,
     Gt,
     Ge,
+    /// Internal only: used by optimizations such as `x % 2 == 0`.
+    BitAnd,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +66,8 @@ pub enum Rvalue {
     Unary(UnOp, Operand),
     Binary(BinOp, Operand, Operand),
     Cast(CastKind, Operand),
+    /// `cond ? a : b` without a branch.
+    Select(Operand, Operand, Operand),
 }
 
 /// Functions provided by the runtime library (`kode-rt`).
@@ -82,6 +90,11 @@ pub enum RtFn {
     ListGet,
     ListSet,
     ListLen,
+    /// Lists of `bool` use one byte per item.
+    ListNewPacked,
+    ListPush8,
+    ListGet8,
+    ListSet8,
     MapNew,
     MapSet,
     MapGet,
@@ -97,6 +110,7 @@ pub enum RtFn {
     Uncaught,
     UnwrapFail,
     Exit,
+    ListOob,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +118,16 @@ pub enum Callee {
     /// Index into `MirProgram::funcs`.
     User(usize),
     Rt(RtFn),
+    /// Index into `MirProgram::std_sigs`: a runtime library function called by name.
+    Std(usize),
+}
+
+/// A runtime library function used by the program.
+#[derive(Clone, Debug)]
+pub struct StdSig {
+    pub name: &'static str,
+    pub params: Vec<Ty>,
+    pub ret: Ty,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -178,6 +202,9 @@ pub struct MirProgram {
     pub strings: Vec<String>,
     /// Index of the top-level script function.
     pub entry: usize,
+    /// Small generated functions that start tasks (see `spawn`).
+    pub thunks: Vec<MirFunc>,
+    pub std_sigs: Vec<StdSig>,
 }
 
 impl MirFunc {
@@ -188,7 +215,7 @@ impl MirFunc {
     pub fn operand_ty(&self, op: &Operand) -> Ty {
         match op {
             Operand::Local(id) => self.locals[*id].ty,
-            Operand::Int(_) => Ty::Int,
+            Operand::Int(_) | Operand::Thunk(_) | Operand::FuncAddr(_) => Ty::Int,
             Operand::Float(_) => Ty::Float,
             Operand::Bool(_) => Ty::Bool,
             Operand::Str(_) | Operand::NullRef => Ty::Ref,

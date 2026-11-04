@@ -41,6 +41,8 @@ pub enum TokenKind {
     Catch,
     None,
     Test,
+    Spawn,
+    Await,
     // punctuation
     LParen,
     RParen,
@@ -115,6 +117,8 @@ pub fn keyword(word: &str) -> Option<TokenKind> {
         "catch" => TokenKind::Catch,
         "none" => TokenKind::None,
         "test" => TokenKind::Test,
+        "spawn" => TokenKind::Spawn,
+        "await" => TokenKind::Await,
         _ => return None,
     })
 }
@@ -155,6 +159,8 @@ impl TokenKind {
             TokenKind::Catch => "catch",
             TokenKind::None => "none",
             TokenKind::Test => "test",
+            TokenKind::Spawn => "spawn",
+            TokenKind::Await => "await",
             TokenKind::LParen => "(",
             TokenKind::RParen => ")",
             TokenKind::LBrace => "{",

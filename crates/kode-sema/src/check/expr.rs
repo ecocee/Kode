@@ -5,6 +5,7 @@ use super::stmt::diverges;
 use super::Checker;
 use crate::builtins::{self, Builtin, BUILTIN_NAMES};
 use crate::suggest::closest;
+use crate::std_fns::{self, StdFn};
 use crate::types::{assignable, Type};
 
 impl Checker {
@@ -123,6 +124,29 @@ impl Checker {
                 callee_span,
                 args,
             } => self.call(e.id, callee, *callee_span, args, e.span),
+            ExprKind::Spawn {
+                callee,
+                callee_span,
+                args,
+            } => self.spawn(e.id, callee, *callee_span, args, e.span),
+            ExprKind::Await(inner) => {
+                let t = self.expr(inner)?;
+                match t {
+                    Type::Task(r) => {
+                        if let Some(i) = self.cur_fn {
+                            self.direct_throw[i] = true;
+                        }
+                        Some(*r)
+                    }
+                    other => {
+                        self.errors.push(
+                            Diagnostic::error("E0231", format!("`await` needs a task, found {}", other.article()), inner.span)
+                                .with_help("start one with `spawn work(...)`"),
+                        );
+                        None
+                    }
+                }
+            }
             ExprKind::Catch {
                 expr,
                 var,
@@ -499,6 +523,101 @@ impl Checker {
         t
     }
 
+    /// A call to a runtime library function, checked from its table row.
+    fn std_call(&mut self, f: &StdFn, recv: Option<&Type>, args: &[Arg], tys: &[Option<Type>], span: Span) -> Option<Type> {
+        let elem = match recv {
+            Some(Type::List(e)) => Some(&**e),
+            _ => None,
+        };
+        if let Some(a) = args.iter().find(|a| a.name.is_some()) {
+            self.errors.push(Diagnostic::error(
+                "E0215",
+                format!("`{}` does not take named arguments", f.name),
+                a.value.span,
+            ));
+        }
+        if args.len() != f.params.len() {
+            self.errors.push(Diagnostic::error(
+                "E0207",
+                format!(
+                    "`{}` takes {} argument{}, found {}",
+                    f.name,
+                    f.params.len(),
+                    if f.params.len() == 1 { "" } else { "s" },
+                    args.len()
+                ),
+                span,
+            ));
+        } else {
+            for (i, p) in f.params.iter().enumerate() {
+                let want = std_fns::to_type(*p, elem);
+                self.coerce(&args[i].value, tys[i].clone(), &want, &format!("argument {} of `{}`", i + 1, f.name), "E0208");
+            }
+        }
+        if f.throws {
+            if let Some(i) = self.cur_fn {
+                self.direct_throw[i] = true;
+            }
+        }
+        Some(std_fns::to_type(f.ret, elem))
+    }
+
+    /// `serve(port, handler)`: the handler is a function `(string, string, string) -> string`.
+    fn serve_call(&mut self, args: &[Arg], span: Span) -> Option<Type> {
+        if args.len() != 2 {
+            self.errors.push(Diagnostic::error("E0207", format!("`serve` takes 2 arguments, found {}", args.len()), span));
+            return Some(Type::Unit);
+        }
+        let pt = self.expr(&args[0].value);
+        self.coerce(&args[0].value, pt, &Type::Int, "the port", "E0208");
+        let ok = match &args[1].value.kind {
+            ExprKind::Ident(n) => self.fn_index.get(n).map(|&i| {
+                let s = &self.fns[i];
+                s.params.iter().map(|p| &p.1).collect::<Vec<_>>() == vec![&Type::Str, &Type::Str, &Type::Str] && s.ret == Type::Str
+            }),
+            _ => None,
+        };
+        if ok != Some(true) {
+            self.errors.push(
+                Diagnostic::error("E0232", "the handler must be the name of a function `fn name(method: string, path: string, body: string) -> string`", args[1].value.span)
+                    .with_help("it receives the HTTP method, the path and the body, and returns the response text"),
+            );
+        }
+        Some(Type::Unit)
+    }
+
+    /// `spawn f(args)`
+    fn spawn(&mut self, id: ExprId, callee: &str, callee_span: Span, args: &[Arg], span: Span) -> Option<Type> {
+        let mut tys: Vec<Option<Type>> = Vec::new();
+        for a in args {
+            tys.push(self.expr(&a.value));
+        }
+        let Some(&idx) = self.fn_index.get(callee) else {
+            self.errors.push(
+                Diagnostic::error("E0230", format!("`spawn` needs one of your functions, `{callee}` is not one"), callee_span)
+                    .with_help("define it first with `fn name(...) -> T { ... }`"),
+            );
+            return None;
+        };
+        let sig = self.fns[idx].clone();
+        for (n, t) in &sig.params {
+            if !matches!(t, Type::Int | Type::Float | Type::Bool | Type::Str) {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0230",
+                        format!("a task can only receive ints, floats, bools and strings, but `{n}` is {}", t.article()),
+                        callee_span,
+                    )
+                    .with_help("tasks do not share objects; pass plain values and return the result"),
+                );
+                return None;
+            }
+        }
+        let defaults = vec![false; sig.params.len()];
+        self.check_call_args(id, &sig.params, args, &tys, &defaults, span, callee);
+        Some(Type::Task(Box::new(sig.ret)))
+    }
+
     fn note_call(&mut self, callee: usize) {
         if let Some(i) = self.cur_fn {
             self.calls[i].push(callee);
@@ -600,6 +719,9 @@ impl Checker {
             tys.push(self.expr(&a.value));
         }
         let ot = ot?;
+        if let Some(f) = std_fns::find_method(&ot, name) {
+            return self.std_call(f, Some(&ot), args, &tys, span);
+        }
         let arity = |this: &mut Self, n: usize| -> bool {
             if args.len() != n {
                 this.errors.push(Diagnostic::error(
@@ -674,6 +796,9 @@ impl Checker {
     }
 
     fn call(&mut self, id: ExprId, callee: &str, callee_span: Span, args: &[Arg], span: Span) -> Option<Type> {
+        if callee == "serve" {
+            return self.serve_call(args, span);
+        }
         let mut tys: Vec<Option<Type>> = Vec::new();
         for a in args {
             tys.push(self.expr(&a.value));
@@ -688,6 +813,10 @@ impl Checker {
                 ));
             }
             return self.builtin_call(b, callee, args, &tys, span);
+        }
+
+        if let Some(f) = std_fns::find_free(callee) {
+            return self.std_call(f, None, args, &tys, span);
         }
 
         if let Some(&idx) = self.fn_index.get(callee) {

@@ -12,7 +12,7 @@
 //!  * Temporaries are released right after use. If an error is raised while a
 //!    temporary is alive, the error path releases it too (`pending`).
 
-mod data;
+pub(crate) mod data;
 mod expr;
 mod stmt;
 mod tests;
@@ -57,10 +57,84 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
         Mode::Test => tests::lower_tests(program, checked, src, &mut strings, &mut funcs),
     };
 
+    let thunks: Vec<MirFunc> = strings.thunk_specs.iter().map(|&i| make_thunk(checked, i)).collect();
     MirProgram {
         funcs,
         strings: strings.list,
         entry,
+        thunks,
+        std_sigs: strings.std_sigs,
+    }
+}
+
+/// The function a new task runs: it unpacks the arguments from a block and calls
+/// the user function. The result goes back as a raw 64-bit value.
+fn make_thunk(checked: &Checked, idx: usize) -> MirFunc {
+    let sig = &checked.fns[idx];
+    let mut locals = vec![LocalDecl {
+        ty: Ty::Ref,
+        name: Some("block".into()),
+    }];
+    let mut insts = Vec::new();
+    let mut args = Vec::new();
+    for (i, (name, ty)) in sig.params.iter().enumerate() {
+        let t = mir_ty(ty);
+        locals.push(LocalDecl {
+            ty: t,
+            name: Some(name.clone()),
+        });
+        let id = locals.len() - 1;
+        insts.push(Inst::Load {
+            dst: id,
+            base: Operand::Local(0),
+            offset: 24 + 8 * i as i32,
+            ty: t,
+        });
+        args.push(Operand::Local(id));
+    }
+    let ret = mir_ty(&sig.ret);
+    let raw = if ret == Ty::Unit {
+        insts.push(Inst::Call {
+            dst: None,
+            callee: Callee::User(idx),
+            args,
+        });
+        Operand::Int(0)
+    } else {
+        locals.push(LocalDecl { ty: ret, name: None });
+        let r = locals.len() - 1;
+        insts.push(Inst::Call {
+            dst: Some(r),
+            callee: Callee::User(idx),
+            args,
+        });
+        let kind = match ret {
+            Ty::Bool => Some(CastKind::BoolToInt),
+            Ty::Float => Some(CastKind::FloatToBits),
+            _ => None,
+        };
+        match kind {
+            Some(k) => {
+                locals.push(LocalDecl { ty: Ty::Int, name: None });
+                let c = locals.len() - 1;
+                insts.push(Inst::Assign {
+                    dst: c,
+                    rv: Rvalue::Cast(k, Operand::Local(r)),
+                });
+                Operand::Local(c)
+            }
+            None => Operand::Local(r),
+        }
+    };
+    MirFunc {
+        name: format!("thunk:{}", sig.name),
+        param_count: 1,
+        ret: Ty::Int,
+        locals,
+        blocks: vec![Block {
+            insts,
+            term: Terminator::Return(Some(raw)),
+        }],
     }
 }
 
@@ -111,9 +185,29 @@ pub(crate) fn mir_ty(t: &Type) -> Ty {
 pub(crate) struct Strings {
     list: Vec<String>,
     map: HashMap<String, usize>,
+    std_sigs: Vec<StdSig>,
+    thunk_specs: Vec<usize>,
 }
 
 impl Strings {
+    /// Register a runtime library function (once per name) and return its index.
+    pub fn std_sig(&mut self, name: &'static str, params: Vec<Ty>, ret: Ty) -> usize {
+        if let Some(i) = self.std_sigs.iter().position(|s| s.name == name) {
+            return i;
+        }
+        self.std_sigs.push(StdSig { name, params, ret });
+        self.std_sigs.len() - 1
+    }
+
+    /// The task thunk for user function `idx` (created once).
+    pub fn thunk(&mut self, idx: usize) -> usize {
+        if let Some(i) = self.thunk_specs.iter().position(|&x| x == idx) {
+            return i;
+        }
+        self.thunk_specs.push(idx);
+        self.thunk_specs.len() - 1
+    }
+
     pub fn intern(&mut self, s: &str) -> usize {
         if let Some(i) = self.map.get(s) {
             return *i;
@@ -292,6 +386,14 @@ impl<'a> Lowerer<'a> {
     }
 
     // ---- ownership helpers -------------------------------------------------
+
+    pub(crate) fn std_sig(&mut self, name: &'static str, params: Vec<Ty>, ret: Ty) -> usize {
+        self.strings.std_sig(name, params, ret)
+    }
+
+    pub(crate) fn thunk(&mut self, idx: usize) -> usize {
+        self.strings.thunk(idx)
+    }
 
     fn track(&mut self, op: &Operand) {
         self.pending.push(op.clone());
