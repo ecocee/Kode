@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+- JSON: `json_parse`, `json_null/bool/int/float/string/list/map`, a built-in `Json` class with
+  `JsonKind` and `is_null`, `as_*`, `len`, `has`, `encode`, and read-only `j["key"]` / `j[i]` indexing.
+  Strict parser with a depth limit; parse errors are catchable and do not leak.
+- HTTP client: `http_get`, `http_post`, `http_request`, built-in `HttpResponse`
+  (`status`, `body`, `headers`). Plain `http://` only; `Content-Length` and chunked responses;
+  30 s timeout; 64 MiB limit; redirects are not followed.
+- New ADR 0017, spec updates, and tests: `tests/run-pass/json.kode`, two compile-fail cases, and an
+  offline HTTP client integration test.
+
 ## 0.3.0 (M6, M7, performance)
 - Tasks: `spawn f(args)`, `await t`, type `Task<T>`; atomic reference counts when threads exist; one error slot per thread.
 - Standard library table: string, list, map, file, environment, time functions (see docs/spec/13-stdlib.md).

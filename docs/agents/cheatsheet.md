@@ -48,6 +48,9 @@ test "name" { assert(1 + 1 == 2) }                   // run with: kode test
 Tasks: `t = spawn work(1, "a")` (int/float/bool/string args)   `r = await t`   `Task<int>`
 Library: `s.size() s.slice(a,b) s.split(",") s.find(t) s.upper() s.trim() s.to_int()`  `xs.sort() xs.pop()`  `words.join(",")`
 `read_file(p) write_file(p,t) args() env(n) exit(c) sleep(ms) now_ms() chr(n)`   `serve(8080, handler)`
+JSON: `j = json_parse(t)`  `j["k"] j[0]`  `j.as_string() as_int() as_float() as_bool() as_list() as_map()`  `j.is_null() j.len() j.has(k) j.encode()`
+Build: `json_map({"a": json_int(1)})`  `json_list([...])`  `json_null/bool/int/float/string`
+HTTP: `r = http_get(url)`  `r.status r.body r.headers["content-type"]`  `http_post(url, body, ctype)`  `http_request(m, url, {}, body)`  (plain http only)
 
 Built-ins: `print(...)`, `len(x)`, `int(x)`, `float(x)`, `string(x)`, `assert(cond)`.
 Commands: `kode run|build|check|test|fmt|explain|mir`. Use `kode check --format=json` for errors

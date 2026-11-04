@@ -117,18 +117,90 @@ impl Checker {
             ],
             methods: HashMap::new(),
         };
+        // Built-in `Json` (a dynamic JSON value) and `HttpResponse`.
+        // Field order and types are mirrored by `kode-rt/src/json.rs` and
+        // `kode-rt/src/http_client.rs`; change both together.
+        let json = Type::Class("Json".into());
+        let json_class = ClassInfo {
+            name: "Json".into(),
+            fields: vec![
+                FieldInfo {
+                    name: "kind".into(),
+                    ty: Type::Enum("JsonKind".into()),
+                    default: None,
+                },
+                FieldInfo {
+                    name: "int_value".into(),
+                    ty: Type::Int,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "float_value".into(),
+                    ty: Type::Float,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "string_value".into(),
+                    ty: Type::Opt(Box::new(Type::Str)),
+                    default: None,
+                },
+                FieldInfo {
+                    name: "list_value".into(),
+                    ty: Type::Opt(Box::new(Type::List(Box::new(json.clone())))),
+                    default: None,
+                },
+                FieldInfo {
+                    name: "map_value".into(),
+                    ty: Type::Opt(Box::new(Type::Map(Box::new(json)))),
+                    default: None,
+                },
+            ],
+            methods: HashMap::new(),
+        };
+        let response_class = ClassInfo {
+            name: "HttpResponse".into(),
+            fields: vec![
+                FieldInfo {
+                    name: "status".into(),
+                    ty: Type::Int,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "body".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "headers".into(),
+                    ty: Type::Map(Box::new(Type::Str)),
+                    default: None,
+                },
+            ],
+            methods: HashMap::new(),
+        };
         let mut class_index = HashMap::new();
         class_index.insert("Error".to_string(), 0);
+        class_index.insert("Json".to_string(), 1);
+        class_index.insert("HttpResponse".to_string(), 2);
+        let json_kind = EnumInfo {
+            name: "JsonKind".into(),
+            variants: ["Null", "Bool", "Int", "Float", "Str", "List", "Map"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        };
+        let mut enum_index = HashMap::new();
+        enum_index.insert("JsonKind".to_string(), 0);
         Checker {
             errors: Vec::new(),
             warnings: Vec::new(),
             expr_types,
             fns: Vec::new(),
             fn_index: HashMap::new(),
-            classes: vec![error_class],
+            classes: vec![error_class, json_class, response_class],
             class_index,
-            enums: Vec::new(),
-            enum_index: HashMap::new(),
+            enums: vec![json_kind],
+            enum_index,
             consts: HashMap::new(),
             call_args: HashMap::new(),
             direct_throw: Vec::new(),

@@ -14,7 +14,7 @@ working, tested compiler.
 | **M4 Errors and optionals** | `throw` / `catch` / `try`, `T?` for heap types, `none`, `?.`, `??`, `!` (`finally`, `int?` and narrowing still to come) | **Done** |
 | **M5 Tooling** | `import` and modules, `test` blocks and `kode test`, `kode fmt`, `kode explain`, agent cheat sheet (project file and qualified module names still to come) | **Done** |
 | **M6 Concurrency** | `spawn` / `await`, `Task<T>`, atomic reference counts, per-thread errors (channels and `shared` classes still to come) | **Done** |
-| **M7 Services** | `serve(port, handler)`, strings, files, args, environment, sorting (JSON, HTTP client, database client and the REST benchmark still to come) | **Done** (core) |
+| **M7 Services** | `serve(port, handler)`, strings, files, args, environment, sorting, JSON, HTTP client (database client and the REST benchmark still to come) | **Done** (core) |
 | **M8 Budgets and AI** | `memory` budgets, declared effects (`uses`), typed `ask` / `tool` calls | Planned |
 | **M9 Release** | LLVM backend for `--release` (optional), Windows, language server, docs site, open source | Planned |
 

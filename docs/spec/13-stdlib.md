@@ -48,4 +48,47 @@ receives the method, the path (with the query) and the body, and returns the res
 that status; any other error is a 500. Try it: `kode run tests/http/server.kode -- 8080`
 and `curl localhost:8080/hello`.
 
-Not yet: a JSON parser, an HTTP client, TLS, a database client.
+## JSON
+
+```
+doc = json_parse("{\"name\":\"Asha\",\"tags\":[\"ai\"]}")
+print(doc["name"].as_string())
+print(doc["tags"][0].as_string())
+print(doc["tags"].len())
+print(doc.encode())
+
+out = json_map({
+    "id": json_int(1),
+    "tags": json_list([json_string("a"), json_string("b")]),
+    "ok": json_bool(true),
+    "none": json_null()
+})
+```
+
+`json_parse(text)` returns a `Json` value and raises an error for invalid JSON. A `Json` value is
+immutable and has a `kind: JsonKind` field (`Null`, `Bool`, `Int`, `Float`, `Str`, `List`, `Map`)
+plus these methods: `is_null()`, `as_bool()`, `as_int()`, `as_float()`, `as_string()`, `as_list()`,
+`as_map()`, `len()`, `has(key)` and `encode()`. An accessor raises an error when the value has a
+different kind. `j["key"]` and `j[i]` read a child and raise an error when it is missing.
+
+Build values with `json_null()`, `json_bool(b)`, `json_int(i)`, `json_float(f)`, `json_string(s)`,
+`json_list([Json])` and `json_map({string: Json})`. Maps keep insertion order, so `encode()` output
+is predictable. Integers must fit in `int`; floats must be finite. Nesting is limited to 256 levels.
+
+## HTTP client
+
+```
+r = http_get("http://localhost:8080/hello")
+print(r.status, r.headers["content-type"], r.body)
+
+r = http_post("http://localhost:8080/users", "{\"name\":\"Asha\"}", "application/json")
+r = http_request("DELETE", "http://localhost:8080/users/1", {}, "")
+```
+
+`HttpResponse` has `status: int`, `body: string` and `headers: {string: string}` (names lowercased).
+Responses with `Content-Length` or chunked transfer encoding are supported. The client sends
+`Connection: close`, waits up to 30 seconds, limits a body to 64 MiB, and does not follow redirects.
+**Only plain `http://` is supported**: there is no TLS library in the runtime yet, so `https://`
+raises a clear error instead of sending an unencrypted request.
+
+Not yet: TLS, redirects, a database client.

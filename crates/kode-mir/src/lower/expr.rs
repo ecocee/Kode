@@ -389,7 +389,14 @@ impl<'a> Lowerer<'a> {
             StdTy::Float => Ty::Float,
             StdTy::Bool => Ty::Bool,
             StdTy::Unit => Ty::Unit,
-            StdTy::Str | StdTy::ListStr | StdTy::OptStr => Ty::Ref,
+            StdTy::Str
+            | StdTy::ListStr
+            | StdTy::OptStr
+            | StdTy::ListJson
+            | StdTy::MapJson
+            | StdTy::MapStrStr
+            | StdTy::Json
+            | StdTy::Resp => Ty::Ref,
             StdTy::Elem => elem.map(mir_ty).unwrap_or(Ty::Int),
         }
     }

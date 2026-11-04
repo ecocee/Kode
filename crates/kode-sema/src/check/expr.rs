@@ -283,6 +283,20 @@ impl Checker {
                 }
                 Some(*v)
             }
+            Type::Class(name) if name == "Json" => match it {
+                Type::Str | Type::Int => Some(Type::Class("Json".into())),
+                other => {
+                    self.errors.push(Diagnostic::error(
+                        "E0212",
+                        format!(
+                            "a Json value needs a string key or an int index, found {}",
+                            other.article()
+                        ),
+                        index.span,
+                    ));
+                    None
+                }
+            },
             Type::Opt(_) => {
                 self.errors.push(
                     Diagnostic::error("E0220", "this may be none, so it cannot be indexed", obj.span)

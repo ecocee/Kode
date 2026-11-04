@@ -4,12 +4,16 @@
 //! * `object`: the shared header and reference counting for every heap value
 //! * `string`, `list`, `map`: the built-in heap types
 //! * `error`: `throw`, `catch` and runtime errors
-//! * `task`: `spawn` / `await`; `http`: the web server; `std_fns`: strings, files, sorting, ...
+//! * `task`: `spawn` / `await`; `http`: the web server; `http_client`: the HTTP client
+//! * `json`: dynamic JSON values and their parser; `std_fns`: strings, files, sorting, ...
 //! * `io`: printing
 
 mod error;
 mod http;
+mod http_client;
 mod io;
+mod json;
+mod json_parse;
 mod list;
 mod map;
 mod object;

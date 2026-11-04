@@ -1,0 +1,30 @@
+true
+Asha
+30
+3.5
+true
+true
+2
+kode
+7
+2 ai
+7
+true false
+7
+30
+["ai","kode"]
+{"name":"Asha","age":30,"pi":3.5,"ok":true,"none":null,"tags":["ai","kode"],"user":{"id":7}}
+true true
+17
+"line\n\t\"q\" é 😀"
+{"id":1,"name":"Kode","tags":["a","b"],"ok":true,"none":null,"score":1.5}
+bad json caught
+true
+missing key caught
+true
+wrong type caught
+fallback
+big int caught
+true
+true
+{"a":[1,2,{"b":null}]}

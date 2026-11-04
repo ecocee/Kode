@@ -1,0 +1,65 @@
+// JSON parsing, indexing, accessors, building and encoding
+doc = json_parse("{\"name\":\"Asha\",\"age\":30,\"pi\":3.5,\"ok\":true,\"none\":null,\"tags\":[\"ai\",\"kode\"],\"user\":{\"id\":7}}")
+
+print(doc.kind == JsonKind.Map)
+print(doc["name"].as_string())
+print(doc["age"].as_int())
+print(doc["pi"].as_float())
+print(doc["ok"].as_bool())
+print(doc["none"].is_null())
+print(doc["tags"].len())
+print(doc["tags"][1].as_string())
+print(doc["user"]["id"].as_int())
+tags = doc["tags"].as_list()
+print(tags.len(), tags[0].as_string())
+user = doc["user"].as_map()
+print(user["id"].as_int())
+print(doc.has("name"), doc.has("missing"))
+print(doc.len())
+print(doc["age"].encode())
+print(doc["tags"].encode())
+print(doc.encode())
+
+esc = json_parse("\"line\\n\\t\\\"q\\\" \\u00e9 \\ud83d\\ude00\"")
+s = esc.as_string()
+print(s.contains("é"), s.contains("😀"))
+print(s.size())
+print(esc.encode())
+
+built = json_map({
+        "id": json_int(1),
+        "name": json_string("Kode"),
+        "tags": json_list([json_string("a"), json_string("b")]),
+        "ok": json_bool(true),
+        "none": json_null(),
+        "score": json_float(1.5)
+})
+print(built.encode())
+
+bad = json_parse("{\"a\":}") catch e {
+    print("bad json caught")
+    json_null()
+}
+print(bad.is_null())
+
+missing = doc["nope"] catch e {
+    print("missing key caught")
+    json_null()
+}
+print(missing.is_null())
+
+wrong = doc["age"].as_string() catch e {
+    print("wrong type caught")
+    "fallback"
+}
+print(wrong)
+
+big = json_parse("9223372036854775808") catch e {
+    print("big int caught")
+    json_null()
+}
+print(big.is_null())
+
+d = json_parse("{\"a\":[1,2,{\"b\":null}]}")
+print(d["a"][2]["b"].is_null())
+print(d.encode())

@@ -166,6 +166,24 @@ impl<'a> Lowerer<'a> {
         let ov = self.expr(obj);
         let iv = self.expr(index);
         let line = Operand::Int(self.line_of(e.span.start));
+        // `json["key"]` and `json[i]`: the runtime returns a value owned by the parent.
+        if matches!(ot, Type::Class(name) if name == "Json") {
+            let (sym, params) = match self.expr_type(index) {
+                Type::Str => ("kode_json_index_key", vec![Ty::Ref, Ty::Ref, Ty::Int]),
+                Type::Int => ("kode_json_index_at", vec![Ty::Ref, Ty::Int, Ty::Int]),
+                _ => unreachable!("checked: a Json index is a string or an int"),
+            };
+            let sig = self.std_sig(sym, params, Ty::Ref);
+            let t = self.new_temp(Ty::Ref);
+            self.emit(Inst::Call {
+                dst: Some(t),
+                callee: Callee::Std(sig),
+                args: vec![ov.op.clone(), iv.op.clone(), line],
+            });
+            self.error_check();
+            self.release_if_owned(iv);
+            return self.borrow_result(ov, Operand::Local(t), res_ty);
+        }
         let rt = match ot {
             Type::Map(_) => RtFn::MapGet,
             Type::List(el) => list_rt(el, RtFn::ListGet),
