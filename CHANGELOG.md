@@ -38,6 +38,10 @@ language: a patch release fixes bugs, a minor release may add syntax.
 - **List slicing.** `items[1..3]`, `items[..2]`, `items[2..]` and `items[0..=2]`
   copy a range of a list; bounds past the ends are clamped (ADR 0027).
 
+- **Optional numbers.** `int?`, `float?` and `bool?`, represented as a value plus a
+  `present` flag (no boxing), with `??`, `!`, `== none`, printing, interpolation and
+  narrowing inside `if`/`while` branches and after an early return (ADR 0024).
+
 ### Fixed
 
 - Writing an item of a `[bool]` list, and iterating one with `for x in list`,

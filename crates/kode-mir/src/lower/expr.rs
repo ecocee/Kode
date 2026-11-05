@@ -53,7 +53,7 @@ impl<'a> Lowerer<'a> {
                 V::val(Operand::Local(t))
             }
             ExprKind::Binary { op, lhs, rhs } => self.binary(*op, lhs, rhs, e),
-            ExprKind::Coalesce { lhs, rhs } => self.coalesce(lhs, rhs),
+            ExprKind::Coalesce { lhs, rhs } => self.coalesce(lhs, rhs, e),
             ExprKind::Unwrap(inner) => self.unwrap(inner, e),
             ExprKind::List(items) => self.list_lit(items, e),
             ExprKind::Map(pairs) => self.map_lit(pairs, e),
@@ -75,6 +75,9 @@ impl<'a> Lowerer<'a> {
 
     fn ident(&mut self, name: &str) -> V {
         if let Some(id) = self.lookup(name) {
+            if let Some(&flag) = self.opt_flags.get(&id) {
+                return V::opt(Operand::Local(id), Operand::Local(flag));
+            }
             return V::val(Operand::Local(id));
         }
         if let Some(op) = self.const_operand(name) {
@@ -110,6 +113,24 @@ impl<'a> Lowerer<'a> {
         let lt = self.expr_type(lhs);
         let l = self.expr(lhs);
         let r = self.expr(rhs);
+
+        // `x == none` / `x != none` on an optional number or bool: the answer is
+        // the `present` flag, not a pointer comparison.
+        if matches!(op, ast::BinOp::Eq | ast::BinOp::Ne) {
+            if let Some(flag) = l.present.clone().or_else(|| r.present.clone()) {
+                self.release_if_owned(l);
+                self.release_if_owned(r);
+                if op == ast::BinOp::Ne {
+                    return V::val(flag);
+                }
+                let t = self.new_temp(Ty::Bool);
+                self.emit(Inst::Assign {
+                    dst: t,
+                    rv: Rvalue::Unary(UnOp::Not, flag),
+                });
+                return V::val(Operand::Local(t));
+            }
+        }
 
         if op == ast::BinOp::In {
             let t = self.new_temp(Ty::Bool);
@@ -222,8 +243,38 @@ impl<'a> Lowerer<'a> {
     }
 
     /// `a ?? b`
-    fn coalesce(&mut self, lhs: &Expr, rhs: &Expr) -> V {
+    fn coalesce(&mut self, lhs: &Expr, rhs: &Expr, e: &Expr) -> V {
         let l = self.expr(lhs);
+        // An optional number: take the value or the flag's other side.
+        if let Some(flag) = l.present.clone() {
+            let ty = self.ety(e);
+            let res = self.new_temp(ty);
+            self.emit(Inst::Assign {
+                dst: res,
+                rv: Rvalue::Use(l.op.clone()),
+            });
+            let rhs_bb = self.new_block();
+            let join = self.new_block();
+            self.term(Terminator::Branch {
+                cond: flag,
+                then_bb: join,
+                else_bb: rhs_bb,
+            });
+            self.switch(rhs_bb);
+            let r = self.expr(rhs);
+            let op = if ty == Ty::Ref { self.own(r) } else { r.op };
+            self.emit(Inst::Assign {
+                dst: res,
+                rv: Rvalue::Use(op),
+            });
+            self.term(Terminator::Goto(join));
+            self.switch(join);
+            return if ty == Ty::Ref {
+                self.owned(Operand::Local(res))
+            } else {
+                V::val(Operand::Local(res))
+            };
+        }
         let t = self.new_temp(Ty::Ref);
         let lo = self.own(l);
         self.emit(Inst::Assign {
@@ -257,6 +308,26 @@ impl<'a> Lowerer<'a> {
     /// `a!`
     fn unwrap(&mut self, inner: &Expr, e: &Expr) -> V {
         let v = self.expr(inner);
+        // An optional number: `none` raises, otherwise the value is the answer.
+        if let Some(flag) = v.present.clone() {
+            let fail = self.new_block();
+            let ok = self.new_block();
+            self.term(Terminator::Branch {
+                cond: flag,
+                then_bb: ok,
+                else_bb: fail,
+            });
+            self.switch(fail);
+            let line = self.line_of(e.span.start);
+            self.emit(Inst::Call {
+                dst: None,
+                callee: Callee::Rt(RtFn::UnwrapFail),
+                args: vec![Operand::Int(line)],
+            });
+            self.term(Terminator::Unreachable);
+            self.switch(ok);
+            return V::val(v.op);
+        }
         let isnull = self.new_temp(Ty::Bool);
         self.emit(Inst::Assign {
             dst: isnull,
@@ -320,6 +391,46 @@ impl<'a> Lowerer<'a> {
 
     /// Turn any printable value into a string value.
     fn to_str(&mut self, v: V, ty: &Type) -> V {
+        // An optional number prints `none`, or the number: the branch is here,
+        // not duplicated at every call site.
+        if let Some(inner) = kode_sema::types::is_opt_scalar(ty) {
+            let flag = v.present.clone().expect("an optional number is a pair");
+            let rt = match inner {
+                Type::Int => RtFn::IntToStr,
+                Type::Float => RtFn::FloatToStr,
+                _ => RtFn::BoolToStr,
+            };
+            let out = self.new_temp(Ty::Ref);
+            let fmt_bb = self.new_block();
+            let none_bb = self.new_block();
+            let join = self.new_block();
+            self.term(Terminator::Branch {
+                cond: flag,
+                then_bb: fmt_bb,
+                else_bb: none_bb,
+            });
+            self.switch(fmt_bb);
+            let s = self.new_temp(Ty::Ref);
+            self.emit(Inst::Call {
+                dst: Some(s),
+                callee: Callee::Rt(rt),
+                args: vec![v.op.clone()],
+            });
+            self.emit(Inst::Assign {
+                dst: out,
+                rv: Rvalue::Use(Operand::Local(s)),
+            });
+            self.term(Terminator::Goto(join));
+            self.switch(none_bb);
+            let text = Operand::Str(self.intern("none"));
+            self.emit(Inst::Assign {
+                dst: out,
+                rv: Rvalue::Use(text),
+            });
+            self.term(Terminator::Goto(join));
+            self.switch(join);
+            return self.owned(Operand::Local(out));
+        }
         if let Type::Enum(name) = ty {
             let name = name.clone();
             let s = self.enum_str(&name, v.op.clone());
@@ -667,6 +778,17 @@ impl<'a> Lowerer<'a> {
                             args: vec![s],
                         });
                         self.release_if_owned(v);
+                        continue;
+                    }
+                    if kode_sema::types::is_opt_scalar(&ty).is_some() {
+                        let v = self.expr(&a.value);
+                        let s = self.to_str(v, &ty);
+                        self.emit(Inst::Call {
+                            dst: None,
+                            callee: Callee::Rt(RtFn::PrintStr),
+                            args: vec![s.op.clone()],
+                        });
+                        self.release_if_owned(s);
                         continue;
                     }
                     let v = self.expr(&a.value);

@@ -349,11 +349,26 @@ impl Strings {
 pub(crate) struct V {
     pub op: Operand,
     pub owned: bool,
+    /// For an optional number or bool (`int?`): the `present` flag. The pair is
+    /// two locals, never a heap object (ADR 0024).
+    pub present: Option<Operand>,
 }
 
 impl V {
     pub fn val(op: Operand) -> V {
-        V { op, owned: false }
+        V {
+            op,
+            owned: false,
+            present: None,
+        }
+    }
+    /// A value paired with its `present` flag.
+    pub fn opt(op: Operand, flag: Operand) -> V {
+        V {
+            op,
+            owned: false,
+            present: Some(flag),
+        }
     }
     pub fn unit() -> V {
         V::val(Operand::Int(0))
@@ -368,6 +383,8 @@ pub(crate) struct Lowerer<'a> {
     pub blocks: Vec<Block>,
     pub cur: BlockId,
     scopes: Vec<HashMap<String, LocalId>>,
+    /// Optional numbers and bools: the value local and its `present` flag.
+    opt_flags: HashMap<LocalId, LocalId>,
     pub loops: Vec<(BlockId, BlockId)>,
     /// `finally` blocks that must run before leaving the current code, with the
     /// loop depth at which they were entered.
@@ -407,6 +424,7 @@ impl<'a> Lowerer<'a> {
             }],
             cur: 0,
             scopes: vec![HashMap::new()],
+            opt_flags: HashMap::new(),
             loops: Vec::new(),
             cleanups: Vec::new(),
             ref_locals: Vec::new(),
@@ -475,6 +493,16 @@ impl<'a> Lowerer<'a> {
 
     pub fn declare(&mut self, name: &str, id: LocalId) {
         self.scopes.last_mut().unwrap().insert(name.to_string(), id);
+    }
+
+    /// Declare an optional number or bool: a value local plus a flag local.
+    /// Neither is a heap value, so neither is released at exit.
+    pub fn declare_var_opt(&mut self, name: &str, scalar: Ty) -> LocalId {
+        let id = self.new_local(scalar, Some(name.to_string()));
+        let flag = self.new_local(Ty::Bool, None);
+        self.opt_flags.insert(id, flag);
+        self.declare(name, id);
+        id
     }
 
     /// Declare a variable. Heap values are released when the function exits.
@@ -546,7 +574,11 @@ impl<'a> Lowerer<'a> {
     /// A value we own (it is tracked until it is consumed).
     pub fn owned(&mut self, op: Operand) -> V {
         self.track(&op);
-        V { op, owned: true }
+        V {
+            op,
+            owned: true,
+            present: None,
+        }
     }
 
     /// Take ownership of a heap value (retain it if we only borrowed it).

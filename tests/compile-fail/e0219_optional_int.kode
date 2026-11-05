@@ -1,1 +1,1 @@
-x: int? = none
+fn takes(x: int?) -> int => 0

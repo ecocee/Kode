@@ -57,7 +57,7 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0216 | missing argument |
 | E0217 | unknown field or method |
 | E0218 | this value has no fields |
-| E0219 | optional type or `?.` not supported for this type |
+| E0219 | optional type not supported here (an optional number only works as a local) |
 | E0220 | value may be none and cannot be used directly |
 | E0221 | `?.` or `??` used on something that is not an optional |
 | E0222 | an empty list or map needs a declared type |

@@ -1,6 +1,6 @@
 # 0024 — `int?`, `float?`, `bool?` and narrowing
 
-Status: accepted, scheduled (after channels)
+Status: accepted, implemented for locals (branch `feat/optional-numbers`).
 
 ## Context
 
@@ -38,6 +38,11 @@ an allocation per value -- against the memory budget in `PLAN-v1.md`.
   select, not a new value class.
 - `tests/run-pass/optional_numbers.kode` (narrowing, `??`, `!`) and a
   `tests/compile-fail` case for a non-narrowed use land with the implementation.
+- **Limit in this version.** An optional number or bool is a *local*. Parameters,
+  return types, class fields, and list or map elements still report E0219,
+  because the pair lives in two locals while every other storage slot (an
+  argument block, a field, a list item) is one word. Lifting that means changing
+  argument blocks and field layout, so it is a follow-up.
 
 ## Schedule
 

@@ -27,13 +27,33 @@ impl Checker {
                     None
                 }
             }
-            TypeAnnKind::List(inner) => Some(Type::List(Box::new(self.resolve_type(inner)?))),
-            TypeAnnKind::Map(inner) => Some(Type::Map(Box::new(self.resolve_type(inner)?))),
+            TypeAnnKind::List(inner) => {
+                let t = self.resolve_type(inner)?;
+                if crate::types::is_opt_scalar(&t).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0219", format!("a list of `{}` is not supported yet", t.name()), ann.span)
+                            .with_help("keep the value and a `bool` in a class or two separate lists for now"),
+                    );
+                    return None;
+                }
+                Some(Type::List(Box::new(t)))
+            }
+            TypeAnnKind::Map(inner) => {
+                let t = self.resolve_type(inner)?;
+                if crate::types::is_opt_scalar(&t).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0219", format!("a map of `{}` is not supported yet", t.name()), ann.span)
+                            .with_help("keep the value and a `bool` in a class for now"),
+                    );
+                    return None;
+                }
+                Some(Type::Map(Box::new(t)))
+            }
             TypeAnnKind::Task(inner) => Some(Type::Task(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Channel(inner) => Some(Type::Chan(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Opt(inner) => {
                 let t = self.resolve_type(inner)?;
-                if !t.is_ref() {
+                if !t.is_ref() && !matches!(t, Type::Int | Type::Float | Type::Bool) {
                     self.errors.push(
                         Diagnostic::error(
                             "E0219",
@@ -186,6 +206,12 @@ impl Checker {
                     ));
                 }
                 let ty = self.resolve_type(&f.ty).unwrap_or(Type::Int);
+                if crate::types::is_opt_scalar(&ty).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0219", format!("a field cannot be `{}` yet", ty.name()), f.name_span)
+                            .with_help("an optional number works as a local variable; keep a value field and a `bool` field instead"),
+                    );
+                }
                 fields.push(FieldInfo {
                     name: f.name.clone(),
                     ty,
@@ -369,12 +395,24 @@ impl Checker {
                     );
                 }
                 let ty = self.resolve_type(&p.ty).unwrap_or(Type::Int);
+                if crate::types::is_opt_scalar(&ty).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0219", format!("a parameter cannot be `{}` yet", ty.name()), p.name_span)
+                            .with_help("an optional number works as a local variable; pass the value and a `bool` instead"),
+                    );
+                }
                 params.push((p.name.clone(), ty));
             }
             let ret = match &f.ret {
                 Some(a) => self.resolve_type(a).unwrap_or(Type::Unit),
                 None => Type::Unit,
             };
+            if crate::types::is_opt_scalar(&ret).is_some() {
+                self.errors.push(
+                    Diagnostic::error("E0219", format!("a function cannot return `{}` yet", ret.name()), f.name_span)
+                        .with_help("an optional number works as a local variable; return the value and set a `bool` on success"),
+                );
+            }
             let index = self.fns.len();
             let name = match cls {
                 None => {

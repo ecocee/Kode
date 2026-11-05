@@ -86,6 +86,33 @@ impl Type {
 }
 
 /// Can a value of type `from` be stored where `to` is expected?
+/// An optional number or bool (`int?`, `float?`, `bool?`). These are a pair
+/// (value and *present* flag), never a box, so they need their own handling
+/// wherever a value is stored or printed. Returns the inner type.
+pub fn is_opt_scalar(t: &Type) -> Option<Type> {
+    match t {
+        Type::Opt(i) if matches!(**i, Type::Int | Type::Float | Type::Bool) => Some((**i).clone()),
+        _ => None,
+    }
+}
+
+/// Resolve a type annotation without reporting errors, for later stages that
+/// need the declared type of a variable (the AST keeps only the annotation).
+pub fn ann_type(ann: &kode_syntax::ast::TypeAnn, checked: &crate::Checked) -> Option<Type> {
+    use kode_syntax::ast::TypeAnnKind;
+    match &ann.kind {
+        TypeAnnKind::Name(n) => Type::from_name(n)
+            .or_else(|| checked.class_index.get(n).map(|_| Type::Class(n.clone())))
+            .or_else(|| checked.interface_index.get(n).map(|_| Type::Interface(n.clone())))
+            .or_else(|| checked.enum_index.get(n).map(|_| Type::Enum(n.clone()))),
+        TypeAnnKind::List(i) => Some(Type::List(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Map(i) => Some(Type::Map(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Opt(i) => Some(Type::Opt(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Task(i) => Some(Type::Task(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Channel(i) => Some(Type::Chan(Box::new(ann_type(i, checked)?))),
+    }
+}
+
 pub fn assignable(from: &Type, to: &Type) -> bool {
     if from == to {
         return true;

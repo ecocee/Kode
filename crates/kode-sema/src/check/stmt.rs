@@ -28,11 +28,43 @@ pub(crate) fn always_returns(stmts: &[Stmt]) -> bool {
 
 impl Checker {
     pub(crate) fn block(&mut self, stmts: &[Stmt]) {
+        self.block_with(stmts, None);
+    }
+
+    /// Like `block`, but `narrow` holds inside it (an optional local that the
+    /// surrounding condition proved is not `none`).
+    fn block_with(&mut self, stmts: &[Stmt], narrow: Option<(String, Type)>) {
         self.scopes.push();
+        if let Some((name, ty)) = narrow {
+            self.narrow(&name, ty);
+        }
         for s in stmts {
             self.stmt(s);
         }
         self.pop_scope();
+    }
+
+    /// When `cond` is `x != none` (or `x == none`), the local `x` has its inner
+    /// type in the branch where that is known to hold.
+    fn narrow_cond(&mut self, cond: &Expr, when_true: bool) -> Option<(String, Type)> {
+        let ExprKind::Binary { op, lhs, rhs } = &cond.kind else { return None };
+        let narrows_when_true = match op {
+            BinOp::Ne => true,
+            BinOp::Eq => false,
+            _ => return None,
+        };
+        if narrows_when_true != when_true {
+            return None;
+        }
+        let name = match (&lhs.kind, &rhs.kind) {
+            (ExprKind::Ident(n), ExprKind::None) | (ExprKind::None, ExprKind::Ident(n)) => n.clone(),
+            _ => return None,
+        };
+        let declared = self.scopes.peek_var(&name)?;
+        match declared {
+            Type::Opt(inner) => Some((name, *inner)),
+            _ => None,
+        }
     }
 
     fn condition(&mut self, cond: &Expr, what: &str) {
@@ -63,15 +95,25 @@ impl Checker {
             Stmt::Assign { target, ty, value, .. } => self.assign(target, ty.as_ref(), value),
             Stmt::If { cond, then, else_ } => {
                 self.condition(cond, "`if`");
-                self.block(then);
+                let yes = self.narrow_cond(cond, true);
+                let no = self.narrow_cond(cond, false);
+                self.block_with(then, yes);
                 if let Some(e) = else_ {
-                    self.block(e);
+                    self.block_with(e, no.clone());
+                }
+                // `if x == none { return }`: the code after the branch only runs
+                // when the condition was false, so `x` is known there.
+                if else_.is_none() && always_returns(then) {
+                    if let Some((name, ty)) = no {
+                        self.narrow(&name, ty);
+                    }
                 }
             }
             Stmt::While { cond, body } => {
                 self.condition(cond, "`while`");
+                let yes = self.narrow_cond(cond, true);
                 self.loop_depth += 1;
-                self.block(body);
+                self.block_with(body, yes);
                 self.loop_depth -= 1;
             }
             Stmt::For {
@@ -279,6 +321,8 @@ impl Checker {
     }
 
     fn assign_var(&mut self, name: &str, name_span: Span, ty: Option<&TypeAnn>, value: &Expr, vt: Option<Type>) {
+        // A new value could be `none`, so a narrowed type stops applying.
+        self.narrowed.retain(|(_, n, _)| n != name);
         let ann = ty.and_then(|a| self.resolve_type(a));
         let Some(vt) = vt else { return };
         if vt == Type::Unit {

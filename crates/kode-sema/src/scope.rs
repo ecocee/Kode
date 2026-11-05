@@ -25,6 +25,11 @@ impl Scopes {
         self.stack.push(Vec::new());
     }
 
+    /// How many blocks are open, used to scope narrowing facts.
+    pub fn depth(&self) -> usize {
+        self.stack.len()
+    }
+
     /// Leave a block. Unused variables become warnings.
     pub fn pop(&mut self, warnings: &mut Vec<Diagnostic>) {
         if let Some(scope) = self.stack.pop() {

@@ -119,6 +119,8 @@ pub(crate) struct Checker {
     pub direct_throw: Vec<bool>,
     pub calls: Vec<Vec<usize>>,
     pub scopes: Scopes,
+    /// Locals proven not to be `none` in this block: (scope depth, name, type).
+    narrowed: Vec<(usize, String, Type)>,
     pub ret_type: Type,
     pub in_fn: bool,
     pub loop_depth: usize,
@@ -338,6 +340,7 @@ impl Checker {
             direct_throw: Vec::new(),
             calls: Vec::new(),
             scopes: Scopes::new(),
+            narrowed: Vec::new(),
             ret_type: Type::Unit,
             in_fn: false,
             loop_depth: 0,
@@ -350,11 +353,31 @@ impl Checker {
         let mut warnings = std::mem::take(&mut self.warnings);
         self.scopes.pop(&mut warnings);
         self.warnings = warnings;
+        let depth = self.scopes.depth();
+        self.narrowed.retain(|(d, _, _)| *d <= depth);
+    }
+
+    /// Remember that `name` is a `ty` (not `none`) until this block ends or the
+    /// variable is assigned.
+    pub(crate) fn narrow(&mut self, name: &str, ty: Type) {
+        let depth = self.scopes.depth();
+        self.narrowed.retain(|(d, n, _)| !(*d == depth && n == name));
+        self.narrowed.push((depth, name.to_string(), ty));
+    }
+
+    /// The narrowed type of a local, if a check proved it is not `none`.
+    pub(crate) fn narrowed_type(&self, name: &str) -> Option<Type> {
+        self.narrowed
+            .iter()
+            .rev()
+            .find(|(_, n, _)| n == name)
+            .map(|(_, _, t)| t.clone())
     }
 
     pub(crate) fn reset_context(&mut self) {
         self.scopes = Scopes::new();
         self.scopes.push();
+        self.narrowed.clear();
         self.ret_type = Type::Unit;
         self.in_fn = false;
         self.loop_depth = 0;

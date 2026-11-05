@@ -61,6 +61,7 @@ impl Checker {
                     if let InterpPart::Expr(x) = p {
                         match self.expr(x) {
                             Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_)) => {}
+                            Some(t) if crate::types::is_opt_scalar(&t).is_some() => {}
                             Some(Type::Unit) => {
                                 self.errors.push(Diagnostic::error(
                                     "E0205",
@@ -210,6 +211,10 @@ impl Checker {
     }
 
     fn ident(&mut self, name: &str, span: Span) -> Option<Type> {
+        if let Some(t) = self.narrowed_type(name) {
+            self.scopes.use_var(name);
+            return Some(t);
+        }
         if let Some(t) = self.scopes.use_var(name) {
             return Some(t);
         }
@@ -1242,6 +1247,7 @@ impl Checker {
             for (i, t) in tys.iter().enumerate() {
                 match t {
                     Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_)) | None => {}
+                    Some(t) if crate::types::is_opt_scalar(t).is_some() => {}
                     Some(Type::Unit) => self.errors.push(Diagnostic::error(
                         "E0205",
                         "this call returns nothing, so there is nothing to print",

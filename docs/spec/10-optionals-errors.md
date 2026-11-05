@@ -14,12 +14,27 @@ name = u?.name ?? "guest"       # ?. stops at none, ?? gives a default
 first = u!                       # stop with an error if it is none
 ```
 
-- `T?` can hold a value of type `T` or `none`. It works for `string`, lists, maps and classes.
-  `int?`, `float?` and `bool?` are not supported yet (E0219).
+- `T?` can hold a value of type `T` or `none`. It works for `string`, lists, maps, classes,
+  and for `int`, `float` and `bool`.
+- `int?`, `float?` and `bool?` are stored as a pair (the value and a `present` flag): no boxing
+  and no allocation, one byte of extra storage. They work as a **local variable**; a parameter,
+  return type, field, or a list or map of them is still E0219.
 - A value that may be none cannot be used with `.` or passed where `T` is needed (E0220).
   Use `?.`, `??` or `!`.
+- Narrowing: after `if x != none { ... }`, inside `while x != none { ... }`, and in the code
+  after `if x == none { return }` (or `throw`), `x` has type `T` again. Narrowing ends at the
+  end of the block, or at any assignment to `x`.
 - `?.` works on fields whose type is a heap type (string, list, map, class).
-- Not yet: narrowing after `if x != none`. Use `x!` or `??`.
+- `"${x}"` and `print(x)` on an optional number write the number or `none`.
+
+```
+n: int? = none
+n = 5
+print(n ?? 0, n == none, n! + 1)
+if n != none {
+    print(n * 2)          # narrowed to int inside the branch
+}
+```
 
 ## Errors
 
