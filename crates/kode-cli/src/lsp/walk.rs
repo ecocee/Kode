@@ -75,9 +75,19 @@ fn stmt(s: &Stmt, f: &mut dyn FnMut(&Expr)) {
             }
         }
         Stmt::Throw { value, .. } => expr(value, f),
-        Stmt::Try { body, handler, .. } => {
+        Stmt::Try {
+            body,
+            handler,
+            finally,
+            ..
+        } => {
             stmts(body, f);
-            stmts(handler, f);
+            if let Some(h) = handler {
+                stmts(h, f);
+            }
+            if let Some(fin) = finally {
+                stmts(fin, f);
+            }
         }
         Stmt::Return { value, .. } => {
             if let Some(v) = value {

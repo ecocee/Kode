@@ -369,6 +369,9 @@ pub(crate) struct Lowerer<'a> {
     pub cur: BlockId,
     scopes: Vec<HashMap<String, LocalId>>,
     pub loops: Vec<(BlockId, BlockId)>,
+    /// `finally` blocks that must run before leaving the current code, with the
+    /// loop depth at which they were entered.
+    cleanups: Vec<(Vec<kode_syntax::ast::Stmt>, usize)>,
     ref_locals: Vec<LocalId>,
     pub param_count: usize,
     pub ret: Ty,
@@ -405,6 +408,7 @@ impl<'a> Lowerer<'a> {
             cur: 0,
             scopes: vec![HashMap::new()],
             loops: Vec::new(),
+            cleanups: Vec::new(),
             ref_locals: Vec::new(),
             param_count: 0,
             ret,

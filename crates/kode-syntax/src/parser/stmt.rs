@@ -60,14 +60,29 @@ impl Parser {
             TokenKind::Try => {
                 self.bump();
                 let body = self.parse_block()?;
-                self.expect(TokenKind::Catch, "`catch` after the `try` block")?;
-                let (var, var_span) = self.ident("a name for the error after `catch`")?;
-                let handler = self.parse_block()?;
+                let has_catch = matches!(self.peek(), TokenKind::Catch);
+                let has_finally = matches!(self.peek(), TokenKind::Finally);
+                if !has_catch && !has_finally {
+                    self.expect(TokenKind::Catch, "`catch` or `finally` after the `try` block")?;
+                }
+                let (var, handler) = if has_catch {
+                    self.bump();
+                    let (var, var_span) = self.ident("a name for the error after `catch`")?;
+                    (Some((var, var_span)), Some(self.parse_block()?))
+                } else {
+                    (None, None)
+                };
+                let finally = if matches!(self.peek(), TokenKind::Finally) {
+                    self.bump();
+                    Some(self.parse_block()?)
+                } else {
+                    None
+                };
                 Ok(Stmt::Try {
                     body,
                     var,
-                    var_span,
                     handler,
+                    finally,
                 })
             }
             TokenKind::Return => {

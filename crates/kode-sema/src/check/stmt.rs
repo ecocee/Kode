@@ -133,16 +133,22 @@ impl Checker {
             Stmt::Try {
                 body,
                 var,
-                var_span,
                 handler,
+                finally,
             } => {
                 self.block(body);
-                self.scopes.push();
-                self.scopes.declare(var, Type::Class("Error".into()), *var_span, true);
-                for s in handler {
-                    self.stmt(s);
+                if let (Some((name, name_span)), Some(handler)) = (var, handler) {
+                    self.scopes.push();
+                    self.scopes
+                        .declare(name, Type::Class("Error".into()), *name_span, true);
+                    for s in handler {
+                        self.stmt(s);
+                    }
+                    self.pop_scope();
                 }
-                self.pop_scope();
+                if let Some(f) = finally {
+                    self.block(f);
+                }
             }
             Stmt::Break(span) | Stmt::Continue(span) => {
                 if self.loop_depth == 0 {

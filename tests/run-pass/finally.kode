@@ -1,0 +1,64 @@
+fn safe_div(a: int, b: int) -> int {
+    try {
+        if b == 0 {
+            throw "zero"
+        }
+        return a / b
+    } catch e {
+        return -1
+    } finally {
+        print("cleanup", b)
+    }
+    return 0
+}
+
+print(safe_div(10, 2))
+print(safe_div(5, 0))
+
+fn early(n: int) -> int {
+    try {
+        for i in 0..n {
+            if i == 2 {
+                return i
+            }
+        }
+    } finally {
+        print("left")
+    }
+    return n
+}
+
+print(early(5))
+
+total = 0
+for i in 0..10 {
+    try {
+        if i == 3 {
+            break
+        }
+        total += i
+    } finally {
+        print("step", i)
+    }
+}
+print("total", total)
+
+fn boom() {
+    throw "bad"
+}
+
+fn wrap() {
+    try {
+        boom()
+    } catch e {
+        boom()
+    } finally {
+        print("closed")
+    }
+}
+
+try {
+    wrap()
+} catch e {
+    print("caught", e.message)
+}

@@ -91,9 +91,12 @@ pub enum Stmt {
     },
     Try {
         body: Block,
-        var: String,
-        var_span: Span,
-        handler: Block,
+        /// The name bound to the caught error; `none` when there is no `catch`.
+        var: Option<(String, Span)>,
+        handler: Option<Block>,
+        /// Runs on both the normal and the error path, and before any
+        /// `return`, `break` or `continue` that leaves the block.
+        finally: Option<Block>,
     },
     Break(Span),
     Continue(Span),

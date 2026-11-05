@@ -43,6 +43,8 @@ try {                               # handle a block
     parse("bad")
 } catch err {
     print(err.message, err.code)
+} finally {
+    print("done")                  # runs on both paths
 }
 ```
 
@@ -52,4 +54,8 @@ try {                               # handle a block
   `break`, `continue` or `throw` (E0227).
 - `assert(cond)` throws an `Error("assertion failed at line N")`.
 - Index and key errors, division by zero and `!` on none stop the program; they are not catchable yet.
-- Not yet: `finally`, custom error classes.
+- `catch` can be left out when you only need cleanup: `try { use(f) } finally { close(f) }`
+  lets the error travel on after `finally` runs.
+- `finally` runs when the block finishes, when it throws, when its handler throws again,
+  and before a `return`, `break` or `continue` that leaves the block. It cannot swallow an
+  error: a caught error still leaves the function.

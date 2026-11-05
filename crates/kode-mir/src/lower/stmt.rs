@@ -13,6 +13,29 @@ impl<'a> Lowerer<'a> {
         self.pop_scope();
     }
 
+    /// Lower every pending `finally` block, innermost first, before leaving a
+    /// function. The stack is restored so later code on other paths still sees
+    /// the cleanup.
+    fn run_cleanups(&mut self) {
+        let saved = std::mem::take(&mut self.cleanups);
+        for (block, _) in saved.iter().rev() {
+            self.block(block);
+        }
+        self.cleanups = saved;
+    }
+
+    /// Lower the `finally` blocks that sit inside the loop being left.
+    fn run_loop_cleanups(&mut self) {
+        let depth = self.loops.len();
+        let saved = std::mem::take(&mut self.cleanups);
+        for (block, loops) in saved.iter().rev() {
+            if *loops >= depth {
+                self.block(block);
+            }
+        }
+        self.cleanups = saved;
+    }
+
     /// Store `v` into a local variable. Heap values take ownership and release the old one.
     fn store_local(&mut self, target: LocalId, v: V, ty: Ty) {
         if ty == Ty::Ref {
@@ -123,10 +146,35 @@ impl<'a> Lowerer<'a> {
                 body,
                 var,
                 handler,
-                ..
+                finally,
             } => {
-                let handler_bb = self.new_block();
                 let join = self.new_block();
+                if let Some(f) = finally {
+                    self.cleanups.push((f.clone(), self.loops.len()));
+                }
+                let Some(handler) = handler else {
+                    // `try { } finally { }`: an error still runs `finally`, then keeps going.
+                    let escape = self.new_block();
+                    self.push_handler(escape);
+                    self.block(body);
+                    self.handlers.pop();
+                    self.term(Terminator::Goto(join));
+                    // Inside `finally` itself the cleanup must not run again.
+                    self.cleanups.pop();
+                    self.switch(escape);
+                    if let Some(f) = finally {
+                        self.block(f);
+                    }
+                    self.goto_error();
+                    self.start_dead_block();
+                    self.switch(join);
+                    if let Some(f) = finally {
+                        self.block(f);
+                    }
+                    return;
+                };
+                let (name, _) = var.as_ref().expect("checked: `catch` names the error");
+                let handler_bb = self.new_block();
                 self.push_handler(handler_bb);
                 self.block(body);
                 self.handlers.pop();
@@ -134,27 +182,54 @@ impl<'a> Lowerer<'a> {
 
                 self.switch(handler_bb);
                 self.push_scope();
-                let ev = self.declare_var(var, Ty::Ref);
+                let ev = self.declare_var(name, Ty::Ref);
                 self.emit(Inst::Release(Operand::Local(ev)));
                 self.emit(Inst::Call {
                     dst: Some(ev),
                     callee: Callee::Rt(RtFn::ErrTake),
                     args: vec![],
                 });
-                for s in handler {
-                    self.stmt(s);
+                match finally {
+                    Some(f) => {
+                        // The handler may throw again; `finally` still runs, then the
+                        // new error travels to the enclosing handler.
+                        let rethrow = self.new_block();
+                        self.push_handler(rethrow);
+                        for s in handler {
+                            self.stmt(s);
+                        }
+                        self.handlers.pop();
+                        self.pop_scope();
+                        self.term(Terminator::Goto(join));
+                        // Inside `finally` itself the cleanup must not run again.
+                        self.cleanups.pop();
+                        self.switch(rethrow);
+                        self.block(f);
+                        self.goto_error();
+                        self.start_dead_block();
+                    }
+                    None => {
+                        for s in handler {
+                            self.stmt(s);
+                        }
+                        self.pop_scope();
+                        self.term(Terminator::Goto(join));
+                    }
                 }
-                self.pop_scope();
-                self.term(Terminator::Goto(join));
                 self.switch(join);
+                if let Some(f) = finally {
+                    self.block(f);
+                }
             }
             Stmt::Break(_) => {
                 let (_, exit) = *self.loops.last().expect("checked: inside a loop");
+                self.run_loop_cleanups();
                 self.term(Terminator::Goto(exit));
                 self.start_dead_block();
             }
             Stmt::Continue(_) => {
                 let (cont, _) = *self.loops.last().expect("checked: inside a loop");
+                self.run_loop_cleanups();
                 self.term(Terminator::Goto(cont));
                 self.start_dead_block();
             }
@@ -163,9 +238,13 @@ impl<'a> Lowerer<'a> {
                     Some(e) => {
                         let v = self.expr(e);
                         let ret = self.ret;
+                        self.run_cleanups();
                         self.return_value(v, ret);
                     }
-                    None => self.goto_exit(),
+                    None => {
+                        self.run_cleanups();
+                        self.goto_exit();
+                    }
                 }
                 self.start_dead_block();
             }

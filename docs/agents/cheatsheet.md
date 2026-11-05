@@ -39,7 +39,7 @@ enum Color { Red, Green }       c = Color.Red        // compare with ==, use wit
 u: Account? = none     u?.owner ?? "nobody"    u!.owner
 throw "message"        throw Error(message: "x", code: 7)
 v = f() catch e { print(e.message)  -1 }            // last line is the value
-try { f() } catch e { print(e.message) }
+try { f() } catch e { print(e.message) } finally { close() }   // finally always runs
 
 import "./util"        from "./util" import helper   // modules share one namespace
 import "models/user" as users                        // package root from kode.toml
