@@ -1,5 +1,8 @@
 # Roadmap
 
+For the working plan behind these milestones — branches, budgets and acceptance checks —
+see [PLAN-v1.md](PLAN-v1.md).
+
 Goal: a language that serves more requests per cloud server than Java, Node and Python,
 is simple to write, and is easy for AI agents to use.
 
