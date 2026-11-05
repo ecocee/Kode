@@ -3,6 +3,7 @@
 
 pub mod features;
 pub mod json;
+mod nav;
 pub mod position;
 pub mod server;
 pub mod walk;

@@ -12,6 +12,7 @@ use kode_syntax::ast::Program;
 
 use super::features;
 use super::json::{self, Json};
+use super::nav;
 use super::position;
 use crate::driver;
 use crate::source::SourceMap;
@@ -110,6 +111,10 @@ impl State {
             "textDocument/completion" => self.completion(&params, out, id),
             "textDocument/documentSymbol" => self.document_symbols(&params, out, id),
             "textDocument/formatting" => self.formatting(&params, out, id),
+            "textDocument/definition" => self.definition(&params, out, id),
+            "textDocument/references" => self.references(&params, out, id),
+            "textDocument/rename" => self.rename(&params, out, id),
+            "textDocument/signatureHelp" => self.signature_help(&params, out, id),
             "" => {} // a response from the client: nothing to do
             other => {
                 if let Some(id) = id {
@@ -197,6 +202,43 @@ impl State {
         self.respond(out, id, features::formatting(&d.text));
     }
 
+    fn doc(&self, params: &Json) -> Option<&Doc> {
+        let uri = params.get("textDocument")?.str_of("uri")?;
+        self.docs.get(uri)
+    }
+
+    fn definition(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
+        let Some(d) = self.doc(params) else { return self.respond(out, id, Json::Null) };
+        let at = cursor(d, params);
+        let uri = position::uri_from_path(&d.path);
+        let result = nav::definition(&d.text, &uri, at).unwrap_or(Json::Null);
+        self.respond(out, id, result);
+    }
+
+    fn references(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
+        let Some(d) = self.doc(params) else { return self.respond(out, id, Json::Null) };
+        let at = cursor(d, params);
+        let uri = position::uri_from_path(&d.path);
+        let result = Json::Arr(nav::references(&d.text, &uri, at));
+        self.respond(out, id, result);
+    }
+
+    fn rename(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
+        let Some(d) = self.doc(params) else { return self.respond(out, id, Json::Null) };
+        let at = cursor(d, params);
+        let uri = position::uri_from_path(&d.path);
+        let new_name = params.str_of("newName").unwrap_or("");
+        let result = nav::rename(&d.text, &uri, at, new_name).unwrap_or(Json::Null);
+        self.respond(out, id, result);
+    }
+
+    fn signature_help(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
+        let Some(d) = self.doc(params) else { return self.respond(out, id, Json::Null) };
+        let at = cursor(d, params);
+        let result = nav::signature_help(&d.text, at).unwrap_or(Json::Null);
+        self.respond(out, id, result);
+    }
+
     fn publish(&self, uri: &str, out: &mut impl Write) {
         let Some(doc) = self.docs.get(uri) else { return };
         let name = doc.path.display().to_string();
@@ -229,6 +271,13 @@ impl State {
     }
 }
 
+fn cursor(d: &Doc, params: &Json) -> usize {
+    let Some(p) = params.get("position") else { return 0 };
+    let line = p.int_of("line").unwrap_or(0) as u32;
+    let character = p.int_of("character").unwrap_or(0) as u32;
+    position::offset(&d.text, line, character)
+}
+
 fn capabilities() -> Json {
     Json::obj(vec![
         (
@@ -242,6 +291,16 @@ fn capabilities() -> Json {
                 ),
                 ("documentSymbolProvider", Json::Bool(true)),
                 ("documentFormattingProvider", Json::Bool(true)),
+                ("definitionProvider", Json::Bool(true)),
+                ("referencesProvider", Json::Bool(true)),
+                ("renameProvider", Json::Bool(true)),
+                (
+                    "signatureHelpProvider",
+                    Json::obj(vec![(
+                        "triggerCharacters",
+                        Json::Arr(vec![Json::str("("), Json::str(",")]),
+                    )]),
+                ),
             ]),
         ),
         (
