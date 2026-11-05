@@ -74,6 +74,7 @@ kode run examples/tour.kode
 | `kode tokens file.kode` | print tokens (debugging) |
 | `kode ast file.kode` | print the syntax tree (debugging) |
 | `kode mir file.kode` | print the MIR, including retain/release (debugging) |
+| `kode lsp` | language server on stdio: diagnostics, hover, completion, symbols, format |
 | `--format=json` | diagnostics as JSON, for editors and AI agents |
 | `--strict` | warnings count as errors |
 

@@ -37,6 +37,15 @@ struct State {
 }
 
 pub fn load(path: &Path) -> Result<Loaded, (SourceMap, Vec<Diagnostic>)> {
+    load_with(path, &|_| None)
+}
+
+/// Like `load`, but `overlay` can supply the text of a file. The language
+/// server uses it so an unsaved editor buffer is what gets checked.
+pub fn load_with(
+    path: &Path,
+    overlay: &dyn Fn(&Path) -> Option<String>,
+) -> Result<Loaded, (SourceMap, Vec<Diagnostic>)> {
     let manifest = match manifest::find(path) {
         Ok(m) => m,
         Err(err) => {
@@ -57,7 +66,7 @@ pub fn load(path: &Path) -> Result<Loaded, (SourceMap, Vec<Diagnostic>)> {
         errors: Vec::new(),
         manifest,
     };
-    let items = match load_file(path, &mut st) {
+    let items = match load_file(path, &mut st, overlay) {
         Ok(items) => items,
         Err(errs) => {
             st.errors.extend(errs);
@@ -101,15 +110,22 @@ fn defined_names(items: &[Item]) -> (Vec<String>, Vec<String>) {
     (all, public)
 }
 
-fn load_file(path: &Path, st: &mut State) -> Result<Vec<Item>, Vec<Diagnostic>> {
+fn load_file(
+    path: &Path,
+    st: &mut State,
+    overlay: &dyn Fn(&Path) -> Option<String>,
+) -> Result<Vec<Item>, Vec<Diagnostic>> {
     let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let text = std::fs::read_to_string(path).map_err(|e| {
-        vec![Diagnostic::error(
-            "E0401",
-            format!("cannot read {}: {e}", path.display()),
-            Default::default(),
-        )]
-    })?;
+    let text = match overlay(path) {
+        Some(text) => text,
+        None => std::fs::read_to_string(path).map_err(|e| {
+            vec![Diagnostic::error(
+                "E0401",
+                format!("cannot read {}: {e}", path.display()),
+                Default::default(),
+            )]
+        })?,
+    };
     let base = st.map.add(path.display().to_string(), text.clone());
     let tokens = lexer::lex_at(&text, base)?;
     let program = parser::parse_from(tokens, st.next_id)?;
@@ -163,7 +179,7 @@ fn load_file(path: &Path, st: &mut State) -> Result<Vec<Item>, Vec<Diagnostic>> 
         }
         if !st.loaded.contains(&tcanon) {
             st.loaded.insert(tcanon.clone());
-            match load_file(&target, st) {
+            match load_file(&target, st, overlay) {
                 Ok(items) => {
                     let mut keep = Vec::new();
                     for it in items {

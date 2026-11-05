@@ -4,6 +4,7 @@ mod args;
 mod driver;
 mod explain;
 mod fmt;
+mod lsp;
 mod manifest;
 mod report;
 mod source;
@@ -40,6 +41,13 @@ fn main() -> ExitCode {
             println!("kode {VERSION}");
             ExitCode::SUCCESS
         }
+        "lsp" => match lsp::serve() {
+            Ok(code) => ExitCode::from(code),
+            Err(msg) => {
+                eprintln!("kode: {msg}");
+                ExitCode::from(1)
+            }
+        },
         "run" | "build" | "check" | "tokens" | "ast" | "mir" | "test" | "fmt" | "explain" => {
             match run_command(&opts) {
                 Ok(code) => ExitCode::from(code),

@@ -11,6 +11,7 @@ USAGE:
     kode tokens <file.kode>           print the tokens (debugging)
     kode ast <file.kode>              print the syntax tree (debugging)
     kode mir <file.kode>              print the MIR (debugging)
+    kode lsp                          language server on stdio (for editors)
 
 OPTIONS:
     --format=json     print diagnostics as JSON (for editors and AI agents)
@@ -60,6 +61,7 @@ pub fn parse() -> Result<Options, String> {
                 break;
             }
             "--check" => opts.check = true,
+            "--stdio" => {}
             "-o" => opts.output = Some(args.next().ok_or("`-o` needs a file name")?),
             other if other.starts_with('-') => return Err(format!("unknown option `{other}`")),
             other => {
