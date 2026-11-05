@@ -36,6 +36,8 @@ other = acct                         # the same object, not a copy
 enum Color { Red, Green, Blue }
 
 c = Color.Green
+print(c)                     # Color.Green
+print("c is ${c}")           # c is Color.Green
 match c {
     Color.Red => print("red")
     Color.Green => {
@@ -46,5 +48,8 @@ match c {
 ```
 
 - `match` works on `int`, `string`, `bool` and enums. It must cover every case or end with `_ =>` (E0224).
-- Enum values are compared with `==`. Printing an enum is not supported yet.
-- `match` is a statement in v0.2, not an expression.
+- Enum values are compared with `==`: they are plain ints with a name.
+- `print(c)` and `"${c}"` write the value the way it is written in source,
+  `Color.Green`. The text is chosen from static strings, so printing allocates
+  nothing and the representation does not change (ADR 0027).
+- `match` is a statement, not an expression.

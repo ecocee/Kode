@@ -24,4 +24,29 @@ for i, x in xs { print(i, x) }     # index and item
   All items must have the same type (E0213).
 - Index out of range, and a missing map key, stop the program with an error that names the line.
 - Lists and maps are reference counted like strings; `b = a` shares the same list.
-- Not yet: slicing, removing items, sorting, `map`/`filter`, integer map keys, printing a whole list.
+- Not yet: `map`/`filter` (they need function values), integer map keys, printing a whole list.
+
+## Slices
+
+```
+xs = [10, 20, 30, 40, 50]
+print(xs[1..3].len())       # 2: items 1 and 2
+print(xs[..2].len())        # 2: from the start
+print(xs[3..].len())        # 2: to the end
+print(xs[0..=2].len())      # 3: includes index 2
+print(xs[10..20].len())     # 0: bounds are clamped
+
+part = xs[1..3]
+part.add(99)
+print(xs.len())             # 5: a slice is a copy, not a view
+```
+
+- `xs[a..b]` is a **new list** holding the items in `[a, b)`. `xs[a..=b]` includes
+  `b`. Either bound may be left out.
+- Bounds are clamped to `[0, len]`: a bound past the end stops at the end, a
+  negative bound counts from the start (it becomes 0), and `a >= b` is empty.
+  Indexing is still strict, because an index mistake is usually a bug.
+- Only a list can be sliced (E0211), and the bounds must be ints (E0212).
+- Items are retained when copied, so a slice of strings owns its references. A
+  slice of `[bool]` stays packed, one byte per item.
+- ADR 0027 records the decision and the rejected view and negative-index designs.

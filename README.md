@@ -99,8 +99,11 @@ tests/run-pass/       programs that must run (.kode + .out), checked for leaks
 tests/compile-fail/   programs that must fail (.kode + .err with the error code)
 examples/             small programs
 benchmarks/           proof of the cost claims
-docs/                 spec, design notes, decisions (ADRs), roadmap, error codes
+docs/                 spec, cheat sheet, design notes, decisions (ADRs), roadmap, error codes
 ```
+
+Start with [`docs/cheatsheet.md`](docs/cheatsheet.md) for the shape of the language and
+[`docs/spec/`](docs/spec/) for the rules.
 
 ## License
 

@@ -47,6 +47,9 @@ index="$out/index.html"
     md2html "$f" "$out/spec-$name.html" "$name"
     echo "<li><a href=\"spec-$name.html\">$name</a></li>"
   done
+  echo '</ul><h2>Cheat sheet</h2><ul>'
+  md2html "$root/docs/cheatsheet.md" "$out/cheatsheet.html" "Cheat sheet"
+  echo '<li><a href="cheatsheet.html">cheat sheet</a></li>'
   echo '</ul><h2>Decisions</h2><ul>'
   for f in "$root"/docs/adr/*.md; do
     name=$(basename "$f" .md)
