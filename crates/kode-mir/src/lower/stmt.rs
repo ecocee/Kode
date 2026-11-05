@@ -1,6 +1,7 @@
 use kode_sema::Type;
 use kode_syntax::ast::{Arm, Expr, ExprKind, Pattern, Stmt, Target};
 
+use super::data::list_rt;
 use super::{mir_ty, Lowerer, V};
 use crate::ir::*;
 
@@ -274,7 +275,9 @@ impl<'a> Lowerer<'a> {
                 let line = Operand::Int(self.line_of(value.span.start));
                 let (el, rt) = match ot {
                     Type::Map(el) => (el, RtFn::MapSet),
-                    Type::List(el) => (el, RtFn::ListSet),
+                    // Lists of `bool` keep one byte per item, so they need the
+                    // packed accessors ("list_rt").
+                    Type::List(el) => (el, list_rt(el, RtFn::ListSet)),
                     _ => unreachable!("checked: a list or map"),
                 };
                 let op = if mir_ty(el) == Ty::Ref { self.own(v) } else { v.op };
@@ -412,7 +415,11 @@ impl<'a> Lowerer<'a> {
         let line = Operand::Int(self.line_of(iter.span.start));
         match it_ty {
             Type::List(el) => {
-                let item = self.call_raw(RtFn::ListGet, vec![h.clone(), Operand::Local(idx), line], el);
+                let item = self.call_raw(
+                    list_rt(el, RtFn::ListGet),
+                    vec![h.clone(), Operand::Local(idx), line],
+                    el,
+                );
                 if vars.len() == 2 {
                     let iv = self.declare_var(&vars[0].0, Ty::Int);
                     self.emit(Inst::Assign {
