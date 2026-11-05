@@ -104,6 +104,9 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0409 | a module alias hides another declaration |
 | E0410 | the module has no such member |
 | E0411 | the member is private (not `pub`) |
+| E0412 | a dependency is not a package (no `kode.toml`) |
+| E0413 | dependency version mismatch, or a version without a path |
+| E0414 | two packages share a name, or a package depends on itself |
 
 ## Warnings
 

@@ -12,6 +12,11 @@ USAGE:
     kode ast <file.kode>              print the syntax tree (debugging)
     kode mir <file.kode>              print the MIR (debugging)
     kode lsp                          language server on stdio (for editors)
+    kode init [name]                  make the current folder a package
+    kode new <name>                   make a package in a new folder
+    kode add <name> --path <folder>   add a path dependency
+    kode remove <name>                remove a dependency
+    kode install                      resolve dependencies, write kode.lock
 
 OPTIONS:
     --format=json     print diagnostics as JSON (for editors and AI agents)
@@ -19,6 +24,8 @@ OPTIONS:
     --release         strip symbols from the built binary
     --debug           do not optimize the generated code (faster to compile)
     --check           with `fmt`: do not write, exit 1 if a file would change
+                      with `install`: do not write kode.lock, exit 1 if it is stale
+    --path <folder>   with `add`: the dependency's folder
     -o <file>         output file for `build`
     -h, --help        show this help
     -V, --version     show the version
@@ -35,6 +42,7 @@ pub struct Options {
     pub debug: bool,
     pub check: bool,
     pub simple: bool,
+    pub path: Option<String>,
     pub program_args: Vec<String>,
 }
 
@@ -63,6 +71,7 @@ pub fn parse() -> Result<Options, String> {
             "--check" => opts.check = true,
             "--stdio" => {}
             "-o" => opts.output = Some(args.next().ok_or("`-o` needs a file name")?),
+            "--path" => opts.path = Some(args.next().ok_or("`--path` needs a folder")?),
             other if other.starts_with('-') => return Err(format!("unknown option `{other}`")),
             other => {
                 if opts.command.is_empty() {

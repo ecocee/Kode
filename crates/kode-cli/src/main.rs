@@ -6,7 +6,9 @@ mod explain;
 mod fmt;
 mod lsp;
 mod manifest;
+mod packages;
 mod report;
+mod resolve;
 mod source;
 
 use std::path::{Path, PathBuf};
@@ -41,13 +43,12 @@ fn main() -> ExitCode {
             println!("kode {VERSION}");
             ExitCode::SUCCESS
         }
-        "lsp" => match lsp::serve() {
-            Ok(code) => ExitCode::from(code),
-            Err(msg) => {
-                eprintln!("kode: {msg}");
-                ExitCode::from(1)
-            }
-        },
+        "lsp" => finish(lsp::serve()),
+        "init" => finish(packages::init(&opts)),
+        "new" => finish(packages::new_package(&opts)),
+        "add" => finish(packages::add(&opts)),
+        "remove" => finish(packages::remove(&opts)),
+        "install" => finish(packages::install(&opts)),
         "run" | "build" | "check" | "tokens" | "ast" | "mir" | "test" | "fmt" | "explain" => {
             match run_command(&opts) {
                 Ok(code) => ExitCode::from(code),
@@ -60,6 +61,16 @@ fn main() -> ExitCode {
         other => {
             eprintln!("kode: unknown command `{other}`\n\n{HELP}");
             ExitCode::from(2)
+        }
+    }
+}
+
+fn finish(result: Result<u8, String>) -> ExitCode {
+    match result {
+        Ok(code) => ExitCode::from(code),
+        Err(msg) => {
+            eprintln!("kode: {msg}");
+            ExitCode::from(1)
         }
     }
 }
