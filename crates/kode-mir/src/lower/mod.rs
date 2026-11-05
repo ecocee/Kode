@@ -37,12 +37,14 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
     let mut strings = Strings::default();
     let mut funcs = Vec::new();
 
-    let n_user = program.fn_decls().len();
+    let n_user = checked.bodies.len();
     let mut dispatches = Vec::new();
     let iface_dispatch = plan_dispatches(checked, &mut strings, n_user, &mut dispatches);
 
-    for (i, (cls, f)) in program.fn_decls().into_iter().enumerate() {
-        funcs.push(lower_fn(f, i, cls.is_some(), checked, src, &mut strings, &iface_dispatch));
+    // Declared functions and methods, then every generic instantiation.
+    for (i, f) in checked.bodies.iter().enumerate() {
+        let is_method = checked.fns[i].class.is_some();
+        funcs.push(lower_fn(f, i, is_method, checked, src, &mut strings, &iface_dispatch));
     }
     funcs.extend(dispatches);
 

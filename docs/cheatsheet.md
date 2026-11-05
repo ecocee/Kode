@@ -190,6 +190,28 @@ kode lsp                     # language server on stdio
 kode doctor                  # version, target, linker, runtime ABI
 ```
 
+## Generics
+
+```
+fn first<T>(xs: [T]) -> T => xs[0]
+fn pair<T>(a: T, b: T) -> [T] => [a, b]
+fn apply_all<T, U>(xs: [T], f: fn(T) -> U) -> [U] => xs.map(f)
+
+print(first([10, 20]))              # 10: T is int here
+print(first(["a", "b"]))            # a:  T is string here
+print(pair(1, 2)[1])                # 2
+print(apply_all([1, 2], |n: int| "n${n}")[1])   # n2
+```
+
+- `fn name<T>(...)` declares type parameters; each call infers them from its
+  argument types. A parameter used twice must get one type: `pair(1, "a")` is
+  E0208.
+- Each concrete combination becomes its own native function (monomorphization),
+  so generics cost nothing at run time.
+- `T` must appear in a parameter type (E0250); `f = first` is E0251; methods
+  cannot be generic yet (E0252).
+- Not yet: generic classes, generic methods, constraints, `first::<int>`.
+
 ## Processes
 
 ```

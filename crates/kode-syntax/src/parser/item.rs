@@ -47,6 +47,22 @@ impl Parser {
     pub(crate) fn parse_fn(&mut self) -> Result<FnDecl, Diagnostic> {
         let fn_tok = self.bump();
         let (name, name_span) = self.ident("a function name")?;
+        // `fn first<T>(...)`: type parameters, separated by commas.
+        let mut type_params = Vec::new();
+        if matches!(self.peek(), TokenKind::Lt) {
+            self.bump();
+            loop {
+                let (pname, pspan) = self.ident("a type parameter name")?;
+                type_params.push((pname, pspan));
+                if matches!(self.peek(), TokenKind::Comma) {
+                    self.bump();
+                    self.skip_newlines();
+                } else {
+                    break;
+                }
+            }
+            self.expect(TokenKind::Gt, "`>`")?;
+        }
 
         self.expect(TokenKind::LParen, "`(`")?;
         self.skip_newlines();
@@ -98,6 +114,7 @@ impl Parser {
             name,
             name_span,
             is_pub: false,
+            type_params,
             params,
             ret,
             body,

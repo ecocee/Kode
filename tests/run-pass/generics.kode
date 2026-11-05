@@ -1,0 +1,28 @@
+fn identity<T>(x: T) -> T {
+    return x
+}
+
+fn first<T>(xs: [T]) -> T {
+    return xs[0]
+}
+
+fn pair<T>(a: T, b: T) -> [T] {
+    return [a, b]
+}
+
+fn apply_all<T, U>(xs: [T], f: fn(T) -> U) -> [U] {
+    return xs.map(f)
+}
+
+print(identity(41) + 1)
+print(identity("hi"))
+print(first([10, 20, 30]))
+print(first(["a", "b"]))
+print(pair(1, 2)[1])
+print(pair("x", "y")[0])
+
+labels = apply_all([1, 2], |n: int| "n${n}")
+print(labels.len(), labels[0], labels[1])
+
+lengths = apply_all(["a", "bb"], |s: string| s.len())
+print(lengths[1])

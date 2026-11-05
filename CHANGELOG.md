@@ -7,6 +7,11 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Generic functions.** `fn first<T>(xs: [T]) -> T` with type arguments inferred
+  at each call and monomorphization: every distinct combination of type
+  arguments becomes its own native function, shared by identical calls. Generic
+  classes, generic methods, constraints and explicit type arguments are not
+  implemented yet (ADR 0030).
 - **Language server.** `kode lsp` speaks JSON-RPC on stdio: diagnostics as you
   type, hover, completion, document symbols and formatting, with an unsaved
   buffer read from the editor instead of disk. See `docs/editors.md`.

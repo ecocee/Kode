@@ -55,3 +55,34 @@ print(apply(|x: int| x * x, 7))   # 49
   returned or stored. A function value cannot be printed (E0203).
 - ADR 0028 records the representation: one heap object holding the code address
   and the captures.
+
+## Generic functions
+
+```
+fn first<T>(xs: [T]) -> T {
+    return xs[0]
+}
+
+fn pair<T>(a: T, b: T) -> [T] => [a, b]
+
+fn apply_all<T, U>(xs: [T], f: fn(T) -> U) -> [U] => xs.map(f)
+
+print(first([10, 20, 30]))                        # 10
+print(first(["a", "b"]))                          # a
+print(pair(1, 2)[1])                              # 2
+print(apply_all([1, 2], |n: int| "n${n}")[0])     # n1
+```
+
+- A function declares its type parameters after its name: `fn name<T, U>(...)`.
+- Type arguments are inferred at each call from the argument types. They cannot
+  be written explicitly yet.
+- Every type parameter must appear in a parameter type, otherwise the call is
+  E0250. A parameter that appears twice must receive the same type: `pair(1, "a")`
+  is E0208.
+- The body is checked and compiled once per concrete combination of types
+  (monomorphization, ADR 0030), so a generic function is as fast as a
+  hand-written one. Calls with identical types share one compiled function.
+- A generic function is not a value: `f = first` is E0251. Wrap a concrete call
+  in a closure instead.
+- Methods cannot declare type parameters yet (E0252). Generic classes,
+  constraints and explicit type arguments are not implemented.

@@ -1,0 +1,10 @@
+class Box {
+    value: int
+
+    fn get<T>() -> int {
+        return 1
+    }
+}
+
+b = Box(value: 1)
+print(b.get())

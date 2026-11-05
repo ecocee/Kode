@@ -1,0 +1,6 @@
+fn pair<T>(a: T, b: T) -> [T] {
+    return [a, b]
+}
+
+xs = pair(1, "a")
+print(xs.len())

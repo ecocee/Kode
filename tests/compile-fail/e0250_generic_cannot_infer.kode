@@ -1,0 +1,6 @@
+fn empty<T>() -> [T] {
+    return []
+}
+
+xs = empty()
+print(xs.len())

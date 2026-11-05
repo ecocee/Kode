@@ -623,6 +623,12 @@ impl<'a> Lowerer<'a> {
             return self.std_call(f, None, args);
         }
         let checked = self.checked;
+        // A generic call resolved to one concrete instantiation.
+        if let Some(&idx) = checked.generic_calls.get(&e.id) {
+            let n = checked.fns[idx].params.len();
+            let vals = self.call_vals(e.id, args, None, n);
+            return self.emit_call(idx, vals);
+        }
         if let Some(&idx) = checked.fn_index.get(callee) {
             let n = checked.fns[idx].params.len();
             let vals = self.call_vals(e.id, args, None, n);

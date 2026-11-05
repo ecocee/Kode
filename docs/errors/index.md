@@ -1,8 +1,7 @@
-# Error codes
+# Diagnostics reference
 
-Every message has a stable code. `kode check --format=json` prints them as JSON, and
-`kode explain E0201` shows a longer explanation with an example. Each code has a test in
-`tests/compile-fail/`.
+`kode explain <CODE>` prints this page for a specific code. Each code has a failing
+test in `tests/compile-fail/`, which is the source of truth for the exact message.
 
 ## Lexer (E000x)
 
@@ -28,14 +27,8 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0107 | expected `=` after a declared type |
 | E0108 | a range loop has exactly one variable |
 | E0110 | expected a name |
-| E0111 | missing or invalid type |
-| E0112 | this cannot be assigned to |
-| E0114 | expected a field or a method in a class |
-| E0115 | map keys must be strings |
-| E0116 | expected a quoted file path or name |
-| E0117 | `spawn` needs a function call |
 
-## Type checker (E02xx)
+## Variables and expressions (E02xx)
 
 | Code | Meaning |
 |---|---|
@@ -74,6 +67,9 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0240 | a channel is used before its payload type is known |
 | E0241 | a closure parameter needs a type |
 | E0242 | bad function value: `map`/`filter` callback, or `this` used inside a closure |
+| E0250 | cannot infer a type parameter of a generic function |
+| E0251 | a generic function cannot be used as a value |
+| E0252 | a method cannot have type parameters yet |
 
 ## Declarations and statements (E03xx)
 
@@ -87,13 +83,8 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0306 | parameter or field name used twice |
 | E0307 | constant is not a plain value |
 | E0308 | constant defined twice |
-| E0310 | `return` value has the wrong type |
-| E0311 | `return` outside a function |
-| E0312 | assignment to a constant |
-| E0313 | variable already declared |
-| E0314 | `break` or `continue` outside a loop |
 
-## Modules (E04xx)
+## Imports (E04xx)
 
 | Code | Meaning |
 |---|---|

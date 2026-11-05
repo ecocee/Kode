@@ -1,0 +1,6 @@
+fn identity<T>(x: T) -> T {
+    return x
+}
+
+f = identity
+print(f(1))

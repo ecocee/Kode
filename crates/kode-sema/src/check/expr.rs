@@ -16,9 +16,9 @@ impl Checker {
             w => w.clone(),
         };
         match &e.kind {
-            ExprKind::List(v) if v.is_empty() => self.expr_types[e.id as usize] = inner,
-            ExprKind::Map(v) if v.is_empty() => self.expr_types[e.id as usize] = inner,
-            ExprKind::None => self.expr_types[e.id as usize] = want.clone(),
+            ExprKind::List(v) if v.is_empty() => self.set_expr_type(e.id, inner),
+            ExprKind::Map(v) if v.is_empty() => self.set_expr_type(e.id, inner),
+            ExprKind::None => self.set_expr_type(e.id, want.clone()),
             _ => {}
         }
     }
@@ -163,7 +163,7 @@ impl Checker {
             } => self.catch_expr(expr, var, *var_span, block),
         };
         if let Some(t) = &ty {
-            self.expr_types[e.id as usize] = t.clone();
+            self.set_expr_type(e.id, t.clone());
         }
         ty
     }
@@ -235,6 +235,21 @@ impl Checker {
         }
         if let Some(t) = self.field_of_current_class(name) {
             return Some(t);
+        }
+        // A generic function has no type until its type arguments are known.
+        if self.generic_index.contains_key(name)
+            && self.scopes.peek_var(name).is_none()
+            && !self.consts.contains_key(name)
+        {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0251",
+                    format!("the generic function `{name}` cannot be used as a value"),
+                    span,
+                )
+                .with_help("call it, or wrap the concrete call in a closure"),
+            );
+            return None;
         }
         // A function used as a value: `let f = double`, `xs.map(double)`.
         if let Some(&idx) = self.fn_index.get(name) {
@@ -910,14 +925,14 @@ impl Checker {
         Some(Type::Task(Box::new(sig.ret)))
     }
 
-    fn note_call(&mut self, callee: usize) {
+    pub(crate) fn note_call(&mut self, callee: usize) {
         if let Some(i) = self.cur_fn {
             self.calls[i].push(callee);
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn check_call_args(
+    pub(crate) fn check_call_args(
         &mut self,
         id: ExprId,
         params: &[(String, Type)],
@@ -1344,6 +1359,10 @@ impl Checker {
             self.check_call_args(id, &names, args, &tys, &defaults, span, callee);
             self.fn_value_calls.insert(id);
             return Some(*ret);
+        }
+
+        if let Some(&gidx) = self.generic_index.get(callee) {
+            return self.generic_call(id, callee, gidx, args, &tys, span, callee_span);
         }
 
         if let Some(&idx) = self.fn_index.get(callee) {

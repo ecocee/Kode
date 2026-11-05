@@ -7,6 +7,7 @@ use crate::scope::Scopes;
 use crate::types::Type;
 
 mod expr;
+mod instantiate;
 mod item;
 mod stmt;
 
@@ -18,6 +19,8 @@ pub struct FnSig {
     pub params: Vec<(String, Type)>,
     pub ret: Type,
     pub class: Option<String>,
+    /// Non-empty only for a generic declaration; an instantiation has none.
+    pub type_params: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -110,6 +113,11 @@ pub struct Checked {
     pub fn_value_calls: std::collections::HashSet<ExprId>,
     /// Closure literals, by expression id.
     pub closures: HashMap<ExprId, ClosureInfo>,
+    /// The body of every function in `fns`, in the same order: declared
+    /// functions and methods first, then each monomorphized instantiation.
+    pub bodies: Vec<FnDecl>,
+    /// For a generic call: the instantiated function it resolved to.
+    pub generic_calls: HashMap<ExprId, usize>,
     pub warnings: Vec<Diagnostic>,
 }
 
@@ -133,6 +141,18 @@ pub(crate) struct Checker {
     pub closures: HashMap<ExprId, ClosureInfo>,
     /// Inside a closure literal: fields of `this` cannot be reached (E0242).
     pub in_closure: bool,
+    /// Generic declarations, by name. They are never lowered themselves.
+    pub generic_index: HashMap<String, usize>,
+    pub generic_decls: Vec<FnDecl>,
+    /// (generic index, concrete type names) -> instantiated function index.
+    pub instances: Vec<((usize, Vec<String>), usize)>,
+    /// Fresh expression ids for instantiated bodies.
+    pub next_expr_id: u32,
+    /// How many entries of `bodies` have been checked so far.
+    pub checked_bodies: usize,
+    pub generic_calls: HashMap<ExprId, usize>,
+    /// Bodies of `fns`, in the same order.
+    pub bodies: Vec<FnDecl>,
     pub direct_throw: Vec<bool>,
     pub calls: Vec<Vec<usize>>,
     pub scopes: Scopes,
@@ -161,6 +181,15 @@ impl Checker {
             (_, Type::Opt(inner)) => self.assignable(from, inner),
             _ => false,
         }
+    }
+
+    /// Record the type of an expression, growing the table for cloned bodies.
+    pub(crate) fn set_expr_type(&mut self, id: ExprId, ty: Type) {
+        let i = id as usize;
+        if self.expr_types.len() <= i {
+            self.expr_types.resize(i + 1, Type::Unit);
+        }
+        self.expr_types[i] = ty;
     }
 
     fn new(program: &Program) -> Self {
@@ -389,6 +418,13 @@ impl Checker {
             fn_value_calls: Default::default(),
             closures: HashMap::new(),
             in_closure: false,
+            generic_index: HashMap::new(),
+            generic_decls: Vec::new(),
+            instances: Vec::new(),
+            next_expr_id: program.expr_count + 1,
+            bodies: Vec::new(),
+            checked_bodies: 0,
+            generic_calls: HashMap::new(),
             direct_throw: Vec::new(),
             calls: Vec::new(),
             scopes: Scopes::new(),
@@ -426,6 +462,18 @@ impl Checker {
             .map(|(_, _, t)| t.clone())
     }
 
+    /// Check every body not checked yet, including ones instantiated by a body
+    /// checked in this pass.
+    fn check_bodies(&mut self) {
+        while self.checked_bodies < self.bodies.len() {
+            let index = self.checked_bodies;
+            let body = self.bodies[index].clone();
+            let class = self.fns[index].class.clone();
+            self.check_fn(&body, index, class.as_deref());
+            self.checked_bodies += 1;
+        }
+    }
+
     pub(crate) fn reset_context(&mut self) {
         self.scopes = Scopes::new();
         self.scopes.push();
@@ -443,11 +491,12 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
     c.modules = modules.to_vec();
     c.collect(program);
 
-    // Function and method bodies.
-    for (index, (cls, f)) in program.fn_decls().into_iter().enumerate() {
-        c.check_fn(f, index, cls);
-    }
+    // Function and method bodies. A generic call appends an instantiation to
+    // `bodies` while a body is being checked, so each pass keeps going until no
+    // new instantiation appears.
+    c.check_bodies();
     c.check_field_defaults(program);
+    c.check_bodies();
 
     // Test bodies.
     for item in &program.items {
@@ -460,6 +509,7 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
             c.pop_scope();
         }
     }
+    c.check_bodies();
 
     // The top-level script.
     c.reset_context();
@@ -469,6 +519,8 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         }
     }
     c.pop_scope();
+    // Top-level calls may instantiate a generic function too.
+    c.check_bodies();
 
     if !c.errors.is_empty() {
         return Err(c.errors);
@@ -505,6 +557,8 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         call_args: c.call_args,
         fn_value_calls: c.fn_value_calls,
         closures: c.closures,
+        bodies: c.bodies,
+        generic_calls: c.generic_calls,
         throws,
         warnings: c.warnings,
     })

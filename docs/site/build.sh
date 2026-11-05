@@ -59,6 +59,9 @@ index="$out/index.html"
   echo '</ul><h2>Errors</h2><ul>'
   md2html "$root/docs/errors/index.md" "$out/errors.html" "Error codes"
   echo '<li><a href="errors.html">error index</a></li>'
+  echo '</ul><h2>Generics</h2><ul>'
+  md2html "$root/docs/site/content/generics.md" "$out/generics.html" "Generics"
+  echo '<li><a href="generics.html">generics</a></li>'
   echo '</ul>'
   if [ -d "$out/api" ]; then
     echo '<h2>API</h2><ul><li><a href="api/index.html">generated reference</a></li></ul>'

@@ -27,6 +27,8 @@ pub struct FnDecl {
     pub name: String,
     pub name_span: Span,
     pub is_pub: bool,
+    /// `fn first<T>(...)`: the type parameters, in declaration order.
+    pub type_params: Vec<(String, Span)>,
     pub params: Vec<Param>,
     pub ret: Option<TypeAnn>,
     pub body: FnBody,

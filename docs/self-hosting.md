@@ -32,10 +32,15 @@ Status date: 2026-11-05.
 
 ### NOT IMPLEMENTED
 
-- **Generics.** No generic functions, classes or aliases; `[T]`, `{string: T}`,
-  `Task<T>` and `Channel<T>` are built into the checker rather than being
-  first-class generic types. There is no `Vec<T>`, `HashMap<K, V>` or
-  `SymbolTable<T>`.
+- **Generic functions and monomorphization** — ADR 0030. Free functions may
+  declare type parameters (`fn first<T>(xs: [T]) -> T`) with types inferred at
+  each call site from the argument types. Every distinct combination of type
+  arguments becomes its own native function (monomorphization), shared by
+  identical calls; the compiler never re-enters the checker for an instantiation,
+  so recursion and generic-calls-generic work. Tests: `tests/run-pass/{generics,generics_nested}.kode`.
+  Not yet: generic classes, generic methods, constraints and explicit type
+  arguments (`first::<int>`); a generic function used as a value is E0251, a
+  generic method is E0252.
 - **Enum payloads and type tests.** Enums are tags only (ADR 0009); there is no
   `Shape.Circle(radius)`, no `x is Circle`, no safe downcast.
 - **Fixed-width integers and binary data.** Only 64-bit `int`. No `u8`/`i32`
@@ -91,10 +96,7 @@ cargo test --workspace                       # conformance + leak checks
 bash docs/site/build.sh
 ```
 
-## How to continue
+## How to continueGeneric functions are ADR 0030 with `tests/run-pass/{generics,generics_nested}.kode`.
+  Keep every stage green: `cargo test --workspace` must pass before each commit,
+  and the Rust compiler must remain able to build every Kode program in `tests/`.
 
-Write ADR 0030 for generics, add `tests/run-pass/generics_basic.kode` and the
-matching compile-fail cases first, then implement type parameters in
-`kode-sema` (resolution and substitution) and monomorphize before MIR lowering.
-Keep every stage green: `cargo test --workspace` must pass before each commit,
-and the Rust compiler must remain able to build every Kode program in `tests/`.
