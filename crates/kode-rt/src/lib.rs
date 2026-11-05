@@ -9,6 +9,7 @@
 //! * `router`: the `Router` / `Request` / `Response` web API layer
 //! * `io`: printing
 
+mod channel;
 mod error;
 mod http;
 mod http_client;

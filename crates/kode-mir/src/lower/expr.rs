@@ -701,6 +701,61 @@ impl<'a> Lowerer<'a> {
                 self.switch(ok);
                 V::unit()
             }
+            Builtin::Channel => {
+                let t = self.new_temp(Ty::Ref);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::ChanNew),
+                    args: vec![],
+                });
+                self.owned(Operand::Local(t))
+            }
+            Builtin::Send => {
+                let ch = self.expr(&args[0].value);
+                let payload = match self.expr_type(&args[0].value) {
+                    Type::Chan(t) => (**t).clone(),
+                    _ => Type::NoneT,
+                };
+                let v = self.expr(&args[1].value);
+                let is_ref = payload.is_ref();
+                let op = if is_ref { self.own(v) } else { v.op };
+                let raw = self.to_raw(op, &payload);
+                self.emit(Inst::Call {
+                    dst: None,
+                    callee: Callee::Rt(RtFn::ChanSend),
+                    args: vec![ch.op.clone(), raw, Operand::Int(is_ref as i64)],
+                });
+                self.error_check();
+                self.release_if_owned(ch);
+                V::unit()
+            }
+            Builtin::Recv => {
+                let ch = self.expr(&args[0].value);
+                let payload = match self.expr_type(&args[0].value) {
+                    Type::Chan(t) => (**t).clone(),
+                    _ => Type::NoneT,
+                };
+                let is_ref = payload.is_ref();
+                let raw = self.call_raw(RtFn::ChanRecv, vec![ch.op.clone()], &payload);
+                self.error_check();
+                self.release_if_owned(ch);
+                if is_ref {
+                    self.owned(raw)
+                } else {
+                    V::val(raw)
+                }
+            }
+            Builtin::Close => {
+                let ch = self.expr(&args[0].value);
+                self.emit(Inst::Call {
+                    dst: None,
+                    callee: Callee::Rt(RtFn::ChanClose),
+                    args: vec![ch.op.clone()],
+                });
+                self.error_check();
+                self.release_if_owned(ch);
+                V::unit()
+            }
         }
     }
 }

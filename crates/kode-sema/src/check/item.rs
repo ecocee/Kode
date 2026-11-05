@@ -30,6 +30,7 @@ impl Checker {
             TypeAnnKind::List(inner) => Some(Type::List(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Map(inner) => Some(Type::Map(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Task(inner) => Some(Type::Task(Box::new(self.resolve_type(inner)?))),
+            TypeAnnKind::Channel(inner) => Some(Type::Chan(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Opt(inner) => {
                 let t = self.resolve_type(inner)?;
                 if !t.is_ref() {

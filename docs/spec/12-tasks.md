@@ -26,3 +26,39 @@ r = await spawn fails() catch e { -1 }     # an error inside a task is raised by
 - Reference counts become atomic when the first task starts; programs without tasks pay nothing.
 - `sleep(ms)` pauses, `now_ms()` reads a steady clock in milliseconds (differences only).
 - Not yet: channels, shared classes, a thread pool (every task is a thread).
+
+## Channels
+
+```
+jobs: Channel<int> = channel()
+done: Channel<string> = channel()
+
+fn produce(out: Channel<int>, last: Channel<string>) {
+    for i in 0..5 {
+        send(out, i * 2)
+    }
+    send(last, "finished")
+}
+
+t = spawn produce(jobs, done)
+
+sum = 0
+for i in 0..5 {
+    sum += recv(jobs)      # waits until a value is there
+}
+print(recv(done))
+await t
+close(jobs)
+```
+
+- `Channel<T>` is written like `Task<T>`. `channel()` has no payload of its own:
+  the declared type gives it one (E0240), the same way `[int]` types an empty list.
+- `send(ch, v)` queues the value (it does not block), `recv(ch)` waits, and
+  `close(ch)` is idempotent. Sending on a closed channel, or receiving from one
+  that is closed and empty, raises a catchable error.
+- Heap payloads are retained when sent and released when received or when the
+  channel is dropped, so a channel may outlive its sender.
+- A task may take channels as parameters; that is how two tasks share state. It
+  still may not take a class, list or map.
+- Not yet: bounded channels (`channel(16)`), shared classes, a thread pool
+  (every task is a thread).

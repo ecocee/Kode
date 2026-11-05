@@ -20,6 +20,8 @@ pub enum TypeAnnKind {
     Opt(Box<TypeAnn>),
     /// `Task<T>`
     Task(Box<TypeAnn>),
+    /// `Channel<T>`: a queue that can be shared between tasks.
+    Channel(Box<TypeAnn>),
 }
 
 /// Something that can be assigned to.

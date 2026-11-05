@@ -18,6 +18,9 @@ pub enum Type {
     NoneT,
     /// `Task<T>`: a running task that will produce a `T`.
     Task(Box<Type>),
+    /// `Channel<T>`: a queue that can be shared between tasks. A channel made by
+    /// `channel()` has payload `none` until a declared type gives it one (E0240).
+    Chan(Box<Type>),
 }
 
 impl Type {
@@ -34,6 +37,7 @@ impl Type {
             Type::Opt(t) => format!("{}?", t.name()),
             Type::NoneT => "none".into(),
             Type::Task(t) => format!("Task<{}>", t.name()),
+            Type::Chan(t) => format!("Channel<{}>", t.name()),
         }
     }
 
@@ -61,6 +65,7 @@ impl Type {
                 | Type::Opt(_)
                 | Type::NoneT
                 | Type::Task(_)
+                | Type::Chan(_)
         )
     }
 
@@ -88,6 +93,8 @@ pub fn assignable(from: &Type, to: &Type) -> bool {
     match (from, to) {
         (Type::NoneT, Type::Opt(_)) => true,
         (Type::List(a), Type::List(_)) | (Type::Map(a), Type::Map(_)) if **a == Type::NoneT => true,
+        // `channel()` has no payload until a declared type meets it, like `[]`.
+        (Type::Chan(a), Type::Chan(_)) if **a == Type::NoneT => true,
         (_, Type::Opt(inner)) => assignable(from, inner),
         _ => false,
     }

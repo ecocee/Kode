@@ -60,6 +60,10 @@ pub(crate) fn info(f: RtFn) -> (&'static str, Vec<types::Type>, Option<types::Ty
         RtFn::UnwrapFail => ("kode_unwrap_fail", vec![I], None),
         RtFn::Exit => ("kode_exit", vec![I], None),
         RtFn::ListOob => ("kode_list_oob", vec![I, I, I], None),
+        RtFn::ChanNew => ("kode_chan_new", vec![], Some(I)),
+        RtFn::ChanSend => ("kode_chan_send", vec![I, I, I], None),
+        RtFn::ChanRecv => ("kode_chan_recv", vec![I], Some(I)),
+        RtFn::ChanClose => ("kode_chan_close", vec![I], None),
     }
 }
 
@@ -107,6 +111,10 @@ const ALL: &[RtFn] = &[
     RtFn::UnwrapFail,
     RtFn::Exit,
     RtFn::ListOob,
+    RtFn::ChanNew,
+    RtFn::ChanSend,
+    RtFn::ChanRecv,
+    RtFn::ChanClose,
 ];
 
 fn import(

@@ -7,9 +7,15 @@ pub enum Builtin {
     Float,
     Str,
     Assert,
+    Channel,
+    Send,
+    Recv,
+    Close,
 }
 
-pub const BUILTIN_NAMES: &[&str] = &["print", "len", "int", "float", "string", "assert"];
+pub const BUILTIN_NAMES: &[&str] = &[
+    "print", "len", "int", "float", "string", "assert", "channel", "send", "recv", "close",
+];
 
 pub fn lookup(name: &str) -> Option<Builtin> {
     Some(match name {
@@ -19,6 +25,10 @@ pub fn lookup(name: &str) -> Option<Builtin> {
         "float" => Builtin::Float,
         "string" => Builtin::Str,
         "assert" => Builtin::Assert,
+        "channel" => Builtin::Channel,
+        "send" => Builtin::Send,
+        "recv" => Builtin::Recv,
+        "close" => Builtin::Close,
         _ => return None,
     })
 }

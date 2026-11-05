@@ -9,6 +9,7 @@ pub const LIST: i64 = 2;
 pub const MAP: i64 = 3;
 pub const OBJ: i64 = 4;
 pub const TASK: i64 = 5;
+pub const CHAN: i64 = 6;
 /// Set in `kind` for lists and maps whose items are heap values.
 pub const ITEMS_ARE_REFS: i64 = 1 << 8;
 /// Set in `kind` for lists that store one byte per item (lists of bool).
@@ -102,6 +103,7 @@ pub unsafe extern "C" fn kode_release(p: *mut Header) {
             MAP => crate::map::drop_map(p),
             OBJ => drop_obj(p),
             TASK => crate::task::drop_task(p),
+            CHAN => crate::channel::drop_chan(p),
             _ => {}
         }
     }

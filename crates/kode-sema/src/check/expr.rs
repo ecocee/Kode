@@ -829,14 +829,18 @@ impl Checker {
         };
         let sig = self.fns[idx].clone();
         for (n, t) in &sig.params {
-            if !matches!(t, Type::Int | Type::Float | Type::Bool | Type::Str) {
+            // Plain values and channels: a channel is how tasks share state.
+            if !matches!(t, Type::Int | Type::Float | Type::Bool | Type::Str | Type::Chan(_)) {
                 self.errors.push(
                     Diagnostic::error(
                         "E0230",
-                        format!("a task can only receive ints, floats, bools and strings, but `{n}` is {}", t.article()),
+                        format!(
+                            "a task can only receive ints, floats, bools, strings and channels, but `{n}` is {}",
+                            t.article()
+                        ),
                         callee_span,
                     )
-                    .with_help("tasks do not share objects; pass plain values and return the result"),
+                    .with_help("pass plain values and a channel, and return the result"),
                 );
                 return None;
             }
@@ -1227,6 +1231,23 @@ impl Checker {
                 self.direct_throw[i] = true;
             }
         }
+        match b {
+            Builtin::Channel => {
+                if !args.is_empty() {
+                    self.errors.push(Diagnostic::error(
+                        "E0207",
+                        format!("`{name}` takes no arguments, found {}", args.len()),
+                        span,
+                    ));
+                }
+                // The payload arrives from the declared type (E0240).
+                return Some(Type::Chan(Box::new(Type::NoneT)));
+            }
+            Builtin::Send | Builtin::Recv | Builtin::Close => {
+                return self.channel_call(b, name, args, tys, span);
+            }
+            _ => {}
+        }
 
         let (accepts, ret, expects): (Vec<Type>, Type, &str) = match b {
             Builtin::Len => (vec![Type::Str], Type::Int, "a string, a list or a map"),
@@ -1239,6 +1260,8 @@ impl Checker {
             ),
             Builtin::Assert => (vec![Type::Bool], Type::Unit, "a bool"),
             Builtin::Print => unreachable!(),
+            // Handled by the early return above.
+            Builtin::Channel | Builtin::Send | Builtin::Recv | Builtin::Close => unreachable!(),
         };
         if args.len() != 1 {
             self.errors.push(Diagnostic::error(
@@ -1259,5 +1282,68 @@ impl Checker {
             }
         }
         Some(ret)
+    }
+
+    /// `send(ch, v)`, `recv(ch)` and `close(ch)`: the payload comes from the
+    /// channel's own type, so the channel must be declared first.
+    fn channel_call(
+        &mut self,
+        b: Builtin,
+        name: &str,
+        args: &[Arg],
+        tys: &[Option<Type>],
+        span: Span,
+    ) -> Option<Type> {
+        let want = if b == Builtin::Send { 2 } else { 1 };
+        if args.len() != want {
+            self.errors.push(Diagnostic::error(
+                "E0207",
+                format!("`{name}` takes {want} argument{}, found {}", if want == 1 { "" } else { "s" }, args.len()),
+                span,
+            ));
+            return Some(Type::Unit);
+        }
+        let payload = match tys.first().and_then(|t| t.clone()) {
+            Some(Type::Chan(t)) => *t,
+            Some(other) => {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0208",
+                        format!("`{name}` expects a channel, found {}", other.article()),
+                        args[0].value.span,
+                    )
+                    .with_help("make one with `jobs: Channel<int> = channel()`"),
+                );
+                return Some(Type::Unit);
+            }
+            None => return Some(Type::Unit),
+        };
+        if payload == Type::NoneT {
+            self.errors.push(
+                Diagnostic::error("E0240", "this channel has no type yet", args[0].value.span)
+                    .with_help("declare it first, for example `jobs: Channel<int> = channel()`"),
+            );
+            return Some(Type::Unit);
+        }
+        match b {
+            Builtin::Send => {
+                if let Some(t) = tys.get(1).and_then(|t| t.clone()) {
+                    if !crate::types::assignable(&t, &payload) {
+                        self.errors.push(Diagnostic::error(
+                            "E0208",
+                            format!(
+                                "this channel carries {}, found {}",
+                                payload.article(),
+                                t.article()
+                            ),
+                            args[1].value.span,
+                        ));
+                    }
+                }
+                Some(Type::Unit)
+            }
+            Builtin::Recv => Some(payload),
+            _ => Some(Type::Unit),
+        }
     }
 }

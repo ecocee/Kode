@@ -118,6 +118,10 @@ pub enum RtFn {
     UnwrapFail,
     Exit,
     ListOob,
+    ChanNew,
+    ChanSend,
+    ChanRecv,
+    ChanClose,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
