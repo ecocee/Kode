@@ -29,6 +29,10 @@ language: a patch release fixes bugs, a minor release may add syntax.
 - **Benchmarks.** `benchmarks/run.sh` measures wall clock and peak RSS against
   C, Go, Node and Python and writes `benchmarks/report.md`.
 
+- **Channels.** `Channel<T>`, `channel()`, `send`, `recv` and `close`, with
+  blocking receive, catchable errors on a closed channel, and tasks that take a
+  channel as a parameter (ADR 0026).
+
 ### Fixed
 
 - Writing an item of a `[bool]` list, and iterating one with `for x in list`,

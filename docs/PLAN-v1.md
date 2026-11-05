@@ -93,7 +93,7 @@ Status at the end of the first implementation session:
 | P4 errors and optionals | `feat/error-model` | `finally`, runtime hints and ADR 0024 done; suggestions were already in place |
 | P5 CLI | `feat/cli-ux` | done |
 | P6 docs and Windows | `feat/docs-windows` | `kode doc` and the site done; Windows links and is documented, but has not been run on Windows |
-| P7 channels | — | not started |
+| P7 channels | `feat/channels` | done: `Channel<T>`, `send`/`recv`/`close`, tasks take channels (ADR 0026) |
 | P8 performance | `perf/budgets` | harness and measurements done; no optimization work yet |
 | packed `[bool]` fix | `fix/bool-lists` | index writes and for-in used 8-byte accessors: wrong counts, then a crash at ten million items |
 

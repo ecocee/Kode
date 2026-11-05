@@ -67,10 +67,11 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0226 | `throw` needs a string or an `Error` |
 | E0227 | `catch` block does not end with a value |
 | E0228 | parameter has the same name as a field |
-| E0230 | `spawn` needs one of your functions with int, float, bool or string parameters |
+| E0230 | `spawn` needs one of your functions with int, float, bool, string or channel parameters |
 | E0231 | `await` needs a task |
 | E0232 | the `serve` handler must be a function `(string, string, string) -> string`, or a `Router` |
 | E0233 | the route handler must be a function `(req: Request) -> Response` |
+| E0240 | a channel is used before its payload type is known |
 
 ## Declarations and statements (E03xx)
 
