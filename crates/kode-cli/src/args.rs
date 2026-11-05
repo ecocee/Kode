@@ -12,6 +12,7 @@ USAGE:
     kode ast <file.kode>              print the syntax tree (debugging)
     kode mir <file.kode>              print the MIR (debugging)
     kode lsp                          language server on stdio (for editors)
+    kode doctor                       check the compiler, linker and package setup
     kode init [name]                  make the current folder a package
     kode new <name>                   make a package in a new folder
     kode add <name> --path <folder>   add a path dependency
