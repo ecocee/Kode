@@ -1,6 +1,7 @@
 //! The `kode` command line tool.
 
 mod args;
+mod doc;
 mod doctor;
 mod driver;
 mod explain;
@@ -46,6 +47,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "doctor" => finish(doctor::run()),
+        "doc" => finish(doc::run(&opts)),
         "lsp" => finish(lsp::serve()),
         "init" => finish(packages::init(&opts)),
         "new" => finish(packages::new_package(&opts)),

@@ -13,6 +13,7 @@ USAGE:
     kode mir <file.kode>              print the MIR (debugging)
     kode lsp                          language server on stdio (for editors)
     kode doctor                       check the compiler, linker and package setup
+    kode doc <folder> [-o dir]        write an HTML reference for `pub` items
     kode init [name]                  make the current folder a package
     kode new <name>                   make a package in a new folder
     kode add <name> --path <folder>   add a path dependency
