@@ -196,6 +196,7 @@ impl Checker {
         self.collect_consts(program);
         self.collect_fns(program);
         self.check_implements(program);
+        self.collect_modules();
         if self.classes.len() > 256 {
             let span = program
                 .items
@@ -212,6 +213,38 @@ impl Checker {
                 span,
             ));
         }
+    }
+
+    /// A module name is a qualifier, not a value: it may not repeat or hide a
+    /// declaration in the shared namespace.
+    fn collect_modules(&mut self) {
+        let mut index = std::collections::HashMap::new();
+        for (i, m) in self.modules.iter().enumerate() {
+            if index.contains_key(&m.alias) {
+                self.errors.push(Diagnostic::error(
+                    "E0408",
+                    format!("the module name `{}` is imported twice", m.alias),
+                    m.span,
+                ));
+            } else if self.fn_index.contains_key(&m.alias)
+                || self.consts.contains_key(&m.alias)
+                || self.class_index.contains_key(&m.alias)
+                || self.enum_index.contains_key(&m.alias)
+                || self.interface_index.contains_key(&m.alias)
+            {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0409",
+                        format!("the module name `{}` hides another declaration", m.alias),
+                        m.span,
+                    )
+                    .with_help("choose another name, for example `import \"...\" as pkg`"),
+                );
+            } else {
+                index.insert(m.alias.clone(), i);
+            }
+        }
+        self.module_index = index;
     }
 
     /// Every class must provide every method of each interface it lists.

@@ -1,0 +1,3 @@
+from "./lib/words" import hidden
+
+print(hidden())

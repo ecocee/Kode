@@ -11,5 +11,7 @@ pub mod std_fns;
 pub mod suggest;
 pub mod types;
 
-pub use check::{check, Checked, ClassInfo, ConstVal, EnumInfo, FieldInfo, FnSig, IfaceMethod, InterfaceInfo};
+pub use check::{
+    check, Checked, ClassInfo, ConstVal, EnumInfo, FieldInfo, FnSig, IfaceMethod, InterfaceInfo, ModuleInfo,
+};
 pub use types::{assignable, Type};

@@ -12,8 +12,8 @@ impl Parser {
             if matches!(self.peek(), TokenKind::Eof) {
                 break;
             }
-            // `pub` is accepted and reserved for module visibility.
-            if matches!(self.peek(), TokenKind::Pub) {
+            let is_pub = matches!(self.peek(), TokenKind::Pub);
+            if is_pub {
                 self.bump();
             }
             let result = match self.peek() {
@@ -31,7 +31,10 @@ impl Parser {
                 Err(e) => Err(e),
             };
             match result {
-                Ok(item) => items.push(item),
+                Ok(mut item) => {
+                    set_pub(&mut item, is_pub);
+                    items.push(item);
+                }
                 Err(e) => {
                     self.errors.push(e);
                     self.recover();
@@ -94,6 +97,7 @@ impl Parser {
             span: fn_tok.span.join(name_span),
             name,
             name_span,
+            is_pub: false,
             params,
             ret,
             body,
@@ -114,6 +118,7 @@ impl Parser {
         Ok(ConstDecl {
             name,
             name_span,
+            is_pub: false,
             ty,
             value,
         })
@@ -183,6 +188,7 @@ impl Parser {
         Ok(ClassDecl {
             name,
             name_span,
+            is_pub: false,
             implements,
             fields,
             methods,
@@ -223,6 +229,7 @@ impl Parser {
         Ok(InterfaceDecl {
             name,
             name_span,
+            is_pub: false,
             methods,
         })
     }
@@ -302,6 +309,7 @@ impl Parser {
         Ok(EnumDecl {
             name,
             name_span,
+            is_pub: false,
             variants,
         })
     }
@@ -327,6 +335,7 @@ impl Parser {
         self.bump();
         let (path, path_span) = self.plain_string("a file path in quotes")?;
         let mut names = Vec::new();
+        let mut alias = None;
         if from {
             self.expect(TokenKind::Import, "`import`")?;
             names.push(self.ident("a name to import")?);
@@ -334,11 +343,15 @@ impl Parser {
                 self.bump();
                 names.push(self.ident("a name to import")?);
             }
+        } else if matches!(self.peek(), TokenKind::As) {
+            self.bump();
+            alias = Some(self.ident("a module name")?);
         }
         Ok(ImportDecl {
             path,
             path_span,
             names,
+            alias,
         })
     }
 
@@ -351,5 +364,17 @@ impl Parser {
             name_span,
             body,
         })
+    }
+}
+
+/// `pub` belongs to the item that follows it, not to its members.
+fn set_pub(item: &mut Item, value: bool) {
+    match item {
+        Item::Fn(f) => f.is_pub = value,
+        Item::Const(c) => c.is_pub = value,
+        Item::Class(c) => c.is_pub = value,
+        Item::Interface(i) => i.is_pub = value,
+        Item::Enum(e) => e.is_pub = value,
+        _ => {}
     }
 }

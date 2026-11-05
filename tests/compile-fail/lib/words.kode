@@ -1,0 +1,3 @@
+pub fn shout(s: string) -> string => s
+
+fn hidden() -> int => 1

@@ -160,6 +160,49 @@ impl Checker {
         ty
     }
 
+    /// The module behind `name`, unless a value in scope shadows it.
+    fn module_alias(&mut self, name: &str) -> Option<usize> {
+        if self.scopes.peek_var(name).is_none()
+            && !self.consts.contains_key(name)
+            && self.field_of_current_class(name).is_none()
+        {
+            self.module_index.get(name).copied()
+        } else {
+            None
+        }
+    }
+
+    fn module_missing(
+        &mut self,
+        alias: &str,
+        exports: &[String],
+        all: &[String],
+        name: &str,
+        span: Span,
+        what: &str,
+    ) {
+        if all.iter().any(|x| x == name) {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0411",
+                    format!("`{name}` is private to module `{alias}`"),
+                    span,
+                )
+                .with_help("mark it `pub` in that file to use it from here"),
+            );
+        } else {
+            let mut d = Diagnostic::error(
+                "E0410",
+                format!("the module `{alias}` has no {what} `{name}`"),
+                span,
+            );
+            if let Some(s) = closest(name, exports.iter().map(|s| s.as_str())) {
+                d = d.with_help(format!("did you mean `{s}`?"));
+            }
+            self.errors.push(d);
+        }
+    }
+
     fn ident(&mut self, name: &str, span: Span) -> Option<Type> {
         if let Some(t) = self.scopes.use_var(name) {
             return Some(t);
@@ -176,7 +219,9 @@ impl Checker {
         if let Some(ci) = self.cur_class {
             names.extend(self.classes[ci].fields.iter().map(|f| f.name.clone()));
         }
-        d = if self.enum_index.contains_key(name) {
+        d = if self.module_index.contains_key(name) {
+            d.with_help(format!("`{name}` is a module; use `{name}.member`"))
+        } else if self.enum_index.contains_key(name) {
             d.with_help(format!("enum values are written like `{name}.VariantName`"))
         } else {
             match closest(name, names.iter().map(|s| s.as_str())) {
@@ -334,6 +379,45 @@ impl Checker {
                     self.errors.push(d);
                     return None;
                 }
+            }
+        }
+        // `util.TAX`: a constant from an imported module.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if let Some(mi) = self.module_alias(n) {
+                let m = self.modules[mi].clone();
+                if m.exports.iter().any(|e| e == name) {
+                    if let Some((t, _)) = self.consts.get(name) {
+                        return Some(t.clone());
+                    }
+                    if self.fn_index.contains_key(name) {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0217",
+                                format!("`{}.{name}` is a function, not a value", m.alias),
+                                name_span,
+                            )
+                            .with_help(format!("call it with `{}.{name}(...)`", m.alias)),
+                        );
+                    } else if self.class_index.contains_key(name) {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0217",
+                                format!("`{}.{name}` is a class, not a value", m.alias),
+                                name_span,
+                            )
+                            .with_help(format!("construct it with `{}.{name}(...)`", m.alias)),
+                        );
+                    } else {
+                        self.errors.push(Diagnostic::error(
+                            "E0217",
+                            format!("`{}.{name}` is not a value", m.alias),
+                            name_span,
+                        ));
+                    }
+                    return None;
+                }
+                self.module_missing(&m.alias, &m.exports, &m.all, name, name_span, "member");
+                return None;
             }
         }
         // `math.pi` and other module constants.
@@ -863,6 +947,51 @@ impl Checker {
                 && self.field_of_current_class(n).is_none()
             {
                 return self.response_static(name, name_span, args, span);
+            }
+        }
+        // `util.add(...)`: a public function or class from an imported module.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if let Some(mi) = self.module_alias(n) {
+                let m = self.modules[mi].clone();
+                if !m.exports.iter().any(|e| e == name) {
+                    self.module_missing(&m.alias, &m.exports, &m.all, name, name_span, "method");
+                    return None;
+                }
+                let mut tys = Vec::new();
+                for a in args {
+                    tys.push(self.expr(&a.value));
+                }
+                if let Some(&idx) = self.fn_index.get(name) {
+                    let sig = self.fns[idx].clone();
+                    self.note_call(idx);
+                    let defaults = vec![false; sig.params.len()];
+                    self.check_call_args(id, &sig.params, args, &tys, &defaults, span, name);
+                    return Some(sig.ret);
+                }
+                if let Some(&ci) = self.class_index.get(name) {
+                    let fields = self.classes[ci].fields.clone();
+                    let params: Vec<(String, Type)> = fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect();
+                    let defaults: Vec<bool> = fields.iter().map(|f| f.default.is_some()).collect();
+                    self.check_call_args(id, &params, args, &tys, &defaults, span, name);
+                    return Some(Type::Class(name.to_string()));
+                }
+                if self.consts.contains_key(name) {
+                    self.errors.push(
+                        Diagnostic::error(
+                            "E0217",
+                            format!("`{}.{name}` is a value, not a method", m.alias),
+                            name_span,
+                        )
+                        .with_help("write it without `()`"),
+                    );
+                    return None;
+                }
+                self.errors.push(Diagnostic::error(
+                    "E0410",
+                    format!("`{}.{name}` is not a function or class", m.alias),
+                    name_span,
+                ));
+                return None;
             }
         }
         // `json.parse(...)`, `math.sqrt(...)`: standard-library namespaces.

@@ -1,0 +1,4 @@
+import "./lib/words" as words
+import "./lib/words" as words
+
+print(words.shout("x"))

@@ -4,6 +4,7 @@ mod args;
 mod driver;
 mod explain;
 mod fmt;
+mod manifest;
 mod report;
 mod source;
 
@@ -70,7 +71,7 @@ fn front_end(opts: &Options, file: &str) -> Result<Front, u8> {
             return Err(1);
         }
     };
-    let checked = match kode_sema::check(&loaded.program) {
+    let checked = match kode_sema::check(&loaded.program, &loaded.modules) {
         Ok(c) => c,
         Err(errs) => {
             report(opts.json, &loaded.map, &errs);

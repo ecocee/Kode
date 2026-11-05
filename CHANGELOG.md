@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Packages: a `kode.toml` manifest (`[package] name`, `version`, `root`) is found above the entry
+  file; imports without `./` resolve from the package root; `import "x" as name` adds qualified
+  access to public functions, constants and classes (`name.fn()`, `name.TAX`, `name.Class()`).
+  `pub` is tracked and gates alias and `from ... import` access. New codes E0406-E0411.
+- Interfaces: `interface` signatures, `class ... implements ...`, and run-time dispatch through the
+  object header's class id (E0234, E0235, E0236).
 - Integer bit operators `&`, `|`, `^`, `~`, `<<`, `>>` and compound assignment `&=`, `|=`, `^=`,
   `<<=`, `>>=`; shifts of 64 or more (or a negative count) give 0, and `>>` keeps the sign.
 - Python-style standard-library namespaces: `json.parse` / `json.stringify` / `json.object`,

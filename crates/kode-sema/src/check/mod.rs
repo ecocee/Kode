@@ -50,6 +50,17 @@ pub struct InterfaceInfo {
     pub methods: Vec<IfaceMethod>,
 }
 
+/// One `import "path" as alias` in the program. The loader lists every name
+/// the file defines, and the public subset that the alias may reach.
+#[derive(Clone, Debug)]
+pub struct ModuleInfo {
+    pub alias: String,
+    pub path: String,
+    pub exports: Vec<String>,
+    pub all: Vec<String>,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug)]
 pub struct EnumInfo {
     pub name: String,
@@ -79,6 +90,8 @@ pub struct Checked {
     pub enum_index: HashMap<String, usize>,
     pub interfaces: Vec<InterfaceInfo>,
     pub interface_index: HashMap<String, usize>,
+    pub modules: Vec<ModuleInfo>,
+    pub module_index: HashMap<String, usize>,
     pub consts: HashMap<String, (Type, ConstVal)>,
     /// For each call: which argument fills each parameter (`None` = use the default).
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
@@ -99,6 +112,8 @@ pub(crate) struct Checker {
     pub enum_index: HashMap<String, usize>,
     pub interfaces: Vec<InterfaceInfo>,
     pub interface_index: HashMap<String, usize>,
+    pub modules: Vec<ModuleInfo>,
+    pub module_index: HashMap<String, usize>,
     pub consts: HashMap<String, (Type, ConstVal)>,
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
     pub direct_throw: Vec<bool>,
@@ -316,6 +331,8 @@ impl Checker {
             enum_index,
             interfaces: Vec::new(),
             interface_index: HashMap::new(),
+            modules: Vec::new(),
+            module_index: HashMap::new(),
             consts: HashMap::new(),
             call_args: HashMap::new(),
             direct_throw: Vec::new(),
@@ -346,8 +363,9 @@ impl Checker {
     }
 }
 
-pub fn check(program: &Program) -> Result<Checked, Vec<Diagnostic>> {
+pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<Diagnostic>> {
     let mut c = Checker::new(program);
+    c.modules = modules.to_vec();
     c.collect(program);
 
     // Function and method bodies.
@@ -406,6 +424,8 @@ pub fn check(program: &Program) -> Result<Checked, Vec<Diagnostic>> {
         enum_index: c.enum_index,
         interfaces: c.interfaces,
         interface_index: c.interface_index,
+        modules: c.modules,
+        module_index: c.module_index,
         consts: c.consts,
         call_args: c.call_args,
         throws,

@@ -42,6 +42,9 @@ v = f() catch e { print(e.message)  -1 }            // last line is the value
 try { f() } catch e { print(e.message) }
 
 import "./util"        from "./util" import helper   // modules share one namespace
+import "models/user" as users                        // package root from kode.toml
+pub fn api() -> int => 1                              // visible to aliases and from imports
+users.load(1)   users.LIMIT   users.User(1)           // qualified fn / const / class
 test "name" { assert(1 + 1 == 2) }                   // run with: kode test
 ```
 

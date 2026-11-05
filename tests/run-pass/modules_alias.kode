@@ -1,0 +1,11 @@
+import "words" as words
+from "words" import shout
+
+print(words.shout("hi"))
+print(words.TAX)
+print(words.answer())
+print(words.shout(s: "named"))
+print(shout("ok"))
+
+pair = words.Pair(3, 4)
+print(pair.left + pair.right)

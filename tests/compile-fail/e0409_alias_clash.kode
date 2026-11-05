@@ -1,0 +1,3 @@
+import "./lib/words" as answer
+
+pub fn answer() -> int => 1

@@ -195,6 +195,21 @@ impl<'a> Lowerer<'a> {
     }
 
     pub(crate) fn member(&mut self, obj: &Expr, name: &str, safe: bool) -> V {
+        // `util.TAX`: a public constant from an imported module.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.lookup(n).is_none()
+                && !self.checked.consts.contains_key(n)
+                && self.this_field(n).is_none()
+            {
+                if let Some(mi) = self.checked.module_index.get(n) {
+                    if self.checked.modules[*mi].exports.iter().any(|e| e == name) {
+                        if let Some(op) = self.const_operand(name) {
+                            return V::val(op);
+                        }
+                    }
+                }
+            }
+        }
         // `math.pi` and other module constants.
         if let ExprKind::Ident(n) = &obj.kind {
             if self.lookup(n).is_none()
@@ -269,6 +284,21 @@ impl<'a> Lowerer<'a> {
     }
 
     pub(crate) fn method_call(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> V {
+        // `util.add(...)`: a public function or class from an imported module.
+        let module_method = match &obj.kind {
+            ExprKind::Ident(n) => {
+                self.lookup(n).is_none()
+                    && !self.checked.consts.contains_key(n)
+                    && self.this_field(n).is_none()
+                    && self.checked.module_index.get(n).is_some_and(|&mi| {
+                        self.checked.modules[mi].exports.iter().any(|x| x == name)
+                    })
+            }
+            _ => false,
+        };
+        if module_method {
+            return self.call(e, name, args);
+        }
         // `Response.json(value)` / `Response.text(text)`
         if let ExprKind::Ident(n) = &obj.kind {
             if n == "Response"

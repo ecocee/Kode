@@ -26,6 +26,7 @@ pub enum Item {
 pub struct FnDecl {
     pub name: String,
     pub name_span: Span,
+    pub is_pub: bool,
     pub params: Vec<Param>,
     pub ret: Option<TypeAnn>,
     pub body: FnBody,
@@ -50,6 +51,7 @@ pub struct Param {
 pub struct ConstDecl {
     pub name: String,
     pub name_span: Span,
+    pub is_pub: bool,
     pub ty: Option<TypeAnn>,
     pub value: Expr,
 }
@@ -66,6 +68,7 @@ pub struct FieldDecl {
 pub struct ClassDecl {
     pub name: String,
     pub name_span: Span,
+    pub is_pub: bool,
     pub implements: Vec<(String, Span)>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FnDecl>,
@@ -75,6 +78,7 @@ pub struct ClassDecl {
 pub struct InterfaceDecl {
     pub name: String,
     pub name_span: Span,
+    pub is_pub: bool,
     pub methods: Vec<IfaceMethod>,
 }
 
@@ -92,6 +96,7 @@ pub struct IfaceMethod {
 pub struct EnumDecl {
     pub name: String,
     pub name_span: Span,
+    pub is_pub: bool,
     pub variants: Vec<(String, Span)>,
 }
 
@@ -101,6 +106,8 @@ pub struct ImportDecl {
     pub path_span: Span,
     /// `from "x" import a, b` lists names; `import "x"` has none.
     pub names: Vec<(String, Span)>,
+    /// `import "x" as name` gives the module a qualified name.
+    pub alias: Option<(String, Span)>,
 }
 
 #[derive(Debug, Clone)]

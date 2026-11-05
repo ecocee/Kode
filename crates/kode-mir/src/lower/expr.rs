@@ -360,7 +360,7 @@ impl<'a> Lowerer<'a> {
         vals
     }
 
-    fn call(&mut self, e: &Expr, callee: &str, args: &[Arg]) -> V {
+    pub(crate) fn call(&mut self, e: &Expr, callee: &str, args: &[Arg]) -> V {
         if callee == "serve" {
             return self.serve(args);
         }
