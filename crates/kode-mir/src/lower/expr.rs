@@ -58,6 +58,12 @@ impl<'a> Lowerer<'a> {
             ExprKind::List(items) => self.list_lit(items, e),
             ExprKind::Map(pairs) => self.map_lit(pairs, e),
             ExprKind::Index { obj, index } => self.index(obj, index, e),
+            ExprKind::Slice {
+                obj,
+                start,
+                end,
+                inclusive,
+            } => self.slice(obj, start.as_deref(), end.as_deref(), *inclusive),
             ExprKind::Member { obj, name, safe, .. } => self.member(obj, name, *safe),
             ExprKind::MethodCall { obj, name, args, .. } => self.method_call(e, obj, name, args),
             ExprKind::Call { callee, args, .. } => self.call(e, callee, args),
@@ -275,8 +281,51 @@ impl<'a> Lowerer<'a> {
         v
     }
 
+    /// The text of an enum value, written the way it is written in source:
+    /// `Color.Red`. Every variant is a static string, picked with `select`, so
+    /// this needs no runtime call and does not allocate.
+    fn enum_str(&mut self, name: &str, value: Operand) -> Operand {
+        let ei = self.checked.enum_index[name];
+        let variants = self.checked.enums[ei].variants.clone();
+        let text = |v: &str| format!("{name}.{v}");
+        let mut cur = match variants.last() {
+            Some(last) => {
+                let s = self.intern(&text(last));
+                Operand::Str(s)
+            }
+            None => {
+                let s = self.intern(name);
+                Operand::Str(s)
+            }
+        };
+        for (i, variant) in variants.iter().enumerate().rev() {
+            if i + 1 == variants.len() {
+                continue;
+            }
+            let cond = self.new_temp(Ty::Bool);
+            self.emit(Inst::Assign {
+                dst: cond,
+                rv: Rvalue::Binary(BinOp::Eq, value.clone(), Operand::Int(i as i64)),
+            });
+            let s = self.intern(&text(variant));
+            let t = self.new_temp(Ty::Ref);
+            self.emit(Inst::Assign {
+                dst: t,
+                rv: Rvalue::Select(Operand::Local(cond), Operand::Str(s), cur),
+            });
+            cur = Operand::Local(t);
+        }
+        cur
+    }
+
     /// Turn any printable value into a string value.
     fn to_str(&mut self, v: V, ty: &Type) -> V {
+        if let Type::Enum(name) = ty {
+            let name = name.clone();
+            let s = self.enum_str(&name, v.op.clone());
+            self.release_if_owned(v);
+            return V::val(s);
+        }
         let rt = match ty {
             Type::Str => return v,
             Type::Int => RtFn::IntToStr,
@@ -609,6 +658,17 @@ impl<'a> Lowerer<'a> {
                         });
                     }
                     let ty = self.expr_type(&a.value);
+                    if let Type::Enum(name) = &ty {
+                        let v = self.expr(&a.value);
+                        let s = self.enum_str(name, v.op.clone());
+                        self.emit(Inst::Call {
+                            dst: None,
+                            callee: Callee::Rt(RtFn::PrintStr),
+                            args: vec![s],
+                        });
+                        self.release_if_owned(v);
+                        continue;
+                    }
                     let v = self.expr(&a.value);
                     let rt = match ty {
                         Type::Int => RtFn::PrintInt,

@@ -1,0 +1,32 @@
+nums: [int] = [10, 20, 30, 40, 50]
+
+part = nums[1..3]
+print(part.len())
+print(part[0], part[1])
+
+print(nums[..2].len())
+print(nums[3..].len())
+print(nums[0..=2].len())
+
+// an empty range; bounds past the ends are clamped
+print(nums[2..2].len())
+print(nums[10..20].len())
+print(nums[-5..2].len())
+
+// a slice of strings keeps its own references
+names: [string] = ["ann", "bob", "cid"]
+pick = names[1..]
+print(pick[0])
+print(pick.len())
+
+// lists of bool are packed, and slice the same way
+flags: [bool] = [true, false, true, false]
+head = flags[0..2]
+print(head.len())
+print(head[0], head[1])
+
+// a slice is a copy, not a view
+copy = nums[0..2]
+copy.add(99)
+print(nums.len())
+print(copy.len())

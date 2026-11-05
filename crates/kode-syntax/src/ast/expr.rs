@@ -36,6 +36,13 @@ pub enum ExprKind {
         obj: Box<Expr>,
         index: Box<Expr>,
     },
+    /// `xs[1..3]`, `xs[..3]`, `xs[1..]`, `xs[1..=3]`: a copy of a range.
+    Slice {
+        obj: Box<Expr>,
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,
+    },
     /// `obj.name`, or `obj?.name` when `safe`.
     Member {
         obj: Box<Expr>,

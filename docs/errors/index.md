@@ -49,7 +49,7 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0208 | wrong argument type |
 | E0209 | condition is not a bool |
 | E0210 | int and float mixed without conversion |
-| E0211 | this value cannot be indexed |
+| E0211 | this value cannot be indexed or sliced |
 | E0212 | wrong index type (lists need an int, maps need a string) |
 | E0213 | list or map items have different types |
 | E0214 | cannot loop over this value |

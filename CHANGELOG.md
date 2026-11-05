@@ -33,6 +33,11 @@ language: a patch release fixes bugs, a minor release may add syntax.
   blocking receive, catchable errors on a closed channel, and tasks that take a
   channel as a parameter (ADR 0026).
 
+- **Enum printing.** `print(color)` and `"${color}"` write `Color.Red`, the way
+  the value is written in source (ADR 0027).
+- **List slicing.** `items[1..3]`, `items[..2]`, `items[2..]` and `items[0..=2]`
+  copy a range of a list; bounds past the ends are clamped (ADR 0027).
+
 ### Fixed
 
 - Writing an item of a `[bool]` list, and iterating one with `for x in list`,

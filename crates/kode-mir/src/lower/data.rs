@@ -28,6 +28,7 @@ pub(crate) fn list_rt(el: &Type, base: RtFn) -> RtFn {
         RtFn::ListPush => RtFn::ListPush8,
         RtFn::ListGet => RtFn::ListGet8,
         RtFn::ListSet => RtFn::ListSet8,
+        RtFn::ListSlice => RtFn::ListSlice8,
         other => other,
     }
 }
@@ -158,6 +159,48 @@ impl<'a> Lowerer<'a> {
             self.release_if_owned(kv);
         }
         mv
+    }
+
+    /// `xs[a..b]`: a new list holding a copy of the range.
+    pub(crate) fn slice(&mut self, obj: &Expr, start: Option<&Expr>, end: Option<&Expr>, inclusive: bool) -> V {
+        let ot = self.expr_type(obj);
+        let Type::List(el) = ot else { unreachable!("checked: a list") };
+        let ov = self.expr(obj);
+        let s = match start {
+            Some(x) => {
+                let v = self.expr(x);
+                let op = v.op.clone();
+                self.release_if_owned(v);
+                op
+            }
+            None => Operand::Int(0),
+        };
+        let e = match end {
+            Some(x) => {
+                let v = self.expr(x);
+                let mut op = v.op.clone();
+                self.release_if_owned(v);
+                if inclusive {
+                    let t = self.new_temp(Ty::Int);
+                    self.emit(Inst::Assign {
+                        dst: t,
+                        rv: Rvalue::Binary(BinOp::Add, op, Operand::Int(1)),
+                    });
+                    op = Operand::Local(t);
+                }
+                op
+            }
+            // The runtime clamps a bound past the end to the length.
+            None => Operand::Int(i64::MAX),
+        };
+        let t = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(t),
+            callee: Callee::Rt(list_rt(&el, RtFn::ListSlice)),
+            args: vec![ov.op.clone(), s, e],
+        });
+        self.release_if_owned(ov);
+        self.owned(Operand::Local(t))
     }
 
     pub(crate) fn index(&mut self, obj: &Expr, index: &Expr, e: &Expr) -> V {

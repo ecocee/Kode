@@ -1,0 +1,20 @@
+enum Color { Red, Green, Blue }
+
+fn name(c: Color) -> string {
+    match c {
+        Color.Red => { return "warm" }
+        Color.Green => { return "fresh" }
+        Color.Blue => { return "cool" }
+    }
+}
+
+a = Color.Red
+print(a)
+print(Color.Green, Color.Blue)
+print("a is ${a}")
+print(name(Color.Blue))
+
+list: [Color] = [Color.Blue, Color.Red]
+for c in list {
+    print(c)
+}

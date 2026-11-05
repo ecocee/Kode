@@ -99,6 +99,10 @@ pub enum RtFn {
     ListPush8,
     ListGet8,
     ListSet8,
+    /// A copy of a range of items (`xs[a..b]`).
+    ListSlice,
+    /// The same for a packed list of bools.
+    ListSlice8,
     MapNew,
     MapSet,
     MapGet,

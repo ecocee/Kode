@@ -60,7 +60,7 @@ impl Checker {
                 for p in parts {
                     if let InterpPart::Expr(x) = p {
                         match self.expr(x) {
-                            Some(Type::Int | Type::Float | Type::Bool | Type::Str) => {}
+                            Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_)) => {}
                             Some(Type::Unit) => {
                                 self.errors.push(Diagnostic::error(
                                     "E0205",
@@ -90,6 +90,12 @@ impl Checker {
             ExprKind::List(items) => self.list_lit(items),
             ExprKind::Map(pairs) => self.map_lit(pairs),
             ExprKind::Index { obj, index } => self.index(obj, index),
+            ExprKind::Slice {
+                obj,
+                start,
+                end,
+                inclusive,
+            } => self.slice(obj, start.as_deref(), end.as_deref(), *inclusive),
             ExprKind::Member {
                 obj,
                 name,
@@ -299,6 +305,33 @@ impl Checker {
             return None;
         }
         ok.then(|| Type::Map(Box::new(v)))
+    }
+
+    /// `xs[a..b]`: a copy of a range of a list.
+    fn slice(&mut self, obj: &Expr, start: Option<&Expr>, end: Option<&Expr>, _inclusive: bool) -> Option<Type> {
+        let ot = self.expr(obj);
+        for bound in [start, end].into_iter().flatten() {
+            if let Some(t) = self.expr(bound) {
+                if t != Type::Int {
+                    self.errors.push(Diagnostic::error(
+                        "E0212",
+                        format!("a slice bound must be an int, found {}", t.article()),
+                        bound.span,
+                    ));
+                    return None;
+                }
+            }
+        }
+        match ot? {
+            Type::List(el) => Some(Type::List(el)),
+            other => {
+                self.errors.push(
+                    Diagnostic::error("E0211", format!("cannot slice {}", other.article()), obj.span)
+                        .with_help("only a list has a range to take, for example `items[1..3]`"),
+                );
+                None
+            }
+        }
     }
 
     fn index(&mut self, obj: &Expr, index: &Expr) -> Option<Type> {
@@ -1208,7 +1241,7 @@ impl Checker {
         if b == Builtin::Print {
             for (i, t) in tys.iter().enumerate() {
                 match t {
-                    Some(Type::Int | Type::Float | Type::Bool | Type::Str) | None => {}
+                    Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_)) | None => {}
                     Some(Type::Unit) => self.errors.push(Diagnostic::error(
                         "E0205",
                         "this call returns nothing, so there is nothing to print",

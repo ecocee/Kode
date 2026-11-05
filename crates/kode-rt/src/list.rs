@@ -168,6 +168,50 @@ pub unsafe extern "C" fn kode_list_set8(p: *mut Header, idx: i64, raw: i64, line
     *(*r.ptr() as *mut u8).add(idx as usize) = raw as u8;
 }
 
+// ---- slicing: a copy of a range ----
+
+/// A new list holding `start..end`. Bounds are clamped to the list, so a bound
+/// past the end stops at the end and `start >= end` gives an empty list.
+///
+/// # Safety
+/// `p` must be a valid list. Items are retained, so the copy owns them.
+#[no_mangle]
+pub unsafe extern "C" fn kode_list_slice(p: *mut Header, start: i64, end: i64) -> *mut Header {
+    let r = Raw(p);
+    let len = *r.len();
+    let (s, e) = (start.clamp(0, len), end.clamp(0, len));
+    let out = kode_list_new(r.is_refs() as i64);
+    if s < e {
+        let refs = r.is_refs();
+        for item in &items(p)[s as usize..e as usize] {
+            if refs {
+                kode_retain(*item as *mut Header);
+            }
+            kode_list_push(out, *item as i64);
+        }
+    }
+    out
+}
+
+/// A new packed list (bools, one byte each) holding `start..end`.
+///
+/// # Safety
+/// `p` must be a valid packed list.
+#[no_mangle]
+pub unsafe extern "C" fn kode_list_slice8(p: *mut Header, start: i64, end: i64) -> *mut Header {
+    let r = Raw(p);
+    let len = *r.len();
+    let (s, e) = (start.clamp(0, len), end.clamp(0, len));
+    let out = kode_list_new_packed();
+    if s < e {
+        let bytes = std::slice::from_raw_parts(*r.ptr() as *const u8, len as usize);
+        for byte in &bytes[s as usize..e as usize] {
+            kode_list_push8(out, *byte as i64);
+        }
+    }
+    out
+}
+
 // ---- library functions for lists ----
 
 /// # Safety

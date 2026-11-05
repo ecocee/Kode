@@ -134,6 +134,12 @@ pub fn expr(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             expr(obj, f);
             expr(index, f);
         }
+        ExprKind::Slice { obj, start, end, .. } => {
+            expr(obj, f);
+            for bound in [start, end].into_iter().flatten() {
+                expr(bound, f);
+            }
+        }
         ExprKind::Member { obj, .. } => expr(obj, f),
         ExprKind::MethodCall { obj, args, .. } => {
             expr(obj, f);

@@ -184,17 +184,47 @@ impl Parser {
                 TokenKind::LBracket => {
                     self.bump();
                     self.skip_newlines();
-                    let index = self.parse_expr(0)?;
-                    self.skip_newlines();
-                    let end = self.expect(TokenKind::RBracket, "`]`")?.span;
-                    let span = e.span.join(end);
-                    e = self.mk(
-                        span,
-                        ExprKind::Index {
-                            obj: Box::new(e),
-                            index: Box::new(index),
-                        },
-                    );
+                    // `xs[..]`, `xs[..3]`, `xs[1..3]`, `xs[1..=3]`: a slice.
+                    let start = if matches!(self.peek(), TokenKind::DotDot | TokenKind::DotDotEq) {
+                        None
+                    } else {
+                        let first = self.parse_expr(0)?;
+                        self.skip_newlines();
+                        Some(Box::new(first))
+                    };
+                    let inclusive = matches!(self.peek(), TokenKind::DotDotEq);
+                    if matches!(self.peek(), TokenKind::DotDot | TokenKind::DotDotEq) {
+                        self.bump();
+                        self.skip_newlines();
+                        let end = if matches!(self.peek(), TokenKind::RBracket) {
+                            None
+                        } else {
+                            Some(Box::new(self.parse_expr(0)?))
+                        };
+                        self.skip_newlines();
+                        let close = self.expect(TokenKind::RBracket, "`]`")?.span;
+                        let span = e.span.join(close);
+                        e = self.mk(
+                            span,
+                            ExprKind::Slice {
+                                obj: Box::new(e),
+                                start,
+                                end,
+                                inclusive,
+                            },
+                        );
+                    } else {
+                        let Some(index) = start else { unreachable!("`[` without a value is a slice") };
+                        let close = self.expect(TokenKind::RBracket, "`]`")?.span;
+                        let span = e.span.join(close);
+                        e = self.mk(
+                            span,
+                            ExprKind::Index {
+                                obj: Box::new(e),
+                                index,
+                            },
+                        );
+                    }
                 }
                 TokenKind::Bang => {
                     let end = self.bump().span;
