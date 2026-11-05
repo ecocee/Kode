@@ -13,15 +13,23 @@ Adding one means one table row and one `extern "C"` function in `crates/kode-rt/
 | `s.upper()` `s.lower()` `s.trim()` | new string |
 | `s.replace(a, b)` `s.repeat(n)` | new string |
 | `s.split(sep)` | `[string]` |
+| `s.lines()` | `[string]`, split on `\n` with any trailing `\r` removed |
+| `s.char_at(i)` | one character (not byte); raises an error when out of range |
+| `s.is_empty()` | bool |
+| `s.count(sub)` | non-overlapping occurrences |
 | `s.to_int()` `s.to_float()` | raise an error if the text is not a number |
 | `chr(n)` | the character with that code |
 
 | Lists and maps | |
 |---|---|
 | `xs.sort()` | for `[int]`, `[float]`, `[string]` |
-| `xs.pop()` `xs.clear()` | not for `[bool]` |
+| `xs.pop()` `xs.clear()` `xs.reverse()` | not for `[bool]` |
+| `xs.contains(v)` `xs.index_of(v)` | for `[int]`, `[float]`, `[string]`; `index_of` is -1 when missing |
+| `xs.insert(i, v)` `xs.remove_at(i)` | raise an error when the index is out of range |
+| `xs.first()` `xs.last()` | the item, or a catchable error on an empty list |
 | `words.join(sep)` | for `[string]` |
 | `m.remove(key)` | |
+| `m.values()` | `[T]` in insertion order |
 
 | Files, program, time | |
 |---|---|

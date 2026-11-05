@@ -407,6 +407,8 @@ impl<'a> Lowerer<'a> {
             | StdTy::Json
             | StdTy::Resp => Ty::Ref,
             StdTy::Elem => elem.map(mir_ty).unwrap_or(Ty::Int),
+            StdTy::ElemBits => Ty::Int,
+            StdTy::ListElem => Ty::Ref,
         }
     }
 
@@ -424,7 +426,21 @@ impl<'a> Lowerer<'a> {
             ptys.push(Ty::Ref);
         }
         for (a, p) in args.iter().zip(f.params) {
-            vals.push(self.expr(&a.value));
+            let is_float = *p == StdTy::ElemBits && *self.expr_type(&a.value) == Type::Float;
+            let v = self.expr(&a.value);
+            let v = if is_float {
+                // The runtime stores floats as bits, like list items.
+                let bits = self.new_temp(Ty::Int);
+                self.emit(Inst::Assign {
+                    dst: bits,
+                    rv: Rvalue::Cast(CastKind::FloatToBits, v.op.clone()),
+                });
+                self.release_if_owned(v);
+                V::val(Operand::Local(bits))
+            } else {
+                v
+            };
+            vals.push(v);
             ptys.push(Self::std_ty(*p, elem));
         }
         let rty = Self::std_ty(f.ret, elem);

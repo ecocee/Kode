@@ -78,3 +78,87 @@ pub extern "C" fn kode_bool_to_str(v: i64) -> *mut Header {
 pub fn format_float(v: f64) -> String {
     format!("{v:?}")
 }
+
+// ---- library functions ----
+
+/// Split on `\n`, dropping a trailing `\r` from each line.
+///
+/// # Safety
+/// `s` must be a valid string.
+#[no_mangle]
+pub unsafe extern "C" fn kode_str_lines(s: *const Header) -> *mut Header {
+    let text = std::str::from_utf8_unchecked(bytes(s));
+    let list = crate::list::kode_list_new(1);
+    for line in text.lines() {
+        crate::list::kode_list_push(list, from_bytes(line.as_bytes()) as i64);
+    }
+    list
+}
+
+/// One character (not byte) of the string, or a catchable error.
+///
+/// A static empty string (`rc = -1`). Error paths return it instead of
+/// allocating, so nothing can be leaked when the caller jumps to a handler.
+#[repr(C)]
+struct StaticStr {
+    rc: i64,
+    kind: i64,
+    len: i64,
+}
+
+static EMPTY: StaticStr = StaticStr {
+    rc: -1,
+    kind: STR,
+    len: 0,
+};
+
+fn empty() -> *mut Header {
+    &EMPTY as *const StaticStr as *mut Header
+}
+
+/// One character (not byte) of the string, or a catchable error.
+///
+/// # Safety
+/// `s` must be a valid string.
+#[no_mangle]
+pub unsafe extern "C" fn kode_str_char_at(s: *const Header, idx: i64) -> *mut Header {
+    let text = std::str::from_utf8_unchecked(bytes(s));
+    let n = text.chars().count() as i64;
+    if idx < 0 || idx >= n {
+        crate::error::throw_msg(&format!("string index {idx} is out of range (length {n})"));
+        return empty();
+    }
+    let mut buf = [0u8; 4];
+    let ch = text.chars().nth(idx as usize).unwrap_or('\u{fffd}');
+    from_bytes(ch.encode_utf8(&mut buf).as_bytes())
+}
+
+/// # Safety
+/// `s` must be a valid string.
+#[no_mangle]
+pub unsafe extern "C" fn kode_str_is_empty(s: *const Header) -> i64 {
+    bytes(s).is_empty() as i64
+}
+
+/// Non-overlapping occurrences of `sub`.
+///
+/// # Safety
+/// Both pointers must be valid strings.
+#[no_mangle]
+pub unsafe extern "C" fn kode_str_count(s: *const Header, sub: *const Header) -> i64 {
+    let (hay, needle) = (bytes(s), bytes(sub));
+    if needle.is_empty() {
+        return 0;
+    }
+    let mut count = 0i64;
+    let mut i = 0usize;
+    while i + needle.len() <= hay.len() {
+        if &hay[i..i + needle.len()] == needle {
+            count += 1;
+            i += needle.len();
+        } else {
+            i += 1;
+        }
+    }
+    count
+}

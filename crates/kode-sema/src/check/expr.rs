@@ -665,8 +665,10 @@ impl Checker {
 
     /// A call to a runtime library function, checked from its table row.
     fn std_call(&mut self, f: &StdFn, recv: Option<&Type>, args: &[Arg], tys: &[Option<Type>], span: Span) -> Option<Type> {
+        // `Elem` is the list item type, or the map value type for `values()`.
         let elem = match recv {
             Some(Type::List(e)) => Some(&**e),
+            Some(Type::Map(v)) => Some(&**v),
             _ => None,
         };
         if let Some(a) = args.iter().find(|a| a.name.is_some()) {

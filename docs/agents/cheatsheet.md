@@ -50,6 +50,7 @@ test "name" { assert(1 + 1 == 2) }                   // run with: kode test
 
 Tasks: `t = spawn work(1, "a")` (int/float/bool/string args)   `r = await t`   `Task<int>`
 Library: `s.size() s.slice(a,b) s.split(",") s.find(t) s.upper() s.trim() s.to_int()`  `xs.sort() xs.pop()`  `words.join(",")`
+More: `s.lines() s.char_at(i) s.is_empty() s.count(t)`  `xs.contains(v) xs.index_of(v) xs.reverse() xs.insert(i,v) xs.remove_at(i) xs.first() xs.last()`  `m.values()`
 `read_file(p) write_file(p,t) args() env(n) exit(c) sleep(ms) now_ms() chr(n)`   `serve(8080, handler)`
 Router: `routes = Router()`  `routes.get("/users/:id", handler)`  handlers are `fn name(req: Request) -> Response`
 Request/Response: `req.params["id"] req.query req.headers req.body req.json()`  `Response.json(doc)` `Response.text(s)` `response(201, body, ctype)`
