@@ -39,6 +39,19 @@ fn run_pass() {
     let mut failures = Vec::new();
     for file in &files {
         let name = file.file_stem().unwrap().to_string_lossy().to_string();
+        // A test that can only run on one family of systems says so on its first
+        // line: `// skip-os: windows` or `// skip-os: unix`.
+        let source = std::fs::read_to_string(file).unwrap_or_default();
+        if let Some(os) = source.lines().next().and_then(|l| l.strip_prefix("// skip-os: ")) {
+            let skip = match os.trim() {
+                "windows" => cfg!(windows),
+                "unix" => !cfg!(windows),
+                _ => false,
+            };
+            if skip {
+                continue;
+            }
+        }
         let expected = std::fs::read_to_string(file.with_extension("out"))
             .unwrap_or_else(|_| panic!("{name}: missing .out file"));
         let result = Command::new(kode())

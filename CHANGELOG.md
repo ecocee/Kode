@@ -41,6 +41,11 @@ language: a patch release fixes bugs, a minor release may add syntax.
   literals, calling a value (`f(1)`), and passing or returning functions. A
   closure captures the variables in scope by value; it is one heap object holding
   the code address and its captures (ADR 0028).
+- **`exec`.** `exec(program, args, cwd)` runs another program without a shell,
+  capturing its exit code, stdout and stderr in a `ProcessResult`. A program that
+  fails to start throws a catchable error; a non-zero exit is a result, not an
+  error (ADR 0029). This is what a self-hosted compiler needs to call `cc` and
+  the linker.
 - **`map` and `filter`.** `xs.map(|x: int| x * 2)` and
   `xs.filter(|x: int| x % 2 == 0)` on lists of ints, floats, strings, bools and
   reference types, compiled to an inline loop.

@@ -253,6 +253,29 @@ impl Checker {
         };
         // `Request`, `Response` and `Router` are the simple web API layer.
         // Field order is mirrored by `kode-rt/src/router.rs`; change both together.
+        // The result of `exec`. Order and types mirror `kode-rt/src/process.rs`.
+        let process_result = ClassInfo {
+            name: "ProcessResult".into(),
+            fields: vec![
+                FieldInfo {
+                    name: "code".into(),
+                    ty: Type::Int,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "stdout".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "stderr".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+            ],
+            methods: HashMap::new(),
+            implements: Vec::new(),
+        };
         let request_class = ClassInfo {
             name: "Request".into(),
             fields: vec![
@@ -329,6 +352,7 @@ impl Checker {
         class_index.insert("Request".to_string(), 3);
         class_index.insert("Response".to_string(), 4);
         class_index.insert("Router".to_string(), 5);
+        class_index.insert("ProcessResult".to_string(), 6);
         let json_kind = EnumInfo {
             name: "JsonKind".into(),
             variants: ["Null", "Bool", "Int", "Float", "Str", "List", "Map"]
@@ -344,7 +368,15 @@ impl Checker {
             expr_types,
             fns: Vec::new(),
             fn_index: HashMap::new(),
-            classes: vec![error_class, json_class, response_class, request_class, reply_class, router_class],
+            classes: vec![
+                error_class,
+                json_class,
+                response_class,
+                request_class,
+                reply_class,
+                router_class,
+                process_result,
+            ],
             class_index,
             enums: vec![json_kind],
             enum_index,

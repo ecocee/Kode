@@ -190,6 +190,18 @@ kode lsp                     # language server on stdio
 kode doctor                  # version, target, linker, runtime ABI
 ```
 
+## Processes
+
+```
+r = exec("/usr/bin/cc", ["-c", "main.s", "-o", "main.o"], "")
+print(r.code, r.stdout, r.stderr)
+```
+
+- `args` is a `[string]` passed straight to the program: no shell, so spaces and
+  `$` stay literal. An empty `cwd` keeps the current directory.
+- A program that cannot start throws (catch it); a non-zero exit is `r.code`.
+- `exec` is synchronous; stdin is closed, stdout and stderr are captured safely.
+
 ## Project layout
 
 ```

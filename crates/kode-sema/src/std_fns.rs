@@ -35,6 +35,8 @@ pub enum StdTy {
     MapStrStr,
     Json,
     Resp,
+    /// the result of `exec`: `code`, `stdout`, `stderr`
+    ProcResult,
     /// the item type of the list the method is called on
     Elem,
     /// the item type, passed as raw bits (`insert` into a `[float]`)
@@ -73,6 +75,8 @@ pub static STD: &[StdFn] = &[
     f!("sleep", Free, [T::Int], T::Unit, false, "kode_sleep"),
     f!("now_ms", Free, [], T::Int, false, "kode_now_ms"),
     f!("chr", Free, [T::Int], T::Str, false, "kode_chr"),
+    // processes: run a program directly, without a shell
+    f!("exec", Free, [T::Str, T::ListStr, T::Str], T::ProcResult, true, "kode_proc_exec"),
     // strings
     f!("size", Str, [], T::Int, false, "kode_str_size"),
     f!("byte_at", Str, [T::Int], T::Int, false, "kode_str_byte_at"),
@@ -202,6 +206,7 @@ pub fn to_type(t: StdTy, elem: Option<&Type>) -> Type {
         StdTy::MapStrStr => Type::Map(Box::new(Type::Str)),
         StdTy::Json => Type::Class("Json".into()),
         StdTy::Resp => Type::Class("HttpResponse".into()),
+        StdTy::ProcResult => Type::Class("ProcessResult".into()),
         StdTy::Elem | StdTy::ElemBits => elem.cloned().unwrap_or(Type::Int),
         StdTy::ListElem => Type::List(Box::new(elem.cloned().unwrap_or(Type::Int))),
     }

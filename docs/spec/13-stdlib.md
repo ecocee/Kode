@@ -38,6 +38,7 @@ Adding one means one table row and one `extern "C"` function in `crates/kode-rt/
 | `env(name)` | `string?` |
 | `exit(code)` | |
 | `sleep(ms)` `now_ms()` | |
+| `exec(program, args, cwd)` | runs a program without a shell and returns `ProcessResult { code, stdout, stderr }`; an empty `cwd` inherits the current directory. A program that cannot start raises an error; a non-zero exit is a `code`, not an error. |
 
 ## Modules
 

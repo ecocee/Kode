@@ -654,7 +654,8 @@ impl<'a> Lowerer<'a> {
             | StdTy::MapJson
             | StdTy::MapStrStr
             | StdTy::Json
-            | StdTy::Resp => Ty::Ref,
+            | StdTy::Resp
+            | StdTy::ProcResult => Ty::Ref,
             StdTy::Elem => elem.map(mir_ty).unwrap_or(Ty::Int),
             StdTy::ElemBits => Ty::Int,
             StdTy::ListElem => Ty::Ref,

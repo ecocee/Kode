@@ -1,0 +1,15 @@
+missing = false
+try {
+    exec("kode-no-such-program-9f3a", [], "")
+} catch e {
+    missing = e.message.len() > 0
+}
+print(missing)
+
+empty = false
+try {
+    exec("", [], "")
+} catch e {
+    empty = e.message.len() > 0
+}
+print(empty)
