@@ -82,6 +82,21 @@ by `KODE_LEAK_CHECK=1`.
 Each phase is a branch off the previous one. Acceptance = build green, conformance green,
 plus the listed checks.
 
+Status at the end of the first implementation session:
+
+| Phase | Branch | State |
+|---|---|---|
+| P0 plan | `plan/v1.0` | done |
+| P1 language server | `feat/lsp` | done |
+| P2 packages | `feat/packages` | done |
+| P3 standard library | `feat/stdlib` | done |
+| P4 errors and optionals | `feat/error-model` | `finally`, runtime hints and ADR 0024 done; suggestions were already in place |
+| P5 CLI | `feat/cli-ux` | done |
+| P6 docs and Windows | `feat/docs-windows` | `kode doc` and the site done; Windows links and is documented, but has not been run on Windows |
+| P7 channels | — | not started |
+| P8 performance | `perf/budgets` | harness and measurements done; no optimization work yet |
+| packed `[bool]` fix | `fix/bool-lists` | index writes and for-in used 8-byte accessors: wrong counts, then a crash at ten million items |
+
 ### P0 — This plan (branch `plan/v1.0`)
 - Single plan document, binary-model decision, budget table, phase contract.
 - **Done when:** this file exists and `ROADMAP.md` points at it.
