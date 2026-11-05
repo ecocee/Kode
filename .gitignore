@@ -1,35 +1,29 @@
 
-# Rust build artifacts
-/target/
-
+!.env.example
 # Cargo
-Cargo.lock
-
 # Environment variables and secrets
+# IDEs and editors
+# Logs
+# Rust analyzer
+# Rust build artifacts
+# Temporary files
+# Windows
+# macOS
+*.bak
+*.log
+*.swo
+*.swp
+*.tmp
+.DS_Store
 .env
 .env.*
-!.env.example
-
-# Logs
-*.log
-logs/
-
-# IDEs and editors
 .idea/
 .vscode/
-*.swp
-*.swo
-
-# macOS
-.DS_Store
-
-# Windows
-Thumbs.db
+/target/
+Cargo.lock
 Desktop.ini
-
-# Temporary files
-*.tmp
-*.bak
-
-# Rust analyzer
+Thumbs.db
+benchmarks/build/
+docs/site/out/
+logs/
 rust-analyzer/docs/site/out/
