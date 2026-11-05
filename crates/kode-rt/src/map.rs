@@ -18,6 +18,13 @@ unsafe fn inner<'a>(p: *const Header) -> &'a mut MapInner {
     &mut **((p as *const *mut MapInner).add(2))
 }
 
+/// Key/value pairs in insertion order. The pointers are borrowed: they are valid
+/// while the map is alive and no item is removed.
+pub(crate) unsafe fn entries(p: *const Header) -> Vec<(*mut Header, u64)> {
+    let m = inner(p);
+    m.keys.iter().copied().zip(m.vals.iter().copied()).collect()
+}
+
 unsafe fn is_refs(p: *const Header) -> bool {
     (*p).kind & ITEMS_ARE_REFS != 0
 }

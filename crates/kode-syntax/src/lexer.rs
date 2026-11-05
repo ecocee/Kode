@@ -104,8 +104,12 @@ impl<'a> Lexer<'a> {
                 '+' => self.one_or_two('=', TokenKind::PlusEq, TokenKind::Plus),
                 '*' => self.one_or_two('=', TokenKind::StarEq, TokenKind::Star),
                 '%' => self.one_or_two('=', TokenKind::PercentEq, TokenKind::Percent),
-                '<' => self.one_or_two('=', TokenKind::Le, TokenKind::Lt),
-                '>' => self.one_or_two('=', TokenKind::Ge, TokenKind::Gt),
+                '&' => self.one_or_two('=', TokenKind::AmpEq, TokenKind::Amp),
+                '|' => self.one_or_two('=', TokenKind::PipeEq, TokenKind::Pipe),
+                '^' => self.one_or_two('=', TokenKind::CaretEq, TokenKind::Caret),
+                '~' => self.single(TokenKind::Tilde),
+                '<' => self.less(),
+                '>' => self.greater(),
                 '-' => match self.peek_at(1) {
                     Some('>') => {
                         self.push(TokenKind::Arrow, start, start + 2);
@@ -172,6 +176,46 @@ impl<'a> Lexer<'a> {
         }
         let end = self.src.len();
         self.push(TokenKind::Eof, end, end);
+    }
+
+    /// `<`, `<=`, `<<` and `<<=`
+    fn less(&mut self) {
+        let start = self.i;
+        match self.peek_at(1) {
+            Some('<') if self.peek_at(2) == Some('=') => {
+                self.push(TokenKind::ShlEq, start, start + 3);
+                self.i += 3;
+            }
+            Some('<') => {
+                self.push(TokenKind::Shl, start, start + 2);
+                self.i += 2;
+            }
+            Some('=') => {
+                self.push(TokenKind::Le, start, start + 2);
+                self.i += 2;
+            }
+            _ => self.single(TokenKind::Lt),
+        }
+    }
+
+    /// `>`, `>=`, `>>` and `>>=`
+    fn greater(&mut self) {
+        let start = self.i;
+        match self.peek_at(1) {
+            Some('>') if self.peek_at(2) == Some('=') => {
+                self.push(TokenKind::ShrEq, start, start + 3);
+                self.i += 3;
+            }
+            Some('>') => {
+                self.push(TokenKind::Shr, start, start + 2);
+                self.i += 2;
+            }
+            Some('=') => {
+                self.push(TokenKind::Ge, start, start + 2);
+                self.i += 2;
+            }
+            _ => self.single(TokenKind::Gt),
+        }
     }
 
     fn slash(&mut self) {

@@ -15,6 +15,10 @@ pub enum Recv {
     /// any list except `[bool]`
     ListAny,
     Map,
+    /// the built-in dynamic JSON value
+    Json,
+    /// the request a route handler receives
+    Request,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +30,11 @@ pub enum StdTy {
     Unit,
     ListStr,
     OptStr,
+    ListJson,
+    MapJson,
+    MapStrStr,
+    Json,
+    Resp,
     /// the item type of the list the method is called on
     Elem,
 }
@@ -85,6 +94,50 @@ pub static STD: &[StdFn] = &[
     f!("clear", ListAny, [], T::Unit, false, "kode_list_clear"),
     // maps
     f!("remove", Map, [T::Str], T::Unit, false, "kode_map_remove"),
+    // JSON: build, read, write
+    f!("json_parse", Free, [T::Str], T::Json, true, "kode_json_parse"),
+    f!("json_null", Free, [], T::Json, false, "kode_json_null"),
+    f!("json_bool", Free, [T::Bool], T::Json, false, "kode_json_bool"),
+    f!("json_int", Free, [T::Int], T::Json, false, "kode_json_int"),
+    f!("json_float", Free, [T::Float], T::Json, false, "kode_json_float"),
+    f!("json_string", Free, [T::Str], T::Json, false, "kode_json_string"),
+    f!("json_list", Free, [T::ListJson], T::Json, false, "kode_json_list"),
+    f!("json_map", Free, [T::MapJson], T::Json, false, "kode_json_map"),
+    f!("json_encode", Free, [T::Json], T::Str, true, "kode_json_encode"),
+    // math (the `math.*` names are aliases for these)
+    f!("math_sqrt", Free, [T::Float], T::Float, false, "kode_math_sqrt"),
+    f!("math_abs", Free, [T::Float], T::Float, false, "kode_math_abs"),
+    f!("math_floor", Free, [T::Float], T::Float, false, "kode_math_floor"),
+    f!("math_ceil", Free, [T::Float], T::Float, false, "kode_math_ceil"),
+    f!("math_round", Free, [T::Float], T::Float, false, "kode_math_round"),
+    f!("math_sin", Free, [T::Float], T::Float, false, "kode_math_sin"),
+    f!("math_cos", Free, [T::Float], T::Float, false, "kode_math_cos"),
+    f!("math_tan", Free, [T::Float], T::Float, false, "kode_math_tan"),
+    f!("math_log", Free, [T::Float], T::Float, false, "kode_math_log"),
+    f!("math_exp", Free, [T::Float], T::Float, false, "kode_math_exp"),
+    f!("math_pow", Free, [T::Float, T::Float], T::Float, false, "kode_math_pow"),
+    f!("math_min", Free, [T::Float, T::Float], T::Float, false, "kode_math_min"),
+    f!("math_max", Free, [T::Float, T::Float], T::Float, false, "kode_math_max"),
+    f!("is_null", Json, [], T::Bool, false, "kode_json_is_null"),
+    f!("as_bool", Json, [], T::Bool, true, "kode_json_as_bool"),
+    f!("as_int", Json, [], T::Int, true, "kode_json_as_int"),
+    f!("as_float", Json, [], T::Float, true, "kode_json_as_float"),
+    f!("as_string", Json, [], T::Str, true, "kode_json_as_string"),
+    f!("as_list", Json, [], T::ListJson, true, "kode_json_as_list"),
+    f!("as_map", Json, [], T::MapJson, true, "kode_json_as_map"),
+    f!("len", Json, [], T::Int, true, "kode_json_len"),
+    f!("has", Json, [T::Str], T::Bool, true, "kode_json_has"),
+    f!("encode", Json, [], T::Str, true, "kode_json_encode"),
+    // HTTP client (plain HTTP; TLS is not implemented yet)
+    f!("http_get", Free, [T::Str], T::Resp, true, "kode_http_get"),
+    f!("http_post", Free, [T::Str, T::Str, T::Str], T::Resp, true, "kode_http_post"),
+    f!("http_request", Free, [T::Str, T::Str, T::MapStrStr, T::Str], T::Resp, true, "kode_http_request"),
+    // web API helpers: build JSON objects, build responses, read a request body
+    f!("json_obj", Free, [], T::MapJson, false, "kode_json_obj"),
+    f!("response_json", Free, [T::Json], T::Resp, true, "kode_response_json"),
+    f!("response_text", Free, [T::Str], T::Resp, false, "kode_response_text"),
+    f!("response", Free, [T::Int, T::Str, T::Str], T::Resp, false, "kode_response_new"),
+    f!("json", Request, [], T::Json, true, "kode_request_json"),
 ];
 
 pub fn find_free(name: &str) -> Option<&'static StdFn> {
@@ -103,6 +156,8 @@ fn recvs_of(t: &Type) -> Vec<Recv> {
             _ => vec![ListAny],
         },
         Type::Map(_) => vec![Map],
+        Type::Class(n) if n == "Json" => vec![Json],
+        Type::Class(n) if n == "Request" => vec![Request],
         _ => vec![],
     }
 }
@@ -122,6 +177,11 @@ pub fn to_type(t: StdTy, elem: Option<&Type>) -> Type {
         StdTy::Unit => Type::Unit,
         StdTy::ListStr => Type::List(Box::new(Type::Str)),
         StdTy::OptStr => Type::Opt(Box::new(Type::Str)),
+        StdTy::ListJson => Type::List(Box::new(Type::Class("Json".into()))),
+        StdTy::MapJson => Type::Map(Box::new(Type::Class("Json".into()))),
+        StdTy::MapStrStr => Type::Map(Box::new(Type::Str)),
+        StdTy::Json => Type::Class("Json".into()),
+        StdTy::Resp => Type::Class("HttpResponse".into()),
         StdTy::Elem => elem.cloned().unwrap_or(Type::Int),
     }
 }

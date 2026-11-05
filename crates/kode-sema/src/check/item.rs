@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use kode_diagnostics::Diagnostic;
 use kode_syntax::ast::*;
 
-use super::{Checker, ClassInfo, ConstVal, EnumInfo, FieldInfo, FnSig};
+use super::{Checker, ClassInfo, ConstVal, EnumInfo, FieldInfo, FnSig, IfaceMethod, InterfaceInfo};
 use crate::builtins;
-use crate::types::{assignable, Type};
+use crate::types::Type;
 
 impl Checker {
     pub(crate) fn resolve_type(&mut self, ann: &TypeAnn) -> Option<Type> {
@@ -15,12 +15,14 @@ impl Checker {
                     Some(t)
                 } else if self.class_index.contains_key(n) {
                     Some(Type::Class(n.clone()))
+                } else if self.interface_index.contains_key(n) {
+                    Some(Type::Interface(n.clone()))
                 } else if self.enum_index.contains_key(n) {
                     Some(Type::Enum(n.clone()))
                 } else {
                     self.errors.push(
                         Diagnostic::error("E0303", format!("unknown type `{n}`"), ann.span)
-                            .with_help("the types are int, float, bool, string, your classes and enums, [T], {string: T} and T?"),
+                            .with_help("the types are int, float, bool, string, your classes, interfaces and enums, [T], {string: T} and T?"),
                     );
                     None
                 }
@@ -51,7 +53,10 @@ impl Checker {
         for item in &program.items {
             match item {
                 Item::Class(c) => {
-                    if self.class_index.contains_key(&c.name) || self.enum_index.contains_key(&c.name) {
+                    if self.class_index.contains_key(&c.name)
+                        || self.enum_index.contains_key(&c.name)
+                        || self.interface_index.contains_key(&c.name)
+                    {
                         let what = if c.name == "Error" { "is built in" } else { "is defined twice" };
                         self.errors.push(Diagnostic::error(
                             "E0301",
@@ -64,11 +69,15 @@ impl Checker {
                             name: c.name.clone(),
                             fields: Vec::new(),
                             methods: Default::default(),
+                            implements: Vec::new(),
                         });
                     }
                 }
                 Item::Enum(e) => {
-                    if self.class_index.contains_key(&e.name) || self.enum_index.contains_key(&e.name) {
+                    if self.class_index.contains_key(&e.name)
+                        || self.enum_index.contains_key(&e.name)
+                        || self.interface_index.contains_key(&e.name)
+                    {
                         self.errors.push(Diagnostic::error(
                             "E0301",
                             format!("the name `{}` is defined twice", e.name),
@@ -82,8 +91,63 @@ impl Checker {
                         });
                     }
                 }
+                Item::Interface(i) => {
+                    if self.class_index.contains_key(&i.name)
+                        || self.enum_index.contains_key(&i.name)
+                        || self.interface_index.contains_key(&i.name)
+                    {
+                        self.errors.push(Diagnostic::error(
+                            "E0301",
+                            format!("the name `{}` is defined twice", i.name),
+                            i.name_span,
+                        ));
+                    } else {
+                        self.interface_index.insert(i.name.clone(), self.interfaces.len());
+                        self.interfaces.push(InterfaceInfo {
+                            name: i.name.clone(),
+                            methods: Vec::new(),
+                        });
+                    }
+                }
                 _ => {}
             }
+        }
+        // 1b. interface method signatures
+        for item in &program.items {
+            let Item::Interface(i) = item else { continue };
+            let Some(&ii) = self.interface_index.get(&i.name) else { continue };
+            let mut methods: Vec<IfaceMethod> = Vec::new();
+            for m in &i.methods {
+                if methods.iter().any(|x| x.name == m.name) {
+                    self.errors.push(Diagnostic::error(
+                        "E0306",
+                        format!("the method `{}` appears twice in this interface", m.name),
+                        m.name_span,
+                    ));
+                }
+                let mut params: Vec<(String, Type)> = Vec::new();
+                for p in &m.params {
+                    if params.iter().any(|(n, _)| *n == p.name) {
+                        self.errors.push(Diagnostic::error(
+                            "E0306",
+                            format!("the parameter `{}` appears twice", p.name),
+                            p.name_span,
+                        ));
+                    }
+                    let ty = self.resolve_type(&p.ty).unwrap_or(Type::Int);
+                    params.push((p.name.clone(), ty));
+                }
+                let ret = match &m.ret {
+                    Some(a) => self.resolve_type(a).unwrap_or(Type::Unit),
+                    None => Type::Unit,
+                };
+                methods.push(IfaceMethod {
+                    name: m.name.clone(),
+                    params,
+                    ret,
+                });
+            }
+            self.interfaces[ii].methods = methods;
         }
         // 2. class fields
         let mut done = HashSet::new();
@@ -93,6 +157,24 @@ impl Checker {
                 continue;
             }
             let ci = self.class_index[&c.name];
+            let mut implements = Vec::new();
+            for (iname, ispan) in &c.implements {
+                if !self.interface_index.contains_key(iname) {
+                    self.errors.push(
+                        Diagnostic::error("E0303", format!("unknown interface `{iname}`"), *ispan)
+                            .with_help("declare it first with `interface Name { ... }`"),
+                    );
+                } else if implements.contains(iname) {
+                    self.errors.push(Diagnostic::error(
+                        "E0301",
+                        format!("the interface `{iname}` is listed twice"),
+                        *ispan,
+                    ));
+                } else {
+                    implements.push(iname.clone());
+                }
+            }
+            self.classes[ci].implements = implements;
             let mut fields: Vec<FieldInfo> = Vec::new();
             for f in &c.fields {
                 if fields.iter().any(|x| x.name == f.name) {
@@ -113,6 +195,97 @@ impl Checker {
         }
         self.collect_consts(program);
         self.collect_fns(program);
+        self.check_implements(program);
+        self.collect_modules();
+        if self.classes.len() > 256 {
+            let span = program
+                .items
+                .iter()
+                .rev()
+                .find_map(|i| match i {
+                    Item::Class(c) => Some(c.name_span),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            self.errors.push(Diagnostic::error(
+                "E0239",
+                "too many classes: at most 256 are supported",
+                span,
+            ));
+        }
+    }
+
+    /// A module name is a qualifier, not a value: it may not repeat or hide a
+    /// declaration in the shared namespace.
+    fn collect_modules(&mut self) {
+        let mut index = std::collections::HashMap::new();
+        for (i, m) in self.modules.iter().enumerate() {
+            if index.contains_key(&m.alias) {
+                self.errors.push(Diagnostic::error(
+                    "E0408",
+                    format!("the module name `{}` is imported twice", m.alias),
+                    m.span,
+                ));
+            } else if self.fn_index.contains_key(&m.alias)
+                || self.consts.contains_key(&m.alias)
+                || self.class_index.contains_key(&m.alias)
+                || self.enum_index.contains_key(&m.alias)
+                || self.interface_index.contains_key(&m.alias)
+            {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0409",
+                        format!("the module name `{}` hides another declaration", m.alias),
+                        m.span,
+                    )
+                    .with_help("choose another name, for example `import \"...\" as pkg`"),
+                );
+            } else {
+                index.insert(m.alias.clone(), i);
+            }
+        }
+        self.module_index = index;
+    }
+
+    /// Every class must provide every method of each interface it lists.
+    fn check_implements(&mut self, program: &Program) {
+        for item in &program.items {
+            let Item::Class(c) = item else { continue };
+            let Some(&ci) = self.class_index.get(&c.name) else { continue };
+            let implements = self.classes[ci].implements.clone();
+            let methods = self.classes[ci].methods.clone();
+            for iname in implements {
+                let Some(&ii) = self.interface_index.get(&iname) else { continue };
+                let wanted = self.interfaces[ii].methods.clone();
+                for m in wanted {
+                    match methods.get(&m.name).copied() {
+                        None => self.errors.push(
+                            Diagnostic::error(
+                                "E0234",
+                                format!("`{}` implements `{iname}` but has no method `{}`", c.name, m.name),
+                                c.name_span,
+                            )
+                            .with_help("add the method with the same parameters and return type"),
+                        ),
+                        Some(mi) => {
+                            let sig = self.fns[mi].clone();
+                            let got: Vec<Type> = sig.params.iter().skip(1).map(|(_, t)| t.clone()).collect();
+                            let want: Vec<Type> = m.params.iter().map(|(_, t)| t.clone()).collect();
+                            if got != want || sig.ret != m.ret {
+                                self.errors.push(
+                                    Diagnostic::error(
+                                        "E0235",
+                                        format!("`{}` does not match the signature of `{iname}.{}`", sig.name, m.name),
+                                        c.name_span,
+                                    )
+                                    .with_help("the parameter types and the return type must match exactly"),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn collect_consts(&mut self, program: &Program) {
@@ -281,7 +454,7 @@ impl Checker {
             }
             FnBody::Expr(e) => {
                 if let Some(t) = self.expr(e) {
-                    if !assignable(&t, &sig.ret) {
+                    if !self.assignable(&t, &sig.ret) {
                         let help = if f.ret.is_none() && t != Type::Unit {
                             format!("write `-> {}` after the parameters", t.name())
                         } else {

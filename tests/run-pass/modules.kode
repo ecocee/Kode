@@ -1,10 +1,18 @@
-from "./lib/mathx" import double, Counter
-import "./lib/strings"
+// Python-style standard-library namespaces
+doc = json.parse("{\"a\":1}")
+print(json.stringify(doc))
 
-c = Counter()
-c.inc()
-c.inc()
-print(double(21), c.n, TAX)
-print(shout("hi"))
-lvl = Level.High
-print(lvl == Level.High, secret())
+obj = json.object()
+obj["n"] = json.int(7)
+print(json.stringify(json.map(obj)))
+
+print(math.sqrt(9.0), math.abs(-2.5))
+print(math.floor(2.9), math.ceil(2.1), math.round(2.5))
+print(math.pow(2.0, 10.0), math.min(3.0, 4.0), math.max(3.0, 4.0))
+print(math.pi > 3.14, math.e > 2.71)
+
+print(fs.read("no-such-file") catch e { "missing" })
+t0 = time.now_ms()
+time.sleep(2)
+print(time.now_ms() - t0 >= 2)
+print(json.stringify(json.parse("bad") catch e { json.null() }))

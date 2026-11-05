@@ -1,0 +1,10 @@
+interface Shape {
+    fn area() -> int
+}
+
+class Square implements Shape {
+    fn area() -> int => 1
+}
+
+s: Shape = Square()
+print(s.side)

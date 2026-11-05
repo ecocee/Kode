@@ -69,7 +69,8 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0228 | parameter has the same name as a field |
 | E0230 | `spawn` needs one of your functions with int, float, bool or string parameters |
 | E0231 | `await` needs a task |
-| E0232 | the `serve` handler must be a function `(string, string, string) -> string` |
+| E0232 | the `serve` handler must be a function `(string, string, string) -> string`, or a `Router` |
+| E0233 | the route handler must be a function `(req: Request) -> Response` |
 
 ## Declarations and statements (E03xx)
 
@@ -97,6 +98,12 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0402 | import cycle |
 | E0403 | a module has top-level code |
 | E0405 | the module does not define this name |
+| E0406 | invalid `kode.toml` package manifest |
+| E0407 | the package root folder does not exist |
+| E0408 | a module alias is imported twice |
+| E0409 | a module alias hides another declaration |
+| E0410 | the module has no such member |
+| E0411 | the member is private (not `pub`) |
 
 ## Warnings
 

@@ -119,6 +119,28 @@ pub unsafe extern "C" fn kode_obj_new(nfields: i64, refmask: i64) -> *mut Header
     p
 }
 
+/// A class instance that remembers its class id (bits 8..16 of `kind`), so an
+/// interface call can dispatch to the right method.
+///
+/// # Safety
+/// Always safe to call; the result is owned by the caller.
+#[no_mangle]
+pub unsafe extern "C" fn kode_obj_new_class(nfields: i64, refmask: i64, class_id: i64) -> *mut Header {
+    let size = 24 + 8 * nfields as usize;
+    let p = alloc_object(size, OBJ | ((class_id & 0xff) << 8) | (nfields << 16));
+    *((p as *mut i64).add(2)) = refmask;
+    p
+}
+
+/// The class id stored in a class instance (0 for objects made by the runtime).
+#[no_mangle]
+pub extern "C" fn kode_obj_class(p: *mut Header) -> i64 {
+    if p.is_null() {
+        return -1;
+    }
+    unsafe { ((*p).kind >> 8) & 0xff }
+}
+
 unsafe fn drop_obj(p: *mut Header) {
     let nfields = ((*p).kind >> 16) as usize;
     let mask = *((p as *const i64).add(2));

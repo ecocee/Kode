@@ -10,7 +10,10 @@ struct Scan {
     ends_with_operator: bool,
 }
 
-const OPERATORS: &[&str] = &["+", "-", "*", "/", "%", "=", "==", "!=", "<", ">", "<=", ">=", ",", "??", "=>"];
+const OPERATORS: &[&str] = &[
+    "+", "-", "*", "/", "%", "=", "==", "!=", "<", ">", "<=", ">=", ",", "??", "=>", "&", "|", "^", "~", "<<",
+    ">>", "&=", "|=", "^=", "<<=", ">>=",
+];
 
 fn scan(line: &str, in_block: &mut bool) -> Scan {
     let mut s = Scan {

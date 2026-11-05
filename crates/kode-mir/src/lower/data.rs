@@ -166,6 +166,24 @@ impl<'a> Lowerer<'a> {
         let ov = self.expr(obj);
         let iv = self.expr(index);
         let line = Operand::Int(self.line_of(e.span.start));
+        // `json["key"]` and `json[i]`: the runtime returns a value owned by the parent.
+        if matches!(ot, Type::Class(name) if name == "Json") {
+            let (sym, params) = match self.expr_type(index) {
+                Type::Str => ("kode_json_index_key", vec![Ty::Ref, Ty::Ref, Ty::Int]),
+                Type::Int => ("kode_json_index_at", vec![Ty::Ref, Ty::Int, Ty::Int]),
+                _ => unreachable!("checked: a Json index is a string or an int"),
+            };
+            let sig = self.std_sig(sym, params, Ty::Ref);
+            let t = self.new_temp(Ty::Ref);
+            self.emit(Inst::Call {
+                dst: Some(t),
+                callee: Callee::Std(sig),
+                args: vec![ov.op.clone(), iv.op.clone(), line],
+            });
+            self.error_check();
+            self.release_if_owned(iv);
+            return self.borrow_result(ov, Operand::Local(t), res_ty);
+        }
         let rt = match ot {
             Type::Map(_) => RtFn::MapGet,
             Type::List(el) => list_rt(el, RtFn::ListGet),
@@ -177,6 +195,32 @@ impl<'a> Lowerer<'a> {
     }
 
     pub(crate) fn member(&mut self, obj: &Expr, name: &str, safe: bool) -> V {
+        // `util.TAX`: a public constant from an imported module.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.lookup(n).is_none()
+                && !self.checked.consts.contains_key(n)
+                && self.this_field(n).is_none()
+            {
+                if let Some(mi) = self.checked.module_index.get(n) {
+                    if self.checked.modules[*mi].exports.iter().any(|e| e == name) {
+                        if let Some(op) = self.const_operand(name) {
+                            return V::val(op);
+                        }
+                    }
+                }
+            }
+        }
+        // `math.pi` and other module constants.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.lookup(n).is_none()
+                && !self.checked.consts.contains_key(n)
+                && self.this_field(n).is_none()
+            {
+                if let Some(v) = kode_sema::modules::constant(n, name) {
+                    return V::val(Operand::Float(v));
+                }
+            }
+        }
         // `Color.Red`
         if let ExprKind::Ident(n) = &obj.kind {
             if self.lookup(n).is_none()
@@ -240,7 +284,84 @@ impl<'a> Lowerer<'a> {
     }
 
     pub(crate) fn method_call(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> V {
+        // `util.add(...)`: a public function or class from an imported module.
+        let module_method = match &obj.kind {
+            ExprKind::Ident(n) => {
+                self.lookup(n).is_none()
+                    && !self.checked.consts.contains_key(n)
+                    && self.this_field(n).is_none()
+                    && self.checked.module_index.get(n).is_some_and(|&mi| {
+                        self.checked.modules[mi].exports.iter().any(|x| x == name)
+                    })
+            }
+            _ => false,
+        };
+        if module_method {
+            return self.call(e, name, args);
+        }
+        // `Response.json(value)` / `Response.text(text)`
+        if let ExprKind::Ident(n) = &obj.kind {
+            if n == "Response"
+                && self.lookup(n).is_none()
+                && !self.checked.consts.contains_key(n)
+                && self.this_field(n).is_none()
+            {
+                let f = match name {
+                    "json" => kode_sema::std_fns::find_free("response_json"),
+                    "text" => kode_sema::std_fns::find_free("response_text"),
+                    _ => None,
+                }
+                .expect("the type checker validated the static method");
+                return self.std_call(f, None, args);
+            }
+        }
+        // `json.parse(...)`, `math.sqrt(...)`: standard-library namespaces.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.lookup(n).is_none()
+                && !self.checked.consts.contains_key(n)
+                && self.this_field(n).is_none()
+            {
+                if let Some(f) = kode_sema::modules::function(n, name) {
+                    return self.std_call(f, None, args);
+                }
+            }
+        }
         let ot = self.expr_type(obj);
+        if let Type::Interface(iname) = ot {
+            let ii = self.checked.interface_index[iname];
+            let sig = self.checked.interfaces[ii]
+                .methods
+                .iter()
+                .find(|m| m.name == name)
+                .expect("the type checker checked the method")
+                .clone();
+            let idx = *self
+                .iface_dispatch
+                .get(&(iname.clone(), name.to_string()))
+                .expect("dispatch was generated");
+            let ov = self.expr(obj);
+            let vals = self.call_vals(e.id, args, Some(ov), sig.params.len());
+            let ret = mir_ty(&sig.ret);
+            let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
+            let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
+            self.emit(Inst::Call {
+                dst,
+                callee: Callee::User(idx),
+                args: ops,
+            });
+            self.error_check();
+            for v in vals {
+                self.release_if_owned(v);
+            }
+            return match dst {
+                Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
+                Some(d) => V::val(Operand::Local(d)),
+                None => V::unit(),
+            };
+        }
+        if matches!(ot, Type::Class(n) if n == "Router") {
+            return self.router_add(obj, name, args);
+        }
         if let Some(f) = kode_sema::std_fns::find_method(ot, name) {
             return self.std_call(f, Some(obj), args);
         }
@@ -306,6 +427,35 @@ impl<'a> Lowerer<'a> {
         }
     }
 
+    /// `router.get("/users/:id", handler)`
+    fn router_add(&mut self, obj: &Expr, name: &str, args: &[Arg]) -> V {
+        let checked = self.checked;
+        let ExprKind::Ident(handler) = &args[1].value.kind else {
+            unreachable!("the type checker made sure the handler is a function name")
+        };
+        let idx = checked.fn_index[handler];
+        let method = match name {
+            "get" => "GET",
+            "post" => "POST",
+            "put" => "PUT",
+            "patch" => "PATCH",
+            "delete" => "DELETE",
+            _ => unreachable!("the type checker checked the method"),
+        };
+        let router = self.expr(obj);
+        let path = self.expr(&args[0].value);
+        let m = Operand::Str(self.intern(method));
+        let sig = self.std_sig("kode_router_add", vec![Ty::Ref, Ty::Ref, Ty::Ref, Ty::Int], Ty::Unit);
+        self.emit(Inst::Call {
+            dst: None,
+            callee: Callee::Std(sig),
+            args: vec![router.op.clone(), m, path.op.clone(), Operand::FuncAddr(idx)],
+        });
+        self.release_if_owned(path);
+        self.release_if_owned(router);
+        V::unit()
+    }
+
     /// `ClassName(field: value, ...)`
     pub(crate) fn construct(&mut self, e: &Expr, ci: usize, args: &[Arg]) -> V {
         let checked = self.checked;
@@ -318,8 +468,8 @@ impl<'a> Lowerer<'a> {
         let p = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
             dst: Some(p),
-            callee: Callee::Rt(RtFn::ObjNew),
-            args: vec![Operand::Int(fields.len() as i64), Operand::Int(mask)],
+            callee: Callee::Rt(RtFn::ObjNewClass),
+            args: vec![Operand::Int(fields.len() as i64), Operand::Int(mask), Operand::Int(ci as i64)],
         });
         let obj = self.owned(Operand::Local(p));
         let slots = checked.call_args[&e.id].clone();

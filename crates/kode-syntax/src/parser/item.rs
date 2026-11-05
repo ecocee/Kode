@@ -12,14 +12,15 @@ impl Parser {
             if matches!(self.peek(), TokenKind::Eof) {
                 break;
             }
-            // `pub` is accepted and reserved for module visibility.
-            if matches!(self.peek(), TokenKind::Pub) {
+            let is_pub = matches!(self.peek(), TokenKind::Pub);
+            if is_pub {
                 self.bump();
             }
             let result = match self.peek() {
                 TokenKind::Fn => self.parse_fn().map(Item::Fn),
                 TokenKind::Const => self.parse_const().map(Item::Const),
                 TokenKind::Class => self.parse_class().map(Item::Class),
+                TokenKind::Interface => self.parse_interface().map(Item::Interface),
                 TokenKind::Enum => self.parse_enum().map(Item::Enum),
                 TokenKind::Import | TokenKind::From => self.parse_import().map(Item::Import),
                 TokenKind::Test => self.parse_test().map(Item::Test),
@@ -30,7 +31,10 @@ impl Parser {
                 Err(e) => Err(e),
             };
             match result {
-                Ok(item) => items.push(item),
+                Ok(mut item) => {
+                    set_pub(&mut item, is_pub);
+                    items.push(item);
+                }
                 Err(e) => {
                     self.errors.push(e);
                     self.recover();
@@ -93,6 +97,7 @@ impl Parser {
             span: fn_tok.span.join(name_span),
             name,
             name_span,
+            is_pub: false,
             params,
             ret,
             body,
@@ -113,6 +118,7 @@ impl Parser {
         Ok(ConstDecl {
             name,
             name_span,
+            is_pub: false,
             ty,
             value,
         })
@@ -121,6 +127,18 @@ impl Parser {
     fn parse_class(&mut self) -> Result<ClassDecl, Diagnostic> {
         self.bump(); // class
         let (name, name_span) = self.ident("a class name")?;
+        let mut implements = Vec::new();
+        if matches!(self.peek(), TokenKind::Implements) {
+            self.bump();
+            loop {
+                implements.push(self.ident("an interface name")?);
+                if matches!(self.peek(), TokenKind::Comma) {
+                    self.bump();
+                } else {
+                    break;
+                }
+            }
+        }
         let open = self.expect(TokenKind::LBrace, "`{`")?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -170,8 +188,104 @@ impl Parser {
         Ok(ClassDecl {
             name,
             name_span,
+            is_pub: false,
+            implements,
             fields,
             methods,
+        })
+    }
+
+    fn parse_interface(&mut self) -> Result<InterfaceDecl, Diagnostic> {
+        self.bump(); // interface
+        let (name, name_span) = self.ident("an interface name")?;
+        let open = self.expect(TokenKind::LBrace, "`{`")?;
+        let mut methods = Vec::new();
+        loop {
+            self.skip_newlines();
+            if matches!(self.peek(), TokenKind::Pub) {
+                self.bump();
+            }
+            match self.peek().clone() {
+                TokenKind::RBrace => {
+                    self.bump();
+                    break;
+                }
+                TokenKind::Eof => {
+                    return Err(Diagnostic::error("E0106", "this interface is never closed", open.span)
+                        .with_help("add a matching `}`"))
+                }
+                TokenKind::Fn => methods.push(self.parse_iface_method()?),
+                other => {
+                    return Err(Diagnostic::error(
+                        "E0114",
+                        format!("expected a method signature, found {}", other.describe()),
+                        self.span(),
+                    )
+                    .with_help("method signatures look like `fn area() -> float`"))
+                }
+            }
+            self.expect_end()?;
+        }
+        Ok(InterfaceDecl {
+            name,
+            name_span,
+            is_pub: false,
+            methods,
+        })
+    }
+
+    fn parse_iface_method(&mut self) -> Result<IfaceMethod, Diagnostic> {
+        let fn_tok = self.bump(); // fn
+        let (name, name_span) = self.ident("a method name")?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        self.skip_newlines();
+        let mut params = Vec::new();
+        while !matches!(self.peek(), TokenKind::RParen) {
+            let (pname, pspan) = self.ident("a parameter name")?;
+            if !matches!(self.peek(), TokenKind::Colon) {
+                return Err(Diagnostic::error(
+                    "E0111",
+                    format!("parameter `{pname}` needs a type"),
+                    pspan,
+                )
+                .with_help(format!("write it like `{pname}: int`")));
+            }
+            self.bump();
+            let ty = self.type_ann()?;
+            params.push(Param {
+                name: pname,
+                name_span: pspan,
+                ty,
+            });
+            self.skip_newlines();
+            if matches!(self.peek(), TokenKind::Comma) {
+                self.bump();
+                self.skip_newlines();
+            } else {
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)`")?;
+        let ret = if matches!(self.peek(), TokenKind::Arrow) {
+            self.bump();
+            Some(self.type_ann()?)
+        } else {
+            None
+        };
+        if matches!(self.peek(), TokenKind::LBrace | TokenKind::FatArrow) {
+            return Err(Diagnostic::error(
+                "E0236",
+                "an interface method has no body",
+                fn_tok.span.join(name_span),
+            )
+            .with_help("write only the signature; the implementing class writes the body"));
+        }
+        Ok(IfaceMethod {
+            span: fn_tok.span.join(name_span),
+            name,
+            name_span,
+            params,
+            ret,
         })
     }
 
@@ -195,6 +309,7 @@ impl Parser {
         Ok(EnumDecl {
             name,
             name_span,
+            is_pub: false,
             variants,
         })
     }
@@ -220,6 +335,7 @@ impl Parser {
         self.bump();
         let (path, path_span) = self.plain_string("a file path in quotes")?;
         let mut names = Vec::new();
+        let mut alias = None;
         if from {
             self.expect(TokenKind::Import, "`import`")?;
             names.push(self.ident("a name to import")?);
@@ -227,11 +343,15 @@ impl Parser {
                 self.bump();
                 names.push(self.ident("a name to import")?);
             }
+        } else if matches!(self.peek(), TokenKind::As) {
+            self.bump();
+            alias = Some(self.ident("a module name")?);
         }
         Ok(ImportDecl {
             path,
             path_span,
             names,
+            alias,
         })
     }
 
@@ -244,5 +364,17 @@ impl Parser {
             name_span,
             body,
         })
+    }
+}
+
+/// `pub` belongs to the item that follows it, not to its members.
+fn set_pub(item: &mut Item, value: bool) {
+    match item {
+        Item::Fn(f) => f.is_pub = value,
+        Item::Const(c) => c.is_pub = value,
+        Item::Class(c) => c.is_pub = value,
+        Item::Interface(i) => i.is_pub = value,
+        Item::Enum(e) => e.is_pub = value,
+        _ => {}
     }
 }

@@ -260,6 +260,7 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                     (UnOp::Neg, Ty::Int) => self.b.ins().ineg(v),
                     (UnOp::Neg, Ty::Float) => self.b.ins().fneg(v),
                     (UnOp::Not, Ty::Bool) => self.b.ins().icmp_imm(IntCC::Equal, v, 0),
+                    (UnOp::BitNot, Ty::Int) => self.b.ins().bnot(v),
                     _ => return Err(format!("bad unary operation on {ty:?}")),
                 }
             }
@@ -309,6 +310,18 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
             BinOp::Div => self.divide(a, c, false),
             BinOp::Rem => self.divide(a, c, true),
             BinOp::BitAnd => self.b.ins().band(a, c),
+            BinOp::BitOr => self.b.ins().bor(a, c),
+            BinOp::BitXor => self.b.ins().bxor(a, c),
+            BinOp::Shl => match k {
+                Some(n) if (0..64).contains(&n) => self.b.ins().ishl(a, c),
+                Some(_) => self.b.ins().iconst(types::I64, 0),
+                None => self.shift(a, c, true),
+            },
+            BinOp::Shr => match k {
+                Some(n) if (0..64).contains(&n) => self.b.ins().sshr(a, c),
+                Some(_) => self.b.ins().iconst(types::I64, 0),
+                None => self.shift(a, c, false),
+            },
             BinOp::Eq => ins(self, IntCC::Equal),
             BinOp::Ne => ins(self, IntCC::NotEqual),
             BinOp::Lt => ins(self, IntCC::SignedLessThan),
@@ -316,6 +329,18 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
             BinOp::Gt => ins(self, IntCC::SignedGreaterThan),
             BinOp::Ge => ins(self, IntCC::SignedGreaterThanOrEqual),
         }
+    }
+
+    /// Shifts by 64 or more (or by a negative count) give 0 instead of wrapping.
+    fn shift(&mut self, a: Value, amount: Value, left: bool) -> Value {
+        let zero = self.b.ins().iconst(types::I64, 0);
+        let big = self.b.ins().icmp_imm(IntCC::UnsignedGreaterThanOrEqual, amount, 64);
+        let shifted = if left {
+            self.b.ins().ishl(a, amount)
+        } else {
+            self.b.ins().sshr(a, amount)
+        };
+        self.b.ins().select(big, zero, shifted)
     }
 
     fn float_binary(&mut self, op: BinOp, a: Value, c: Value) -> Result<Value, String> {
@@ -331,7 +356,9 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
             BinOp::Le => cmp(self, FloatCC::LessThanOrEqual),
             BinOp::Gt => cmp(self, FloatCC::GreaterThan),
             BinOp::Ge => cmp(self, FloatCC::GreaterThanOrEqual),
-            BinOp::Rem | BinOp::BitAnd => return Err("this operator is not supported on floats".into()),
+            BinOp::Rem | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                return Err("this operator is not supported on floats".into())
+            }
         })
     }
 

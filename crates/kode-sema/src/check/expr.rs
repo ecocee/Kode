@@ -6,7 +6,7 @@ use super::Checker;
 use crate::builtins::{self, Builtin, BUILTIN_NAMES};
 use crate::suggest::closest;
 use crate::std_fns::{self, StdFn};
-use crate::types::{assignable, Type};
+use crate::types::Type;
 
 impl Checker {
     /// If `e` is an empty `[]`, `{}` or `none`, remember the type it was given.
@@ -26,7 +26,7 @@ impl Checker {
     /// Check that a value of type `got` can go where `want` is expected.
     pub(crate) fn coerce(&mut self, e: &Expr, got: Option<Type>, want: &Type, what: &str, code: &'static str) -> bool {
         let Some(got) = got else { return false };
-        if assignable(&got, want) {
+        if self.assignable(&got, want) {
             self.retype(e, want);
             return true;
         }
@@ -38,7 +38,7 @@ impl Checker {
         if matches!((&got, want), (Type::Int, Type::Float) | (Type::Float, Type::Int)) {
             d = d.with_help("numbers never convert automatically; use int(x) or float(x)");
         } else if let Type::Opt(inner) = &got {
-            if assignable(inner, want) {
+            if self.assignable(inner, want) {
                 d = d.with_help("this may be none: use `x ?? default` or `x!`");
             }
         }
@@ -160,6 +160,49 @@ impl Checker {
         ty
     }
 
+    /// The module behind `name`, unless a value in scope shadows it.
+    fn module_alias(&mut self, name: &str) -> Option<usize> {
+        if self.scopes.peek_var(name).is_none()
+            && !self.consts.contains_key(name)
+            && self.field_of_current_class(name).is_none()
+        {
+            self.module_index.get(name).copied()
+        } else {
+            None
+        }
+    }
+
+    fn module_missing(
+        &mut self,
+        alias: &str,
+        exports: &[String],
+        all: &[String],
+        name: &str,
+        span: Span,
+        what: &str,
+    ) {
+        if all.iter().any(|x| x == name) {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0411",
+                    format!("`{name}` is private to module `{alias}`"),
+                    span,
+                )
+                .with_help("mark it `pub` in that file to use it from here"),
+            );
+        } else {
+            let mut d = Diagnostic::error(
+                "E0410",
+                format!("the module `{alias}` has no {what} `{name}`"),
+                span,
+            );
+            if let Some(s) = closest(name, exports.iter().map(|s| s.as_str())) {
+                d = d.with_help(format!("did you mean `{s}`?"));
+            }
+            self.errors.push(d);
+        }
+    }
+
     fn ident(&mut self, name: &str, span: Span) -> Option<Type> {
         if let Some(t) = self.scopes.use_var(name) {
             return Some(t);
@@ -176,7 +219,9 @@ impl Checker {
         if let Some(ci) = self.cur_class {
             names.extend(self.classes[ci].fields.iter().map(|f| f.name.clone()));
         }
-        d = if self.enum_index.contains_key(name) {
+        d = if self.module_index.contains_key(name) {
+            d.with_help(format!("`{name}` is a module; use `{name}.member`"))
+        } else if self.enum_index.contains_key(name) {
             d.with_help(format!("enum values are written like `{name}.VariantName`"))
         } else {
             match closest(name, names.iter().map(|s| s.as_str())) {
@@ -197,7 +242,7 @@ impl Checker {
         for x in &items[1..] {
             let t = self.expr(x);
             if let (Some(f), Some(t)) = (&first, t) {
-                if !assignable(&t, f) {
+                if !self.assignable(&t, f) {
                     self.errors.push(Diagnostic::error(
                         "E0213",
                         format!("list items must all have the same type: expected {}, found {}", f.article(), t.article()),
@@ -237,7 +282,7 @@ impl Checker {
             let t = self.expr(v);
             match (&val, t) {
                 (None, Some(t)) => val = Some(t),
-                (Some(f), Some(t)) if !assignable(&t, f) => {
+                (Some(f), Some(t)) if !self.assignable(&t, f) => {
                     self.errors.push(Diagnostic::error(
                         "E0213",
                         format!("map values must all have the same type: expected {}, found {}", f.article(), t.article()),
@@ -283,6 +328,20 @@ impl Checker {
                 }
                 Some(*v)
             }
+            Type::Class(name) if name == "Json" => match it {
+                Type::Str | Type::Int => Some(Type::Class("Json".into())),
+                other => {
+                    self.errors.push(Diagnostic::error(
+                        "E0212",
+                        format!(
+                            "a Json value needs a string key or an int index, found {}",
+                            other.article()
+                        ),
+                        index.span,
+                    ));
+                    None
+                }
+            },
             Type::Opt(_) => {
                 self.errors.push(
                     Diagnostic::error("E0220", "this may be none, so it cannot be indexed", obj.span)
@@ -322,7 +381,67 @@ impl Checker {
                 }
             }
         }
+        // `util.TAX`: a constant from an imported module.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if let Some(mi) = self.module_alias(n) {
+                let m = self.modules[mi].clone();
+                if m.exports.iter().any(|e| e == name) {
+                    if let Some((t, _)) = self.consts.get(name) {
+                        return Some(t.clone());
+                    }
+                    if self.fn_index.contains_key(name) {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0217",
+                                format!("`{}.{name}` is a function, not a value", m.alias),
+                                name_span,
+                            )
+                            .with_help(format!("call it with `{}.{name}(...)`", m.alias)),
+                        );
+                    } else if self.class_index.contains_key(name) {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0217",
+                                format!("`{}.{name}` is a class, not a value", m.alias),
+                                name_span,
+                            )
+                            .with_help(format!("construct it with `{}.{name}(...)`", m.alias)),
+                        );
+                    } else {
+                        self.errors.push(Diagnostic::error(
+                            "E0217",
+                            format!("`{}.{name}` is not a value", m.alias),
+                            name_span,
+                        ));
+                    }
+                    return None;
+                }
+                self.module_missing(&m.alias, &m.exports, &m.all, name, name_span, "member");
+                return None;
+            }
+        }
+        // `math.pi` and other module constants.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.scopes.peek_var(n).is_none()
+                && !self.consts.contains_key(n)
+                && self.field_of_current_class(n).is_none()
+                && crate::modules::constant(n, name).is_some()
+            {
+                return Some(Type::Float);
+            }
+        }
         let ot = self.expr(obj)?;
+        if let Type::Interface(iname) = &ot {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0218",
+                    format!("the interface `{iname}` has no fields"),
+                    name_span,
+                )
+                .with_help("interfaces only have methods; call one instead"),
+            );
+            return None;
+        }
         let (class_ty, is_opt) = match &ot {
             Type::Opt(inner) => ((**inner).clone(), true),
             t => (t.clone(), false),
@@ -376,8 +495,16 @@ impl Checker {
         match (op, &t) {
             (UnOp::Neg, Type::Int) | (UnOp::Neg, Type::Float) => Some(t),
             (UnOp::Not, Type::Bool) => Some(Type::Bool),
+            (UnOp::BitNot, Type::Int) => Some(Type::Int),
             (UnOp::Neg, _) => {
                 self.errors.push(Diagnostic::error("E0203", format!("cannot negate {}", t.article()), span));
+                None
+            }
+            (UnOp::BitNot, _) => {
+                self.errors.push(
+                    Diagnostic::error("E0203", format!("`~` needs an int, found {}", t.article()), span)
+                        .with_help("bit operators work on ints; use `not` for bools"),
+                );
                 None
             }
             (UnOp::Not, _) => {
@@ -452,6 +579,19 @@ impl Checker {
                     self.bad_operands(op, &l, &r, span, "`and` and `or` need two bools")
                 }
             }
+            BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                if l == Type::Int && r == Type::Int {
+                    Some(Type::Int)
+                } else {
+                    self.bad_operands(
+                        op,
+                        &l,
+                        &r,
+                        span,
+                        "bit operators work on two ints; use `and` and `or` for bools",
+                    )
+                }
+            }
             BinOp::In => {
                 if l == Type::Str && matches!(r, Type::Map(_)) {
                     Some(Type::Bool)
@@ -473,10 +613,10 @@ impl Checker {
             );
             return None;
         };
-        if assignable(&r, inner) {
+        if self.assignable(&r, inner) {
             self.retype(rhs, inner);
             Some((**inner).clone())
-        } else if assignable(&r, &l) {
+        } else if self.assignable(&r, &l) {
             self.retype(rhs, &l);
             Some(l.clone())
         } else {
@@ -562,7 +702,84 @@ impl Checker {
         Some(std_fns::to_type(f.ret, elem))
     }
 
-    /// `serve(port, handler)`: the handler is a function `(string, string, string) -> string`.
+    /// `Response.json(value)` / `Response.text(text)`.
+    fn response_static(&mut self, name: &str, name_span: Span, args: &[Arg], span: Span) -> Option<Type> {
+        let f = match name {
+            "json" => std_fns::find_free("response_json").expect("the table has response_json"),
+            "text" => std_fns::find_free("response_text").expect("the table has response_text"),
+            _ => {
+                self.errors.push(
+                    Diagnostic::error("E0217", format!("`Response` has no static method `{name}`"), name_span)
+                        .with_help("use `Response.json(value)` or `Response.text(text)`"),
+                );
+                return None;
+            }
+        };
+        let mut tys = Vec::new();
+        for a in args {
+            tys.push(self.expr(&a.value));
+        }
+        if args.len() != 1 {
+            self.errors.push(Diagnostic::error(
+                "E0207",
+                format!("`Response.{name}` takes 1 argument, found {}", args.len()),
+                span,
+            ));
+            return Some(Type::Class("Response".into()));
+        }
+        let want = std_fns::to_type(f.params[0], None);
+        self.coerce(&args[0].value, tys[0].clone(), &want, "the value", "E0208");
+        if f.throws {
+            if let Some(i) = self.cur_fn {
+                self.direct_throw[i] = true;
+            }
+        }
+        Some(Type::Class("Response".into()))
+    }
+
+    /// `router.get(path, handler)` and friends.
+    fn router_method(&mut self, name: &str, name_span: Span, args: &[Arg], span: Span) -> Option<Type> {
+        if !matches!(name, "get" | "post" | "put" | "patch" | "delete") {
+            self.errors.push(
+                Diagnostic::error("E0217", format!("`Router` has no method `{name}`"), name_span)
+                    .with_help("add routes with get, post, put, patch or delete"),
+            );
+            return None;
+        }
+        if args.len() != 2 {
+            self.errors.push(Diagnostic::error(
+                "E0207",
+                format!("`Router.{name}` takes 2 arguments, found {}", args.len()),
+                span,
+            ));
+            return Some(Type::Unit);
+        }
+        let path_ty = self.expr(&args[0].value);
+        self.coerce(&args[0].value, path_ty, &Type::Str, "the route path", "E0208");
+        let handler_ok = match &args[1].value.kind {
+            ExprKind::Ident(h) => self.fn_index.get(h).map(|&i| {
+                let s = &self.fns[i];
+                s.class.is_none()
+                    && s.params.len() == 1
+                    && s.params[0].1 == Type::Class("Request".into())
+                    && s.ret == Type::Class("Response".into())
+            }),
+            _ => None,
+        };
+        if handler_ok != Some(true) {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0233",
+                    "the route handler must be the name of a function `fn name(req: Request) -> Response`",
+                    args[1].value.span,
+                )
+                .with_help("define it first, then pass it like `routes.get(\"/users/:id\", get_user)`"),
+            );
+        }
+        Some(Type::Unit)
+    }
+
+    /// `serve(port, handler)` or `serve(port, router)`.
     fn serve_call(&mut self, args: &[Arg], span: Span) -> Option<Type> {
         if args.len() != 2 {
             self.errors.push(Diagnostic::error("E0207", format!("`serve` takes 2 arguments, found {}", args.len()), span));
@@ -570,17 +787,26 @@ impl Checker {
         }
         let pt = self.expr(&args[0].value);
         self.coerce(&args[0].value, pt, &Type::Int, "the port", "E0208");
-        let ok = match &args[1].value.kind {
-            ExprKind::Ident(n) => self.fn_index.get(n).map(|&i| {
+        let is_fn = matches!(&args[1].value.kind, ExprKind::Ident(n) if self.fn_index.contains_key(n));
+        if is_fn {
+            let ExprKind::Ident(n) = &args[1].value.kind else { unreachable!() };
+            let ok = self.fn_index.get(n).map(|&i| {
                 let s = &self.fns[i];
                 s.params.iter().map(|p| &p.1).collect::<Vec<_>>() == vec![&Type::Str, &Type::Str, &Type::Str] && s.ret == Type::Str
-            }),
-            _ => None,
-        };
-        if ok != Some(true) {
+            });
+            if ok != Some(true) {
+                self.errors.push(
+                    Diagnostic::error("E0232", "the handler must be the name of a function `fn name(method: string, path: string, body: string) -> string`", args[1].value.span)
+                        .with_help("it receives the HTTP method, the path and the body, and returns the response text"),
+                );
+            }
+            return Some(Type::Unit);
+        }
+        let ht = self.expr(&args[1].value);
+        if !matches!(ht, Some(Type::Class(ref n)) if n == "Router") {
             self.errors.push(
-                Diagnostic::error("E0232", "the handler must be the name of a function `fn name(method: string, path: string, body: string) -> string`", args[1].value.span)
-                    .with_help("it receives the HTTP method, the path and the body, and returns the response text"),
+                Diagnostic::error("E0232", "`serve` needs a `Router` or a handler function", args[1].value.span)
+                    .with_help("build one with `routes = Router()` and `routes.get(path, handler)`, or pass `fn name(method: string, path: string, body: string) -> string`"),
             );
         }
         Some(Type::Unit)
@@ -713,12 +939,110 @@ impl Checker {
     }
 
     fn method_call(&mut self, id: ExprId, obj: &Expr, name: &str, name_span: Span, args: &[Arg], span: Span) -> Option<Type> {
+        // `Response.json(doc)` / `Response.text(text)` read like Express helpers.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if n == "Response"
+                && self.scopes.peek_var(n).is_none()
+                && !self.consts.contains_key(n)
+                && self.field_of_current_class(n).is_none()
+            {
+                return self.response_static(name, name_span, args, span);
+            }
+        }
+        // `util.add(...)`: a public function or class from an imported module.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if let Some(mi) = self.module_alias(n) {
+                let m = self.modules[mi].clone();
+                if !m.exports.iter().any(|e| e == name) {
+                    self.module_missing(&m.alias, &m.exports, &m.all, name, name_span, "method");
+                    return None;
+                }
+                let mut tys = Vec::new();
+                for a in args {
+                    tys.push(self.expr(&a.value));
+                }
+                if let Some(&idx) = self.fn_index.get(name) {
+                    let sig = self.fns[idx].clone();
+                    self.note_call(idx);
+                    let defaults = vec![false; sig.params.len()];
+                    self.check_call_args(id, &sig.params, args, &tys, &defaults, span, name);
+                    return Some(sig.ret);
+                }
+                if let Some(&ci) = self.class_index.get(name) {
+                    let fields = self.classes[ci].fields.clone();
+                    let params: Vec<(String, Type)> = fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect();
+                    let defaults: Vec<bool> = fields.iter().map(|f| f.default.is_some()).collect();
+                    self.check_call_args(id, &params, args, &tys, &defaults, span, name);
+                    return Some(Type::Class(name.to_string()));
+                }
+                if self.consts.contains_key(name) {
+                    self.errors.push(
+                        Diagnostic::error(
+                            "E0217",
+                            format!("`{}.{name}` is a value, not a method", m.alias),
+                            name_span,
+                        )
+                        .with_help("write it without `()`"),
+                    );
+                    return None;
+                }
+                self.errors.push(Diagnostic::error(
+                    "E0410",
+                    format!("`{}.{name}` is not a function or class", m.alias),
+                    name_span,
+                ));
+                return None;
+            }
+        }
+        // `json.parse(...)`, `math.sqrt(...)`: standard-library namespaces.
+        if let ExprKind::Ident(n) = &obj.kind {
+            if self.scopes.peek_var(n).is_none()
+                && !self.consts.contains_key(n)
+                && self.field_of_current_class(n).is_none()
+            {
+                if let Some(f) = crate::modules::function(n, name) {
+                    let mut tys = Vec::new();
+                    for a in args {
+                        tys.push(self.expr(&a.value));
+                    }
+                    return self.std_call(f, None, args, &tys, span);
+                }
+                if crate::modules::constant(n, name).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0217", format!("`{n}.{name}` is a value, not a method"), name_span)
+                            .with_help("write it without `()`"),
+                    );
+                    return None;
+                }
+            }
+        }
         let ot = self.expr(obj);
+        // A route handler is a function name, not an expression: do not evaluate it.
+        if matches!(&ot, Some(Type::Class(n)) if n == "Router") {
+            return self.router_method(name, name_span, args, span);
+        }
         let mut tys = Vec::new();
         for a in args {
             tys.push(self.expr(&a.value));
         }
         let ot = ot?;
+        if let Type::Interface(iname) = &ot {
+            let ii = self.interface_index[iname];
+            let Some(m) = self.interfaces[ii].methods.iter().find(|m| m.name == name).cloned() else {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0217",
+                        format!("the interface `{iname}` has no method `{name}`"),
+                        name_span,
+                    )
+                    .with_help("check the method list in the interface declaration"),
+                );
+                return None;
+            };
+            let no_defaults = vec![false; m.params.len()];
+            self.check_call_args(id, &m.params, args, &tys, &no_defaults, span, &format!("{iname}.{name}"));
+            return Some(m.ret);
+        }
         if let Some(f) = std_fns::find_method(&ot, name) {
             return self.std_call(f, Some(&ot), args, &tys, span);
         }
@@ -802,6 +1126,17 @@ impl Checker {
         let mut tys: Vec<Option<Type>> = Vec::new();
         for a in args {
             tys.push(self.expr(&a.value));
+        }
+
+        if callee == "Router" {
+            if !args.is_empty() {
+                self.errors.push(Diagnostic::error(
+                    "E0207",
+                    format!("`Router` takes no arguments, found {}", args.len()),
+                    span,
+                ));
+            }
+            return Some(Type::Class("Router".into()));
         }
 
         if let Some(b) = builtins::lookup(callee) {

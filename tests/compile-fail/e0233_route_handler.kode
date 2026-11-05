@@ -1,0 +1,8 @@
+fn bad(path: string) -> int {
+    return 1
+}
+
+routes = Router()
+routes.get("/x", bad)
+
+serve(8080, routes)

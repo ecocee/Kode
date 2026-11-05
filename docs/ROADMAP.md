@@ -12,9 +12,12 @@ working, tested compiler.
 | **M2 Collections** | `[T]` lists and `{string: T}` maps, indexing, `for x in list`, `.add`, `.len()`, `in`, `.keys()` (sorting, `map` and `filter` still to come) | **Done** |
 | **M3 Classes** | `class` with fields and methods, named constructors, reference counting for objects, enums, `match` (`weak` fields still to come) | **Done** |
 | **M4 Errors and optionals** | `throw` / `catch` / `try`, `T?` for heap types, `none`, `?.`, `??`, `!` (`finally`, `int?` and narrowing still to come) | **Done** |
-| **M5 Tooling** | `import` and modules, `test` blocks and `kode test`, `kode fmt`, `kode explain`, agent cheat sheet (project file and qualified module names still to come) | **Done** |
+| **M5 Tooling** | `import` and modules, `test` blocks and `kode test`, `kode fmt`, `kode explain`, agent cheat sheet | **Done** |
 | **M6 Concurrency** | `spawn` / `await`, `Task<T>`, atomic reference counts, per-thread errors (channels and `shared` classes still to come) | **Done** |
-| **M7 Services** | `serve(port, handler)`, strings, files, args, environment, sorting (JSON, HTTP client, database client and the REST benchmark still to come) | **Done** (core) |
+| **M7 Services** | `serve(port, handler)`, strings, files, args, environment, sorting, JSON, HTTP client, Router/`Request`/`Response` (database client and the REST benchmark still to come) | **Done** (core) |
+| **M7.5 Ergonomics** | integer bit operators and compound assignment; Python-style stdlib namespaces (`json.parse`, `math.sqrt`, `http.get`, `fs.read`, `time.now_ms`) | **Done** |
+| **M7.6 Interfaces** | `interface` signatures, `implements`, dynamic dispatch, signature checks | **Done** |
+| **M7.7 Packages** | `kode.toml` manifests with a source root, package-relative imports, `import ... as` qualified access, `pub`-gated module exports (dependencies and a registry still to come) | **Done** |
 | **M8 Budgets and AI** | `memory` budgets, declared effects (`uses`), typed `ask` / `tool` calls | Planned |
 | **M9 Release** | LLVM backend for `--release` (optional), Windows, language server, docs site, open source | Planned |
 

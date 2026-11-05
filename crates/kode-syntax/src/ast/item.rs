@@ -14,6 +14,7 @@ pub enum Item {
     Fn(FnDecl),
     Const(ConstDecl),
     Class(ClassDecl),
+    Interface(InterfaceDecl),
     Enum(EnumDecl),
     Import(ImportDecl),
     Test(TestDecl),
@@ -25,6 +26,7 @@ pub enum Item {
 pub struct FnDecl {
     pub name: String,
     pub name_span: Span,
+    pub is_pub: bool,
     pub params: Vec<Param>,
     pub ret: Option<TypeAnn>,
     pub body: FnBody,
@@ -49,6 +51,7 @@ pub struct Param {
 pub struct ConstDecl {
     pub name: String,
     pub name_span: Span,
+    pub is_pub: bool,
     pub ty: Option<TypeAnn>,
     pub value: Expr,
 }
@@ -65,14 +68,35 @@ pub struct FieldDecl {
 pub struct ClassDecl {
     pub name: String,
     pub name_span: Span,
+    pub is_pub: bool,
+    pub implements: Vec<(String, Span)>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FnDecl>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceDecl {
+    pub name: String,
+    pub name_span: Span,
+    pub is_pub: bool,
+    pub methods: Vec<IfaceMethod>,
+}
+
+/// A method signature inside an interface: no body, no defaults.
+#[derive(Debug, Clone)]
+pub struct IfaceMethod {
+    pub name: String,
+    pub name_span: Span,
+    pub params: Vec<Param>,
+    pub ret: Option<TypeAnn>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
 pub struct EnumDecl {
     pub name: String,
     pub name_span: Span,
+    pub is_pub: bool,
     pub variants: Vec<(String, Span)>,
 }
 
@@ -82,6 +106,8 @@ pub struct ImportDecl {
     pub path_span: Span,
     /// `from "x" import a, b` lists names; `import "x"` has none.
     pub names: Vec<(String, Span)>,
+    /// `import "x" as name` gives the module a qualified name.
+    pub alias: Option<(String, Span)>,
 }
 
 #[derive(Debug, Clone)]

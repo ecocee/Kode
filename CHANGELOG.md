@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+- Packages: a `kode.toml` manifest (`[package] name`, `version`, `root`) is found above the entry
+  file; imports without `./` resolve from the package root; `import "x" as name` adds qualified
+  access to public functions, constants and classes (`name.fn()`, `name.TAX`, `name.Class()`).
+  `pub` is tracked and gates alias and `from ... import` access. New codes E0406-E0411.
+- Interfaces: `interface` signatures, `class ... implements ...`, and run-time dispatch through the
+  object header's class id (E0234, E0235, E0236).
+- Integer bit operators `&`, `|`, `^`, `~`, `<<`, `>>` and compound assignment `&=`, `|=`, `^=`,
+  `<<=`, `>>=`; shifts of 64 or more (or a negative count) give 0, and `>>` keeps the sign.
+- Python-style standard-library namespaces: `json.parse` / `json.stringify` / `json.object`,
+  `http.get` / `http.post` / `http.request`, `fs.read` / `fs.write`, `time.now_ms` / `time.sleep`,
+  and `math.*` (`sqrt`, `abs`, `floor`, `ceil`, `round`, `pow`, `min`, `max`, `sin`, `cos`,
+  `tan`, `log`, `exp`, plus `math.pi` and `math.e`).
+- JSON: `json_parse`, `json_null/bool/int/float/string/list/map`, a built-in `Json` class with
+  `JsonKind` and `is_null`, `as_*`, `len`, `has`, `encode`, and read-only `j["key"]` / `j[i]` indexing.
+  Strict parser with a depth limit; parse errors are catchable and do not leak.
+- Web API layer: `Router()` with `get`, `post`, `put`, `patch` and `delete`, built-in `Request`
+  (`method`, `path`, `params`, `query`, `headers`, `body`, `req.json()`) and `Response`
+  (`status`, `body`, `content_type`), `Response.json` / `Response.text`, `response(status, body,
+  content_type)` and `json_obj()`. `serve(port, router)` dispatches `:name` and `*name` patterns,
+  answers 404/405, and keeps the old `serve(port, handler)` form working.
+- HTTP client: `http_get`, `http_post`, `http_request`, built-in `HttpResponse`
+  (`status`, `body`, `headers`). Plain `http://` only; `Content-Length` and chunked responses;
+  30 s timeout; 64 MiB limit; redirects are not followed.
+- New ADR 0017, spec updates, and tests: `tests/run-pass/json.kode`, two compile-fail cases, and an
+  offline HTTP client integration test.
+
 ## 0.3.0 (M6, M7, performance)
 - Tasks: `spawn f(args)`, `await t`, type `Task<T>`; atomic reference counts when threads exist; one error slot per thread.
 - Standard library table: string, list, map, file, environment, time functions (see docs/spec/13-stdlib.md).

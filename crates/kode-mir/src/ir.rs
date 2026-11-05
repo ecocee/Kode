@@ -40,14 +40,18 @@ pub enum BinOp {
     Le,
     Gt,
     Ge,
-    /// Internal only: used by optimizations such as `x % 2 == 0`.
     BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnOp {
     Neg,
     Not,
+    BitNot,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +108,9 @@ pub enum RtFn {
     MapValAt,
     MapKeys,
     ObjNew,
+    /// Like `ObjNew`, but records the class id in the object header for
+    /// interface dispatch.
+    ObjNewClass,
     ErrThrow,
     ErrPending,
     ErrTake,

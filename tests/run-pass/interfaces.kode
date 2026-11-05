@@ -1,0 +1,36 @@
+interface Shape {
+    fn area() -> int
+    fn label(prefix: string) -> string
+}
+
+class Circle implements Shape {
+    radius: int
+
+    fn area() -> int => radius * radius
+
+    fn label(prefix: string) -> string => prefix + "circle"
+}
+
+class Square implements Shape {
+    side: int
+
+    fn area() -> int => side * side
+
+    fn label(prefix: string) -> string => prefix + "square"
+}
+
+fn area_of(s: Shape) -> int {
+    return s.area()
+}
+
+c: Shape = Circle(2)
+q: Shape = Square(3)
+print(c.label("-"), area_of(c))
+print(q.label("-"), area_of(q))
+print(c.label(prefix: "!"))
+print(c.area() + q.area())
+
+shapes = [c, q]
+for s in shapes {
+    print(s.area())
+}

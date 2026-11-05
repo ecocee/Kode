@@ -4,6 +4,8 @@ use kode_syntax::ast::{Item, Program};
 
 use kode_sema::Checked;
 
+use std::collections::HashMap;
+
 use super::{Lowerer, Strings};
 use crate::LineMap;
 use crate::ir::*;
@@ -14,12 +16,13 @@ pub(crate) fn lower_tests(
     src: &dyn LineMap,
     strings: &mut Strings,
     funcs: &mut Vec<MirFunc>,
+    dispatch: &HashMap<(String, String), usize>,
 ) -> usize {
     let first = funcs.len();
     let mut names: Vec<String> = Vec::new();
     for item in &program.items {
         if let Item::Test(t) = item {
-            let mut lw = Lowerer::new(checked, src, strings, Ty::Unit, false);
+            let mut lw = Lowerer::new(checked, src, strings, dispatch, Ty::Unit, false);
             for s in &t.body {
                 lw.stmt(s);
             }
@@ -29,7 +32,7 @@ pub(crate) fn lower_tests(
         }
     }
 
-    let mut lw = Lowerer::new(checked, src, strings, Ty::Unit, true);
+    let mut lw = Lowerer::new(checked, src, strings, dispatch, Ty::Unit, true);
     let failed = lw.new_local(Ty::Int, Some("failed".into()));
     let print_str = |lw: &mut Lowerer, s: &str| {
         let id = lw.intern(s);

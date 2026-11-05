@@ -19,6 +19,11 @@ fn mir_binop(op: ast::BinOp) -> BinOp {
         ast::BinOp::Le => BinOp::Le,
         ast::BinOp::Gt => BinOp::Gt,
         ast::BinOp::Ge => BinOp::Ge,
+        ast::BinOp::BitAnd => BinOp::BitAnd,
+        ast::BinOp::BitOr => BinOp::BitOr,
+        ast::BinOp::BitXor => BinOp::BitXor,
+        ast::BinOp::Shl => BinOp::Shl,
+        ast::BinOp::Shr => BinOp::Shr,
         _ => unreachable!("lowered separately"),
     }
 }
@@ -39,6 +44,7 @@ impl<'a> Lowerer<'a> {
                 let op = match op {
                     ast::UnOp::Neg => UnOp::Neg,
                     ast::UnOp::Not => UnOp::Not,
+                    ast::UnOp::BitNot => UnOp::BitNot,
                 };
                 self.emit(Inst::Assign {
                     dst: t,
@@ -354,9 +360,12 @@ impl<'a> Lowerer<'a> {
         vals
     }
 
-    fn call(&mut self, e: &Expr, callee: &str, args: &[Arg]) -> V {
+    pub(crate) fn call(&mut self, e: &Expr, callee: &str, args: &[Arg]) -> V {
         if callee == "serve" {
             return self.serve(args);
+        }
+        if callee == "Router" {
+            return self.router_new();
         }
         if let Some(b) = builtins::lookup(callee) {
             return self.builtin(b, args, e);
@@ -389,7 +398,14 @@ impl<'a> Lowerer<'a> {
             StdTy::Float => Ty::Float,
             StdTy::Bool => Ty::Bool,
             StdTy::Unit => Ty::Unit,
-            StdTy::Str | StdTy::ListStr | StdTy::OptStr => Ty::Ref,
+            StdTy::Str
+            | StdTy::ListStr
+            | StdTy::OptStr
+            | StdTy::ListJson
+            | StdTy::MapJson
+            | StdTy::MapStrStr
+            | StdTy::Json
+            | StdTy::Resp => Ty::Ref,
             StdTy::Elem => elem.map(mir_ty).unwrap_or(Ty::Int),
         }
     }
@@ -444,9 +460,42 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    /// `serve(port, handler)`
+    /// `Router()`: a router object with a runtime-assigned id.
+    fn router_new(&mut self) -> V {
+        let id = self.new_temp(Ty::Int);
+        let sig = self.std_sig("kode_router_new", vec![], Ty::Int);
+        self.emit(Inst::Call {
+            dst: Some(id),
+            callee: Callee::Std(sig),
+            args: vec![],
+        });
+        let p = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(p),
+            callee: Callee::Rt(RtFn::ObjNew),
+            args: vec![Operand::Int(1), Operand::Int(0)],
+        });
+        self.emit(Inst::Store {
+            base: Operand::Local(p),
+            offset: 24,
+            value: Operand::Local(id),
+        });
+        self.owned(Operand::Local(p))
+    }
+
+    /// `serve(port, handler)` or `serve(port, router)`
     fn serve(&mut self, args: &[Arg]) -> V {
         let port = self.expr(&args[0].value);
+        if matches!(self.expr_type(&args[1].value), Type::Class(n) if n == "Router") {
+            let router = self.expr(&args[1].value);
+            let sig = self.std_sig("kode_http_serve_router", vec![Ty::Int, Ty::Ref], Ty::Unit);
+            self.emit(Inst::Call {
+                dst: None,
+                callee: Callee::Std(sig),
+                args: vec![port.op, router.op],
+            });
+            return V::unit();
+        }
         let ExprKind::Ident(name) = &args[1].value.kind else { unreachable!("checked") };
         let idx = self.checked.fn_index[name];
         let sig = self.std_sig("kode_http_serve", vec![Ty::Int, Ty::Int], Ty::Unit);

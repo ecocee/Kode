@@ -1,0 +1,9 @@
+POST /users/7
+7 5 application/json
+Asha
+bad body caught
+true
+200 application/json {"name":"Asha","tags":["ai"]}
+200 text/plain; charset=utf-8 hello
+{"id":7,"ok":true}
+201 created

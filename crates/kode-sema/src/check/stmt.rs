@@ -224,6 +224,10 @@ impl Checker {
                         }
                         self.coerce(value, vt, &el, "the value", "E0202");
                     }
+                    Type::Class(name) if name == "Json" => self.errors.push(
+                        Diagnostic::error("E0211", "a Json value cannot be changed in place", obj.span)
+                            .with_help("build a new value with `json_map`, `json_list` and the other `json_*` functions"),
+                    ),
                     other => self.errors.push(Diagnostic::error(
                         "E0211",
                         format!("{} cannot be indexed", other.article()),

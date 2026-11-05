@@ -10,6 +10,7 @@ pub enum Type {
     /// A map with string keys; this is the value type.
     Map(Box<Type>),
     Class(String),
+    Interface(String),
     Enum(String),
     /// `T?`: only for types that live on the heap (string, list, map, class).
     Opt(Box<Type>),
@@ -29,7 +30,7 @@ impl Type {
             Type::Unit => "nothing".into(),
             Type::List(t) => format!("[{}]", t.name()),
             Type::Map(t) => format!("{{string: {}}}", t.name()),
-            Type::Class(n) | Type::Enum(n) => n.clone(),
+            Type::Class(n) | Type::Interface(n) | Type::Enum(n) => n.clone(),
             Type::Opt(t) => format!("{}?", t.name()),
             Type::NoneT => "none".into(),
             Type::Task(t) => format!("Task<{}>", t.name()),
@@ -52,7 +53,14 @@ impl Type {
     pub fn is_ref(&self) -> bool {
         matches!(
             self,
-            Type::Str | Type::List(_) | Type::Map(_) | Type::Class(_) | Type::Opt(_) | Type::NoneT | Type::Task(_)
+            Type::Str
+                | Type::List(_)
+                | Type::Map(_)
+                | Type::Class(_)
+                | Type::Interface(_)
+                | Type::Opt(_)
+                | Type::NoneT
+                | Type::Task(_)
         )
     }
 

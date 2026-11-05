@@ -6,28 +6,34 @@ use crate::lexer::lex_at;
 use crate::token::{StrPart, TokenKind};
 
 /// Binding powers: higher binds tighter.
-/// `??` 1 < or 3 < and 5 < comparison/in 9 < + - 12 < * / % 22 < unary minus 30
-const BP_NOT_OPERAND: u8 = 8;
+/// `??` 1 < or 2 < and 4 < `|` 6 < `^` 7 < `&` 8 < comparison/in 10 <
+/// `<< >>` 12 < `+ -` 16 < `* / %` 20 < unary minus 30.
+const BP_NOT_OPERAND: u8 = 9;
 const BP_UNARY: u8 = 30;
 /// Used by `for` and `match`, so `0..n` and `=>` are not swallowed.
-pub(crate) const BP_ARITH: u8 = 12;
+pub(crate) const BP_ARITH: u8 = 16;
 
 fn infix(kind: &TokenKind) -> Option<(BinOp, u8, u8)> {
     Some(match kind {
-        TokenKind::Or => (BinOp::Or, 3, 4),
-        TokenKind::And => (BinOp::And, 5, 6),
-        TokenKind::EqEq => (BinOp::Eq, 9, 10),
-        TokenKind::NotEq => (BinOp::Ne, 9, 10),
-        TokenKind::Lt => (BinOp::Lt, 9, 10),
-        TokenKind::Le => (BinOp::Le, 9, 10),
-        TokenKind::Gt => (BinOp::Gt, 9, 10),
-        TokenKind::Ge => (BinOp::Ge, 9, 10),
-        TokenKind::In => (BinOp::In, 9, 10),
-        TokenKind::Plus => (BinOp::Add, 12, 13),
-        TokenKind::Minus => (BinOp::Sub, 12, 13),
-        TokenKind::Star => (BinOp::Mul, 22, 23),
-        TokenKind::Slash => (BinOp::Div, 22, 23),
-        TokenKind::Percent => (BinOp::Rem, 22, 23),
+        TokenKind::Or => (BinOp::Or, 2, 3),
+        TokenKind::And => (BinOp::And, 4, 5),
+        TokenKind::Pipe => (BinOp::BitOr, 6, 7),
+        TokenKind::Caret => (BinOp::BitXor, 7, 8),
+        TokenKind::Amp => (BinOp::BitAnd, 8, 9),
+        TokenKind::EqEq => (BinOp::Eq, 10, 11),
+        TokenKind::NotEq => (BinOp::Ne, 10, 11),
+        TokenKind::Lt => (BinOp::Lt, 10, 11),
+        TokenKind::Le => (BinOp::Le, 10, 11),
+        TokenKind::Gt => (BinOp::Gt, 10, 11),
+        TokenKind::Ge => (BinOp::Ge, 10, 11),
+        TokenKind::In => (BinOp::In, 10, 11),
+        TokenKind::Shl => (BinOp::Shl, 12, 13),
+        TokenKind::Shr => (BinOp::Shr, 12, 13),
+        TokenKind::Plus => (BinOp::Add, 16, 17),
+        TokenKind::Minus => (BinOp::Sub, 16, 17),
+        TokenKind::Star => (BinOp::Mul, 20, 21),
+        TokenKind::Slash => (BinOp::Div, 20, 21),
+        TokenKind::Percent => (BinOp::Rem, 20, 21),
         _ => return None,
     })
 }
@@ -113,6 +119,7 @@ impl Parser {
         let (op, bp) = match self.peek() {
             TokenKind::Minus => (UnOp::Neg, BP_UNARY),
             TokenKind::Not => (UnOp::Not, BP_NOT_OPERAND),
+            TokenKind::Tilde => (UnOp::BitNot, BP_UNARY),
             _ => return self.parse_postfix(),
         };
         let start = self.bump().span;
