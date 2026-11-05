@@ -14,7 +14,7 @@ n: int = 0                  # a declared type, written once
 ```
 
 - Types are `int`, `float`, `bool`, `string`, `[T]`, `{string: T}`, classes,
-  enums, interfaces, `Task<T>`, `Channel<T>` and `T?`.
+  enums, interfaces, `Task<T>`, `Channel<T>`, `fn(T) -> R` and `T?`.
 - Numbers never convert on their own: use `int(x)` or `float(x)`.
 
 ## Optionals
@@ -57,6 +57,9 @@ inc = xs[0..=2]             # includes index 2
 print(xs[10..20].len())     # 0: bounds are clamped, not an error
 part.add(99)                # the original is unchanged
 
+doubled = xs.map(|x: int| x * 2)
+evens = xs.filter(|x: int| x % 2 == 0)
+
 ages = {"asha": 30}
 ages["ravi"] = 25
 for k, v in ages { print(k, v) }         # insertion order
@@ -66,7 +69,7 @@ for i, x in xs { print(i, x) }
 - Maps always have string keys. Lists and maps are reference counted: `b = a`
   shares one list.
 - An empty list or map needs a declared type: `xs: [int] = []`.
-- Not yet: `map`/`filter`, integer map keys, printing a whole list.
+- Not yet: integer map keys, printing a whole list.
 
 ## Enums and printing
 
@@ -110,6 +113,28 @@ print(u.greet())
 
 - Classes are reference types; `v = u` is the same object.
 - No inheritance: compose, or implement an interface.
+
+## Function values and closures
+
+```
+fn double(n: int) -> int => n * 2
+fn apply(f: fn(int) -> int, n: int) -> int => f(n)
+
+f = double                          # a named function is a value
+print(f(21), apply(double, 5))
+
+add = |x: int| x + 10               # a closure; parameters need types
+print(add(5))
+print(apply(|x: int| x * x, 7))
+```
+
+- A function type is `fn(int) -> int`; `fn()` takes nothing.
+- A closure captures **every variable visible** where it is written, by value.
+  An optional number or bool cannot be captured yet (E0219).
+- Call a value by name: `f(1)`. Calling the result of an expression does not
+  parse yet.
+- Inside a closure a field of `this` is not visible (E0242); copy it out first.
+- A function value cannot be printed (E0203).
 
 ## Tasks and channels
 

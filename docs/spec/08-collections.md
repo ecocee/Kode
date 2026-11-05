@@ -24,7 +24,18 @@ for i, x in xs { print(i, x) }     # index and item
   All items must have the same type (E0213).
 - Index out of range, and a missing map key, stop the program with an error that names the line.
 - Lists and maps are reference counted like strings; `b = a` shares the same list.
-- Not yet: `map`/`filter` (they need function values), integer map keys, printing a whole list.
+- `xs.map(f)` returns a new list holding the results; `xs.filter(f)` keeps the
+  items where `f` returns true. The function takes one item:
+
+```
+xs = [1, 2, 3, 4]
+doubled = xs.map(|x: int| x * 2)        # [2, 4, 6, 8]
+evens = xs.filter(|x: int| x % 2 == 0)  # [2, 4]
+```
+
+- The function must take one item of the list's type and return a value (E0242);
+  the function given to `filter` must return a `bool`.
+- Not yet: integer map keys, printing a whole list.
 
 ## Slices
 

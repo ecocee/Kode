@@ -49,6 +49,13 @@ impl Checker {
                 }
                 Some(Type::Map(Box::new(t)))
             }
+            TypeAnnKind::Fn(params, ret) => {
+                let ps: Vec<Type> = params
+                    .iter()
+                    .map(|p| self.resolve_type(p))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(Type::Fn(ps, Box::new(self.resolve_type(ret)?)))
+            }
             TypeAnnKind::Task(inner) => Some(Type::Task(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Channel(inner) => Some(Type::Chan(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Opt(inner) => {

@@ -75,6 +75,15 @@ pub enum ConstVal {
     Str(String),
 }
 
+/// What a closure literal needs to be compiled: its parameters, its result and
+/// a copy of every variable that was visible where it was written.
+#[derive(Clone, Debug)]
+pub struct ClosureInfo {
+    pub params: Vec<(String, Type)>,
+    pub ret: Type,
+    pub captures: Vec<(String, Type)>,
+}
+
 /// Result of a successful check. Later stages read everything from here.
 #[derive(Debug)]
 pub struct Checked {
@@ -97,6 +106,10 @@ pub struct Checked {
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
     /// Can this function raise an error (directly or through a call)?
     pub throws: Vec<bool>,
+    /// Calls that go through a function value (`f(1)` where `f` is a variable).
+    pub fn_value_calls: std::collections::HashSet<ExprId>,
+    /// Closure literals, by expression id.
+    pub closures: HashMap<ExprId, ClosureInfo>,
     pub warnings: Vec<Diagnostic>,
 }
 
@@ -116,6 +129,10 @@ pub(crate) struct Checker {
     pub module_index: HashMap<String, usize>,
     pub consts: HashMap<String, (Type, ConstVal)>,
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
+    pub fn_value_calls: std::collections::HashSet<ExprId>,
+    pub closures: HashMap<ExprId, ClosureInfo>,
+    /// Inside a closure literal: fields of `this` cannot be reached (E0242).
+    pub in_closure: bool,
     pub direct_throw: Vec<bool>,
     pub calls: Vec<Vec<usize>>,
     pub scopes: Scopes,
@@ -337,6 +354,9 @@ impl Checker {
             module_index: HashMap::new(),
             consts: HashMap::new(),
             call_args: HashMap::new(),
+            fn_value_calls: Default::default(),
+            closures: HashMap::new(),
+            in_closure: false,
             direct_throw: Vec::new(),
             calls: Vec::new(),
             scopes: Scopes::new(),
@@ -451,6 +471,8 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         module_index: c.module_index,
         consts: c.consts,
         call_args: c.call_args,
+        fn_value_calls: c.fn_value_calls,
+        closures: c.closures,
         throws,
         warnings: c.warnings,
     })

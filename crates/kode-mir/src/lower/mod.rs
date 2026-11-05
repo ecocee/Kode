@@ -63,12 +63,106 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
     };
 
     let thunks: Vec<MirFunc> = strings.thunk_specs.iter().map(|&i| make_thunk(checked, i)).collect();
+    // Closure bodies may contain more closures, so keep going until none is left.
+    let mut closures: Vec<MirFunc> = Vec::new();
+    let mut ci = 0;
+    while ci < strings.closure_specs.len() {
+        let spec = strings.closure_specs[ci].clone();
+        closures.push(lower_closure(&spec, checked, src, &mut strings, &iface_dispatch));
+        ci += 1;
+    }
+    let fnvals: Vec<MirFunc> = strings.fnval_specs.iter().map(|&i| make_fnval(checked, i)).collect();
     MirProgram {
         funcs,
         strings: strings.list,
         entry,
         thunks,
+        closures,
+        fnvals,
         std_sigs: strings.std_sigs,
+    }
+}
+
+/// A closure literal, waiting to be compiled once the enclosing function is done.
+#[derive(Clone)]
+pub(crate) struct ClosureSpec {
+    pub params: Vec<(String, Ty)>,
+    pub ret: Ty,
+    pub captures: Vec<(String, Ty)>,
+    pub body: Expr,
+}
+
+/// The body of a closure. Parameter 0 is the closure object: captures are read
+/// from its fields, so the body needs no other environment (ADR 0028).
+fn lower_closure(
+    spec: &ClosureSpec,
+    checked: &Checked,
+    src: &dyn LineMap,
+    strings: &mut Strings,
+    dispatch: &HashMap<(String, String), usize>,
+) -> MirFunc {
+    let mut lw = Lowerer::new(checked, src, strings, dispatch, spec.ret, false);
+    let clo = lw.new_local(Ty::Ref, Some("closure".into()));
+    for (name, ty) in &spec.params {
+        let id = lw.new_local(*ty, Some(name.clone()));
+        lw.declare(name, id);
+    }
+    lw.param_count = 1 + spec.params.len();
+    // Captures are borrowed from the closure object, which owns them.
+    for (i, (name, ty)) in spec.captures.iter().enumerate() {
+        let id = lw.new_local(*ty, Some(name.clone()));
+        lw.declare(name, id);
+        lw.emit(Inst::Load {
+            dst: id,
+            base: Operand::Local(clo),
+            offset: 32 + 8 * i as i32,
+            ty: *ty,
+        });
+    }
+    let v = lw.expr(&spec.body);
+    lw.return_value(v, spec.ret);
+    lw.finish("<closure>".to_string())
+}
+
+/// A named function used as a value: the wrapper ignores the closure object and
+/// calls the real function, so both share one calling convention.
+fn make_fnval(checked: &Checked, idx: usize) -> MirFunc {
+    let sig = &checked.fns[idx];
+    let mut locals = vec![LocalDecl {
+        ty: Ty::Ref,
+        name: Some("closure".into()),
+    }];
+    for (name, ty) in &sig.params {
+        locals.push(LocalDecl {
+            ty: mir_ty(ty),
+            name: Some(name.clone()),
+        });
+    }
+    let args: Vec<Operand> = (1..=sig.params.len()).map(Operand::Local).collect();
+    let ret = mir_ty(&sig.ret);
+    let dst = if ret == Ty::Unit {
+        None
+    } else {
+        locals.push(LocalDecl { ty: ret, name: None });
+        Some(locals.len() - 1)
+    };
+    let term = match dst {
+        Some(d) => Terminator::Return(Some(Operand::Local(d))),
+        None => Terminator::Return(None),
+    };
+    MirFunc {
+        name: format!("fnval:{}", sig.name),
+        param_count: 1 + sig.params.len(),
+        ret,
+        locals,
+        blocks: vec![Block {
+            insts: vec![Inst::Call {
+                dst,
+                callee: Callee::User(idx),
+                args,
+            }],
+            term,
+        }],
     }
 }
 
@@ -312,6 +406,8 @@ pub(crate) struct Strings {
     map: HashMap<String, usize>,
     std_sigs: Vec<StdSig>,
     thunk_specs: Vec<usize>,
+    closure_specs: Vec<ClosureSpec>,
+    fnval_specs: Vec<usize>,
 }
 
 impl Strings {
@@ -331,6 +427,21 @@ impl Strings {
         }
         self.thunk_specs.push(idx);
         self.thunk_specs.len() - 1
+    }
+
+    /// Register a closure body and return its index.
+    pub fn closure(&mut self, spec: ClosureSpec) -> usize {
+        self.closure_specs.push(spec);
+        self.closure_specs.len() - 1
+    }
+
+    /// The wrapper for user function `idx` as a value (created once).
+    pub fn fnval(&mut self, idx: usize) -> usize {
+        if let Some(i) = self.fnval_specs.iter().position(|&x| x == idx) {
+            return i;
+        }
+        self.fnval_specs.push(idx);
+        self.fnval_specs.len() - 1
     }
 
     pub fn intern(&mut self, s: &str) -> usize {

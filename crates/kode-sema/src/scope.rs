@@ -79,6 +79,15 @@ impl Scopes {
         });
     }
 
+    /// Every visible variable and its type, innermost last. A closure captures
+    /// all of these, so a shadowed name appears more than once; the last wins.
+    pub fn names_with_types(&self) -> Vec<(String, Type)> {
+        self.stack
+            .iter()
+            .flat_map(|s| s.iter().map(|v| (v.name.clone(), v.ty.clone())))
+            .collect()
+    }
+
     pub fn names(&self) -> Vec<&str> {
         self.stack
             .iter()

@@ -37,6 +37,13 @@ language: a patch release fixes bugs, a minor release may add syntax.
   the value is written in source (ADR 0027).
 - **List slicing.** `items[1..3]`, `items[..2]`, `items[2..]` and `items[0..=2]`
   copy a range of a list; bounds past the ends are clamped (ADR 0027).
+- **Function values and closures.** `fn(int) -> int` types, `|x: int| x * 2`
+  literals, calling a value (`f(1)`), and passing or returning functions. A
+  closure captures the variables in scope by value; it is one heap object holding
+  the code address and its captures (ADR 0028).
+- **`map` and `filter`.** `xs.map(|x: int| x * 2)` and
+  `xs.filter(|x: int| x % 2 == 0)` on lists of ints, floats, strings, bools and
+  reference types, compiled to an inline loop.
 
 - **Optional numbers.** `int?`, `float?` and `bool?`, represented as a value plus a
   `present` flag (no boxing), with `??`, `!`, `== none`, printing, interpolation and

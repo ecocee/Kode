@@ -4,7 +4,7 @@ pub mod expr;
 pub mod item;
 pub mod stmt;
 
-pub use expr::{Arg, BinOp, Expr, ExprId, ExprKind, InterpPart, UnOp};
+pub use expr::{Arg, BinOp, ClosureParam, Expr, ExprId, ExprKind, InterpPart, UnOp};
 pub use item::{
     ClassDecl, ConstDecl, EnumDecl, FieldDecl, FnBody, FnDecl, IfaceMethod, ImportDecl, InterfaceDecl, Item, Param,
     Program, TestDecl,

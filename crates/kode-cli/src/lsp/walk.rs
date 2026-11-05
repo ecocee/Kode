@@ -157,6 +157,7 @@ pub fn expr(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             expr(lhs, f);
             expr(rhs, f);
         }
+        ExprKind::Closure { body, .. } => expr(body, f),
         ExprKind::Catch { expr: inner, block, .. } => {
             expr(inner, f);
             stmts(block, f);

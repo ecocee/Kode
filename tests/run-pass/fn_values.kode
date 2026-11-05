@@ -1,0 +1,23 @@
+fn double(n: int) -> int {
+    return n * 2
+}
+
+fn apply(f: fn(int) -> int, n: int) -> int {
+    return f(n)
+}
+
+fn adder(amount: int) -> fn(int) -> int {
+    return |x: int| x + amount
+}
+
+f = double
+print(f(21))
+
+print(apply(double, 5))
+print(apply(|x: int| x * x, 7))
+
+g: fn(int) -> int = |x: int| x + 1
+print(g(41))
+
+add10 = adder(10)
+print(add10(5))

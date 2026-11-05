@@ -203,6 +203,141 @@ impl<'a> Lowerer<'a> {
         self.owned(Operand::Local(t))
     }
 
+    /// `xs.map(f)` / `xs.filter(f)`: one inline loop, so the runtime never has to
+    /// call back into user code. The source and the closure stay alive for it.
+    pub(crate) fn list_map_filter(&mut self, e: &Expr, obj: &Expr, name: &str, cb: &Expr) -> V {
+        let Type::List(el) = self.expr_type(obj).clone() else {
+            unreachable!("checked: a list")
+        };
+        let Type::List(out_el) = self.expr_type(e).clone() else {
+            unreachable!("checked: map and filter return a list")
+        };
+        // Keep the source and the closure alive across the loop, and clear them at
+        // the end so the function exit does not release them twice.
+        let src = self.hidden_ref();
+        let sv = self.expr(obj);
+        let sop = self.own(sv);
+        self.emit(Inst::Assign {
+            dst: src,
+            rv: Rvalue::Use(sop),
+        });
+        let fun = self.hidden_ref();
+        let fv = self.expr(cb);
+        let fop = self.own(fv);
+        self.emit(Inst::Assign {
+            dst: fun,
+            rv: Rvalue::Use(fop),
+        });
+
+        let out = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(out),
+            callee: Callee::Rt(if packed(&out_el) {
+                RtFn::ListNewPacked
+            } else {
+                RtFn::ListNew
+            }),
+            args: if packed(&out_el) {
+                vec![]
+            } else {
+                vec![Operand::Int((out_el.is_ref() && *out_el != Type::NoneT) as i64)]
+            },
+        });
+        let result = self.owned(Operand::Local(out));
+
+        let i = self.new_temp(Ty::Int);
+        self.emit(Inst::Assign {
+            dst: i,
+            rv: Rvalue::Use(Operand::Int(0)),
+        });
+        let len = self.new_temp(Ty::Int);
+        self.emit(Inst::Call {
+            dst: Some(len),
+            callee: Callee::Rt(RtFn::ListLen),
+            args: vec![Operand::Local(src)],
+        });
+
+        let head = self.new_block();
+        let body = self.new_block();
+        let done = self.new_block();
+        self.term(Terminator::Goto(head));
+        self.switch(head);
+        let cond = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: cond,
+            rv: Rvalue::Binary(BinOp::Lt, Operand::Local(i), Operand::Local(len)),
+        });
+        self.term(Terminator::Branch {
+            cond: Operand::Local(cond),
+            then_bb: body,
+            else_bb: done,
+        });
+
+        self.switch(body);
+        let line = Operand::Int(self.line_of(e.span.start));
+        let item = self.call_raw(
+            list_rt(&el, RtFn::ListGet),
+            vec![Operand::Local(src), Operand::Local(i), line],
+            &el,
+        );
+        let res_ty = mir_ty(&out_el);
+        let dst = (res_ty != Ty::Unit).then(|| self.new_temp(res_ty));
+        self.emit(Inst::CallIndirect {
+            dst,
+            callee: Operand::Local(fun),
+            args: vec![item.clone()],
+        });
+        if name == "filter" {
+            // Keep the original item when the function says so.
+            let keep = self.new_block();
+            let skip = self.new_block();
+            self.term(Terminator::Branch {
+                cond: Operand::Local(dst.expect("filter returns a bool")),
+                then_bb: keep,
+                else_bb: skip,
+            });
+            self.switch(keep);
+            let kept = if mir_ty(&el) == Ty::Ref {
+                self.own(V::val(item))
+            } else {
+                item
+            };
+            let raw = self.to_raw(kept, &el);
+            self.emit(Inst::Call {
+                dst: None,
+                callee: Callee::Rt(list_rt(&el, RtFn::ListPush)),
+                args: vec![Operand::Local(out), raw],
+            });
+            self.term(Terminator::Goto(skip));
+            self.switch(skip);
+        } else {
+            // The call produced the only reference to this value, and the list
+            // takes it over, so there is nothing to retain or release here.
+            let d = dst.expect("map returns a value");
+            let raw = self.to_raw(Operand::Local(d), &out_el);
+            self.emit(Inst::Call {
+                dst: None,
+                callee: Callee::Rt(list_rt(&out_el, RtFn::ListPush)),
+                args: vec![Operand::Local(out), raw],
+            });
+        }
+        self.emit(Inst::Assign {
+            dst: i,
+            rv: Rvalue::Binary(BinOp::Add, Operand::Local(i), Operand::Int(1)),
+        });
+        self.term(Terminator::Goto(head));
+
+        self.switch(done);
+        for local in [src, fun] {
+            self.emit(Inst::Release(Operand::Local(local)));
+            self.emit(Inst::Assign {
+                dst: local,
+                rv: Rvalue::Use(Operand::NullRef),
+            });
+        }
+        result
+    }
+
     pub(crate) fn index(&mut self, obj: &Expr, index: &Expr, e: &Expr) -> V {
         let ot = self.expr_type(obj);
         let res_ty = self.expr_type(e);
@@ -368,6 +503,9 @@ impl<'a> Lowerer<'a> {
                     return self.std_call(f, None, args);
                 }
             }
+        }
+        if matches!(self.expr_type(obj), Type::List(_)) && (name == "map" || name == "filter") {
+            return self.list_map_filter(e, obj, name, &args[0].value);
         }
         let ot = self.expr_type(obj);
         if let Type::Interface(iname) = ot {

@@ -21,6 +21,8 @@ pub enum Type {
     /// `Channel<T>`: a queue that can be shared between tasks. A channel made by
     /// `channel()` has payload `none` until a declared type gives it one (E0240).
     Chan(Box<Type>),
+    /// `fn(int) -> int`: a function value. The parameters and the return type.
+    Fn(Vec<Type>, Box<Type>),
 }
 
 impl Type {
@@ -38,6 +40,10 @@ impl Type {
             Type::NoneT => "none".into(),
             Type::Task(t) => format!("Task<{}>", t.name()),
             Type::Chan(t) => format!("Channel<{}>", t.name()),
+            Type::Fn(params, ret) => {
+                let ps: Vec<String> = params.iter().map(|p| p.name()).collect();
+                format!("fn({}) -> {}", ps.join(", "), ret.name())
+            }
         }
     }
 
@@ -66,6 +72,7 @@ impl Type {
                 | Type::NoneT
                 | Type::Task(_)
                 | Type::Chan(_)
+                | Type::Fn(_, _)
         )
     }
 
@@ -110,6 +117,10 @@ pub fn ann_type(ann: &kode_syntax::ast::TypeAnn, checked: &crate::Checked) -> Op
         TypeAnnKind::Opt(i) => Some(Type::Opt(Box::new(ann_type(i, checked)?))),
         TypeAnnKind::Task(i) => Some(Type::Task(Box::new(ann_type(i, checked)?))),
         TypeAnnKind::Channel(i) => Some(Type::Chan(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Fn(params, ret) => {
+            let ps = params.iter().map(|p| ann_type(p, checked)).collect::<Option<Vec<_>>>()?;
+            Some(Type::Fn(ps, Box::new(ann_type(ret, checked)?)))
+        }
     }
 }
 

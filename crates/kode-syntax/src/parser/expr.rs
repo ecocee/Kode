@@ -116,6 +116,46 @@ impl Parser {
             }
             _ => {}
         }
+        // `|x: int| x * 2`: a closure. `||` (two pipes) takes no parameters.
+        if matches!(self.peek(), TokenKind::Pipe) {
+            let start = self.bump().span;
+            let mut params = Vec::new();
+            if !matches!(self.peek(), TokenKind::Pipe) {
+                loop {
+                    let (name, name_span) = self.ident("a parameter name")?;
+                    if !matches!(self.peek(), TokenKind::Colon) {
+                        return Err(Diagnostic::error(
+                            "E0241",
+                            format!("the parameter `{name}` of a closure needs a type"),
+                            name_span,
+                        )
+                        .with_help("write it like `|x: int| x * 2`"));
+                    }
+                    self.bump();
+                    let ty = self.type_ann()?;
+                    params.push(ClosureParam {
+                        name,
+                        name_span,
+                        ty: Some(ty),
+                    });
+                    if matches!(self.peek(), TokenKind::Comma) {
+                        self.bump();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            self.expect(TokenKind::Pipe, "`|`")?;
+            let body = self.parse_expr(0)?;
+            let span = start.join(body.span);
+            return Ok(self.mk(
+                span,
+                ExprKind::Closure {
+                    params,
+                    body: Box::new(body),
+                },
+            ));
+        }
         let (op, bp) = match self.peek() {
             TokenKind::Minus => (UnOp::Neg, BP_UNARY),
             TokenKind::Not => (UnOp::Not, BP_NOT_OPERAND),

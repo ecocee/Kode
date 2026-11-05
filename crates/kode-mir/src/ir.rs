@@ -25,6 +25,11 @@ pub enum Operand {
     Thunk(usize),
     /// The address of user function `i`.
     FuncAddr(usize),
+    /// The address of closure body `i` (see `MirProgram::closures`).
+    ClosureFn(usize),
+    /// The address of the wrapper that lets user function `i` be a value
+    /// (see `MirProgram::fnvals`).
+    FnVal(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -163,6 +168,12 @@ pub enum Inst {
         offset: i32,
         ty: Ty,
     },
+    /// Call a function value: the closure object is passed first, then the args.
+    CallIndirect {
+        dst: Option<LocalId>,
+        callee: Operand,
+        args: Vec<Operand>,
+    },
     /// Write a field: `*(base + offset) = value`.
     Store {
         base: Operand,
@@ -219,6 +230,10 @@ pub struct MirProgram {
     pub entry: usize,
     /// Small generated functions that start tasks (see `spawn`).
     pub thunks: Vec<MirFunc>,
+    /// Bodies of closure literals; parameter 0 is the closure object itself.
+    pub closures: Vec<MirFunc>,
+    /// Wrappers that adapt a named function to the closure calling convention.
+    pub fnvals: Vec<MirFunc>,
     pub std_sigs: Vec<StdSig>,
 }
 
@@ -230,7 +245,11 @@ impl MirFunc {
     pub fn operand_ty(&self, op: &Operand) -> Ty {
         match op {
             Operand::Local(id) => self.locals[*id].ty,
-            Operand::Int(_) | Operand::Thunk(_) | Operand::FuncAddr(_) => Ty::Int,
+            Operand::Int(_)
+            | Operand::Thunk(_)
+            | Operand::FuncAddr(_)
+            | Operand::ClosureFn(_)
+            | Operand::FnVal(_) => Ty::Int,
             Operand::Float(_) => Ty::Float,
             Operand::Bool(_) => Ty::Bool,
             Operand::Str(_) | Operand::NullRef => Ty::Ref,

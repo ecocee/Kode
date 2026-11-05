@@ -22,6 +22,8 @@ pub enum TypeAnnKind {
     Task(Box<TypeAnn>),
     /// `Channel<T>`: a queue that can be shared between tasks.
     Channel(Box<TypeAnn>),
+    /// `fn(int) -> int`: a function value (a closure or a named function).
+    Fn(Vec<TypeAnn>, Box<TypeAnn>),
 }
 
 /// Something that can be assigned to.

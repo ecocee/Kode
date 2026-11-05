@@ -1,0 +1,2 @@
+xs = [1, 2]
+ys = xs.map(|x: string| x)

@@ -67,6 +67,7 @@ impl<'a> Lowerer<'a> {
             ExprKind::Member { obj, name, safe, .. } => self.member(obj, name, *safe),
             ExprKind::MethodCall { obj, name, args, .. } => self.method_call(e, obj, name, args),
             ExprKind::Call { callee, args, .. } => self.call(e, callee, args),
+            ExprKind::Closure { .. } => self.closure(e),
             ExprKind::Spawn { callee, args, .. } => self.spawn(e, callee, args),
             ExprKind::Await(inner) => self.await_expr(inner, e),
             ExprKind::Catch { expr, var, block, .. } => self.catch_expr(expr, var, block),
@@ -82,6 +83,9 @@ impl<'a> Lowerer<'a> {
         }
         if let Some(op) = self.const_operand(name) {
             return V::val(op);
+        }
+        if let Some(&idx) = self.checked.fn_index.get(name) {
+            return self.fn_value(idx);
         }
         let (offset, ty) = self.this_field(name).expect("the type checker resolved this name");
         let this = Operand::Local(self.this_local.expect("a field is only visible inside a method"));
@@ -101,6 +105,69 @@ impl<'a> Lowerer<'a> {
         let fields = &self.checked.classes[ci].fields;
         let i = fields.iter().position(|f| f.name == name)?;
         Some((24 + 8 * i as i32, fields[i].ty.clone()))
+    }
+
+    /// `|x: int| x * 2`: a heap object `[rc][kind][refmask][code][captures...]`.
+    /// The closure object is passed as the first argument when it is called.
+    fn closure(&mut self, e: &Expr) -> V {
+        let ExprKind::Closure { body, .. } = &e.kind else {
+            unreachable!("a closure literal")
+        };
+        let body = (**body).clone();
+        let info = self.checked.closures[&e.id].clone();
+        let n = info.captures.len();
+        // Field 0 is the code address; capture `i` is field `1 + i`.
+        let mask: i64 = info
+            .captures
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, t))| mir_ty(t) == Ty::Ref)
+            .fold(0, |m, (i, _)| m | (1 << (i + 1)));
+        let obj = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(obj),
+            callee: Callee::Rt(RtFn::ObjNew),
+            args: vec![Operand::Int((n + 1) as i64), Operand::Int(mask)],
+        });
+        let spec = crate::lower::ClosureSpec {
+            params: info.params.iter().map(|(n, t)| (n.clone(), mir_ty(t))).collect(),
+            ret: mir_ty(&info.ret),
+            captures: info.captures.iter().map(|(n, t)| (n.clone(), mir_ty(t))).collect(),
+            body,
+        };
+        let idx = self.strings.closure(spec);
+        self.emit(Inst::Store {
+            base: Operand::Local(obj),
+            offset: 24,
+            value: Operand::ClosureFn(idx),
+        });
+        for (i, (name, ty)) in info.captures.iter().enumerate() {
+            let v = self.ident(name);
+            let op = if mir_ty(ty) == Ty::Ref { self.own(v) } else { v.op };
+            self.emit(Inst::Store {
+                base: Operand::Local(obj),
+                offset: 32 + 8 * i as i32,
+                value: op,
+            });
+        }
+        self.owned(Operand::Local(obj))
+    }
+
+    /// A named function used as a value: a closure object with no captures.
+    fn fn_value(&mut self, idx: usize) -> V {
+        let k = self.strings.fnval(idx);
+        let obj = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(obj),
+            callee: Callee::Rt(RtFn::ObjNew),
+            args: vec![Operand::Int(1), Operand::Int(0)],
+        });
+        self.emit(Inst::Store {
+            base: Operand::Local(obj),
+            offset: 24,
+            value: Operand::FnVal(k),
+        });
+        self.owned(Operand::Local(obj))
     }
 
     fn binary(&mut self, op: ast::BinOp, lhs: &Expr, rhs: &Expr, e: &Expr) -> V {
@@ -526,6 +593,28 @@ impl<'a> Lowerer<'a> {
         }
         if callee == "Router" {
             return self.router_new();
+        }
+        // `f(1)` where `f` holds a function value.
+        if self.checked.fn_value_calls.contains(&e.id) {
+            let callee_id = self.lookup(callee).expect("the type checker resolved this call");
+            let n = self.checked.call_args[&e.id].len();
+            let vals = self.call_vals(e.id, args, None, n);
+            let ret = self.ety(e);
+            let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
+            let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
+            self.emit(Inst::CallIndirect {
+                dst,
+                callee: Operand::Local(callee_id),
+                args: ops,
+            });
+            for v in vals {
+                self.release_if_owned(v);
+            }
+            return match dst {
+                Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
+                Some(d) => V::val(Operand::Local(d)),
+                None => V::unit(),
+            };
         }
         if let Some(b) = builtins::lookup(callee) {
             return self.builtin(b, args, e);

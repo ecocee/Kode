@@ -194,6 +194,11 @@ fn shift_inst(i: &Inst, loff: usize) -> Inst {
             callee: *callee,
             args: args.iter().map(s).collect(),
         },
+        Inst::CallIndirect { dst, callee, args } => Inst::CallIndirect {
+            dst: dst.map(|d| d + loff),
+            callee: s(callee),
+            args: args.iter().map(s).collect(),
+        },
         Inst::Load { dst, base, offset, ty } => Inst::Load {
             dst: dst + loff,
             base: s(base),

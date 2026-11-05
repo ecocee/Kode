@@ -2,7 +2,7 @@ use kode_diagnostics::{Diagnostic, Span};
 use kode_syntax::ast::*;
 
 use super::stmt::diverges;
-use super::Checker;
+use super::{Checker, ClosureInfo};
 use crate::builtins::{self, Builtin, BUILTIN_NAMES};
 use crate::suggest::closest;
 use crate::std_fns::{self, StdFn};
@@ -131,6 +131,7 @@ impl Checker {
                 callee_span,
                 args,
             } => self.call(e.id, callee, *callee_span, args, e.span),
+            ExprKind::Closure { .. } => self.closure_expr(e),
             ExprKind::Spawn {
                 callee,
                 callee_span,
@@ -221,8 +222,29 @@ impl Checker {
         if let Some((t, _)) = self.consts.get(name) {
             return Some(t.clone());
         }
+        if self.in_closure && self.field_of_current_class(name).is_some() {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0242",
+                    format!("a closure cannot read the field `{name}` of `this`"),
+                    span,
+                )
+                .with_help("copy the field into a variable before the closure and capture that"),
+            );
+            return None;
+        }
         if let Some(t) = self.field_of_current_class(name) {
             return Some(t);
+        }
+        // A function used as a value: `let f = double`, `xs.map(double)`.
+        if let Some(&idx) = self.fn_index.get(name) {
+            let sig = &self.fns[idx];
+            if sig.class.is_none() {
+                return Some(Type::Fn(
+                    sig.params.iter().map(|(_, t)| t.clone()).collect(),
+                    Box::new(sig.ret.clone()),
+                ));
+            }
         }
         let mut d = Diagnostic::error("E0201", format!("unknown variable `{name}`"), span);
         let mut names: Vec<String> = self.scopes.names().into_iter().map(String::from).collect();
@@ -1111,6 +1133,59 @@ impl Checker {
                 arity(self, 0);
                 Some(Type::Int)
             }
+            // `xs.map(f)` and `xs.filter(f)`: the loop is compiled inline.
+            Type::List(el) if name == "map" || name == "filter" => {
+                if !arity(self, 1) {
+                    return None;
+                }
+                let el = (**el).clone();
+                let cb = tys[0].clone();
+                let Some(Type::Fn(params, ret)) = cb else {
+                    self.errors.push(
+                        Diagnostic::error(
+                            "E0242",
+                            format!("`{name}` needs a function, found {}", cb.map(|t| t.article()).unwrap_or_else(|| "nothing".into())),
+                            args[0].value.span,
+                        )
+                        .with_help("write it like `xs.map(|x: int| x * 2)` or `xs.map(double)`"),
+                    );
+                    return Some(Type::List(Box::new(el)));
+                };
+                if params.len() != 1 || !self.assignable(&params[0], &el) {
+                    self.errors.push(
+                        Diagnostic::error(
+                            "E0242",
+                            format!("the function given to `{name}` must take one `{}` value", el.name()),
+                            args[0].value.span,
+                        )
+                        .with_help("write it like `|x: int| x * 2`"),
+                    );
+                    return Some(Type::List(Box::new(el)));
+                }
+                if *ret == Type::Unit {
+                    self.errors.push(Diagnostic::error(
+                        "E0242",
+                        format!("the function given to `{name}` must return a value"),
+                        args[0].value.span,
+                    ));
+                    return Some(Type::List(Box::new(el)));
+                }
+                if name == "filter" {
+                    if *ret != Type::Bool {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0242",
+                                "the function given to `filter` must return a bool",
+                                args[0].value.span,
+                            )
+                            .with_help("keep the item with `|x: int| x > 0`"),
+                        );
+                    }
+                    Some(Type::List(Box::new(el)))
+                } else {
+                    Some(Type::List(ret))
+                }
+            }
             Type::List(el) if name == "add" => {
                 if arity(self, 1) {
                     let el = (**el).clone();
@@ -1163,6 +1238,65 @@ impl Checker {
         }
     }
 
+    /// A closure literal: parameters need types, and the closure captures a copy
+    /// of every variable visible here (ADR 0028).
+    fn closure_expr(&mut self, e: &Expr) -> Option<Type> {
+        let ExprKind::Closure { params, body } = &e.kind else {
+            unreachable!("only called for a closure")
+        };
+        // Shadowed names appear more than once; keep the innermost of each.
+        let mut outer: Vec<(String, Type)> = Vec::new();
+        for (name, ty) in self.scopes.names_with_types() {
+            outer.retain(|(n, _)| *n != name);
+            outer.push((name, ty));
+        }
+        self.scopes.push();
+        let was_in_closure = self.in_closure;
+        self.in_closure = true;
+        let mut ptys = Vec::new();
+        let mut pnames = Vec::new();
+        for p in params {
+            let Some(ann) = &p.ty else { continue };
+            let Some(t) = self.resolve_type(ann) else { continue };
+            self.scopes.declare(&p.name, t.clone(), p.name_span, false);
+            pnames.push(p.name.clone());
+            ptys.push(t);
+        }
+        let bt = self.expr(body);
+        self.pop_scope();
+        self.in_closure = was_in_closure;
+        let ret = bt?;
+
+        let mut captures = Vec::new();
+        for (name, ty) in outer {
+            if pnames.contains(&name) {
+                continue;
+            }
+            if crate::types::is_opt_scalar(&ty).is_some() {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0219",
+                        format!("a closure cannot capture `{name}` yet, because it is {}", ty.article()),
+                        body.span,
+                    )
+                    .with_help("give the closure a plain value, or read the optional before it"),
+                );
+                continue;
+            }
+            captures.push((name, ty));
+        }
+        let ty = Type::Fn(ptys.clone(), Box::new(ret.clone()));
+        self.closures.insert(
+            e.id,
+            ClosureInfo {
+                params: pnames.into_iter().zip(ptys).collect(),
+                ret,
+                captures,
+            },
+        );
+        Some(ty)
+    }
+
     fn call(&mut self, id: ExprId, callee: &str, callee_span: Span, args: &[Arg], span: Span) -> Option<Type> {
         if callee == "serve" {
             return self.serve_call(args, span);
@@ -1196,6 +1330,20 @@ impl Checker {
 
         if let Some(f) = std_fns::find_free(callee) {
             return self.std_call(f, None, args, &tys, span);
+        }
+
+        // `f(1)` where `f` is a variable holding a function value.
+        if let Some(Type::Fn(params, ret)) = self.scopes.peek_var(callee) {
+            self.scopes.use_var(callee);
+            let names: Vec<(String, Type)> = params
+                .iter()
+                .enumerate()
+                .map(|(i, t)| (format!("argument {}", i + 1), t.clone()))
+                .collect();
+            let defaults = vec![false; names.len()];
+            self.check_call_args(id, &names, args, &tys, &defaults, span, callee);
+            self.fn_value_calls.insert(id);
+            return Some(*ret);
         }
 
         if let Some(&idx) = self.fn_index.get(callee) {

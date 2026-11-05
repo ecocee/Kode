@@ -1,6 +1,6 @@
 use kode_diagnostics::Span;
 
-use super::stmt::Block;
+use super::stmt::{Block, TypeAnn};
 
 /// Every expression gets a unique id so later stages can attach types to it.
 pub type ExprId = u32;
@@ -77,6 +77,11 @@ pub enum ExprKind {
         callee_span: Span,
         args: Vec<Arg>,
     },
+    /// `|x: int| x * 2`: a closure. Every parameter needs a type.
+    Closure {
+        params: Vec<ClosureParam>,
+        body: Box<Expr>,
+    },
     /// `spawn f(args)`: run `f` as a task and get a `Task<T>`.
     Spawn {
         callee: String,
@@ -92,6 +97,14 @@ pub enum ExprKind {
         var_span: Span,
         block: Block,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct ClosureParam {
+    pub name: String,
+    pub name_span: Span,
+    /// `None` is an error (E0231): closures cannot infer their parameter types.
+    pub ty: Option<TypeAnn>,
 }
 
 #[derive(Debug, Clone)]

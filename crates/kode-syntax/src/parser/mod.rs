@@ -148,6 +148,26 @@ impl Parser {
                     TypeAnnKind::Channel(Box::new(inner))
                 }
             }
+            TokenKind::Fn => {
+                self.bump();
+                self.expect(TokenKind::LParen, "`(`")?;
+                let mut params = Vec::new();
+                if !matches!(self.peek(), TokenKind::RParen) {
+                    loop {
+                        params.push(self.type_ann()?);
+                        if matches!(self.peek(), TokenKind::Comma) {
+                            self.bump();
+                            self.skip_newlines();
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RParen, "`)`")?;
+                self.expect(TokenKind::Arrow, "`->`")?;
+                let ret = self.type_ann()?;
+                TypeAnnKind::Fn(params, Box::new(ret))
+            }
             TokenKind::Ident(name) => {
                 self.bump();
                 TypeAnnKind::Name(name)

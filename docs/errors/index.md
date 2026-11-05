@@ -72,6 +72,8 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0232 | the `serve` handler must be a function `(string, string, string) -> string`, or a `Router` |
 | E0233 | the route handler must be a function `(req: Request) -> Response` |
 | E0240 | a channel is used before its payload type is known |
+| E0241 | a closure parameter needs a type |
+| E0242 | bad function value: `map`/`filter` callback, or `this` used inside a closure |
 
 ## Declarations and statements (E03xx)
 

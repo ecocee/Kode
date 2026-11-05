@@ -1,0 +1,25 @@
+name = "Ada"
+
+greet = |n: string| "hello ${n}, I am ${name}"
+print(greet("Bob"))
+
+fn make_counter(start: int) -> fn() -> int {
+    return || start
+}
+
+c = make_counter(7)
+print(c())
+
+fn nested(n: int) -> fn(int) -> int {
+    outer = |x: int| x + n
+    inner = |y: int| outer(y) * 2
+    return inner
+}
+
+i = nested(3)
+print(i(5))
+
+xs = [1, 2, 3]
+base = 10
+added = xs.map(|x: int| x + base)
+print(added[0], added[1], added[2])
