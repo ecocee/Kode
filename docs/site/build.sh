@@ -44,17 +44,17 @@ index="$out/index.html"
   echo '</head><body><h1>Kode</h1><h2>Spec</h2><ul>'
   for f in "$root"/docs/spec/*.md; do
     name=$(basename "$f" .md)
-    md2html "$f" "$name" "$out/spec-$name.html"
+    md2html "$f" "$out/spec-$name.html" "$name"
     echo "<li><a href=\"spec-$name.html\">$name</a></li>"
   done
   echo '</ul><h2>Decisions</h2><ul>'
   for f in "$root"/docs/adr/*.md; do
     name=$(basename "$f" .md)
-    md2html "$f" "ADR $name" "$out/adr-$name.html"
+    md2html "$f" "$out/adr-$name.html" "ADR $name"
     echo "<li><a href=\"adr-$name.html\">$name</a></li>"
   done
   echo '</ul><h2>Errors</h2><ul>'
-  md2html "$root/docs/errors/index.md" "Error codes" "$out/errors.html"
+  md2html "$root/docs/errors/index.md" "$out/errors.html" "Error codes"
   echo '<li><a href="errors.html">error index</a></li>'
   echo '</ul>'
   if [ -d "$out/api" ]; then
