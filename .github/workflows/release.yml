@@ -1,5 +1,4 @@
-
-name: Kode Linux Release
+name: Kode Release
 
 on:
   push:
@@ -16,95 +15,75 @@ on:
 permissions:
   contents: write
 
+env:
+  # The tag being released, with the leading `v` (jobs strip it for file names).
+  TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
 jobs:
-  release:
+  linux:
     name: Build Linux x86_64
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Checkout source
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ env.TAG }}
           fetch-depth: 0
 
-      # 2. Install Rust
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # 3. Rust cache
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      # 4. Verify project
       - name: Check project
         run: cargo check --workspace
 
-      # 5. Run tests
       - name: Run tests
         run: cargo test --workspace
 
-      # 6. Build Linux binary
       - name: Build release
         run: cargo build --release --workspace
 
-      # 7. Prepare release files
+      - name: Smoke test the built compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=target/release/kode
+          "$BIN" doctor
+          "$BIN" --version | grep -qF "${TAG#v}" || {
+            echo "ERROR: the binary does not report ${TAG#v}"
+            "$BIN" --version
+            exit 1
+          }
+          printf 'print("hello")\n' > /tmp/hello.kode
+          test "$("$BIN" run /tmp/hello.kode)" = "hello"
+
       - name: Prepare release
         shell: bash
         run: |
           set -euo pipefail
-
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           VERSION="${TAG#v}"
-
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
-          BIN="target/release/kode"
-
-          if [ ! -f "$BIN" ]; then
-            echo "ERROR: Kode binary not found!"
-            echo "Checking generated binaries:"
-            find target/release -maxdepth 1 -type f -executable
-            exit 1
-          fi
-
-          "$BIN" --version
-
           mkdir -p dist
-
-          cp "$BIN" dist/kode
+          cp target/release/kode dist/kode
           chmod 755 dist/kode
-
-          [ ! -f README.md ] || cp README.md dist/
-          [ ! -f CHANGELOG.md ] || cp CHANGELOG.md dist/
-
-      # 8. Create Linux tarball
-      - name: Create tarball
-        run: |
+          for f in README.md CHANGELOG.md LICENSE; do
+            [ ! -f "$f" ] || cp "$f" dist/
+          done
           tar -czf "kode-${VERSION}-linux-x86_64.tar.gz" -C dist .
 
-      # 9. Create Debian package
       - name: Create DEB package
         shell: bash
         run: |
           set -euo pipefail
-
+          VERSION="${TAG#v}"
           ROOT="pkg/kode_${VERSION}_amd64"
-
-          mkdir -p "$ROOT/DEBIAN"
-          mkdir -p "$ROOT/usr/bin"
-          mkdir -p "$ROOT/usr/share/doc/kode"
-
+          mkdir -p "$ROOT/DEBIAN" "$ROOT/usr/bin" "$ROOT/usr/share/doc/kode"
           cp dist/kode "$ROOT/usr/bin/kode"
           chmod 755 "$ROOT/usr/bin/kode"
-
-          [ ! -f README.md ] || \
-            cp README.md "$ROOT/usr/share/doc/kode/"
-
-          [ ! -f CHANGELOG.md ] || \
-            cp CHANGELOG.md "$ROOT/usr/share/doc/kode/"
-
+          for f in README.md CHANGELOG.md LICENSE; do
+            [ ! -f "$f" ] || cp "$f" "$ROOT/usr/share/doc/kode/"
+          done
           cat > "$ROOT/DEBIAN/control" <<EOF
           Package: kode
           Version: $VERSION
@@ -115,33 +94,134 @@ jobs:
           Description: Kode programming language compiler
            Kode compiles programs to native machine code.
           EOF
-
-          dpkg-deb --root-owner-group --build \
-            "$ROOT" \
-            "kode-${VERSION}-linux-x86_64.deb"
-
+          dpkg-deb --root-owner-group --build "$ROOT" "kode-${VERSION}-linux-x86_64.deb"
           dpkg-deb --info "kode-${VERSION}-linux-x86_64.deb"
 
-      # 10. Generate SHA256 checksums
       - name: Generate checksums
+        shell: bash
         run: |
-          sha256sum \
-            "kode-${VERSION}-linux-x86_64.tar.gz" \
-            "kode-${VERSION}-linux-x86_64.deb" \
-            > SHA256SUMS.txt
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          sha256sum "kode-${VERSION}-linux-x86_64.tar.gz" "kode-${VERSION}-linux-x86_64.deb" \
+            > SHA256SUMS-linux.txt
+          cat SHA256SUMS-linux.txt
 
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          if-no-files-found: error
+          path: |
+            kode-*-linux-x86_64.tar.gz
+            kode-*-linux-x86_64.deb
+            SHA256SUMS-linux.txt
+
+  macos:
+    name: Build macOS arm64
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --workspace
+        env:
+          KODE_LEAK_CHECK: "1"
+
+      - name: Build release
+        run: cargo build --release --workspace
+
+      # The artifact itself is exercised, not just `cargo build`: a binary that
+      # links but cannot find clang, or that reports another version, is caught
+      # here rather than by the person who downloads it.
+      - name: Smoke test the built compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=target/release/kode
+          "$BIN" doctor
+          "$BIN" --version
+          "$BIN" --version | grep -qF "${TAG#v}" || {
+            echo "ERROR: the binary does not report ${TAG#v}"
+            exit 1
+          }
+          printf 'print("hello")\n' > /tmp/hello.kode
+          test "$("$BIN" run /tmp/hello.kode)" = "hello"
+          printf 'fn add(a: int, b: int) -> int => a + b\nprint(add(2, 3))\n' > /tmp/add.kode
+          test "$("$BIN" run /tmp/add.kode)" = "5"
+
+      - name: Prepare release
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          mkdir -p dist
+          cp target/release/kode dist/kode
+          chmod 755 dist/kode
+          for f in README.md CHANGELOG.md LICENSE; do
+            [ ! -f "$f" ] || cp "$f" dist/
+          done
+          tar -czf "kode-${VERSION}-macos-arm64.tar.gz" -C dist .
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          shasum -a 256 "kode-${VERSION}-macos-arm64.tar.gz" > SHA256SUMS-macos.txt
+          cat SHA256SUMS-macos.txt
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          if-no-files-found: error
+          path: |
+            kode-*-macos-arm64.tar.gz
+            SHA256SUMS-macos.txt
+
+  publish:
+    name: Publish GitHub Release
+    needs: [linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: artifacts
+
+      # One checksum file per platform from each job, merged here so a downloader
+      # has a single list to verify against.
+      - name: Merge checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          ls -l
+          cat SHA256SUMS-linux.txt SHA256SUMS-macos.txt | sort -k 2 > SHA256SUMS.txt
+          rm SHA256SUMS-linux.txt SHA256SUMS-macos.txt
           cat SHA256SUMS.txt
 
-      # 11. Publish GitHub Release
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          name: Kode v${{ env.VERSION }}
+          tag_name: ${{ env.TAG }}
+          name: Kode ${{ env.TAG }}
           generate_release_notes: true
           files: |
-            kode-${{ env.VERSION }}-linux-x86_64.tar.gz
-            kode-${{ env.VERSION }}-linux-x86_64.deb
-            SHA256SUMS.txt
+            artifacts/kode-*-linux-x86_64.tar.gz
+            artifacts/kode-*-linux-x86_64.deb
+            artifacts/kode-*-macos-arm64.tar.gz
+            artifacts/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

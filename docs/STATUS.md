@@ -313,6 +313,16 @@ verified by running the site build), 4.9 (`LICENSE` added), 4.11 (`Cargo.toml` i
 (generics page intro). `SECURITY.md` added. `dist/` untracked and ignored;
 `benchmarks/report.md` regenerated.
 
+### `ci/release-macos`
+
+`release.yml` is now three jobs: Linux x86-64 (as before), macOS arm64
+(`macos-14`), and a publish job that merges both `SHA256SUMS-<platform>.txt`
+files into one `SHA256SUMS.txt`. Each machine smoke-tests the artifact it built
+(`kode doctor`, a `--version` that matches the tag, and `kode run` on hello
+world) before packaging. The macOS steps were run by hand on this machine
+(macOS 15 arm64): tarball 6.9 MB, checksummed, extracted binary runs. Releasing,
+ROADMAP, README and `docs/windows.md` now describe exactly these two platforms.
+
 ### `fix/diagnostics-for-missing-features`
 
 §3's two misleading errors are fixed without changing behavior: `Shape.Circle(1)`

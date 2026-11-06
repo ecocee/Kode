@@ -61,9 +61,9 @@ dump.
 
 ## Releases on Windows
 
-**Windows artifacts are planned, not built.** `.github/workflows/release.yml` has
-one job today, Linux x86-64, so a release currently contains no Windows file.
-The planned shape is:
+**Windows artifacts are planned, not built.** `.github/workflows/release.yml`
+builds Linux x86-64 and macOS arm64, so a release currently contains no Windows
+file. The planned shape is:
 
 - `kode-<version>-windows-x86_64.zip` — the `kode.exe` binary plus README,
   CHANGELOG, the two editor docs.

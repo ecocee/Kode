@@ -4,9 +4,11 @@ For the working plan behind these milestones — branches, budgets and acceptanc
 see [PLAN-v1.md](PLAN-v1.md).
 
 Releases are cut from a tag and ship a binary plus notes (see `docs/releasing.md`).
-The release workflow builds **Linux x86-64** today: a tarball, a `.deb` and
-`SHA256SUMS-linux-x86_64.txt`. macOS and Windows artifacts are planned and not
-built by CI; Windows has never been verified by hand. See `docs/STATUS.md`.
+The release workflow builds **Linux x86-64** (tarball and `.deb`) and **macOS
+arm64** (tarball) today, each smoke-tested on the machine that built it and
+published with one merged `SHA256SUMS.txt`. Linux aarch64, macOS Intel and
+Windows artifacts are planned and not built by CI; Windows has never been
+verified by hand. See `docs/STATUS.md`.
 
 Goal: a language that serves more requests per cloud server than Java, Node and Python,
 is simple to write, and is easy for AI agents to use.

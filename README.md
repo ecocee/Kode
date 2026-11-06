@@ -70,7 +70,8 @@ kode run examples/tour.kode
 ```
 
 On Windows, create the compiler with the GNU Rust toolchain and MinGW-w64
-(see `docs/windows.md`); the release workflow also builds for Windows that way.
+(see `docs/windows.md`). Windows is not a release target yet: the release
+workflow builds Linux x86-64 and macOS arm64 only.
 
 ## Commands
 
