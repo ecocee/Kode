@@ -1,0 +1,7 @@
+# The conformance suite compares `.out` files byte for byte and `kode fmt`
+# writes LF, so text files use LF everywhere, including a Windows checkout.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.zip binary

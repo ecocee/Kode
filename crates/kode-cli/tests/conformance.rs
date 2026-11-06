@@ -52,8 +52,11 @@ fn run_pass() {
                 continue;
             }
         }
+        // A checkout made with `core.autocrlf` on Windows can still hand us CRLF;
+        // the programs themselves always print LF.
         let expected = std::fs::read_to_string(file.with_extension("out"))
-            .unwrap_or_else(|_| panic!("{name}: missing .out file"));
+            .unwrap_or_else(|_| panic!("{name}: missing .out file"))
+            .replace("\r\n", "\n");
         let result = Command::new(kode())
             .arg("run")
             .arg(file)
