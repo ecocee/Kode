@@ -290,7 +290,7 @@ fn handle_connection(stream: TcpStream, router: i64) {
             if reader.read_line(&mut header).unwrap_or(0) == 0 {
                 return;
             }
-            let header = header.trim_end_matches(|c| c == '\r' || c == '\n');
+            let header = header.trim_end_matches(['\r', '\n']);
             if header.is_empty() {
                 break;
             }

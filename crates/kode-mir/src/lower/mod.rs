@@ -736,7 +736,9 @@ impl<'a> Lowerer<'a> {
     /// temporaries that die on the way.
     pub fn goto_error(&mut self) {
         let (t, keep) = self.error_target();
-        for p in self.pending[keep.min(self.pending.len())..].to_vec() {
+        let first = keep.min(self.pending.len());
+        for i in first..self.pending.len() {
+            let p = self.pending[i].clone();
             self.emit(Inst::Release(p));
         }
         self.term(Terminator::Goto(t));

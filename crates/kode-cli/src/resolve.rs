@@ -140,7 +140,7 @@ fn relative_path(from: &Path, to: &Path) -> String {
     let fc: Vec<_> = from.components().collect();
     let tc: Vec<_> = to.components().collect();
     let common = fc.iter().zip(&tc).take_while(|(a, b)| a == b).count();
-    let mut parts: Vec<String> = std::iter::repeat("..".to_string()).take(fc.len() - common).collect();
+    let mut parts: Vec<String> = vec!["..".to_string(); fc.len() - common];
     parts.extend(tc[common..].iter().map(|c| c.as_os_str().to_string_lossy().to_string()));
     if parts.is_empty() {
         ".".to_string()

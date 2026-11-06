@@ -325,7 +325,7 @@ impl<'a> Lowerer<'a> {
                     _ => unreachable!("checked: a list or map"),
                 };
                 let op = if mir_ty(el) == Ty::Ref { self.own(v) } else { v.op };
-                let raw = self.to_raw(op, el);
+                let raw = self.raw_value(op, el);
                 let args = if rt == RtFn::MapSet {
                     vec![ov.op.clone(), iv.op.clone(), raw]
                 } else {

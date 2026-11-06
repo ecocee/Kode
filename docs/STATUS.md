@@ -313,6 +313,15 @@ verified by running the site build), 4.9 (`LICENSE` added), 4.11 (`Cargo.toml` i
 (generics page intro). `SECURITY.md` added. `dist/` untracked and ignored;
 `benchmarks/report.md` regenerated.
 
+### `fix/clippy`
+
+`cargo clippy --workspace --all-targets -- -D warnings` is now clean. The three
+deny-by-default `mut_from_ref` errors in `Raw::len/cap/ptr` were real aliasing
+UB (two `&mut i64` into one object), so they now return raw pointers; the eight
+brand-new warnings that appeared once `kode-rt` compiled were fixed rather than
+allowed, except `generic_call`'s eight parameters, which carries a comment.
+CI gained the clippy and `kode fmt examples` steps.
+
 ### `fix/depth-limit`
 
 §3 crash probes are fixed: 300 nested parentheses, a 2,000-term `+` chain and

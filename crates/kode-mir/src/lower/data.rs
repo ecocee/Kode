@@ -35,7 +35,7 @@ pub(crate) fn list_rt(el: &Type, base: RtFn) -> RtFn {
 
 impl<'a> Lowerer<'a> {
     /// Store a value in a 64-bit slot (list item, map value).
-    pub fn to_raw(&mut self, op: Operand, ty: &Type) -> Operand {
+    pub fn raw_value(&mut self, op: Operand, ty: &Type) -> Operand {
         let kind = match mir_ty(ty) {
             Ty::Bool => CastKind::BoolToInt,
             Ty::Float => CastKind::FloatToBits,
@@ -126,7 +126,7 @@ impl<'a> Lowerer<'a> {
         for x in items {
             let v = self.expr(x);
             let op = if mir_ty(el) == Ty::Ref { self.own(v) } else { v.op };
-            let raw = self.to_raw(op, el);
+            let raw = self.raw_value(op, el);
             self.emit(Inst::Call {
                 dst: None,
                 callee: Callee::Rt(list_rt(el, RtFn::ListPush)),
@@ -150,7 +150,7 @@ impl<'a> Lowerer<'a> {
             let kv = self.expr(k);
             let vv = self.expr(v);
             let op = if mir_ty(el) == Ty::Ref { self.own(vv) } else { vv.op };
-            let raw = self.to_raw(op, el);
+            let raw = self.raw_value(op, el);
             self.emit(Inst::Call {
                 dst: None,
                 callee: Callee::Rt(RtFn::MapSet),
@@ -196,7 +196,7 @@ impl<'a> Lowerer<'a> {
         let t = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
             dst: Some(t),
-            callee: Callee::Rt(list_rt(&el, RtFn::ListSlice)),
+            callee: Callee::Rt(list_rt(el, RtFn::ListSlice)),
             args: vec![ov.op.clone(), s, e],
         });
         self.release_if_owned(ov);
@@ -307,7 +307,7 @@ impl<'a> Lowerer<'a> {
             } else {
                 item
             };
-            let raw = self.to_raw(kept, &el);
+            let raw = self.raw_value(kept, &el);
             self.emit(Inst::Call {
                 dst: None,
                 callee: Callee::Rt(list_rt(&el, RtFn::ListPush)),
@@ -319,7 +319,7 @@ impl<'a> Lowerer<'a> {
             // The call produced the only reference to this value, and the list
             // takes it over, so there is nothing to retain or release here.
             let d = dst.expect("map returns a value");
-            let raw = self.to_raw(Operand::Local(d), &out_el);
+            let raw = self.raw_value(Operand::Local(d), &out_el);
             self.emit(Inst::Call {
                 dst: None,
                 callee: Callee::Rt(list_rt(&out_el, RtFn::ListPush)),
@@ -571,7 +571,7 @@ impl<'a> Lowerer<'a> {
             (Type::List(el), "add") => {
                 let v = self.expr(&args[0].value);
                 let op = if mir_ty(el) == Ty::Ref { self.own(v) } else { v.op };
-                let raw = self.to_raw(op, el);
+                let raw = self.raw_value(op, el);
                 self.emit(Inst::Call {
                     dst: None,
                     callee: Callee::Rt(list_rt(el, RtFn::ListPush)),
@@ -707,12 +707,12 @@ impl<'a> Lowerer<'a> {
         });
         let n = block.len();
         for (i, s) in block.iter().enumerate() {
-            if i + 1 == n && res.is_some() {
-                if let Stmt::Expr(x) = s {
+            if i + 1 == n {
+                if let (Stmt::Expr(x), Some(dst)) = (s, res) {
                     let v = self.expr(x);
                     let op = if ty == Ty::Ref { self.own(v) } else { v.op };
                     self.emit(Inst::Assign {
-                        dst: res.unwrap(),
+                        dst,
                         rv: Rvalue::Use(op),
                     });
                     continue;

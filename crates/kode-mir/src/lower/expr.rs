@@ -457,7 +457,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Turn any printable value into a string value.
-    fn to_str(&mut self, v: V, ty: &Type) -> V {
+    fn value_to_string(&mut self, v: V, ty: &Type) -> V {
         // An optional number prints `none`, or the number: the branch is here,
         // not duplicated at every call site.
         if let Some(inner) = kode_sema::types::is_opt_scalar(ty) {
@@ -545,7 +545,7 @@ impl<'a> Lowerer<'a> {
                 InterpPart::Expr(x) => {
                     let ty = self.expr_type(x);
                     let v = self.expr(x);
-                    self.to_str(v, ty)
+                    self.value_to_string(v, ty)
                 }
             };
             acc = Some(match acc {
@@ -596,8 +596,8 @@ impl<'a> Lowerer<'a> {
     pub(crate) fn call_vals(&mut self, id: ast::ExprId, args: &[Arg], first: Option<V>, count: usize) -> Vec<V> {
         let slots = self.checked.call_args[&id].clone();
         let mut vals: Vec<V> = first.into_iter().collect();
-        for i in 0..count {
-            let ai = slots[i].expect("the type checker made sure every argument is given");
+        for slot in slots.iter().take(count) {
+            let ai = slot.expect("the type checker made sure every argument is given");
             vals.push(self.expr(&args[ai].value));
         }
         vals
@@ -892,11 +892,11 @@ impl<'a> Lowerer<'a> {
                         self.release_if_owned(v);
                         continue;
                     }
-                    if kode_sema::types::is_opt_scalar(&ty).is_some()
+                    if kode_sema::types::is_opt_scalar(ty).is_some()
                         || matches!(ty, Type::List(_) | Type::Map(_))
                     {
                         let v = self.expr(&a.value);
-                        let s = self.to_str(v, &ty);
+                        let s = self.value_to_string(v, ty);
                         self.emit(Inst::Call {
                             dst: None,
                             callee: Callee::Rt(RtFn::PrintStr),
@@ -978,7 +978,7 @@ impl<'a> Lowerer<'a> {
                 let arg = a0.unwrap();
                 let ty = self.expr_type(arg);
                 let v = self.expr(arg);
-                self.to_str(v, ty)
+                self.value_to_string(v, ty)
             }
             Builtin::Assert => {
                 let c = self.expr(a0.unwrap());
@@ -1015,7 +1015,7 @@ impl<'a> Lowerer<'a> {
                 let v = self.expr(&args[1].value);
                 let is_ref = payload.is_ref();
                 let op = if is_ref { self.own(v) } else { v.op };
-                let raw = self.to_raw(op, &payload);
+                let raw = self.raw_value(op, &payload);
                 self.emit(Inst::Call {
                     dst: None,
                     callee: Callee::Rt(RtFn::ChanSend),

@@ -11,14 +11,18 @@ const SIZE: usize = 40;
 struct Raw(*mut Header);
 
 impl Raw {
-    unsafe fn len(&self) -> &mut i64 {
-        &mut *((self.0 as *mut i64).add(2))
+    // These return raw pointers, not `&mut`, on purpose: several of them are
+    // used in one expression, and two `&mut i64` into the same object would be
+    // aliasing UB. Writing through the pointer keeps every use an explicit
+    // unsafe operation on a `*mut Header` the caller owns.
+    unsafe fn len(&self) -> *mut i64 {
+        (self.0 as *mut i64).add(2)
     }
-    unsafe fn cap(&self) -> &mut i64 {
-        &mut *((self.0 as *mut i64).add(3))
+    unsafe fn cap(&self) -> *mut i64 {
+        (self.0 as *mut i64).add(3)
     }
-    unsafe fn ptr(&self) -> &mut *mut u64 {
-        &mut *((self.0 as *mut *mut u64).add(4))
+    unsafe fn ptr(&self) -> *mut *mut u64 {
+        (self.0 as *mut *mut u64).add(4)
     }
     unsafe fn is_refs(&self) -> bool {
         (*self.0).kind & ITEMS_ARE_REFS != 0
@@ -296,7 +300,7 @@ pub unsafe extern "C" fn kode_list_pop(p: *mut Header) -> i64 {
 pub unsafe extern "C" fn kode_list_clear(p: *mut Header) {
     let r = Raw(p);
     let refs = r.is_refs();
-    let old: Vec<u64> = r.with_vec(|v| std::mem::take(v));
+    let old: Vec<u64> = r.with_vec(std::mem::take);
     if refs {
         for it in old {
             kode_release(it as *mut Header);

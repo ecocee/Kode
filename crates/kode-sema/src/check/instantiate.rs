@@ -24,6 +24,12 @@ use crate::types::Type;
 impl Checker {
     /// `callee` is generic: infer its type arguments from `tys`, then call the
     /// concrete instantiation like any other function.
+    ///
+    /// Eight parameters, but they are the call site's fields, not a bundle that
+    /// belongs together: `id`, `callee`, `gidx`, `args`, `tys`, `span`,
+    /// `callee_span` come straight from the expression being checked, and
+    /// bundling them would only move the destructuring here.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn generic_call(
         &mut self,
         id: ExprId,

@@ -25,8 +25,7 @@ pub fn serve() -> Result<u8, String> {
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
     let mut state = State::default();
-    loop {
-        let Some(body) = read_message(&mut input)? else { break };
+    while let Some(body) = read_message(&mut input)? {
         let msg = match json::parse(&body) {
             Ok(m) => m,
             Err(e) => {
