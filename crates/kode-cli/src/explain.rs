@@ -6,7 +6,12 @@ const INDEX: &str = include_str!("../../../docs/errors/index.md");
 const DETAILS: &[(&str, &str, &str, &str)] = &[
     ("E0201", "A name is used before it was created, or it is spelled differently.", "name = \"Asha\"\nprint(nme)", "name = \"Asha\"\nprint(name)"),
     ("E0202", "A variable keeps the type of its first value. A different type cannot be stored in it.", "x = 1\nx = \"one\"", "x = 1\nx = 2"),
-    ("E0203", "An operator or function was used with types it does not support.", "print(1 + \"a\")", "print(string(1) + \"a\")"),
+    (
+        "E0203",
+        "An operator or function was used with types it does not support. A list or map also needs printable items: a class has fields, not one text form.",
+        "class U {\n    n: int\n}\nprint([U(n: 1)])",
+        "print([1, 2])\n// for a list of classes, loop and print a field",
+    ),
     ("E0206", "A function that does not exist was called.", "prnt(\"hi\")", "print(\"hi\")"),
     ("E0207", "A function was called with the wrong number of arguments.", "fn f(a: int) -> int => a\nprint(f(1, 2))", "print(f(1))"),
     ("E0208", "An argument has the wrong type.", "fn f(a: int) -> int => a\nprint(f(\"x\"))", "print(f(1))"),

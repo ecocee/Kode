@@ -69,7 +69,9 @@ for i, x in xs { print(i, x) }
 - Maps always have string keys. Lists and maps are reference counted: `b = a`
   shares one list.
 - An empty list or map needs a declared type: `xs: [int] = []`.
-- Not yet: integer map keys, printing a whole list.
+- `print(xs)` and `"${xs}"` show a list or map: `[1, 2, 3]`, `["a", "b"]`,
+  `{"name": "Asha"}`. Strings inside a collection are quoted and escaped.
+- Not yet: integer map keys.
 
 ## Enums and printing
 

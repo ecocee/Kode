@@ -62,6 +62,22 @@ impl Checker {
                         match self.expr(x) {
                             Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_)) => {}
                             Some(t) if crate::types::is_opt_scalar(&t).is_some() => {}
+                            // A list or map prints when every item can: the
+                            // descriptor says how. This is what makes
+                            // `"items: ${xs}"` work.
+                            Some(t @ (Type::List(_) | Type::Map(_))) => {
+                                if crate::types::repr_descriptor(&t).is_none() {
+                                    self.errors.push(
+                                        Diagnostic::error(
+                                            "E0203",
+                                            format!("cannot put {} inside a string yet", t.article()),
+                                            x.span,
+                                        )
+                                        .with_help("its items are not printable; loop over it and use the parts"),
+                                    );
+                                    ok = false;
+                                }
+                            }
                             Some(Type::Unit) => {
                                 self.errors.push(Diagnostic::error(
                                     "E0205",
@@ -1415,6 +1431,20 @@ impl Checker {
                 match t {
                     Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_)) | None => {}
                     Some(t) if crate::types::is_opt_scalar(t).is_some() => {}
+                    // Lists and maps of printable items print as `[1, 2]` and
+                    // `{"a": 1}`; the runtime walks a type descriptor.
+                    Some(t @ (Type::List(_) | Type::Map(_))) => {
+                        if crate::types::repr_descriptor(t).is_none() {
+                            self.errors.push(
+                                Diagnostic::error(
+                                    "E0203",
+                                    format!("cannot print {} yet", t.article()),
+                                    args[i].value.span,
+                                )
+                                .with_help("its items are not printable; loop over it and print each one"),
+                            );
+                        }
+                    }
                     Some(Type::Unit) => self.errors.push(Diagnostic::error(
                         "E0205",
                         "this call returns nothing, so there is nothing to print",

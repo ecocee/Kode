@@ -504,6 +504,22 @@ impl<'a> Lowerer<'a> {
             self.release_if_owned(v);
             return V::val(s);
         }
+        // A list or map: the runtime gets the value and a descriptor for the
+        // item types, and returns a new string. `repr_descriptor` is the same
+        // function the checker used to accept the print.
+        if matches!(ty, Type::List(_) | Type::Map(_)) {
+            let desc = kode_sema::types::repr_descriptor(ty)
+                .expect("the checker only accepts printable collections");
+            let d = Operand::Str(self.intern(&desc));
+            let t = self.new_temp(Ty::Ref);
+            self.emit(Inst::Call {
+                dst: Some(t),
+                callee: Callee::Rt(RtFn::Repr),
+                args: vec![v.op.clone(), d],
+            });
+            self.release_if_owned(v);
+            return self.owned(Operand::Local(t));
+        }
         let rt = match ty {
             Type::Str => return v,
             Type::Int => RtFn::IntToStr,
@@ -876,7 +892,9 @@ impl<'a> Lowerer<'a> {
                         self.release_if_owned(v);
                         continue;
                     }
-                    if kode_sema::types::is_opt_scalar(&ty).is_some() {
+                    if kode_sema::types::is_opt_scalar(&ty).is_some()
+                        || matches!(ty, Type::List(_) | Type::Map(_))
+                    {
                         let v = self.expr(&a.value);
                         let s = self.to_str(v, &ty);
                         self.emit(Inst::Call {

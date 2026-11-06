@@ -1,0 +1,26 @@
+// Lists and maps print, and go inside a string, when their items can print.
+// The compiler passes a type descriptor to `kode_repr`; this checks every
+// shape it supports.
+
+xs = [1, 2, 3]
+print(xs)
+print("xs: ${xs}")
+
+print([1.5, 2.0])
+print(["a", "b\"c", "d\\e"])
+print([true, false, true])
+print([[1, 2], [3]])
+
+ages = {"asha": 30, "ravi": 25}
+print(ages)
+print("ages: ${ages}")
+
+notes = {"tags": ["ai", "ml"], "more": ["x"]}
+print(notes)
+
+print([1, 2].map(|x: int| x * 2))
+print("a,b".split(","))
+
+empty: [int] = []
+print(empty)
+print("[] is ${empty}")

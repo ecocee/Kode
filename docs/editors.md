@@ -16,8 +16,12 @@ What it does today:
 | Completion | keywords, top-level items, stdlib functions, namespaces, local variables; stdlib methods after `.` |
 | Document symbols | functions, classes, methods, fields, enums, interfaces, constants, tests |
 | Formatting | the same re-indenter as `kode fmt` |
+| Go to definition | declaration of a call or name under the cursor |
+| References | every use of a name in the document |
+| Rename | renames a name through the whole document, refusing keywords |
 
-Not yet: go-to-definition, rename, references, signature help, code actions.
+Not yet: signature help, code actions, a completion that knows every standard-library
+method's parameters.
 
 ## Visual Studio Code
 

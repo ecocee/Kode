@@ -117,6 +117,26 @@ pub extern "C" fn kode_list_oob(idx: i64, len: i64, line: i64) -> ! {
     fatal(&format!("list index {idx} is out of range (length {len}) at line {line}"));
 }
 
+// ---- reading every item, for formatting and library code ----
+
+/// A list's items, wide (8 bytes each) or packed (bool, 1 byte each).
+pub(crate) enum Items<'a> {
+    Wide(&'a [u64]),
+    Packed(&'a [u8]),
+}
+
+/// # Safety
+/// `p` must be a valid list.
+pub(crate) unsafe fn items_for_repr<'a>(p: *const Header) -> Items<'a> {
+    let r = Raw(p as *mut Header);
+    let len = *r.len() as usize;
+    if (*p).kind & PACKED1 != 0 {
+        Items::Packed(std::slice::from_raw_parts(*r.ptr() as *const u8, len))
+    } else {
+        Items::Wide(std::slice::from_raw_parts(*r.ptr() as *const u64, len))
+    }
+}
+
 // ---- lists of bool: one byte per item ----
 
 #[no_mangle]

@@ -1,0 +1,8 @@
+// A list is printable only when its items are: a class instance has fields,
+// not a single text form, so this stays an error with a hint to loop.
+class User {
+    name: string
+}
+
+users = [User(name: "a")]
+print(users)

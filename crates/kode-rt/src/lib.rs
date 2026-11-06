@@ -8,7 +8,7 @@
 //! * `json`: dynamic JSON values and their parser; `std_fns`: strings, files, sorting, ...
 //! * `process`: `exec`, so a Kode program can run a compiler or a linker
 //! * `router`: the `Router` / `Request` / `Response` web API layer
-//! * `io`: printing
+//! * `io`: printing; `repr`: the text of a list or map
 
 mod channel;
 mod error;
@@ -22,6 +22,7 @@ mod map;
 mod math;
 mod object;
 mod process;
+mod repr;
 mod router;
 mod std_fns;
 mod string;

@@ -34,7 +34,7 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 |---|---|
 | E0201 | unknown variable |
 | E0202 | wrong type in assignment or declaration |
-| E0203 | operator or function cannot be used with these types |
+| E0203 | operator or function cannot be used with these types (also: a value with no text form, such as a class inside a list, used in `print` or `${}`) |
 | E0204 | division by zero (constant) |
 | E0205 | a call that returns nothing was used as a value |
 | E0206 | unknown function |

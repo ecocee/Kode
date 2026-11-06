@@ -103,6 +103,25 @@ pub fn is_opt_scalar(t: &Type) -> Option<Type> {
     }
 }
 
+/// The descriptor `kode_repr` uses to print a list or map, or `None` when the
+/// collection holds a value that cannot be printed yet.
+///
+/// The descriptor is built here, once, so the checker and the lowering agree:
+/// the checker uses `Some`/`None` to accept or reject a `print`, and the
+/// lowering puts the text in the program. Keeping it in one function is what
+/// stops the two from drifting apart.
+pub fn repr_descriptor(t: &Type) -> Option<String> {
+    match t {
+        Type::Int => Some("i".to_string()),
+        Type::Float => Some("f".to_string()),
+        Type::Bool => Some("b".to_string()),
+        Type::Str => Some("s".to_string()),
+        Type::List(inner) => Some(format!("[{}]", repr_descriptor(inner)?)),
+        Type::Map(val) => Some(format!("{{{}}}", repr_descriptor(val)?)),
+        _ => None,
+    }
+}
+
 /// Resolve a type annotation without reporting errors, for later stages that
 /// need the declared type of a variable (the AST keeps only the annotation).
 pub fn ann_type(ann: &kode_syntax::ast::TypeAnn, checked: &crate::Checked) -> Option<Type> {

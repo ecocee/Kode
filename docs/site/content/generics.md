@@ -77,6 +77,8 @@ print(count_of([1, 2, 2, 3], 2))                       # 2
 
 ## What is not implemented yet
 
+Generic **functions** work today (ADR 0030). What follows is still open:
+
 - Generic classes and generic methods.
 - Explicit type arguments (`first::<int>`).
 - Constraints/traits. A parameter can only be used where every type is allowed; the

@@ -25,7 +25,8 @@ r = await spawn fails() catch e { -1 }     # an error inside a task is raised by
 - A task that is never awaited is waited for and freed when its handle goes away.
 - Reference counts become atomic when the first task starts; programs without tasks pay nothing.
 - `sleep(ms)` pauses, `now_ms()` reads a steady clock in milliseconds (differences only).
-- Not yet: channels, shared classes, a thread pool (every task is a thread).
+- Channels are implemented (see below); not yet: shared classes and a thread pool
+  (every task is a thread).
 
 ## Channels
 

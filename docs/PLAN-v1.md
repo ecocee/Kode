@@ -97,6 +97,35 @@ Status at the end of the first implementation session:
 | P8 performance | `perf/budgets` | harness and measurements done; no optimization work yet |
 | packed `[bool]` fix | `fix/bool-lists` | index writes and for-in used 8-byte accessors: wrong counts, then a crash at ten million items |
 
+**M8 (budgets, `uses` effects, typed `ask`/`tool`) is skipped.** It was a differential
+feature for AI agents, not something a general-purpose language needs to be usable.
+M9 below is the production track and takes its place.
+
+## 4b. M9 — production core (the current plan)
+
+Ordered by what actually stops a real program from shipping. Each item is a branch with
+tests and an ADR where behavior changes; the list is the order, not a schedule.
+
+| # | Item | Why it blocks production | State |
+|---|---|---|---|
+| 9.1 | Printing collections (ADR 0031) | you could not look at a list or map without a loop | **done** |
+| 9.2 | Docs that match the compiler | channels, `finally`, generics, LSP nav were documented as missing | **done** |
+| 9.3 | TLS for the HTTP client and server | every real service talks `https://`; today it raises an error | next |
+| 9.4 | Database client (PostgreSQL wire protocol) | no data store means no backends | |
+| 9.5 | `weak` references | two objects pointing at each other leak forever | |
+| 9.6 | Byte buffers and fixed-width ints (`u8`, `i32`, `[]byte`) | binary protocols, files and crypto need bytes, not 64-bit ints | |
+| 9.7 | Enum payloads, `is`, safe downcast | tag-only enums force unsafe casts for real data shapes | |
+| 9.8 | Optional scalars as fields and parameters | `int?` works only as a local (E0219) | |
+| 9.9 | Generic classes, generic methods, constraints | generic containers cannot be written in Kode | |
+| 9.10 | Checked arithmetic on `+ - *` | silent wraparound is a correctness bug in a language people trust | |
+| 9.11 | Package registry and publishing | path-only dependencies do not scale past one machine | |
+| 9.12 | Verified Windows release | the CI job exists; a real Windows run must pass before anyone downloads it | |
+| 9.13 | LLVM `--release` backend (optional) | peak performance, only if the benchmarks justify it | |
+
+**9.1 and 9.2 are done.** 9.3 is the next branch. Items 9.3 and 9.4 are large (a TLS
+implementation and a protocol client in a runtime that has no third-party
+crate dependencies today), so each gets its own ADR before code is written.
+
 ### P0 — This plan (branch `plan/v1.0`)
 - Single plan document, binary-model decision, budget table, phase contract.
 - **Done when:** this file exists and `ROADMAP.md` points at it.

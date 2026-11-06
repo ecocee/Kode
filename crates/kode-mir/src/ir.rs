@@ -93,6 +93,8 @@ pub enum RtFn {
     IntToStr,
     FloatToStr,
     BoolToStr,
+    /// The text of a list or map; the second argument is a type descriptor.
+    Repr,
     StrLen,
     ListNew,
     ListPush,

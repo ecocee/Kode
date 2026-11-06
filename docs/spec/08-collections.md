@@ -35,7 +35,23 @@ evens = xs.filter(|x: int| x % 2 == 0)  # [2, 4]
 
 - The function must take one item of the list's type and return a value (E0242);
   the function given to `filter` must return a `bool`.
-- Not yet: integer map keys, printing a whole list.
+- Not yet: integer map keys.
+
+## Printing a collection
+
+```
+print([1, 2, 3])                 # [1, 2, 3]
+print(["a", "b"])               # ["a", "b"]
+print({"name": "Asha", "age": 3})   # {"name": "Asha", "age": 3}
+print("xs: ${xs}")              # xs: [1, 2, 3]
+print([[1], [2, 3]])            # [[1], [2, 3]]
+```
+
+- A list or map prints when its items print. Strings inside a collection are
+  quoted and escaped, so `["a, b"]` and `["a", "b"]` stay distinct.
+- Maps print in insertion order; keys are strings, so they are quoted.
+- Classes, enums, interfaces, functions, tasks and channels inside a collection are
+  E0203: loop over it and print the parts. See ADR 0031.
 
 ## Slices
 
