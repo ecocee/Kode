@@ -121,7 +121,11 @@ pub unsafe extern "C" fn kode_http_serve(port: i64, handler: Handler) {
     let listener = TcpListener::bind(("0.0.0.0", port as u16))
         .unwrap_or_else(|e| fatal(&format!("cannot listen on port {port}: {e}")));
     eprintln!("kode: listening on http://localhost:{port}");
-    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).max(4);
+    let workers = std::env::var("KODE_HTTP_WORKERS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).max(4));
     let h = handler as usize;
     let mut threads = Vec::new();
     for _ in 0..workers {

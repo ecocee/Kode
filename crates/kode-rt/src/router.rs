@@ -339,7 +339,11 @@ pub unsafe extern "C" fn kode_http_serve_router(port: i64, router: *mut Header) 
     let listener = TcpListener::bind(("0.0.0.0", port as u16))
         .unwrap_or_else(|e| fatal(&format!("cannot listen on port {port}: {e}")));
     eprintln!("kode: listening on http://localhost:{port}");
-    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).max(4);
+    let workers = std::env::var("KODE_HTTP_WORKERS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).max(4));
     let mut threads = Vec::new();
     for _ in 0..workers {
         let l = listener.try_clone().unwrap_or_else(|e| fatal(&format!("cannot share the socket: {e}")));
