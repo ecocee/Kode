@@ -56,3 +56,15 @@ dump.
 - Console colour: `kode` relies on the terminal reporting itself as a TTY;
   Windows Terminal does, older `cmd.exe` may not.
 - Paths longer than 260 characters are not handled specially.
+
+## Releases on Windows
+
+A release is published from a Git tag and, for Windows, ships these files:
+
+- `kode-<version>-windows-x86_64.zip` — the `kode.exe` binary plus README,
+  CHANGELOG, the two editor docs, zipped with 7-Zip.
+- `kode-<version>-windows-x86_64.exe` — the `kode.exe` binary by itself, so it
+  can be downloaded and dropped in a folder without unzipping.
+
+The binary is a single MinGW-w64 build, statically linked by default, and needs
+no C runtime beside it.

@@ -13,26 +13,46 @@ binaries plus notes. Nothing is installed at run time.
    in `docs/adr/`.
 3. **Changelog.** Add a section to `CHANGELOG.md` with `Added`, `Changed` and
    `Fixed`. It becomes the release body.
-4. **Tag.** `git tag v0.3.0 && git push origin v0.3.0`. The release workflow
-   builds five artifacts:
+4. **Tag.** `git tag v<version> && git push origin v<version>`. The release
+   workflow (`.github/workflows/release.yml`) builds five groups of artifacts,
+   one per platform. It also pins the source files (README, CHANGELOG, the two
+   editor docs) next to each binary.
 
-   | Artifact | Runner | Notes |
-   |---|---|---|
-   | `kode-linux-x86_64.tar.gz` | `ubuntu-latest` | glibc |
-   | `kode-linux-aarch64.tar.gz` | `ubuntu-24.04-arm` | glibc |
-   | `kode-macos-x86_64.tar.gz` | `macos-13` | Intel |
-   | `kode-macos-aarch64.tar.gz` | `macos-latest` | Apple silicon |
-   | `kode-windows-x86_64.zip` | `windows-latest` | MinGW-w64 build |
+   | Platform | Release files |
+   |---|---|
+   | Linux x86-64 | `kode-<version>-linux-x86_64.tar.gz`, `kode-<version>-linux-x86_64.deb` |
+   | Linux aarch64 | `kode-<version>-linux-aarch64.tar.gz`, `kode-<version>-linux-aarch64.deb` |
+   | macOS Intel | `kode-<version>-macos-x86_64.tar.gz`, `kode-<version>-macos-x86_64.dmg` |
+   | macOS Apple silicon | `kode-<version>-macos-aarch64.tar.gz`, `kode-<version>-macos-aarch64.dmg` |
+   | Windows x86-64 | `kode-<version>-windows-x86_64.zip`, `kode-<version>-windows-x86_64.exe` |
+
+   Each file is also checksummed and published as `SHA256SUMS-<platform>.txt`.
 
 5. **Check one artifact by hand.** Unpack it, run `kode --version`,
    `kode doctor`, and compile a program that uses the standard library. A
    release is published only after that.
 
-## Why one binary per platform, not one universal download
+   On Linux you can also install the `.deb` and run the compiler directly:
+   `sudo dpkg -i kode_<version>_<arch>.deb`, or via
+   `apt install ./kode_<version>_<arch>.deb`.
+
+## Why installers, not one universal download
 
 `kode` is native code that links a native runtime archive, so a binary is tied to
 its operating system and architecture. That is the same trade the Go and Zig
 toolchains make: no VM, no shared runtime, nothing to install alongside it.
+
+Installers are the same shape other native toolchains ship: a tarball you unpack,
+a `.deb` you install on Linux, a `.dmg` you drop into `/Applications` on macOS, and
+a `.zip` plus a standalone `.exe` on Windows. The release workflow produces all of
+these from one tag so each platform gets its normal distribution shape.
+
+## Checksums
+
+Every release file is accompanied by `SHA256SUMS-<platform>.txt` with one
+`sha256sum` line per file. The release workflow also publishes a combined
+`SHA256SUMS.txt` for the whole release. Find a specific file with
+`grep kode-<version>-<platform> SHA256SUMS.txt`.
 
 ## What a release does not include
 

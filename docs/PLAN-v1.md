@@ -14,12 +14,12 @@ one commit set, so `git log` reads like the plan.
 | Language | int/float/bool/string, lists, maps, classes, enums, interfaces, `match`, `try`/`catch`, `T?`, packages, modules | `finally`, channels, `int?` + narrowing, `weak` fields |
 | Standard library | strings, lists, maps, files, args, env, sort, JSON, HTTP client, server, router, math, time | collection helpers (`contains`, `index_of`, `reverse`, `insert`, …), `map.values()`, string ergonomics |
 | Errors | stable codes, hints, JSON output, `kode explain` | suggestions everywhere, `finally`, better runtime messages |
-| Tooling | run/build/check/test/fmt/explain/mir, JSON diagnostics | language server, `kode doc`, `kode doctor`, editor integration |
+| Tools | run/build/check/test/fmt/explain/mir/lsp/doc/doctor, JSON diagnostics | language server, `kode doc`, `kode doctor`, editor integration |
 | Packages | `kode.toml` with one source root, `import ... as`, `pub` | dependencies (path first), `kode.lock`, `kode add/install`, reuse across projects |
 | Performance | Cranelift, inlining, if-conversion, RC strings/objects | measured numbers per release, RSS budget, `--release` tuning |
 | Concurrency | `spawn` / `await`, `Task<T>`, atomic RC | channels, task cancellation/timeout |
-| Portability | macOS, Linux (x86-64/arm64) | Windows (MinGW-w64 first), documented cross-compilation |
-| Docs | spec chapters, ADRs, cheat sheet | generated API docs, docs site build, editor setup |
+| Portability | macOS, Linux (x86-64/arm64) | Windows (MinGW-w64 first), documented cross-compilation, per-platform installers |
+| Docs | spec chapters, ADRs, cheat sheet, editors guide | generated API docs, docs site build, editor setup |
 
 ## 2. Binary model: one compiler, one binary per program
 
@@ -149,10 +149,12 @@ Status at the end of the first implementation session:
 - **Done when:** `--format=json` output is unchanged, piping produces no escape codes,
   and `kode doctor` reports a usable toolchain on a clean machine.
 
-### P6 — Docs and Windows (branch `feat/docs-windows`)
-- `kode doc <folder> -o docs/api`: HTML API reference from `pub` items, no dependencies.
-- `docs/site/` build script that assembles the spec, ADRs, error index and API pages.
-- Windows: linker discovery for MinGW-w64 (`gcc`/`cc`), MSVC detection with a clear
+### P6 — Docs and Windows (branch `feat/docs-windows`)  - `kode doc <folder> -o docs/api`: HTML API reference from `pub` items, no dependencies.
+  - `docs/site/` build script that assembles the spec, ADRs, error index and API pages.
+  - Release files: `docs/releasing.md` describes the per-platform installers the
+    release workflow now produces.
+  - Windows: linker discovery for MinGW-w64 (`gcc`/`cc`), MSVC detection with a clear
+
   message, documented status and limits.
 - **Done when:** `kode doc` generates a browsable site for `examples/`, and the Windows
   path either links or fails with an actionable message.

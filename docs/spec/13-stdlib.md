@@ -65,6 +65,13 @@ res = http.get("http://localhost:8080/hello")
 `math.min` and `math.max` take two floats. `floor`, `ceil` and `round` return floats, like
 Python. A variable with the same name shadows a module.
 
+## Release files and installers
+
+A release is published from a tag and produces a binary per platform plus notes
+(see `docs/releasing.md`). The release workflow produces a tarball plus a native
+installer for each platform: a `.deb` on Linux, a `.dmg` disk image on macOS, and
+a `.zip` plus a standalone `.exe` on Windows. Downloads are checksummed.
+
 ## Web server
 
 ```

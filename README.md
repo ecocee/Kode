@@ -34,7 +34,7 @@ checker; errors with codes, hints and JSON output; **interfaces** with `implemen
 dispatch; **bit operators** `& | ^ ~ << >>` with compound assignment; and **standard-library
 namespaces** like `json.parse`, `math.sqrt` and `http.get`.
 
-Tools: `kode run | build | check | test | fmt | explain | mir | lsp`, and packages:
+Tools: `kode run | build | check | test | fmt | explain | mir | lsp | doctor`, and packages:
 `kode init | new | add | remove | install` with path dependencies and a checked-in `kode.lock`.
 
 **Tasks** (`spawn` / `await`), a **web server** (`serve`, or a **Router** with `Request`/`Response`), **JSON**, an **HTTP client**, strings, files, arguments and sorting are in too.
@@ -62,6 +62,9 @@ export PATH="$PWD/target/debug:$PATH"
 kode run examples/tour.kode
 ```
 
+On Windows, create the compiler with the GNU Rust toolchain and MinGW-w64
+(see `docs/windows.md`); the release workflow also builds for Windows that way.
+
 ## Commands
 
 | Command | What it does |
@@ -77,6 +80,8 @@ kode run examples/tour.kode
 | `kode add <name> --path <dir>` | add a path dependency |
 | `kode remove <name>` | remove a dependency |
 | `kode install [--check]` | resolve dependencies and write `kode.lock` |
+| `kode doctor` | print version, target, linker, runtime ABI, package state |
+| `kode doc <folder> [-o out]` | HTML reference for `pub` items |
 | `kode tokens file.kode` | print tokens (debugging) |
 | `kode ast file.kode` | print the syntax tree (debugging) |
 | `kode mir file.kode` | print the MIR, including retain/release (debugging) |
@@ -100,6 +105,7 @@ tests/compile-fail/   programs that must fail (.kode + .err with the error code)
 examples/             small programs
 benchmarks/           proof of the cost claims
 docs/                 spec, cheat sheet, design notes, decisions (ADRs), roadmap, error codes
+.github/workflows/    CI (test.yml) and release (release.yml)
 ```
 
 Start with [`docs/cheatsheet.md`](docs/cheatsheet.md) for the shape of the language and

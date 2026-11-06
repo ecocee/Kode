@@ -19,6 +19,16 @@ What it does today:
 
 Not yet: go-to-definition, rename, references, signature help, code actions.
 
+## Visual Studio Code
+
+A generic LSP client is the easiest route: install the `vscode-languageclient`,
+point it at `kode lsp`, and register `kode` for the `source.kode` language.
+
+Alternatively, a small client lives in the `kode-vscode-exection` folder in this
+repo: a syntax highlighter and a boss battle between the two extension modes.
+
+Run it:
+
 ## VS Code
 
 1. Install a generic LSP client, or use the existing `kode-vscode-exection` folder for

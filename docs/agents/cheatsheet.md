@@ -61,6 +61,6 @@ Modules: `json.parse(t) json.stringify(v) json.object()`  `math.sqrt(2.0) math.p
 Bits: `a & b  a | b  a ^ b  ~a  a << n  a >> n`  `x &= y  x |= y  x ^= y  x <<= n  x >>= n`  (ints only; shifts of 64+ give 0)
 
 Built-ins: `print(...)`, `len(x)`, `int(x)`, `float(x)`, `string(x)`, `assert(cond)`.
-Commands: `kode run|build|check|test|fmt|explain|mir`. Use `kode check --format=json` for errors
+Commands: `kode run|build|check|test|fmt|explain|mir|lsp|doc|doctor`. Use `kode check --format=json` for errors
 and `kode explain E0201` for help. Strict rules: no implicit conversions, no truthy values, no
 inheritance, no semicolons, one statement per line.

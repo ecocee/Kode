@@ -51,6 +51,9 @@ fn run_pass() {
             if skip {
                 continue;
             }
+            if skip {
+                continue;
+            }
         }
         // A checkout made with `core.autocrlf` on Windows can still hand us CRLF;
         // the programs themselves always print LF.

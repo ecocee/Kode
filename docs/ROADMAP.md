@@ -3,6 +3,11 @@
 For the working plan behind these milestones — branches, budgets and acceptance checks —
 see [PLAN-v1.md](PLAN-v1.md).
 
+Releases are cut from a tag and ship a binary per platform plus notes
+(see `docs/releasing.md`). The release workflow now also produces a native
+installer for each platform — a `.deb` on Linux, a `.dmg` on macOS, and a `.zip`
+plus standalone `.exe` on Windows.
+
 Goal: a language that serves more requests per cloud server than Java, Node and Python,
 is simple to write, and is easy for AI agents to use.
 

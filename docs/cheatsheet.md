@@ -41,7 +41,7 @@ if score != none {
 ## Lists, maps and slices
 
 ```
-xs = [3, 1, 2]
+xs = [1, 2, 3]
 xs.add(10)                  # append
 xs.sort()                   # [int], [float], [string]
 print(xs[0], xs.len(), len(xs))
@@ -60,7 +60,7 @@ part.add(99)                # the original is unchanged
 doubled = xs.map(|x: int| x * 2)
 evens = xs.filter(|x: int| x % 2 == 0)
 
-ages = {"asha": 30}
+ages = {"asha": 30, "ravi": 25}
 ages["ravi"] = 25
 for k, v in ages { print(k, v) }         # insertion order
 for i, x in xs { print(i, x) }
@@ -188,7 +188,19 @@ kode doc src -o docs/api     # HTML reference for pub items
 kode explain E0220           # what a code means
 kode lsp                     # language server on stdio
 kode doctor                  # version, target, linker, runtime ABI
+kode init [name]             # make the current folder a package
+kode new <name>              # make a package in a new folder
+kode add <name> --path <dir> # add a path dependency, then install
+kode remove <name>           # remove a dependency, then install
+kode install [--check]       # resolve dependencies and write kode.lock
 ```
+
+## Release files and installers
+
+A release is published from a tag and produces a binary per platform plus notes
+(see `docs/releasing.md`). The release workflow produces a tarball plus a native
+installer for each platform: a `.deb` on Linux, a `.dmg` disk image on macOS, and
+a `.zip` plus a standalone `.exe` on Windows. Downloads are checksummed.
 
 ## Generics
 

@@ -96,7 +96,6 @@ cargo test --workspace                       # conformance + leak checks
 bash docs/site/build.sh
 ```
 
-## How to continueGeneric functions are ADR 0030 with `tests/run-pass/{generics,generics_nested}.kode`.
-  Keep every stage green: `cargo test --workspace` must pass before each commit,
+## Reproduce the current state:  Keep every stage green: `cargo test --workspace` must pass before each commit,
   and the Rust compiler must remain able to build every Kode program in `tests/`.
 
