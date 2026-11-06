@@ -4,6 +4,12 @@ const INDEX: &str = include_str!("../../../docs/errors/index.md");
 
 /// (code, what goes wrong, example that fails, how it looks fixed)
 const DETAILS: &[(&str, &str, &str, &str)] = &[
+    (
+        "E0118",
+        "The syntax tree is too deep for the compiler to walk. Recursive passes (parser, type checker, MIR lowering, code generator) each need a stack frame per level, so the limit is 128. Long `+` chains count one level per term.",
+        "x: int = 1 + 1 + 1 + ... (129 terms) — or 129 nested parentheses, or 43 nested if blocks",
+        "x: int = a + b\ny: int = x + c\n// or build the long list with a loop",
+    ),
     ("E0201", "A name is used before it was created, or it is spelled differently.", "name = \"Asha\"\nprint(nme)", "name = \"Asha\"\nprint(name)"),
     ("E0202", "A variable keeps the type of its first value. A different type cannot be stored in it.", "x = 1\nx = \"one\"", "x = 1\nx = 2"),
     (

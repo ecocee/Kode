@@ -3,6 +3,16 @@
 Release notes for the `kode` compiler. Versions follow the binary, not the
 language: a patch release fixes bugs, a minor release may add syntax.
 
+## Unreleased
+
+### Fixed
+
+- Deeply nested input no longer crashes the compiler. 300 nested parentheses, a
+  2,000-term `+` chain and 500 nested `if` blocks used to abort with a stack
+  overflow and exit code 134; they now report `E0118` with a hint. The limit is
+  128 levels (ADR 0032), checked both while parsing and by an iterative walk of
+  the finished tree that also covers `kode fmt` and `kode lsp`.
+
 ## 0.3.5
 
 The `version` in `Cargo.toml` now matches the latest tag. Tags `v0.3.1` through

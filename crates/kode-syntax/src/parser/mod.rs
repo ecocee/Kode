@@ -22,20 +22,42 @@ pub fn parse_from(tokens: Vec<Token>, first_id: u32) -> Result<Program, Vec<Diag
     let mut p = Parser::new(tokens, first_id);
     let items = p.parse_items();
     if p.errors.is_empty() {
-        Ok(Program {
+        let program = Program {
             items,
             expr_count: p.next_id,
-        })
+        };
+        // The parser guards its own recursion; this catches trees that a loop
+        // built (a long `+` chain is left-deep) before the type checker sees
+        // them.
+        if let Some(span) = crate::depth::too_deep(&program) {
+            return Err(vec![crate::depth::diagnostic(span)]);
+        }
+        Ok(program)
     } else {
         Err(p.errors)
     }
 }
+
+/// The deepest nesting the parser accepts, counted in expressions, statements
+/// and types as it recurses.
+///
+/// Recursive descent uses a few frames per level, and the type checker, MIR
+/// lowering and the code generator recurse over the same tree later. Without a
+/// limit, a few hundred levels of `(` exhaust the 8 MB main stack and abort the
+/// compiler with no diagnostic (see `docs/STATUS.md`). 128 levels is far more
+/// than hand-written code needs and far less than any of those passes can take.
+pub(crate) const MAX_NESTING: u32 = 128;
 
 pub(crate) struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     pub(crate) next_id: u32,
     pub(crate) errors: Vec<Diagnostic>,
+    /// Current recursion depth. Guarded by [`MAX_NESTING`].
+    depth: u32,
+    /// Set by the first depth error: from then on the tree is unreliable, so
+    /// parsing stops rather than reporting every enclosing level.
+    pub(crate) fatal: bool,
 }
 
 impl Parser {
@@ -45,7 +67,21 @@ impl Parser {
             pos: 0,
             next_id,
             errors: Vec::new(),
+            depth: 0,
+            fatal: false,
         }
+    }
+
+    /// The diagnostic for nesting past [`MAX_NESTING`]. Emitted wherever a
+    /// recursive production would go one level deeper.
+    pub(crate) fn too_deep(&mut self) -> Diagnostic {
+        self.fatal = true;
+        Diagnostic::error(
+            "E0118",
+            format!("this nests deeper than {MAX_NESTING} levels"),
+            self.span(),
+        )
+        .with_help("split it up: bind part of it to a variable on its own line, or use a loop")
     }
 
     pub(crate) fn peek(&self) -> &TokenKind {
@@ -132,6 +168,17 @@ impl Parser {
     }
 
     pub(crate) fn type_ann(&mut self) -> Result<TypeAnn, Diagnostic> {
+        // `[int]`, `{string: [int]}` and `fn(int) -> int` recurse too.
+        if self.depth >= MAX_NESTING {
+            return Err(self.too_deep());
+        }
+        self.depth += 1;
+        let parsed = self.type_ann_at();
+        self.depth -= 1;
+        parsed
+    }
+
+    fn type_ann_at(&mut self) -> Result<TypeAnn, Diagnostic> {
         let start = self.span();
         let kind = match self.peek().clone() {
             TokenKind::Ident(name)

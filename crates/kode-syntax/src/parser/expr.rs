@@ -40,6 +40,18 @@ fn infix(kind: &TokenKind) -> Option<(BinOp, u8, u8)> {
 
 impl Parser {
     pub(crate) fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
+        // Every recursive descent into an expression comes through here, so the
+        // depth guard lives here and not in the operators.
+        if self.depth >= super::MAX_NESTING {
+            return Err(self.too_deep());
+        }
+        self.depth += 1;
+        let parsed = self.parse_expr_at(min_bp);
+        self.depth -= 1;
+        parsed
+    }
+
+    fn parse_expr_at(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
         let mut lhs = self.parse_prefix()?;
         loop {
             if matches!(self.peek(), TokenKind::QuestionQuestion) && min_bp <= 1 {

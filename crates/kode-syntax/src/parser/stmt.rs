@@ -8,6 +8,16 @@ use crate::token::TokenKind;
 impl Parser {
     /// `{ ... }` with one statement per line.
     pub(crate) fn parse_block(&mut self) -> Result<Block, Diagnostic> {
+        if self.depth >= super::MAX_NESTING {
+            return Err(self.too_deep());
+        }
+        self.depth += 1;
+        let parsed = self.parse_block_at();
+        self.depth -= 1;
+        parsed
+    }
+
+    fn parse_block_at(&mut self) -> Result<Block, Diagnostic> {
         let open = self.expect(TokenKind::LBrace, "`{`")?;
         let mut stmts = Vec::new();
         loop {
@@ -32,6 +42,12 @@ impl Parser {
             match result {
                 Ok(s) => stmts.push(s),
                 Err(e) => {
+                    // A depth error means every enclosing block is unreadable
+                    // too, so stop instead of reporting the same thing at each
+                    // level of the leftover `}`s.
+                    if self.fatal {
+                        return Err(e);
+                    }
                     self.errors.push(e);
                     self.recover();
                 }

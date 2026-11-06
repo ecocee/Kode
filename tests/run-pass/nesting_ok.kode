@@ -1,0 +1,70 @@
+// Just under the 128-level limit, measured the way the walker measures it:
+// each nested `if` costs a block, a statement and an expression, and each
+// chained `+` adds one level.
+total = 0
+if total < 1000 {
+    if total < 1000 {
+        if total < 1000 {
+            if total < 1000 {
+                if total < 1000 {
+                    if total < 1000 {
+                        if total < 1000 {
+                            if total < 1000 {
+                                if total < 1000 {
+                                    if total < 1000 {
+                                        if total < 1000 {
+                                            if total < 1000 {
+                                                if total < 1000 {
+                                                    if total < 1000 {
+                                                        if total < 1000 {
+                                                            if total < 1000 {
+                                                                if total < 1000 {
+                                                                    if total < 1000 {
+                                                                        if total < 1000 {
+                                                                            if total < 1000 {
+                                                                                if total < 1000 {
+                                                                                    if total < 1000 {
+                                                                                        if total < 1000 {
+                                                                                            if total < 1000 {
+                                                                                                if total < 1000 {
+                                                                                                    if total < 1000 {
+                                                                                                        if total < 1000 {
+                                                                                                            if total < 1000 {
+                                                                                                                if total < 1000 {
+                                                                                                                    if total < 1000 {
+                                                                                                                        total = total + 1
+                                                                                                                    }
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+one: int = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+two: int = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+print(total)
+print(one)
+print(two)

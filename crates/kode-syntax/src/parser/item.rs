@@ -37,6 +37,9 @@ impl Parser {
                 }
                 Err(e) => {
                     self.errors.push(e);
+                    if self.fatal {
+                        break;
+                    }
                     self.recover();
                 }
             }

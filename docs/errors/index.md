@@ -27,6 +27,7 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0107 | expected `=` after a declared type |
 | E0108 | a range loop has exactly one variable |
 | E0110 | expected a name |
+| E0118 | the expression, block or type nests deeper than 128 levels |
 
 ## Variables and expressions (E02xx)
 

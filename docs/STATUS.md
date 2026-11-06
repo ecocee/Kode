@@ -257,10 +257,10 @@ Fuzzing-style probes run against `kode check` in this audit:
   - 300 nested parentheses crash; 200 is fine.
   - a 2,000-term `+` chain crashes; 1,000 is fine.
   - 500 nested `if` blocks crash; 400 is fine.
-  These are recursion-depth limits in the parser/lowering with no guard. A
+  These were recursion-depth limits in the parser/lowering with no guard. A
   generated program (long concatenations, machine-written literals, deep JSON)
-  hits the `+` case realistically. Fix: a depth counter with a diagnostic
-  (new error code), not a bigger stack.
+  hits the `+` case realistically. **Fixed on `fix/depth-limit`** with a guard
+  and a new error code, not a bigger stack (§10).
 - `cargo clippy --workspace` fails on pre-existing code, deny-by-default:
   `mut_from_ref` ×3 in `Raw::len/cap/ptr` (`crates/kode-rt/src/list.rs:14-20`),
   a redundant closure (`list.rs:299`), a manual char comparison
@@ -312,6 +312,16 @@ verified by running the site build), 4.9 (`LICENSE` added), 4.11 (`Cargo.toml` i
 `0.3.5`, matching the latest tag; CHANGELOG gains a 0.3.5 section), 4.12
 (generics page intro). `SECURITY.md` added. `dist/` untracked and ignored;
 `benchmarks/report.md` regenerated.
+
+### `fix/depth-limit`
+
+§3 crash probes are fixed: 300 nested parentheses, a 2,000-term `+` chain and
+500 nested `if` blocks now report `E0118` instead of aborting with exit code
+134. The limit is 128 levels, enforced while parsing and again by an iterative
+walk of the finished tree; `kode fmt` is line-based and never recursed, and
+`kode lsp` parses through the same entry point. ADR 0032, tests
+`tests/compile-fail/deep_{parens,chain,blocks}.kode` and
+`tests/run-pass/nesting_ok.kode`.
 
 Still open, needs a human or approval:
 
