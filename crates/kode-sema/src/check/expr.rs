@@ -1036,6 +1036,33 @@ impl Checker {
     }
 
     fn method_call(&mut self, id: ExprId, obj: &Expr, name: &str, name_span: Span, args: &[Arg], span: Span) -> Option<Type> {
+        // `Color.Red(1)`: a variant carrying a payload. The language has no enum
+        // payloads yet, and without this the reader gets "unknown variable
+        // `Color`" for what is a recognizable shape from other languages.
+        if let ExprKind::Ident(n) = &obj.kind {
+            let is_plain_name = self.scopes.peek_var(n).is_none()
+                && !self.consts.contains_key(n)
+                && self.field_of_current_class(n).is_none()
+                && self.module_alias(n).is_none();
+            if is_plain_name {
+                if let Some(&ei) = self.enum_index.get(n.as_str()) {
+                    if self.enums[ei].variants.iter().any(|v| v == name) {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0253",
+                                format!("`{n}.{name}(...)`: enum payloads are not supported yet"),
+                                span,
+                            )
+                            .with_help(
+                                "give the value fields with a class instead, or drop the payload; \
+                                 payloads are planned in docs/ROADMAP.md",
+                            ),
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
         // `Response.json(doc)` / `Response.text(text)` read like Express helpers.
         if let ExprKind::Ident(n) = &obj.kind {
             if n == "Response"

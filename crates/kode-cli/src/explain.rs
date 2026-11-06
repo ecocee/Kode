@@ -31,6 +31,18 @@ const DETAILS: &[(&str, &str, &str, &str)] = &[
     ("E0222", "An empty list or map has no type until you declare one.", "xs = []", "xs: [int] = []"),
     ("E0224", "A `match` must handle every case. Add the missing cases or a `_ =>` arm.", "match x {\n    1 => print(1)\n}", "match x {\n    1 => print(1)\n    _ => print(0)\n}"),
     ("E0227", "A `catch` block must end with a value (when used as an expression) or leave with return, break, continue or throw.", "v = f() catch e {\n    print(e.message)\n}", "v = f() catch e {\n    print(e.message)\n    0\n}"),
+    (
+        "E0253",
+        "An enum variant was given a value. Kode enums are a fixed set of names; a variant cannot carry a payload yet.",
+        "enum Shape {\n    Circle\n}\ns: Shape = Shape.Circle(1)",
+        "class Circle {\n    r: int\n}\nc = Circle(r: 1)",
+    ),
+    (
+        "E0303",
+        "A type name is unknown. Kode has int (64-bit), float (64-bit), bool, string, classes, interfaces and enums, lists [T], maps {string: T}, optionals T?, Task<T>, Channel<T> and function types fn(T) -> U. Fixed-width numbers such as u8 or i32 are planned, not available.",
+        "x: u8 = 1",
+        "x: int = 1",
+    ),
     ("E0301", "A function, class or enum name is used twice (also across imported files).", "fn f() {\n}\nfn f() {\n}", "fn f() {\n}\nfn g() {\n}"),
     ("E0305", "A function that returns a value must return on every path.", "fn f(a: int) -> int {\n    if a > 0 {\n        return 1\n    }\n}", "fn f(a: int) -> int {\n    if a > 0 {\n        return 1\n    }\n    return 0\n}"),
     ("E0401", "An imported file was not found. The path is relative to the importing file; `.kode` is added for you.", "import \"./missing\"", "import \"./util\""),

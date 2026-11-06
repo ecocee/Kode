@@ -27,6 +27,12 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0107 | expected `=` after a declared type |
 | E0108 | a range loop has exactly one variable |
 | E0110 | expected a name |
+| E0111 | expected a type name, or a parameter has no type |
+| E0112 | this cannot be assigned to |
+| E0114 | expected a field name or a method signature |
+| E0115 | map keys must be strings |
+| E0116 | expected a string literal (module paths and test names are plain strings) |
+| E0117 | `spawn` needs a function call |
 | E0118 | the expression, block or type nests deeper than 128 levels |
 
 ## Variables and expressions (E02xx)
@@ -65,12 +71,17 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0231 | `await` needs a task |
 | E0232 | the `serve` handler must be a function `(string, string, string) -> string`, or a `Router` |
 | E0233 | the route handler must be a function `(req: Request) -> Response` |
+| E0234 | a class says it implements an interface but a method is missing |
+| E0235 | a method does not match the signature the interface declares |
+| E0236 | an interface method has no body |
+| E0239 | too many classes (the limit is 256) |
 | E0240 | a channel is used before its payload type is known |
 | E0241 | a closure parameter needs a type |
 | E0242 | bad function value: `map`/`filter` callback, or `this` used inside a closure |
 | E0250 | cannot infer a type parameter of a generic function |
 | E0251 | a generic function cannot be used as a value |
 | E0252 | a method cannot have type parameters yet |
+| E0253 | enum payloads are not supported yet (`Shape.Circle(1)`) |
 
 ## Declarations and statements (E03xx)
 
@@ -78,12 +89,17 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 |---|---|
 | E0301 | function, class, enum or method defined twice |
 | E0302 | name is a built-in function |
-| E0303 | unknown type name |
+| E0303 | unknown type name (the hint lists the available types, and says fixed-width numbers such as `u8` are planned) |
 | E0304 | `=>` body does not match the declared type |
 | E0305 | not every path returns a value |
 | E0306 | parameter or field name used twice |
 | E0307 | constant is not a plain value |
 | E0308 | constant defined twice |
+| E0310 | `return` has a value in a function that returns nothing |
+| E0311 | `return` has a value at top level |
+| E0312 | a constant cannot be assigned to |
+| E0313 | the name is already declared in this scope |
+| E0314 | `break` or `continue` outside a loop |
 
 ## Imports (E04xx)
 

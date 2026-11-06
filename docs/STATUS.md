@@ -313,6 +313,17 @@ verified by running the site build), 4.9 (`LICENSE` added), 4.11 (`Cargo.toml` i
 (generics page intro). `SECURITY.md` added. `dist/` untracked and ignored;
 `benchmarks/report.md` regenerated.
 
+### `fix/diagnostics-for-missing-features`
+
+§3's two misleading errors are fixed without changing behavior: `Shape.Circle(1)`
+is `E0253` ("enum payloads are not supported yet", hint to use a class, pointer
+to `docs/ROADMAP.md`), and `x: u8 = 1` keeps
+`E0303` but its hint lists the available types and says fixed-width numbers are
+planned. The 15 codes that were missing from `docs/errors/index.md`
+(`E0111`-`E0117`, `E0234`-`E0239`, `E0310`-`E0314`) now have rows, so `kode
+explain` answers for every code the compiler emits. Tests:
+`tests/compile-fail/enum_payload.kode`, `tests/compile-fail/fixed_width_int.kode`.
+
 ### `fix/clippy`
 
 `cargo clippy --workspace --all-targets -- -D warnings` is now clean. The three

@@ -7,6 +7,22 @@ use super::{Checker, ClassInfo, ConstVal, EnumInfo, FieldInfo, FnSig, IfaceMetho
 use crate::builtins;
 use crate::types::Type;
 
+/// The types a written annotation can name, in one place so every "unknown
+/// type" hint stays true.
+const AVAILABLE_TYPES: &str = "The types are int, float, bool, string, your classes, interfaces and \
+                              enums, [T] for a list, {string: T} for a map, T? for an optional, \
+                              Task<T>, Channel<T> and fn(T) -> U";
+
+/// `u8`, `i32`, `uint16`, `f64`: fixed-width names from other languages. Kode
+/// has one `int` and one `float`, both 64-bit, and no sized variants yet.
+fn is_fixed_width_number(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let digits = lower.trim_start_matches(|c: char| !c.is_ascii_digit());
+    let prefix = &lower[..lower.len() - digits.len()];
+    matches!(prefix, "u" | "i" | "uint" | "f")
+        && matches!(digits, "8" | "16" | "32" | "64" | "128")
+}
+
 impl Checker {
     pub(crate) fn resolve_type(&mut self, ann: &TypeAnn) -> Option<Type> {
         match &ann.kind {
@@ -20,9 +36,17 @@ impl Checker {
                 } else if self.enum_index.contains_key(n) {
                     Some(Type::Enum(n.clone()))
                 } else {
+                    let help = if is_fixed_width_number(n) {
+                        format!(
+                            "`{n}` is a fixed-width number, which Kode does not have yet (planned; see \
+                             docs/ROADMAP.md). `int` is already 64-bit and `float` is 64-bit. "
+                        ) + AVAILABLE_TYPES
+                    } else {
+                        AVAILABLE_TYPES.to_string()
+                    };
                     self.errors.push(
                         Diagnostic::error("E0303", format!("unknown type `{n}`"), ann.span)
-                            .with_help("the types are int, float, bool, string, your classes, interfaces and enums, [T], {string: T} and T?"),
+                            .with_help(help),
                     );
                     None
                 }
