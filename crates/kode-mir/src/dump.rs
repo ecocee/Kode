@@ -24,6 +24,8 @@ fn op(p: &MirProgram, o: &Operand) -> String {
         Operand::NullRef => "null".to_string(),
         Operand::Thunk(i) => format!("thunk{i}"),
         Operand::FuncAddr(i) => format!("&fn{i}"),
+        Operand::ClosureFn(i) => format!("&closure{i}"),
+        Operand::FnVal(i) => format!("&fnval{i}"),
     }
 }
 
@@ -65,6 +67,13 @@ pub fn dump(p: &MirProgram) -> String {
                         match dst {
                             Some(d) => format!("_{d} = call {name}({})", args.join(", ")),
                             None => format!("call {name}({})", args.join(", ")),
+                        }
+                    }
+                    Inst::CallIndirect { dst, callee, args } => {
+                        let args: Vec<String> = args.iter().map(|a| op(p, a)).collect();
+                        match dst {
+                            Some(d) => format!("_{d} = call {} with ({})", op(p, callee), args.join(", ")),
+                            None => format!("call {} with ({})", op(p, callee), args.join(", ")),
                         }
                     }
                     Inst::Load { dst, base, offset, .. } => format!("_{dst} = load {}+{offset}", op(p, base)),

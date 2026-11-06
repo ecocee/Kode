@@ -1,0 +1,19 @@
+jobs: Channel<int> = channel()
+done: Channel<string> = channel()
+
+fn produce(out: Channel<int>, last: Channel<string>) {
+    for i in 0..5 {
+        send(out, i * 2)
+    }
+    send(last, "finished")
+}
+
+t = spawn produce(jobs, done)
+
+sum = 0
+for i in 0..5 {
+    sum += recv(jobs)
+}
+print(recv(done))
+await t
+print(sum)

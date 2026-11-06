@@ -27,12 +27,40 @@ impl Checker {
                     None
                 }
             }
-            TypeAnnKind::List(inner) => Some(Type::List(Box::new(self.resolve_type(inner)?))),
-            TypeAnnKind::Map(inner) => Some(Type::Map(Box::new(self.resolve_type(inner)?))),
+            TypeAnnKind::List(inner) => {
+                let t = self.resolve_type(inner)?;
+                if crate::types::is_opt_scalar(&t).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0219", format!("a list of `{}` is not supported yet", t.name()), ann.span)
+                            .with_help("keep the value and a `bool` in a class or two separate lists for now"),
+                    );
+                    return None;
+                }
+                Some(Type::List(Box::new(t)))
+            }
+            TypeAnnKind::Map(inner) => {
+                let t = self.resolve_type(inner)?;
+                if crate::types::is_opt_scalar(&t).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0219", format!("a map of `{}` is not supported yet", t.name()), ann.span)
+                            .with_help("keep the value and a `bool` in a class for now"),
+                    );
+                    return None;
+                }
+                Some(Type::Map(Box::new(t)))
+            }
+            TypeAnnKind::Fn(params, ret) => {
+                let ps: Vec<Type> = params
+                    .iter()
+                    .map(|p| self.resolve_type(p))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(Type::Fn(ps, Box::new(self.resolve_type(ret)?)))
+            }
             TypeAnnKind::Task(inner) => Some(Type::Task(Box::new(self.resolve_type(inner)?))),
+            TypeAnnKind::Channel(inner) => Some(Type::Chan(Box::new(self.resolve_type(inner)?))),
             TypeAnnKind::Opt(inner) => {
                 let t = self.resolve_type(inner)?;
-                if !t.is_ref() {
+                if !t.is_ref() && !matches!(t, Type::Int | Type::Float | Type::Bool) {
                     self.errors.push(
                         Diagnostic::error(
                             "E0219",
@@ -185,6 +213,12 @@ impl Checker {
                     ));
                 }
                 let ty = self.resolve_type(&f.ty).unwrap_or(Type::Int);
+                if crate::types::is_opt_scalar(&ty).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0219", format!("a field cannot be `{}` yet", ty.name()), f.name_span)
+                            .with_help("an optional number works as a local variable; keep a value field and a `bool` field instead"),
+                    );
+                }
                 fields.push(FieldInfo {
                     name: f.name.clone(),
                     ty,
@@ -341,6 +375,10 @@ impl Checker {
 
     fn collect_fns(&mut self, program: &Program) {
         for (cls, f) in program.fn_decls() {
+            if !f.type_params.is_empty() {
+                self.collect_generic(cls, f);
+                continue;
+            }
             let mut params: Vec<(String, Type)> = Vec::new();
             if let Some(c) = cls {
                 params.push(("this".into(), Type::Class(c.name.clone())));
@@ -368,12 +406,24 @@ impl Checker {
                     );
                 }
                 let ty = self.resolve_type(&p.ty).unwrap_or(Type::Int);
+                if crate::types::is_opt_scalar(&ty).is_some() {
+                    self.errors.push(
+                        Diagnostic::error("E0219", format!("a parameter cannot be `{}` yet", ty.name()), p.name_span)
+                            .with_help("an optional number works as a local variable; pass the value and a `bool` instead"),
+                    );
+                }
                 params.push((p.name.clone(), ty));
             }
             let ret = match &f.ret {
                 Some(a) => self.resolve_type(a).unwrap_or(Type::Unit),
                 None => Type::Unit,
             };
+            if crate::types::is_opt_scalar(&ret).is_some() {
+                self.errors.push(
+                    Diagnostic::error("E0219", format!("a function cannot return `{}` yet", ret.name()), f.name_span)
+                        .with_help("an optional number works as a local variable; return the value and set a `bool` on success"),
+                );
+            }
             let index = self.fns.len();
             let name = match cls {
                 None => {
@@ -417,19 +467,70 @@ impl Checker {
                 params,
                 ret,
                 class: cls.map(|c| c.name.clone()),
+                type_params: Vec::new(),
             });
+            self.bodies.push(f.clone());
             self.direct_throw.push(false);
             self.calls.push(Vec::new());
         }
     }
 
-    pub(crate) fn check_fn(&mut self, f: &FnDecl, index: usize, cls: Option<&ClassDecl>) {
+    /// A generic declaration is not a function yet: it is checked once per set of
+    /// concrete type arguments (ADR 0030).
+    fn collect_generic(&mut self, cls: Option<&ClassDecl>, f: &FnDecl) {
+        if let Some(c) = cls {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0252",
+                    format!("the method `{}.{}` cannot have type parameters yet", c.name, f.name),
+                    f.name_span,
+                )
+                .with_help("move it out of the class as a free `fn` with the same parameters"),
+            );
+            return;
+        }
+        let mut seen = HashSet::new();
+        for (name, span) in &f.type_params {
+            if !seen.insert(name.clone()) {
+                self.errors.push(Diagnostic::error(
+                    "E0306",
+                    format!("the type parameter `{name}` appears twice"),
+                    *span,
+                ));
+            }
+        }
+        if builtins::lookup(&f.name).is_some() || crate::std_fns::find_free(&f.name).is_some() || f.name == "serve" {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0302",
+                    format!("`{}` is a built-in function and cannot be redefined", f.name),
+                    f.name_span,
+                )
+                .with_help("pick another name"),
+            );
+        } else if self.fn_index.contains_key(&f.name)
+            || self.generic_index.contains_key(&f.name)
+            || self.class_index.contains_key(&f.name)
+            || self.consts.contains_key(&f.name)
+        {
+            self.errors.push(Diagnostic::error(
+                "E0301",
+                format!("the name `{}` is defined twice", f.name),
+                f.name_span,
+            ));
+        } else {
+            self.generic_index.insert(f.name.clone(), self.generic_decls.len());
+            self.generic_decls.push(f.clone());
+        }
+    }
+
+    pub(crate) fn check_fn(&mut self, f: &FnDecl, index: usize, class: Option<&str>) {
         let sig = self.fns[index].clone();
         self.reset_context();
         self.in_fn = true;
         self.cur_fn = Some(index);
-        self.cur_class = cls.and_then(|c| self.class_index.get(&c.name).copied());
-        let skip = usize::from(cls.is_some());
+        self.cur_class = class.and_then(|c| self.class_index.get(c).copied());
+        let skip = usize::from(class.is_some());
         for (i, (name, ty)) in sig.params.iter().enumerate() {
             let span = if i < skip { f.name_span } else { f.params[i - skip].name_span };
             self.scopes.declare(name, ty.clone(), span, true);

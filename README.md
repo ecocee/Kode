@@ -34,7 +34,8 @@ checker; errors with codes, hints and JSON output; **interfaces** with `implemen
 dispatch; **bit operators** `& | ^ ~ << >>` with compound assignment; and **standard-library
 namespaces** like `json.parse`, `math.sqrt` and `http.get`.
 
-Tools: `kode run | build | check | test | fmt | explain | mir`.
+Tools: `kode run | build | check | test | fmt | explain | mir | lsp`, and packages:
+`kode init | new | add | remove | install` with path dependencies and a checked-in `kode.lock`.
 
 **Tasks** (`spawn` / `await`), a **web server** (`serve`, or a **Router** with `Request`/`Response`), **JSON**, an **HTTP client**, strings, files, arguments and sorting are in too.
 Next: function values and package dependencies, then budgets and AI features (M8), tooling and
@@ -71,9 +72,15 @@ kode run examples/tour.kode
 | `kode test [file or folder]` | run `test` blocks |
 | `kode fmt <files or folders> [--check]` | format source files |
 | `kode explain E0201` | explain an error code |
+| `kode init [name]` | create a package here (`kode.toml` + `src/`) |
+| `kode new <name>` | create a package in a new folder |
+| `kode add <name> --path <dir>` | add a path dependency |
+| `kode remove <name>` | remove a dependency |
+| `kode install [--check]` | resolve dependencies and write `kode.lock` |
 | `kode tokens file.kode` | print tokens (debugging) |
 | `kode ast file.kode` | print the syntax tree (debugging) |
 | `kode mir file.kode` | print the MIR, including retain/release (debugging) |
+| `kode lsp` | language server on stdio: diagnostics, hover, completion, symbols, format |
 | `--format=json` | diagnostics as JSON, for editors and AI agents |
 | `--strict` | warnings count as errors |
 
@@ -92,8 +99,11 @@ tests/run-pass/       programs that must run (.kode + .out), checked for leaks
 tests/compile-fail/   programs that must fail (.kode + .err with the error code)
 examples/             small programs
 benchmarks/           proof of the cost claims
-docs/                 spec, design notes, decisions (ADRs), roadmap, error codes
+docs/                 spec, cheat sheet, design notes, decisions (ADRs), roadmap, error codes
 ```
+
+Start with [`docs/cheatsheet.md`](docs/cheatsheet.md) for the shape of the language and
+[`docs/spec/`](docs/spec/) for the rules.
 
 ## License
 

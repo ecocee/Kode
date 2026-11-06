@@ -7,6 +7,7 @@ use crate::scope::Scopes;
 use crate::types::Type;
 
 mod expr;
+mod instantiate;
 mod item;
 mod stmt;
 
@@ -18,6 +19,8 @@ pub struct FnSig {
     pub params: Vec<(String, Type)>,
     pub ret: Type,
     pub class: Option<String>,
+    /// Non-empty only for a generic declaration; an instantiation has none.
+    pub type_params: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +78,15 @@ pub enum ConstVal {
     Str(String),
 }
 
+/// What a closure literal needs to be compiled: its parameters, its result and
+/// a copy of every variable that was visible where it was written.
+#[derive(Clone, Debug)]
+pub struct ClosureInfo {
+    pub params: Vec<(String, Type)>,
+    pub ret: Type,
+    pub captures: Vec<(String, Type)>,
+}
+
 /// Result of a successful check. Later stages read everything from here.
 #[derive(Debug)]
 pub struct Checked {
@@ -97,6 +109,15 @@ pub struct Checked {
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
     /// Can this function raise an error (directly or through a call)?
     pub throws: Vec<bool>,
+    /// Calls that go through a function value (`f(1)` where `f` is a variable).
+    pub fn_value_calls: std::collections::HashSet<ExprId>,
+    /// Closure literals, by expression id.
+    pub closures: HashMap<ExprId, ClosureInfo>,
+    /// The body of every function in `fns`, in the same order: declared
+    /// functions and methods first, then each monomorphized instantiation.
+    pub bodies: Vec<FnDecl>,
+    /// For a generic call: the instantiated function it resolved to.
+    pub generic_calls: HashMap<ExprId, usize>,
     pub warnings: Vec<Diagnostic>,
 }
 
@@ -116,9 +137,27 @@ pub(crate) struct Checker {
     pub module_index: HashMap<String, usize>,
     pub consts: HashMap<String, (Type, ConstVal)>,
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
+    pub fn_value_calls: std::collections::HashSet<ExprId>,
+    pub closures: HashMap<ExprId, ClosureInfo>,
+    /// Inside a closure literal: fields of `this` cannot be reached (E0242).
+    pub in_closure: bool,
+    /// Generic declarations, by name. They are never lowered themselves.
+    pub generic_index: HashMap<String, usize>,
+    pub generic_decls: Vec<FnDecl>,
+    /// (generic index, concrete type names) -> instantiated function index.
+    pub instances: Vec<((usize, Vec<String>), usize)>,
+    /// Fresh expression ids for instantiated bodies.
+    pub next_expr_id: u32,
+    /// How many entries of `bodies` have been checked so far.
+    pub checked_bodies: usize,
+    pub generic_calls: HashMap<ExprId, usize>,
+    /// Bodies of `fns`, in the same order.
+    pub bodies: Vec<FnDecl>,
     pub direct_throw: Vec<bool>,
     pub calls: Vec<Vec<usize>>,
     pub scopes: Scopes,
+    /// Locals proven not to be `none` in this block: (scope depth, name, type).
+    narrowed: Vec<(usize, String, Type)>,
     pub ret_type: Type,
     pub in_fn: bool,
     pub loop_depth: usize,
@@ -142,6 +181,15 @@ impl Checker {
             (_, Type::Opt(inner)) => self.assignable(from, inner),
             _ => false,
         }
+    }
+
+    /// Record the type of an expression, growing the table for cloned bodies.
+    pub(crate) fn set_expr_type(&mut self, id: ExprId, ty: Type) {
+        let i = id as usize;
+        if self.expr_types.len() <= i {
+            self.expr_types.resize(i + 1, Type::Unit);
+        }
+        self.expr_types[i] = ty;
     }
 
     fn new(program: &Program) -> Self {
@@ -234,6 +282,29 @@ impl Checker {
         };
         // `Request`, `Response` and `Router` are the simple web API layer.
         // Field order is mirrored by `kode-rt/src/router.rs`; change both together.
+        // The result of `exec`. Order and types mirror `kode-rt/src/process.rs`.
+        let process_result = ClassInfo {
+            name: "ProcessResult".into(),
+            fields: vec![
+                FieldInfo {
+                    name: "code".into(),
+                    ty: Type::Int,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "stdout".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+                FieldInfo {
+                    name: "stderr".into(),
+                    ty: Type::Str,
+                    default: None,
+                },
+            ],
+            methods: HashMap::new(),
+            implements: Vec::new(),
+        };
         let request_class = ClassInfo {
             name: "Request".into(),
             fields: vec![
@@ -310,6 +381,7 @@ impl Checker {
         class_index.insert("Request".to_string(), 3);
         class_index.insert("Response".to_string(), 4);
         class_index.insert("Router".to_string(), 5);
+        class_index.insert("ProcessResult".to_string(), 6);
         let json_kind = EnumInfo {
             name: "JsonKind".into(),
             variants: ["Null", "Bool", "Int", "Float", "Str", "List", "Map"]
@@ -325,7 +397,15 @@ impl Checker {
             expr_types,
             fns: Vec::new(),
             fn_index: HashMap::new(),
-            classes: vec![error_class, json_class, response_class, request_class, reply_class, router_class],
+            classes: vec![
+                error_class,
+                json_class,
+                response_class,
+                request_class,
+                reply_class,
+                router_class,
+                process_result,
+            ],
             class_index,
             enums: vec![json_kind],
             enum_index,
@@ -335,9 +415,20 @@ impl Checker {
             module_index: HashMap::new(),
             consts: HashMap::new(),
             call_args: HashMap::new(),
+            fn_value_calls: Default::default(),
+            closures: HashMap::new(),
+            in_closure: false,
+            generic_index: HashMap::new(),
+            generic_decls: Vec::new(),
+            instances: Vec::new(),
+            next_expr_id: program.expr_count + 1,
+            bodies: Vec::new(),
+            checked_bodies: 0,
+            generic_calls: HashMap::new(),
             direct_throw: Vec::new(),
             calls: Vec::new(),
             scopes: Scopes::new(),
+            narrowed: Vec::new(),
             ret_type: Type::Unit,
             in_fn: false,
             loop_depth: 0,
@@ -350,11 +441,43 @@ impl Checker {
         let mut warnings = std::mem::take(&mut self.warnings);
         self.scopes.pop(&mut warnings);
         self.warnings = warnings;
+        let depth = self.scopes.depth();
+        self.narrowed.retain(|(d, _, _)| *d <= depth);
+    }
+
+    /// Remember that `name` is a `ty` (not `none`) until this block ends or the
+    /// variable is assigned.
+    pub(crate) fn narrow(&mut self, name: &str, ty: Type) {
+        let depth = self.scopes.depth();
+        self.narrowed.retain(|(d, n, _)| !(*d == depth && n == name));
+        self.narrowed.push((depth, name.to_string(), ty));
+    }
+
+    /// The narrowed type of a local, if a check proved it is not `none`.
+    pub(crate) fn narrowed_type(&self, name: &str) -> Option<Type> {
+        self.narrowed
+            .iter()
+            .rev()
+            .find(|(_, n, _)| n == name)
+            .map(|(_, _, t)| t.clone())
+    }
+
+    /// Check every body not checked yet, including ones instantiated by a body
+    /// checked in this pass.
+    fn check_bodies(&mut self) {
+        while self.checked_bodies < self.bodies.len() {
+            let index = self.checked_bodies;
+            let body = self.bodies[index].clone();
+            let class = self.fns[index].class.clone();
+            self.check_fn(&body, index, class.as_deref());
+            self.checked_bodies += 1;
+        }
     }
 
     pub(crate) fn reset_context(&mut self) {
         self.scopes = Scopes::new();
         self.scopes.push();
+        self.narrowed.clear();
         self.ret_type = Type::Unit;
         self.in_fn = false;
         self.loop_depth = 0;
@@ -368,11 +491,12 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
     c.modules = modules.to_vec();
     c.collect(program);
 
-    // Function and method bodies.
-    for (index, (cls, f)) in program.fn_decls().into_iter().enumerate() {
-        c.check_fn(f, index, cls);
-    }
+    // Function and method bodies. A generic call appends an instantiation to
+    // `bodies` while a body is being checked, so each pass keeps going until no
+    // new instantiation appears.
+    c.check_bodies();
     c.check_field_defaults(program);
+    c.check_bodies();
 
     // Test bodies.
     for item in &program.items {
@@ -385,6 +509,7 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
             c.pop_scope();
         }
     }
+    c.check_bodies();
 
     // The top-level script.
     c.reset_context();
@@ -394,6 +519,8 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         }
     }
     c.pop_scope();
+    // Top-level calls may instantiate a generic function too.
+    c.check_bodies();
 
     if !c.errors.is_empty() {
         return Err(c.errors);
@@ -428,6 +555,10 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         module_index: c.module_index,
         consts: c.consts,
         call_args: c.call_args,
+        fn_value_calls: c.fn_value_calls,
+        closures: c.closures,
+        bodies: c.bodies,
+        generic_calls: c.generic_calls,
         throws,
         warnings: c.warnings,
     })

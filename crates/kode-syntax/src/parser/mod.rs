@@ -134,12 +134,39 @@ impl Parser {
     pub(crate) fn type_ann(&mut self) -> Result<TypeAnn, Diagnostic> {
         let start = self.span();
         let kind = match self.peek().clone() {
-            TokenKind::Ident(name) if name == "Task" && matches!(self.peek_at(1), Some(TokenKind::Lt)) => {
+            TokenKind::Ident(name)
+                if (name == "Task" || name == "Channel")
+                    && matches!(self.peek_at(1), Some(TokenKind::Lt)) =>
+            {
                 self.bump();
                 self.bump(); // <
                 let inner = self.type_ann()?;
                 self.expect(TokenKind::Gt, "`>`")?;
-                TypeAnnKind::Task(Box::new(inner))
+                if name == "Task" {
+                    TypeAnnKind::Task(Box::new(inner))
+                } else {
+                    TypeAnnKind::Channel(Box::new(inner))
+                }
+            }
+            TokenKind::Fn => {
+                self.bump();
+                self.expect(TokenKind::LParen, "`(`")?;
+                let mut params = Vec::new();
+                if !matches!(self.peek(), TokenKind::RParen) {
+                    loop {
+                        params.push(self.type_ann()?);
+                        if matches!(self.peek(), TokenKind::Comma) {
+                            self.bump();
+                            self.skip_newlines();
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RParen, "`)`")?;
+                self.expect(TokenKind::Arrow, "`->`")?;
+                let ret = self.type_ann()?;
+                TypeAnnKind::Fn(params, Box::new(ret))
             }
             TokenKind::Ident(name) => {
                 self.bump();

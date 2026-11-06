@@ -1,0 +1,13 @@
+cleanup 2
+5
+cleanup 0
+-1
+left
+2
+step 0
+step 1
+step 2
+step 3
+total 3
+closed
+caught bad

@@ -115,6 +115,25 @@ pub fn compile_to_object(program: &MirProgram, optimize: bool) -> Result<Vec<u8>
                 .map_err(|e| e.to_string())?,
         );
     }
+    // Closure bodies and named-function wrappers.
+    let nclosures = program.closures.len();
+    for (i, f) in program.closures.iter().enumerate() {
+        let sig = signature(&module, f);
+        ids.push(
+            module
+                .declare_function(&format!("kode_closure_{i}"), Linkage::Local, &sig)
+                .map_err(|e| e.to_string())?,
+        );
+    }
+    let nfnvals = program.fnvals.len();
+    for (i, f) in program.fnvals.iter().enumerate() {
+        let sig = signature(&module, f);
+        ids.push(
+            module
+                .declare_function(&format!("kode_fnval_{i}"), Linkage::Local, &sig)
+                .map_err(|e| e.to_string())?,
+        );
+    }
     // Runtime library functions called by name.
     let mut std_ids: Vec<FuncId> = Vec::new();
     for s in &program.std_sigs {
@@ -122,7 +141,15 @@ pub fn compile_to_object(program: &MirProgram, optimize: bool) -> Result<Vec<u8>
     }
 
     let mut fb_ctx = FunctionBuilderContext::new();
-    for (i, f) in program.funcs.iter().chain(program.thunks.iter()).enumerate() {
+    let all: Vec<&MirFunc> = program
+        .funcs
+        .iter()
+        .chain(program.thunks.iter())
+        .chain(program.closures.iter())
+        .chain(program.fnvals.iter())
+        .collect();
+    let nthunks = program.thunks.len();
+    for (i, f) in all.iter().enumerate() {
         let mut ctx = module.make_context();
         ctx.func.signature = signature(&module, f);
         {
@@ -130,7 +157,9 @@ pub fn compile_to_object(program: &MirProgram, optimize: bool) -> Result<Vec<u8>
                 module: &mut module,
                 rt: &rt,
                 user: &ids[..nfuncs],
-                thunks: &ids[nfuncs..],
+                thunks: &ids[nfuncs..nfuncs + nthunks],
+                closures: &ids[nfuncs + nthunks..nfuncs + nthunks + nclosures],
+                fnvals: &ids[nfuncs + nthunks + nclosures..nfuncs + nthunks + nclosures + nfnvals],
                 strings: &strings,
                 std: &std_ids,
                 std_sigs: &program.std_sigs,

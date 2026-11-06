@@ -37,12 +37,14 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
     let mut strings = Strings::default();
     let mut funcs = Vec::new();
 
-    let n_user = program.fn_decls().len();
+    let n_user = checked.bodies.len();
     let mut dispatches = Vec::new();
     let iface_dispatch = plan_dispatches(checked, &mut strings, n_user, &mut dispatches);
 
-    for (i, (cls, f)) in program.fn_decls().into_iter().enumerate() {
-        funcs.push(lower_fn(f, i, cls.is_some(), checked, src, &mut strings, &iface_dispatch));
+    // Declared functions and methods, then every generic instantiation.
+    for (i, f) in checked.bodies.iter().enumerate() {
+        let is_method = checked.fns[i].class.is_some();
+        funcs.push(lower_fn(f, i, is_method, checked, src, &mut strings, &iface_dispatch));
     }
     funcs.extend(dispatches);
 
@@ -63,12 +65,106 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
     };
 
     let thunks: Vec<MirFunc> = strings.thunk_specs.iter().map(|&i| make_thunk(checked, i)).collect();
+    // Closure bodies may contain more closures, so keep going until none is left.
+    let mut closures: Vec<MirFunc> = Vec::new();
+    let mut ci = 0;
+    while ci < strings.closure_specs.len() {
+        let spec = strings.closure_specs[ci].clone();
+        closures.push(lower_closure(&spec, checked, src, &mut strings, &iface_dispatch));
+        ci += 1;
+    }
+    let fnvals: Vec<MirFunc> = strings.fnval_specs.iter().map(|&i| make_fnval(checked, i)).collect();
     MirProgram {
         funcs,
         strings: strings.list,
         entry,
         thunks,
+        closures,
+        fnvals,
         std_sigs: strings.std_sigs,
+    }
+}
+
+/// A closure literal, waiting to be compiled once the enclosing function is done.
+#[derive(Clone)]
+pub(crate) struct ClosureSpec {
+    pub params: Vec<(String, Ty)>,
+    pub ret: Ty,
+    pub captures: Vec<(String, Ty)>,
+    pub body: Expr,
+}
+
+/// The body of a closure. Parameter 0 is the closure object: captures are read
+/// from its fields, so the body needs no other environment (ADR 0028).
+fn lower_closure(
+    spec: &ClosureSpec,
+    checked: &Checked,
+    src: &dyn LineMap,
+    strings: &mut Strings,
+    dispatch: &HashMap<(String, String), usize>,
+) -> MirFunc {
+    let mut lw = Lowerer::new(checked, src, strings, dispatch, spec.ret, false);
+    let clo = lw.new_local(Ty::Ref, Some("closure".into()));
+    for (name, ty) in &spec.params {
+        let id = lw.new_local(*ty, Some(name.clone()));
+        lw.declare(name, id);
+    }
+    lw.param_count = 1 + spec.params.len();
+    // Captures are borrowed from the closure object, which owns them.
+    for (i, (name, ty)) in spec.captures.iter().enumerate() {
+        let id = lw.new_local(*ty, Some(name.clone()));
+        lw.declare(name, id);
+        lw.emit(Inst::Load {
+            dst: id,
+            base: Operand::Local(clo),
+            offset: 32 + 8 * i as i32,
+            ty: *ty,
+        });
+    }
+    let v = lw.expr(&spec.body);
+    lw.return_value(v, spec.ret);
+    lw.finish("<closure>".to_string())
+}
+
+/// A named function used as a value: the wrapper ignores the closure object and
+/// calls the real function, so both share one calling convention.
+fn make_fnval(checked: &Checked, idx: usize) -> MirFunc {
+    let sig = &checked.fns[idx];
+    let mut locals = vec![LocalDecl {
+        ty: Ty::Ref,
+        name: Some("closure".into()),
+    }];
+    for (name, ty) in &sig.params {
+        locals.push(LocalDecl {
+            ty: mir_ty(ty),
+            name: Some(name.clone()),
+        });
+    }
+    let args: Vec<Operand> = (1..=sig.params.len()).map(Operand::Local).collect();
+    let ret = mir_ty(&sig.ret);
+    let dst = if ret == Ty::Unit {
+        None
+    } else {
+        locals.push(LocalDecl { ty: ret, name: None });
+        Some(locals.len() - 1)
+    };
+    let term = match dst {
+        Some(d) => Terminator::Return(Some(Operand::Local(d))),
+        None => Terminator::Return(None),
+    };
+    MirFunc {
+        name: format!("fnval:{}", sig.name),
+        param_count: 1 + sig.params.len(),
+        ret,
+        locals,
+        blocks: vec![Block {
+            insts: vec![Inst::Call {
+                dst,
+                callee: Callee::User(idx),
+                args,
+            }],
+            term,
+        }],
     }
 }
 
@@ -312,6 +408,8 @@ pub(crate) struct Strings {
     map: HashMap<String, usize>,
     std_sigs: Vec<StdSig>,
     thunk_specs: Vec<usize>,
+    closure_specs: Vec<ClosureSpec>,
+    fnval_specs: Vec<usize>,
 }
 
 impl Strings {
@@ -333,6 +431,21 @@ impl Strings {
         self.thunk_specs.len() - 1
     }
 
+    /// Register a closure body and return its index.
+    pub fn closure(&mut self, spec: ClosureSpec) -> usize {
+        self.closure_specs.push(spec);
+        self.closure_specs.len() - 1
+    }
+
+    /// The wrapper for user function `idx` as a value (created once).
+    pub fn fnval(&mut self, idx: usize) -> usize {
+        if let Some(i) = self.fnval_specs.iter().position(|&x| x == idx) {
+            return i;
+        }
+        self.fnval_specs.push(idx);
+        self.fnval_specs.len() - 1
+    }
+
     pub fn intern(&mut self, s: &str) -> usize {
         if let Some(i) = self.map.get(s) {
             return *i;
@@ -349,11 +462,26 @@ impl Strings {
 pub(crate) struct V {
     pub op: Operand,
     pub owned: bool,
+    /// For an optional number or bool (`int?`): the `present` flag. The pair is
+    /// two locals, never a heap object (ADR 0024).
+    pub present: Option<Operand>,
 }
 
 impl V {
     pub fn val(op: Operand) -> V {
-        V { op, owned: false }
+        V {
+            op,
+            owned: false,
+            present: None,
+        }
+    }
+    /// A value paired with its `present` flag.
+    pub fn opt(op: Operand, flag: Operand) -> V {
+        V {
+            op,
+            owned: false,
+            present: Some(flag),
+        }
     }
     pub fn unit() -> V {
         V::val(Operand::Int(0))
@@ -368,7 +496,12 @@ pub(crate) struct Lowerer<'a> {
     pub blocks: Vec<Block>,
     pub cur: BlockId,
     scopes: Vec<HashMap<String, LocalId>>,
+    /// Optional numbers and bools: the value local and its `present` flag.
+    opt_flags: HashMap<LocalId, LocalId>,
     pub loops: Vec<(BlockId, BlockId)>,
+    /// `finally` blocks that must run before leaving the current code, with the
+    /// loop depth at which they were entered.
+    cleanups: Vec<(Vec<kode_syntax::ast::Stmt>, usize)>,
     ref_locals: Vec<LocalId>,
     pub param_count: usize,
     pub ret: Ty,
@@ -404,7 +537,9 @@ impl<'a> Lowerer<'a> {
             }],
             cur: 0,
             scopes: vec![HashMap::new()],
+            opt_flags: HashMap::new(),
             loops: Vec::new(),
+            cleanups: Vec::new(),
             ref_locals: Vec::new(),
             param_count: 0,
             ret,
@@ -471,6 +606,16 @@ impl<'a> Lowerer<'a> {
 
     pub fn declare(&mut self, name: &str, id: LocalId) {
         self.scopes.last_mut().unwrap().insert(name.to_string(), id);
+    }
+
+    /// Declare an optional number or bool: a value local plus a flag local.
+    /// Neither is a heap value, so neither is released at exit.
+    pub fn declare_var_opt(&mut self, name: &str, scalar: Ty) -> LocalId {
+        let id = self.new_local(scalar, Some(name.to_string()));
+        let flag = self.new_local(Ty::Bool, None);
+        self.opt_flags.insert(id, flag);
+        self.declare(name, id);
+        id
     }
 
     /// Declare a variable. Heap values are released when the function exits.
@@ -542,7 +687,11 @@ impl<'a> Lowerer<'a> {
     /// A value we own (it is tracked until it is consumed).
     pub fn owned(&mut self, op: Operand) -> V {
         self.track(&op);
-        V { op, owned: true }
+        V {
+            op,
+            owned: true,
+            present: None,
+        }
     }
 
     /// Take ownership of a heap value (retain it if we only borrowed it).

@@ -2,7 +2,7 @@ use kode_diagnostics::{Diagnostic, Span};
 use kode_syntax::ast::*;
 
 use super::stmt::diverges;
-use super::Checker;
+use super::{Checker, ClosureInfo};
 use crate::builtins::{self, Builtin, BUILTIN_NAMES};
 use crate::suggest::closest;
 use crate::std_fns::{self, StdFn};
@@ -16,9 +16,9 @@ impl Checker {
             w => w.clone(),
         };
         match &e.kind {
-            ExprKind::List(v) if v.is_empty() => self.expr_types[e.id as usize] = inner,
-            ExprKind::Map(v) if v.is_empty() => self.expr_types[e.id as usize] = inner,
-            ExprKind::None => self.expr_types[e.id as usize] = want.clone(),
+            ExprKind::List(v) if v.is_empty() => self.set_expr_type(e.id, inner),
+            ExprKind::Map(v) if v.is_empty() => self.set_expr_type(e.id, inner),
+            ExprKind::None => self.set_expr_type(e.id, want.clone()),
             _ => {}
         }
     }
@@ -60,7 +60,8 @@ impl Checker {
                 for p in parts {
                     if let InterpPart::Expr(x) = p {
                         match self.expr(x) {
-                            Some(Type::Int | Type::Float | Type::Bool | Type::Str) => {}
+                            Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_)) => {}
+                            Some(t) if crate::types::is_opt_scalar(&t).is_some() => {}
                             Some(Type::Unit) => {
                                 self.errors.push(Diagnostic::error(
                                     "E0205",
@@ -90,6 +91,12 @@ impl Checker {
             ExprKind::List(items) => self.list_lit(items),
             ExprKind::Map(pairs) => self.map_lit(pairs),
             ExprKind::Index { obj, index } => self.index(obj, index),
+            ExprKind::Slice {
+                obj,
+                start,
+                end,
+                inclusive,
+            } => self.slice(obj, start.as_deref(), end.as_deref(), *inclusive),
             ExprKind::Member {
                 obj,
                 name,
@@ -124,6 +131,7 @@ impl Checker {
                 callee_span,
                 args,
             } => self.call(e.id, callee, *callee_span, args, e.span),
+            ExprKind::Closure { .. } => self.closure_expr(e),
             ExprKind::Spawn {
                 callee,
                 callee_span,
@@ -155,7 +163,7 @@ impl Checker {
             } => self.catch_expr(expr, var, *var_span, block),
         };
         if let Some(t) = &ty {
-            self.expr_types[e.id as usize] = t.clone();
+            self.set_expr_type(e.id, t.clone());
         }
         ty
     }
@@ -204,14 +212,54 @@ impl Checker {
     }
 
     fn ident(&mut self, name: &str, span: Span) -> Option<Type> {
+        if let Some(t) = self.narrowed_type(name) {
+            self.scopes.use_var(name);
+            return Some(t);
+        }
         if let Some(t) = self.scopes.use_var(name) {
             return Some(t);
         }
         if let Some((t, _)) = self.consts.get(name) {
             return Some(t.clone());
         }
+        if self.in_closure && self.field_of_current_class(name).is_some() {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0242",
+                    format!("a closure cannot read the field `{name}` of `this`"),
+                    span,
+                )
+                .with_help("copy the field into a variable before the closure and capture that"),
+            );
+            return None;
+        }
         if let Some(t) = self.field_of_current_class(name) {
             return Some(t);
+        }
+        // A generic function has no type until its type arguments are known.
+        if self.generic_index.contains_key(name)
+            && self.scopes.peek_var(name).is_none()
+            && !self.consts.contains_key(name)
+        {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0251",
+                    format!("the generic function `{name}` cannot be used as a value"),
+                    span,
+                )
+                .with_help("call it, or wrap the concrete call in a closure"),
+            );
+            return None;
+        }
+        // A function used as a value: `let f = double`, `xs.map(double)`.
+        if let Some(&idx) = self.fn_index.get(name) {
+            let sig = &self.fns[idx];
+            if sig.class.is_none() {
+                return Some(Type::Fn(
+                    sig.params.iter().map(|(_, t)| t.clone()).collect(),
+                    Box::new(sig.ret.clone()),
+                ));
+            }
         }
         let mut d = Diagnostic::error("E0201", format!("unknown variable `{name}`"), span);
         let mut names: Vec<String> = self.scopes.names().into_iter().map(String::from).collect();
@@ -299,6 +347,33 @@ impl Checker {
             return None;
         }
         ok.then(|| Type::Map(Box::new(v)))
+    }
+
+    /// `xs[a..b]`: a copy of a range of a list.
+    fn slice(&mut self, obj: &Expr, start: Option<&Expr>, end: Option<&Expr>, _inclusive: bool) -> Option<Type> {
+        let ot = self.expr(obj);
+        for bound in [start, end].into_iter().flatten() {
+            if let Some(t) = self.expr(bound) {
+                if t != Type::Int {
+                    self.errors.push(Diagnostic::error(
+                        "E0212",
+                        format!("a slice bound must be an int, found {}", t.article()),
+                        bound.span,
+                    ));
+                    return None;
+                }
+            }
+        }
+        match ot? {
+            Type::List(el) => Some(Type::List(el)),
+            other => {
+                self.errors.push(
+                    Diagnostic::error("E0211", format!("cannot slice {}", other.article()), obj.span)
+                        .with_help("only a list has a range to take, for example `items[1..3]`"),
+                );
+                None
+            }
+        }
     }
 
     fn index(&mut self, obj: &Expr, index: &Expr) -> Option<Type> {
@@ -665,8 +740,10 @@ impl Checker {
 
     /// A call to a runtime library function, checked from its table row.
     fn std_call(&mut self, f: &StdFn, recv: Option<&Type>, args: &[Arg], tys: &[Option<Type>], span: Span) -> Option<Type> {
+        // `Elem` is the list item type, or the map value type for `values()`.
         let elem = match recv {
             Some(Type::List(e)) => Some(&**e),
+            Some(Type::Map(v)) => Some(&**v),
             _ => None,
         };
         if let Some(a) = args.iter().find(|a| a.name.is_some()) {
@@ -827,14 +904,18 @@ impl Checker {
         };
         let sig = self.fns[idx].clone();
         for (n, t) in &sig.params {
-            if !matches!(t, Type::Int | Type::Float | Type::Bool | Type::Str) {
+            // Plain values and channels: a channel is how tasks share state.
+            if !matches!(t, Type::Int | Type::Float | Type::Bool | Type::Str | Type::Chan(_)) {
                 self.errors.push(
                     Diagnostic::error(
                         "E0230",
-                        format!("a task can only receive ints, floats, bools and strings, but `{n}` is {}", t.article()),
+                        format!(
+                            "a task can only receive ints, floats, bools, strings and channels, but `{n}` is {}",
+                            t.article()
+                        ),
                         callee_span,
                     )
-                    .with_help("tasks do not share objects; pass plain values and return the result"),
+                    .with_help("pass plain values and a channel, and return the result"),
                 );
                 return None;
             }
@@ -844,14 +925,14 @@ impl Checker {
         Some(Type::Task(Box::new(sig.ret)))
     }
 
-    fn note_call(&mut self, callee: usize) {
+    pub(crate) fn note_call(&mut self, callee: usize) {
         if let Some(i) = self.cur_fn {
             self.calls[i].push(callee);
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn check_call_args(
+    pub(crate) fn check_call_args(
         &mut self,
         id: ExprId,
         params: &[(String, Type)],
@@ -1067,6 +1148,59 @@ impl Checker {
                 arity(self, 0);
                 Some(Type::Int)
             }
+            // `xs.map(f)` and `xs.filter(f)`: the loop is compiled inline.
+            Type::List(el) if name == "map" || name == "filter" => {
+                if !arity(self, 1) {
+                    return None;
+                }
+                let el = (**el).clone();
+                let cb = tys[0].clone();
+                let Some(Type::Fn(params, ret)) = cb else {
+                    self.errors.push(
+                        Diagnostic::error(
+                            "E0242",
+                            format!("`{name}` needs a function, found {}", cb.map(|t| t.article()).unwrap_or_else(|| "nothing".into())),
+                            args[0].value.span,
+                        )
+                        .with_help("write it like `xs.map(|x: int| x * 2)` or `xs.map(double)`"),
+                    );
+                    return Some(Type::List(Box::new(el)));
+                };
+                if params.len() != 1 || !self.assignable(&params[0], &el) {
+                    self.errors.push(
+                        Diagnostic::error(
+                            "E0242",
+                            format!("the function given to `{name}` must take one `{}` value", el.name()),
+                            args[0].value.span,
+                        )
+                        .with_help("write it like `|x: int| x * 2`"),
+                    );
+                    return Some(Type::List(Box::new(el)));
+                }
+                if *ret == Type::Unit {
+                    self.errors.push(Diagnostic::error(
+                        "E0242",
+                        format!("the function given to `{name}` must return a value"),
+                        args[0].value.span,
+                    ));
+                    return Some(Type::List(Box::new(el)));
+                }
+                if name == "filter" {
+                    if *ret != Type::Bool {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0242",
+                                "the function given to `filter` must return a bool",
+                                args[0].value.span,
+                            )
+                            .with_help("keep the item with `|x: int| x > 0`"),
+                        );
+                    }
+                    Some(Type::List(Box::new(el)))
+                } else {
+                    Some(Type::List(ret))
+                }
+            }
             Type::List(el) if name == "add" => {
                 if arity(self, 1) {
                     let el = (**el).clone();
@@ -1119,6 +1253,65 @@ impl Checker {
         }
     }
 
+    /// A closure literal: parameters need types, and the closure captures a copy
+    /// of every variable visible here (ADR 0028).
+    fn closure_expr(&mut self, e: &Expr) -> Option<Type> {
+        let ExprKind::Closure { params, body } = &e.kind else {
+            unreachable!("only called for a closure")
+        };
+        // Shadowed names appear more than once; keep the innermost of each.
+        let mut outer: Vec<(String, Type)> = Vec::new();
+        for (name, ty) in self.scopes.names_with_types() {
+            outer.retain(|(n, _)| *n != name);
+            outer.push((name, ty));
+        }
+        self.scopes.push();
+        let was_in_closure = self.in_closure;
+        self.in_closure = true;
+        let mut ptys = Vec::new();
+        let mut pnames = Vec::new();
+        for p in params {
+            let Some(ann) = &p.ty else { continue };
+            let Some(t) = self.resolve_type(ann) else { continue };
+            self.scopes.declare(&p.name, t.clone(), p.name_span, false);
+            pnames.push(p.name.clone());
+            ptys.push(t);
+        }
+        let bt = self.expr(body);
+        self.pop_scope();
+        self.in_closure = was_in_closure;
+        let ret = bt?;
+
+        let mut captures = Vec::new();
+        for (name, ty) in outer {
+            if pnames.contains(&name) {
+                continue;
+            }
+            if crate::types::is_opt_scalar(&ty).is_some() {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0219",
+                        format!("a closure cannot capture `{name}` yet, because it is {}", ty.article()),
+                        body.span,
+                    )
+                    .with_help("give the closure a plain value, or read the optional before it"),
+                );
+                continue;
+            }
+            captures.push((name, ty));
+        }
+        let ty = Type::Fn(ptys.clone(), Box::new(ret.clone()));
+        self.closures.insert(
+            e.id,
+            ClosureInfo {
+                params: pnames.into_iter().zip(ptys).collect(),
+                ret,
+                captures,
+            },
+        );
+        Some(ty)
+    }
+
     fn call(&mut self, id: ExprId, callee: &str, callee_span: Span, args: &[Arg], span: Span) -> Option<Type> {
         if callee == "serve" {
             return self.serve_call(args, span);
@@ -1152,6 +1345,24 @@ impl Checker {
 
         if let Some(f) = std_fns::find_free(callee) {
             return self.std_call(f, None, args, &tys, span);
+        }
+
+        // `f(1)` where `f` is a variable holding a function value.
+        if let Some(Type::Fn(params, ret)) = self.scopes.peek_var(callee) {
+            self.scopes.use_var(callee);
+            let names: Vec<(String, Type)> = params
+                .iter()
+                .enumerate()
+                .map(|(i, t)| (format!("argument {}", i + 1), t.clone()))
+                .collect();
+            let defaults = vec![false; names.len()];
+            self.check_call_args(id, &names, args, &tys, &defaults, span, callee);
+            self.fn_value_calls.insert(id);
+            return Some(*ret);
+        }
+
+        if let Some(&gidx) = self.generic_index.get(callee) {
+            return self.generic_call(id, callee, gidx, args, &tys, span, callee_span);
         }
 
         if let Some(&idx) = self.fn_index.get(callee) {
@@ -1202,7 +1413,8 @@ impl Checker {
         if b == Builtin::Print {
             for (i, t) in tys.iter().enumerate() {
                 match t {
-                    Some(Type::Int | Type::Float | Type::Bool | Type::Str) | None => {}
+                    Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_)) | None => {}
+                    Some(t) if crate::types::is_opt_scalar(t).is_some() => {}
                     Some(Type::Unit) => self.errors.push(Diagnostic::error(
                         "E0205",
                         "this call returns nothing, so there is nothing to print",
@@ -1225,6 +1437,23 @@ impl Checker {
                 self.direct_throw[i] = true;
             }
         }
+        match b {
+            Builtin::Channel => {
+                if !args.is_empty() {
+                    self.errors.push(Diagnostic::error(
+                        "E0207",
+                        format!("`{name}` takes no arguments, found {}", args.len()),
+                        span,
+                    ));
+                }
+                // The payload arrives from the declared type (E0240).
+                return Some(Type::Chan(Box::new(Type::NoneT)));
+            }
+            Builtin::Send | Builtin::Recv | Builtin::Close => {
+                return self.channel_call(b, name, args, tys, span);
+            }
+            _ => {}
+        }
 
         let (accepts, ret, expects): (Vec<Type>, Type, &str) = match b {
             Builtin::Len => (vec![Type::Str], Type::Int, "a string, a list or a map"),
@@ -1237,6 +1466,8 @@ impl Checker {
             ),
             Builtin::Assert => (vec![Type::Bool], Type::Unit, "a bool"),
             Builtin::Print => unreachable!(),
+            // Handled by the early return above.
+            Builtin::Channel | Builtin::Send | Builtin::Recv | Builtin::Close => unreachable!(),
         };
         if args.len() != 1 {
             self.errors.push(Diagnostic::error(
@@ -1257,5 +1488,68 @@ impl Checker {
             }
         }
         Some(ret)
+    }
+
+    /// `send(ch, v)`, `recv(ch)` and `close(ch)`: the payload comes from the
+    /// channel's own type, so the channel must be declared first.
+    fn channel_call(
+        &mut self,
+        b: Builtin,
+        name: &str,
+        args: &[Arg],
+        tys: &[Option<Type>],
+        span: Span,
+    ) -> Option<Type> {
+        let want = if b == Builtin::Send { 2 } else { 1 };
+        if args.len() != want {
+            self.errors.push(Diagnostic::error(
+                "E0207",
+                format!("`{name}` takes {want} argument{}, found {}", if want == 1 { "" } else { "s" }, args.len()),
+                span,
+            ));
+            return Some(Type::Unit);
+        }
+        let payload = match tys.first().and_then(|t| t.clone()) {
+            Some(Type::Chan(t)) => *t,
+            Some(other) => {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0208",
+                        format!("`{name}` expects a channel, found {}", other.article()),
+                        args[0].value.span,
+                    )
+                    .with_help("make one with `jobs: Channel<int> = channel()`"),
+                );
+                return Some(Type::Unit);
+            }
+            None => return Some(Type::Unit),
+        };
+        if payload == Type::NoneT {
+            self.errors.push(
+                Diagnostic::error("E0240", "this channel has no type yet", args[0].value.span)
+                    .with_help("declare it first, for example `jobs: Channel<int> = channel()`"),
+            );
+            return Some(Type::Unit);
+        }
+        match b {
+            Builtin::Send => {
+                if let Some(t) = tys.get(1).and_then(|t| t.clone()) {
+                    if !crate::types::assignable(&t, &payload) {
+                        self.errors.push(Diagnostic::error(
+                            "E0208",
+                            format!(
+                                "this channel carries {}, found {}",
+                                payload.article(),
+                                t.article()
+                            ),
+                            args[1].value.span,
+                        ));
+                    }
+                }
+                Some(Type::Unit)
+            }
+            Builtin::Recv => Some(payload),
+            _ => Some(Type::Unit),
+        }
     }
 }

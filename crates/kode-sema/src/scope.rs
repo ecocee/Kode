@@ -25,6 +25,11 @@ impl Scopes {
         self.stack.push(Vec::new());
     }
 
+    /// How many blocks are open, used to scope narrowing facts.
+    pub fn depth(&self) -> usize {
+        self.stack.len()
+    }
+
     /// Leave a block. Unused variables become warnings.
     pub fn pop(&mut self, warnings: &mut Vec<Diagnostic>) {
         if let Some(scope) = self.stack.pop() {
@@ -72,6 +77,15 @@ impl Scopes {
             span,
             used,
         });
+    }
+
+    /// Every visible variable and its type, innermost last. A closure captures
+    /// all of these, so a shadowed name appears more than once; the last wins.
+    pub fn names_with_types(&self) -> Vec<(String, Type)> {
+        self.stack
+            .iter()
+            .flat_map(|s| s.iter().map(|v| (v.name.clone(), v.ty.clone())))
+            .collect()
     }
 
     pub fn names(&self) -> Vec<&str> {

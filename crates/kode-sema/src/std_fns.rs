@@ -35,8 +35,14 @@ pub enum StdTy {
     MapStrStr,
     Json,
     Resp,
+    /// the result of `exec`: `code`, `stdout`, `stderr`
+    ProcResult,
     /// the item type of the list the method is called on
     Elem,
+    /// the item type, passed as raw bits (`insert` into a `[float]`)
+    ElemBits,
+    /// the item type of the list the method returns (`values()`)
+    ListElem,
 }
 
 #[derive(Debug)]
@@ -69,6 +75,8 @@ pub static STD: &[StdFn] = &[
     f!("sleep", Free, [T::Int], T::Unit, false, "kode_sleep"),
     f!("now_ms", Free, [], T::Int, false, "kode_now_ms"),
     f!("chr", Free, [T::Int], T::Str, false, "kode_chr"),
+    // processes: run a program directly, without a shell
+    f!("exec", Free, [T::Str, T::ListStr, T::Str], T::ProcResult, true, "kode_proc_exec"),
     // strings
     f!("size", Str, [], T::Int, false, "kode_str_size"),
     f!("byte_at", Str, [T::Int], T::Int, false, "kode_str_byte_at"),
@@ -85,6 +93,10 @@ pub static STD: &[StdFn] = &[
     f!("split", Str, [T::Str], T::ListStr, false, "kode_str_split"),
     f!("to_int", Str, [], T::Int, true, "kode_str_to_int"),
     f!("to_float", Str, [], T::Float, true, "kode_str_to_float"),
+    f!("lines", Str, [], T::ListStr, false, "kode_str_lines"),
+    f!("char_at", Str, [T::Int], T::Str, true, "kode_str_char_at"),
+    f!("is_empty", Str, [], T::Bool, false, "kode_str_is_empty"),
+    f!("count", Str, [T::Str], T::Int, false, "kode_str_count"),
     // lists
     f!("join", ListStr, [T::Str], T::Str, false, "kode_list_join"),
     f!("sort", ListStr, [], T::Unit, false, "kode_list_sort_str"),
@@ -92,8 +104,20 @@ pub static STD: &[StdFn] = &[
     f!("sort", ListFloat, [], T::Unit, false, "kode_list_sort_float"),
     f!("pop", ListAny, [], T::Elem, false, "kode_list_pop"),
     f!("clear", ListAny, [], T::Unit, false, "kode_list_clear"),
+    f!("contains", ListStr, [T::Str], T::Bool, false, "kode_list_contains_str"),
+    f!("contains", ListInt, [T::Int], T::Bool, false, "kode_list_contains_int"),
+    f!("contains", ListFloat, [T::Float], T::Bool, false, "kode_list_contains_float"),
+    f!("index_of", ListStr, [T::Str], T::Int, false, "kode_list_index_str"),
+    f!("index_of", ListInt, [T::Int], T::Int, false, "kode_list_index_int"),
+    f!("index_of", ListFloat, [T::Float], T::Int, false, "kode_list_index_float"),
+    f!("reverse", ListAny, [], T::Unit, false, "kode_list_reverse"),
+    f!("insert", ListAny, [T::Int, T::ElemBits], T::Unit, true, "kode_list_insert"),
+    f!("remove_at", ListAny, [T::Int], T::Unit, true, "kode_list_remove_at"),
+    f!("first", ListAny, [], T::Elem, true, "kode_list_first"),
+    f!("last", ListAny, [], T::Elem, true, "kode_list_last"),
     // maps
     f!("remove", Map, [T::Str], T::Unit, false, "kode_map_remove"),
+    f!("values", Map, [], T::ListElem, false, "kode_map_values"),
     // JSON: build, read, write
     f!("json_parse", Free, [T::Str], T::Json, true, "kode_json_parse"),
     f!("json_null", Free, [], T::Json, false, "kode_json_null"),
@@ -182,6 +206,8 @@ pub fn to_type(t: StdTy, elem: Option<&Type>) -> Type {
         StdTy::MapStrStr => Type::Map(Box::new(Type::Str)),
         StdTy::Json => Type::Class("Json".into()),
         StdTy::Resp => Type::Class("HttpResponse".into()),
-        StdTy::Elem => elem.cloned().unwrap_or(Type::Int),
+        StdTy::ProcResult => Type::Class("ProcessResult".into()),
+        StdTy::Elem | StdTy::ElemBits => elem.cloned().unwrap_or(Type::Int),
+        StdTy::ListElem => Type::List(Box::new(elem.cloned().unwrap_or(Type::Int))),
     }
 }

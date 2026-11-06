@@ -17,6 +17,10 @@ pub(crate) struct Env<'a> {
     pub rt: &'a Rt,
     pub user: &'a [FuncId],
     pub thunks: &'a [FuncId],
+    /// Bodies of closure literals.
+    pub closures: &'a [FuncId],
+    /// Wrappers that adapt a named function to the closure calling convention.
+    pub fnvals: &'a [FuncId],
     pub strings: &'a [DataId],
     pub std: &'a [FuncId],
     pub std_sigs: &'a [StdSig],
@@ -81,6 +85,14 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                 let r = self.env.module.declare_func_in_func(self.env.user[*i], self.b.func);
                 self.b.ins().func_addr(types::I64, r)
             }
+            Operand::ClosureFn(i) => {
+                let r = self.env.module.declare_func_in_func(self.env.closures[*i], self.b.func);
+                self.b.ins().func_addr(types::I64, r)
+            }
+            Operand::FnVal(i) => {
+                let r = self.env.module.declare_func_in_func(self.env.fnvals[*i], self.b.func);
+                self.b.ins().func_addr(types::I64, r)
+            }
         }
     }
 
@@ -126,6 +138,32 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                     if to_bool {
                         r = self.b.ins().icmp_imm(IntCC::NotEqual, r, 0);
                     }
+                    self.b.def_var(self.vars[*d], r);
+                }
+            }
+            // A closure object is `[rc][kind][refmask][code][captures...]`: the code
+            // address is field 0, and the object itself is passed as the first argument.
+            Inst::CallIndirect { dst, callee, args } => {
+                let clo = self.val(callee);
+                let code = self.b.ins().load(types::I64, MemFlags::trusted(), clo, 24);
+                let mut sig = self.env.module.make_signature();
+                sig.params.push(ir::AbiParam::new(types::I64));
+                let mut vals = vec![clo];
+                for a in args {
+                    sig.params.push(ir::AbiParam::new(clif_ty(self.f.operand_ty(a))));
+                    vals.push(self.val(a));
+                }
+                let ret = match dst {
+                    Some(d) => self.f.locals[*d].ty,
+                    None => Ty::Unit,
+                };
+                if ret != Ty::Unit {
+                    sig.returns.push(ir::AbiParam::new(clif_ty(ret)));
+                }
+                let sigref = self.b.import_signature(sig);
+                let call = self.b.ins().call_indirect(sigref, code, &vals);
+                if let Some(d) = dst {
+                    let r = self.b.inst_results(call)[0];
                     self.b.def_var(self.vars[*d], r);
                 }
             }

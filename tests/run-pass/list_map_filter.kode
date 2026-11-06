@@ -1,0 +1,21 @@
+xs = [1, 2, 3, 4, 5]
+
+doubled = xs.map(|x: int| x * 2)
+print(doubled.len(), doubled[0], doubled[4])
+
+evens = xs.filter(|x: int| x % 2 == 0)
+print(evens.len(), evens[0], evens[1])
+
+words = ["a", "bb", "ccc"]
+lens = words.map(|w: string| w.len())
+print(lens.len(), lens[0], lens[2])
+
+flags = [true, false, true]
+kept = flags.filter(|b: bool| b)
+print(kept.len())
+print(kept[0])
+
+labels = xs.map(|x: int| "n${x}")
+print(labels[4])
+
+print(xs.filter(|x: int| x > 3).len())

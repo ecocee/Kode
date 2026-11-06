@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Windows links through MinGW-w64 (`gcc`), which the runner does not ship.
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+          path-type: inherit
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test (with leak checks)
+        run: cargo test --workspace
+        env:
+          KODE_LEAK_CHECK: "1"
+
+      - name: Conformance smoke test
+        shell: bash
+        run: |
+          ./target/debug/kode check tests/run-pass/finally.kode
+          ./target/debug/kode run tests/run-pass/bool_lists.kode > /tmp/out.txt
+          diff tests/run-pass/bool_lists.out /tmp/out.txt
+
+      - name: Formatting is a no-op
+        shell: bash
+        run: ./target/debug/kode fmt tests/run-pass --check

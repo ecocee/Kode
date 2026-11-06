@@ -32,6 +32,28 @@ root = "src"
   not the shared namespace yet. A name defined twice is an error (E0301).
 - Cycles are an error (E0402). A file imported twice is loaded once.
 
+## Dependencies
+
+A package can depend on other packages by path:
+
+```
+[dependencies]
+utils = { path = "../utils" }
+pricing = { path = "../pricing", version = "0.2.0" }
+```
+
+- A dependency is a folder with its own `kode.toml`; its `root` is where its bare imports
+  resolve. A folder without a `kode.toml` is E0412.
+- `import "utils/strings"` looks in this package's root first, then inside the `utils`
+  dependency. `import "utils/strings" as u` gives `u.shout(...)` for its `pub` items.
+- Dependencies are transitive and share one flat namespace. The name in `[dependencies]` must
+  be the dependency's own package name (E0414), and a package may not depend on itself or form
+  a cycle.
+- A `version` is a compatibility check against the version in that package's own `kode.toml`
+  (E0413). There is no registry yet, so a dependency needs a `path`.
+- `kode install` resolves every dependency and writes `kode.lock`; `kode install --check` exits
+  1 when the lock is stale, for CI. Commit `kode.lock`.
+
 ## Tests
 
 ```
@@ -52,5 +74,11 @@ A failing `assert` stops only its own test. Top-level code is not run in test mo
 | `kode explain E0201` | longer explanation of an error code with an example |
 | `kode check --format=json` | structured errors for editors and AI agents |
 | `kode mir file.kode` | show the compiler's middle layer |
+| `kode lsp` | language server on stdio |
+| `kode init [name]` | make the current folder a package |
+| `kode new <name>` | make a package in a new folder |
+| `kode add <name> --path <folder>` | add a path dependency, then install |
+| `kode remove <name>` | remove a dependency, then install |
+| `kode install [--check]` | resolve dependencies and write `kode.lock` |
 
 `kode fmt` only changes whitespace at the start and end of lines and collapses blank lines. It never changes what a program means and keeps all comments.

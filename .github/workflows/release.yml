@@ -1,18 +1,94 @@
 name: release
+
 on:
   push:
     tags: ["v*"]
+
+permissions:
+  contents: write
+
 jobs:
   build:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+    name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+          - name: macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-gnu
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release -p kode
-      - run: tar -czf kode-${{ matrix.os }}.tar.gz -C target/release kode
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+          path-type: inherit
+
+      - name: Build the compiler
+        shell: bash
+        run: cargo build --release --workspace --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""
+          if [ "${{ runner.os }}" = "Windows" ]; then ext=".exe"; fi
+          bin="target/${{ matrix.target }}/release/kode${ext}"
+          "$bin" --version
+          mkdir -p dist
+          cp "$bin" "dist/kode${ext}"
+          cp README.md CHANGELOG.md dist/ 2>/dev/null || true
+          cp docs/editors.md docs/windows.md dist/ 2>/dev/null || true
+          if [ -n "$ext" ]; then
+            (cd dist && 7z a "../kode-${{ matrix.name }}.zip" .)
+          else
+            tar -czf "kode-${{ matrix.name }}.tar.gz" -C dist .
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kode-${{ matrix.name }}
+          path: |
+            kode-${{ matrix.name }}.tar.gz
+            kode-${{ matrix.name }}.zip
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: kode-${{ matrix.os }}.tar.gz
+          files: artifacts/*
+          generate_release_notes: true
+          body_path: CHANGELOG.md

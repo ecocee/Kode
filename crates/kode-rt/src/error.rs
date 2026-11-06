@@ -84,12 +84,14 @@ pub extern "C" fn kode_uncaught() -> ! {
 
 #[no_mangle]
 pub extern "C" fn kode_unwrap_fail(line: i64) -> ! {
-    fatal(&format!("`!` was used on a none value at line {line}"));
+    fatal(&format!(
+        "`!` was used on a none value at line {line}\n  hint: use `x ?? default` to give a fallback, or `if x == none` first"
+    ));
 }
 
 #[no_mangle]
 pub extern "C" fn kode_div_zero() -> ! {
-    fatal("division by zero");
+    fatal("division by zero at this expression\n  hint: check the divisor first, for example `if b == 0 { ... }`");
 }
 
 #[no_mangle]

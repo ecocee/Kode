@@ -1,0 +1,42 @@
+// Searching, reordering and editing lists.
+xs = [3, 1, 2]
+print(xs.contains(2), xs.contains(9))
+print(xs.index_of(1), xs.index_of(9))
+xs.reverse()
+print(xs[0], xs[2])
+xs.insert(1, 42)
+print(len(xs), xs[1])
+xs.remove_at(1)
+print(len(xs), xs[1])
+print(xs.first(), xs.last())
+
+// Strings in a list keep their own owners.
+names = ["asha", "ravi"]
+print(names.contains("ravi"), names.index_of("asha"), names.first())
+names.insert(0, "zoe")
+print(names.first(), len(names))
+
+// Floats go through the same functions, stored as bits.
+fs = [1.5, 2.5]
+print(fs.contains(2.5), fs.index_of(1.5), fs.first() + fs.last())
+
+// An empty list raises a catchable error instead of crashing.
+empty: [int] = []
+a = empty.first() catch e { -1 }
+b = empty.last() catch e { -1 }
+print(a, b)
+
+// Map values, in insertion order.
+m = {"a": 1, "b": 2}
+vs = m.values()
+print(len(vs), vs[0], vs[1])
+
+// Strings.
+text = "one\ntwo\r\nthree"
+lines = text.lines()
+print(len(lines), lines[0], lines[1], lines[2])
+print("abc".char_at(1), "abc".char_at(2))
+print("".is_empty(), "x".is_empty())
+print("banana".count("an"), "banana".count("x"))
+last = "abc".char_at(9) catch e { "?" }
+print(last)

@@ -24,6 +24,17 @@ impl SourceMap {
         start
     }
 
+    /// The file that contains `offset`, and the offset inside that file.
+    pub fn file_at(&self, offset: usize) -> (&SourceFile, usize) {
+        let f = self.locate(offset);
+        (f, offset.saturating_sub(f.start))
+    }
+
+    /// Start offset of a file, by the name it was added under.
+    pub fn start_of(&self, name: &str) -> Option<usize> {
+        self.files.iter().find(|f| f.name == name).map(|f| f.start)
+    }
+
     fn locate(&self, offset: usize) -> &SourceFile {
         self.files
             .iter()

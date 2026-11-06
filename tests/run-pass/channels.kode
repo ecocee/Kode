@@ -1,0 +1,21 @@
+jobs: Channel<int> = channel()
+done: Channel<string> = channel()
+
+for i in 0..5 {
+    send(jobs, i * 2)
+}
+send(done, "finished")
+
+sum = 0
+for i in 0..5 {
+    sum += recv(jobs)
+}
+print(recv(done))
+print(sum)
+
+close(jobs)
+try {
+    print(recv(jobs))
+} catch e {
+    print("closed:", e.message)
+}

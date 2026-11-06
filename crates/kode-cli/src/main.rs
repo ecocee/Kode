@@ -1,12 +1,18 @@
 //! The `kode` command line tool.
 
 mod args;
+mod doc;
+mod doctor;
 mod driver;
 mod explain;
 mod fmt;
+mod lsp;
 mod manifest;
+mod packages;
 mod report;
+mod resolve;
 mod source;
+mod style;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -40,6 +46,14 @@ fn main() -> ExitCode {
             println!("kode {VERSION}");
             ExitCode::SUCCESS
         }
+        "doctor" => finish(doctor::run()),
+        "doc" => finish(doc::run(&opts)),
+        "lsp" => finish(lsp::serve()),
+        "init" => finish(packages::init(&opts)),
+        "new" => finish(packages::new_package(&opts)),
+        "add" => finish(packages::add(&opts)),
+        "remove" => finish(packages::remove(&opts)),
+        "install" => finish(packages::install(&opts)),
         "run" | "build" | "check" | "tokens" | "ast" | "mir" | "test" | "fmt" | "explain" => {
             match run_command(&opts) {
                 Ok(code) => ExitCode::from(code),
@@ -52,6 +66,16 @@ fn main() -> ExitCode {
         other => {
             eprintln!("kode: unknown command `{other}`\n\n{HELP}");
             ExitCode::from(2)
+        }
+    }
+}
+
+fn finish(result: Result<u8, String>) -> ExitCode {
+    match result {
+        Ok(code) => ExitCode::from(code),
+        Err(msg) => {
+            eprintln!("kode: {msg}");
+            ExitCode::from(1)
         }
     }
 }
@@ -167,13 +191,20 @@ fn run_command(opts: &Options) -> Result<u8, String> {
         };
     }
 
+    let started = std::time::Instant::now();
     let front = match front_end(opts, file) {
         Ok(f) => f,
         Err(code) => return Ok(code),
     };
+    let elapsed = started.elapsed();
     if opts.command == "check" {
         if !opts.json {
-            eprintln!("ok: {file} has no errors");
+            let on = style::on_stderr();
+            eprintln!("{} {file} has no errors", style::green(on, "ok:"));
+            eprintln!(
+                "{}",
+                style::dim(on, &format!("checked in {}", style::millis(elapsed)))
+            );
         }
         return Ok(0);
     }
@@ -200,7 +231,12 @@ fn run_command(opts: &Options) -> Result<u8, String> {
         let linked = runtime_lib(&tmp).and_then(|rt| kode_codegen::link(&object, &out, &rt, opts.release));
         let _ = std::fs::remove_dir_all(&tmp);
         linked?;
-        eprintln!("built {}", out.display());
+        let on = style::on_stderr();
+        eprintln!("{} {}", style::green(on, "built"), out.display());
+        eprintln!(
+            "{}",
+            style::dim(on, &format!("linked in {}", style::millis(started.elapsed())))
+        );
         return Ok(0);
     }
     run_object(&object, "run", &opts.program_args)

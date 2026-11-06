@@ -15,6 +15,7 @@ use kode_syntax::ast::{Item, Program};
 use kode_syntax::{lexer, parser};
 
 use crate::manifest::{self, Manifest};
+use crate::resolve::{self, Resolved};
 use crate::source::SourceMap;
 
 pub struct Loaded {
@@ -34,9 +35,19 @@ struct State {
     imported: Vec<Item>,
     errors: Vec<Diagnostic>,
     manifest: Option<Manifest>,
+    deps: Vec<Resolved>,
 }
 
 pub fn load(path: &Path) -> Result<Loaded, (SourceMap, Vec<Diagnostic>)> {
+    load_with(path, &|_| None)
+}
+
+/// Like `load`, but `overlay` can supply the text of a file. The language
+/// server uses it so an unsaved editor buffer is what gets checked.
+pub fn load_with(
+    path: &Path,
+    overlay: &dyn Fn(&Path) -> Option<String>,
+) -> Result<Loaded, (SourceMap, Vec<Diagnostic>)> {
     let manifest = match manifest::find(path) {
         Ok(m) => m,
         Err(err) => {
@@ -56,8 +67,19 @@ pub fn load(path: &Path) -> Result<Loaded, (SourceMap, Vec<Diagnostic>)> {
         imported: Vec::new(),
         errors: Vec::new(),
         manifest,
+        deps: Vec::new(),
     };
-    let items = match load_file(path, &mut st) {
+    if let Some(m) = &st.manifest {
+        match resolve::dependencies(m) {
+            Ok(deps) => st.deps = deps,
+            Err(err) => {
+                let mut map = SourceMap::default();
+                map.add(path.display().to_string(), String::new());
+                return Err((map, vec![err]));
+            }
+        }
+    }
+    let items = match load_file(path, &mut st, overlay) {
         Ok(items) => items,
         Err(errs) => {
             st.errors.extend(errs);
@@ -101,15 +123,22 @@ fn defined_names(items: &[Item]) -> (Vec<String>, Vec<String>) {
     (all, public)
 }
 
-fn load_file(path: &Path, st: &mut State) -> Result<Vec<Item>, Vec<Diagnostic>> {
+fn load_file(
+    path: &Path,
+    st: &mut State,
+    overlay: &dyn Fn(&Path) -> Option<String>,
+) -> Result<Vec<Item>, Vec<Diagnostic>> {
     let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let text = std::fs::read_to_string(path).map_err(|e| {
-        vec![Diagnostic::error(
-            "E0401",
-            format!("cannot read {}: {e}", path.display()),
-            Default::default(),
-        )]
-    })?;
+    let text = match overlay(path) {
+        Some(text) => text,
+        None => std::fs::read_to_string(path).map_err(|e| {
+            vec![Diagnostic::error(
+                "E0401",
+                format!("cannot read {}: {e}", path.display()),
+                Default::default(),
+            )]
+        })?,
+    };
     let base = st.map.add(path.display().to_string(), text.clone());
     let tokens = lexer::lex_at(&text, base)?;
     let program = parser::parse_from(tokens, st.next_id)?;
@@ -122,7 +151,7 @@ fn load_file(path: &Path, st: &mut State) -> Result<Vec<Item>, Vec<Diagnostic>> 
     let dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
     for item in &program.items {
         let Item::Import(imp) = item else { continue };
-        let target = match resolve_import(&dir, st.manifest.as_ref(), &imp.path, imp.path_span) {
+        let target = match resolve_import(&dir, st.manifest.as_ref(), &st.deps, &imp.path, imp.path_span) {
             Ok(t) => t,
             Err(e) => {
                 st.errors.push(e);
@@ -131,6 +160,13 @@ fn load_file(path: &Path, st: &mut State) -> Result<Vec<Item>, Vec<Diagnostic>> 
         };
         if !target.exists() {
             let help = match st.manifest.as_ref() {
+                Some(m) if !st.deps.is_empty() => format!(
+                    "looked for {} in package `{}` {}; dependencies: {}",
+                    target.display(),
+                    m.name,
+                    m.version,
+                    st.deps.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(", ")
+                ),
                 Some(m) => format!(
                     "looked for {} in package `{}` {}",
                     target.display(),
@@ -163,7 +199,7 @@ fn load_file(path: &Path, st: &mut State) -> Result<Vec<Item>, Vec<Diagnostic>> 
         }
         if !st.loaded.contains(&tcanon) {
             st.loaded.insert(tcanon.clone());
-            match load_file(&target, st) {
+            match load_file(&target, st, overlay) {
                 Ok(items) => {
                     let mut keep = Vec::new();
                     for it in items {
@@ -221,32 +257,47 @@ fn load_file(path: &Path, st: &mut State) -> Result<Vec<Item>, Vec<Diagnostic>> 
 }
 
 /// `./x` and `../x` are relative to the importing file; a bare `pkg/x` is
-/// relative to the package root when a manifest exists.
+/// relative to the package root when a manifest exists. A bare `name/x` whose
+/// `name` is a dependency resolves inside that dependency's source root.
 fn resolve_import(
     dir: &Path,
     manifest: Option<&Manifest>,
+    deps: &[Resolved],
     raw: &str,
     span: kode_diagnostics::Span,
 ) -> Result<PathBuf, Diagnostic> {
     let relative = raw.starts_with("./") || raw.starts_with("../") || Path::new(raw).is_absolute();
-    let base = match manifest {
-        Some(m) if !relative => {
-            if !m.root.is_dir() {
-                return Err(Diagnostic::error(
-                    "E0407",
-                    format!("the package root `{}` does not exist", m.root.display()),
-                    span,
-                )
-                .with_help(format!(
-                    "create that folder, or change `root` in the `{}` package",
-                    m.name
-                )));
-            }
-            m.root.clone()
+    if let Some(m) = manifest.filter(|_| !relative) {
+        if !m.root.is_dir() {
+            return Err(Diagnostic::error(
+                "E0407",
+                format!("the package root `{}` does not exist", m.root.display()),
+                span,
+            )
+            .with_help(format!(
+                "create that folder, or change `root` in the `{}` package",
+                m.name
+            )));
         }
-        _ => dir.to_path_buf(),
-    };
-    let mut target = base.join(raw);
+        let mut own = m.root.join(raw);
+        if own.extension().is_none() {
+            own.set_extension("kode");
+        }
+        if own.exists() {
+            return Ok(own);
+        }
+        if let Some((first, rest)) = raw.split_once('/') {
+            if let Some(dep) = deps.iter().find(|d| d.name == first) {
+                let mut target = dep.root.join(rest);
+                if target.extension().is_none() {
+                    target.set_extension("kode");
+                }
+                return Ok(target);
+            }
+        }
+        return Ok(own);
+    }
+    let mut target = dir.join(raw);
     if target.extension().is_none() {
         target.set_extension("kode");
     }
@@ -266,12 +317,14 @@ mod tests {
             name: "pkg".into(),
             version: "0.1.0".into(),
             root: dir.join("missing"),
+            dir: dir.clone(),
+            deps: Vec::new(),
         };
-        let err = resolve_import(&dir, Some(&m), "models/user", Span::default()).unwrap_err();
+        let err = resolve_import(&dir, Some(&m), &[], "models/user", Span::default()).unwrap_err();
         assert_eq!(err.code, "E0407");
 
         std::fs::create_dir_all(&m.root).unwrap();
-        let path = resolve_import(&dir, Some(&m), "models/user", Span::default()).unwrap();
+        let path = resolve_import(&dir, Some(&m), &[], "models/user", Span::default()).unwrap();
         assert_eq!(path, m.root.join("models/user.kode"));
         let _ = std::fs::remove_dir_all(&dir);
     }

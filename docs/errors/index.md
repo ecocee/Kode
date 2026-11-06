@@ -1,8 +1,7 @@
-# Error codes
+# Diagnostics reference
 
-Every message has a stable code. `kode check --format=json` prints them as JSON, and
-`kode explain E0201` shows a longer explanation with an example. Each code has a test in
-`tests/compile-fail/`.
+`kode explain <CODE>` prints this page for a specific code. Each code has a failing
+test in `tests/compile-fail/`, which is the source of truth for the exact message.
 
 ## Lexer (E000x)
 
@@ -28,14 +27,8 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0107 | expected `=` after a declared type |
 | E0108 | a range loop has exactly one variable |
 | E0110 | expected a name |
-| E0111 | missing or invalid type |
-| E0112 | this cannot be assigned to |
-| E0114 | expected a field or a method in a class |
-| E0115 | map keys must be strings |
-| E0116 | expected a quoted file path or name |
-| E0117 | `spawn` needs a function call |
 
-## Type checker (E02xx)
+## Variables and expressions (E02xx)
 
 | Code | Meaning |
 |---|---|
@@ -49,7 +42,7 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0208 | wrong argument type |
 | E0209 | condition is not a bool |
 | E0210 | int and float mixed without conversion |
-| E0211 | this value cannot be indexed |
+| E0211 | this value cannot be indexed or sliced |
 | E0212 | wrong index type (lists need an int, maps need a string) |
 | E0213 | list or map items have different types |
 | E0214 | cannot loop over this value |
@@ -57,7 +50,7 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0216 | missing argument |
 | E0217 | unknown field or method |
 | E0218 | this value has no fields |
-| E0219 | optional type or `?.` not supported for this type |
+| E0219 | optional type not supported here (an optional number only works as a local) |
 | E0220 | value may be none and cannot be used directly |
 | E0221 | `?.` or `??` used on something that is not an optional |
 | E0222 | an empty list or map needs a declared type |
@@ -67,10 +60,16 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0226 | `throw` needs a string or an `Error` |
 | E0227 | `catch` block does not end with a value |
 | E0228 | parameter has the same name as a field |
-| E0230 | `spawn` needs one of your functions with int, float, bool or string parameters |
+| E0230 | `spawn` needs one of your functions with int, float, bool, string or channel parameters |
 | E0231 | `await` needs a task |
 | E0232 | the `serve` handler must be a function `(string, string, string) -> string`, or a `Router` |
 | E0233 | the route handler must be a function `(req: Request) -> Response` |
+| E0240 | a channel is used before its payload type is known |
+| E0241 | a closure parameter needs a type |
+| E0242 | bad function value: `map`/`filter` callback, or `this` used inside a closure |
+| E0250 | cannot infer a type parameter of a generic function |
+| E0251 | a generic function cannot be used as a value |
+| E0252 | a method cannot have type parameters yet |
 
 ## Declarations and statements (E03xx)
 
@@ -84,13 +83,8 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0306 | parameter or field name used twice |
 | E0307 | constant is not a plain value |
 | E0308 | constant defined twice |
-| E0310 | `return` value has the wrong type |
-| E0311 | `return` outside a function |
-| E0312 | assignment to a constant |
-| E0313 | variable already declared |
-| E0314 | `break` or `continue` outside a loop |
 
-## Modules (E04xx)
+## Imports (E04xx)
 
 | Code | Meaning |
 |---|---|
@@ -104,6 +98,9 @@ Every message has a stable code. `kode check --format=json` prints them as JSON,
 | E0409 | a module alias hides another declaration |
 | E0410 | the module has no such member |
 | E0411 | the member is private (not `pub`) |
+| E0412 | a dependency is not a package (no `kode.toml`) |
+| E0413 | dependency version mismatch, or a version without a path |
+| E0414 | two packages share a name, or a package depends on itself |
 
 ## Warnings
 

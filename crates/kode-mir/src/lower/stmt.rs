@@ -1,7 +1,8 @@
 use kode_sema::Type;
 use kode_syntax::ast::{Arm, Expr, ExprKind, Pattern, Stmt, Target};
 
-use super::{mir_ty, Lowerer, V};
+use super::data::list_rt;
+use super::{default_operand, mir_ty, Lowerer, V};
 use crate::ir::*;
 
 impl<'a> Lowerer<'a> {
@@ -11,6 +12,29 @@ impl<'a> Lowerer<'a> {
             self.stmt(s);
         }
         self.pop_scope();
+    }
+
+    /// Lower every pending `finally` block, innermost first, before leaving a
+    /// function. The stack is restored so later code on other paths still sees
+    /// the cleanup.
+    fn run_cleanups(&mut self) {
+        let saved = std::mem::take(&mut self.cleanups);
+        for (block, _) in saved.iter().rev() {
+            self.block(block);
+        }
+        self.cleanups = saved;
+    }
+
+    /// Lower the `finally` blocks that sit inside the loop being left.
+    fn run_loop_cleanups(&mut self) {
+        let depth = self.loops.len();
+        let saved = std::mem::take(&mut self.cleanups);
+        for (block, loops) in saved.iter().rev() {
+            if *loops >= depth {
+                self.block(block);
+            }
+        }
+        self.cleanups = saved;
     }
 
     /// Store `v` into a local variable. Heap values take ownership and release the old one.
@@ -28,6 +52,28 @@ impl<'a> Lowerer<'a> {
                 rv: Rvalue::Use(v.op),
             });
         }
+    }
+
+    /// Store into an optional number: keep the value and the `present` flag in
+    /// step. `none` clears the flag; anything else sets it.
+    fn store_opt(&mut self, value_id: LocalId, flag_id: LocalId, scalar: Ty, v: V) {
+        let flag = match v.present.clone() {
+            Some(f) => f,
+            None => Operand::Bool(!matches!(v.op, Operand::NullRef)),
+        };
+        let value = if matches!(v.op, Operand::NullRef) {
+            default_operand(scalar)
+        } else {
+            v.op.clone()
+        };
+        self.emit(Inst::Assign {
+            dst: value_id,
+            rv: Rvalue::Use(value),
+        });
+        self.emit(Inst::Assign {
+            dst: flag_id,
+            rv: Rvalue::Use(flag),
+        });
     }
 
     fn store_field(&mut self, base: Operand, offset: i32, ty: Ty, v: V) {
@@ -57,7 +103,7 @@ impl<'a> Lowerer<'a> {
                 let v = self.expr(e);
                 self.release_if_owned(v);
             }
-            Stmt::Assign { target, value, .. } => self.assign(target, value),
+            Stmt::Assign { target, ty, value, .. } => self.assign(target, ty.as_ref(), value),
             Stmt::If { cond, then, else_ } => {
                 let c = self.expr(cond);
                 let then_bb = self.new_block();
@@ -123,10 +169,35 @@ impl<'a> Lowerer<'a> {
                 body,
                 var,
                 handler,
-                ..
+                finally,
             } => {
-                let handler_bb = self.new_block();
                 let join = self.new_block();
+                if let Some(f) = finally {
+                    self.cleanups.push((f.clone(), self.loops.len()));
+                }
+                let Some(handler) = handler else {
+                    // `try { } finally { }`: an error still runs `finally`, then keeps going.
+                    let escape = self.new_block();
+                    self.push_handler(escape);
+                    self.block(body);
+                    self.handlers.pop();
+                    self.term(Terminator::Goto(join));
+                    // Inside `finally` itself the cleanup must not run again.
+                    self.cleanups.pop();
+                    self.switch(escape);
+                    if let Some(f) = finally {
+                        self.block(f);
+                    }
+                    self.goto_error();
+                    self.start_dead_block();
+                    self.switch(join);
+                    if let Some(f) = finally {
+                        self.block(f);
+                    }
+                    return;
+                };
+                let (name, _) = var.as_ref().expect("checked: `catch` names the error");
+                let handler_bb = self.new_block();
                 self.push_handler(handler_bb);
                 self.block(body);
                 self.handlers.pop();
@@ -134,27 +205,54 @@ impl<'a> Lowerer<'a> {
 
                 self.switch(handler_bb);
                 self.push_scope();
-                let ev = self.declare_var(var, Ty::Ref);
+                let ev = self.declare_var(name, Ty::Ref);
                 self.emit(Inst::Release(Operand::Local(ev)));
                 self.emit(Inst::Call {
                     dst: Some(ev),
                     callee: Callee::Rt(RtFn::ErrTake),
                     args: vec![],
                 });
-                for s in handler {
-                    self.stmt(s);
+                match finally {
+                    Some(f) => {
+                        // The handler may throw again; `finally` still runs, then the
+                        // new error travels to the enclosing handler.
+                        let rethrow = self.new_block();
+                        self.push_handler(rethrow);
+                        for s in handler {
+                            self.stmt(s);
+                        }
+                        self.handlers.pop();
+                        self.pop_scope();
+                        self.term(Terminator::Goto(join));
+                        // Inside `finally` itself the cleanup must not run again.
+                        self.cleanups.pop();
+                        self.switch(rethrow);
+                        self.block(f);
+                        self.goto_error();
+                        self.start_dead_block();
+                    }
+                    None => {
+                        for s in handler {
+                            self.stmt(s);
+                        }
+                        self.pop_scope();
+                        self.term(Terminator::Goto(join));
+                    }
                 }
-                self.pop_scope();
-                self.term(Terminator::Goto(join));
                 self.switch(join);
+                if let Some(f) = finally {
+                    self.block(f);
+                }
             }
             Stmt::Break(_) => {
                 let (_, exit) = *self.loops.last().expect("checked: inside a loop");
+                self.run_loop_cleanups();
                 self.term(Terminator::Goto(exit));
                 self.start_dead_block();
             }
             Stmt::Continue(_) => {
                 let (cont, _) = *self.loops.last().expect("checked: inside a loop");
+                self.run_loop_cleanups();
                 self.term(Terminator::Goto(cont));
                 self.start_dead_block();
             }
@@ -163,19 +261,45 @@ impl<'a> Lowerer<'a> {
                     Some(e) => {
                         let v = self.expr(e);
                         let ret = self.ret;
+                        self.run_cleanups();
                         self.return_value(v, ret);
                     }
-                    None => self.goto_exit(),
+                    None => {
+                        self.run_cleanups();
+                        self.goto_exit();
+                    }
                 }
                 self.start_dead_block();
             }
         }
     }
 
-    fn assign(&mut self, target: &Target, value: &Expr) {
+    fn assign(&mut self, target: &Target, ty: Option<&kode_syntax::ast::TypeAnn>, value: &Expr) {
         match target {
             Target::Var(name, _) => {
-                let ty = mir_ty(self.expr_type(value));
+                // Assigning to a local that is already an optional pair keeps it one.
+                if let Some(id) = self.lookup(name) {
+                    if let Some(&flag) = self.opt_flags.get(&id) {
+                        let scalar = self.locals[id].ty;
+                        let v = self.expr(value);
+                        self.store_opt(id, flag, scalar, v);
+                        return;
+                    }
+                }
+                // A declaration with an optional number/bool annotation.
+                if let Some(inner) = ty
+                    .and_then(|a| kode_sema::types::ann_type(a, self.checked))
+                    .and_then(|t| kode_sema::types::is_opt_scalar(&t))
+                {
+                    let scalar = mir_ty(&inner);
+                    let v = self.expr(value);
+                    let id = self.declare_var_opt(name, scalar);
+                    let flag = self.opt_flags[&id];
+                    self.store_opt(id, flag, scalar, v);
+                    return;
+                }
+                let vty = self.expr_type(value).clone();
+                let ty = mir_ty(&vty);
                 let v = self.expr(value);
                 if let Some(id) = self.lookup(name) {
                     self.store_local(id, v, ty);
@@ -195,7 +319,9 @@ impl<'a> Lowerer<'a> {
                 let line = Operand::Int(self.line_of(value.span.start));
                 let (el, rt) = match ot {
                     Type::Map(el) => (el, RtFn::MapSet),
-                    Type::List(el) => (el, RtFn::ListSet),
+                    // Lists of `bool` keep one byte per item, so they need the
+                    // packed accessors ("list_rt").
+                    Type::List(el) => (el, list_rt(el, RtFn::ListSet)),
                     _ => unreachable!("checked: a list or map"),
                 };
                 let op = if mir_ty(el) == Ty::Ref { self.own(v) } else { v.op };
@@ -333,7 +459,11 @@ impl<'a> Lowerer<'a> {
         let line = Operand::Int(self.line_of(iter.span.start));
         match it_ty {
             Type::List(el) => {
-                let item = self.call_raw(RtFn::ListGet, vec![h.clone(), Operand::Local(idx), line], el);
+                let item = self.call_raw(
+                    list_rt(el, RtFn::ListGet),
+                    vec![h.clone(), Operand::Local(idx), line],
+                    el,
+                );
                 if vars.len() == 2 {
                     let iv = self.declare_var(&vars[0].0, Ty::Int);
                     self.emit(Inst::Assign {

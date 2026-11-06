@@ -20,6 +20,10 @@ pub enum TypeAnnKind {
     Opt(Box<TypeAnn>),
     /// `Task<T>`
     Task(Box<TypeAnn>),
+    /// `Channel<T>`: a queue that can be shared between tasks.
+    Channel(Box<TypeAnn>),
+    /// `fn(int) -> int`: a function value (a closure or a named function).
+    Fn(Vec<TypeAnn>, Box<TypeAnn>),
 }
 
 /// Something that can be assigned to.
@@ -91,9 +95,12 @@ pub enum Stmt {
     },
     Try {
         body: Block,
-        var: String,
-        var_span: Span,
-        handler: Block,
+        /// The name bound to the caught error; `none` when there is no `catch`.
+        var: Option<(String, Span)>,
+        handler: Option<Block>,
+        /// Runs on both the normal and the error path, and before any
+        /// `return`, `break` or `continue` that leaves the block.
+        finally: Option<Block>,
     },
     Break(Span),
     Continue(Span),

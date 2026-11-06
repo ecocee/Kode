@@ -18,6 +18,11 @@ pub enum Type {
     NoneT,
     /// `Task<T>`: a running task that will produce a `T`.
     Task(Box<Type>),
+    /// `Channel<T>`: a queue that can be shared between tasks. A channel made by
+    /// `channel()` has payload `none` until a declared type gives it one (E0240).
+    Chan(Box<Type>),
+    /// `fn(int) -> int`: a function value. The parameters and the return type.
+    Fn(Vec<Type>, Box<Type>),
 }
 
 impl Type {
@@ -34,6 +39,11 @@ impl Type {
             Type::Opt(t) => format!("{}?", t.name()),
             Type::NoneT => "none".into(),
             Type::Task(t) => format!("Task<{}>", t.name()),
+            Type::Chan(t) => format!("Channel<{}>", t.name()),
+            Type::Fn(params, ret) => {
+                let ps: Vec<String> = params.iter().map(|p| p.name()).collect();
+                format!("fn({}) -> {}", ps.join(", "), ret.name())
+            }
         }
     }
 
@@ -61,6 +71,8 @@ impl Type {
                 | Type::Opt(_)
                 | Type::NoneT
                 | Type::Task(_)
+                | Type::Chan(_)
+                | Type::Fn(_, _)
         )
     }
 
@@ -81,6 +93,37 @@ impl Type {
 }
 
 /// Can a value of type `from` be stored where `to` is expected?
+/// An optional number or bool (`int?`, `float?`, `bool?`). These are a pair
+/// (value and *present* flag), never a box, so they need their own handling
+/// wherever a value is stored or printed. Returns the inner type.
+pub fn is_opt_scalar(t: &Type) -> Option<Type> {
+    match t {
+        Type::Opt(i) if matches!(**i, Type::Int | Type::Float | Type::Bool) => Some((**i).clone()),
+        _ => None,
+    }
+}
+
+/// Resolve a type annotation without reporting errors, for later stages that
+/// need the declared type of a variable (the AST keeps only the annotation).
+pub fn ann_type(ann: &kode_syntax::ast::TypeAnn, checked: &crate::Checked) -> Option<Type> {
+    use kode_syntax::ast::TypeAnnKind;
+    match &ann.kind {
+        TypeAnnKind::Name(n) => Type::from_name(n)
+            .or_else(|| checked.class_index.get(n).map(|_| Type::Class(n.clone())))
+            .or_else(|| checked.interface_index.get(n).map(|_| Type::Interface(n.clone())))
+            .or_else(|| checked.enum_index.get(n).map(|_| Type::Enum(n.clone()))),
+        TypeAnnKind::List(i) => Some(Type::List(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Map(i) => Some(Type::Map(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Opt(i) => Some(Type::Opt(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Task(i) => Some(Type::Task(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Channel(i) => Some(Type::Chan(Box::new(ann_type(i, checked)?))),
+        TypeAnnKind::Fn(params, ret) => {
+            let ps = params.iter().map(|p| ann_type(p, checked)).collect::<Option<Vec<_>>>()?;
+            Some(Type::Fn(ps, Box::new(ann_type(ret, checked)?)))
+        }
+    }
+}
+
 pub fn assignable(from: &Type, to: &Type) -> bool {
     if from == to {
         return true;
@@ -88,6 +131,8 @@ pub fn assignable(from: &Type, to: &Type) -> bool {
     match (from, to) {
         (Type::NoneT, Type::Opt(_)) => true,
         (Type::List(a), Type::List(_)) | (Type::Map(a), Type::Map(_)) if **a == Type::NoneT => true,
+        // `channel()` has no payload until a declared type meets it, like `[]`.
+        (Type::Chan(a), Type::Chan(_)) if **a == Type::NoneT => true,
         (_, Type::Opt(inner)) => assignable(from, inner),
         _ => false,
     }

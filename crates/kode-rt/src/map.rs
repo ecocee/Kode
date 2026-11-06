@@ -141,6 +141,23 @@ pub unsafe extern "C" fn kode_map_keys(p: *mut Header) -> *mut Header {
     list
 }
 
+/// A new list holding the values, in insertion order. Heap values are retained.
+///
+/// # Safety
+/// `p` must be a valid map.
+#[no_mangle]
+pub unsafe extern "C" fn kode_map_values(p: *mut Header) -> *mut Header {
+    let refs = is_refs(p);
+    let list = kode_list_new(refs as i64);
+    for v in &inner(p).vals {
+        if refs {
+            kode_retain(*v as *mut Header);
+        }
+        kode_list_push(list, *v as i64);
+    }
+    list
+}
+
 /// Remove a key (and release its value). Missing keys are ignored.
 ///
 /// # Safety

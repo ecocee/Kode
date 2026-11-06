@@ -116,6 +116,46 @@ impl Parser {
             }
             _ => {}
         }
+        // `|x: int| x * 2`: a closure. `||` (two pipes) takes no parameters.
+        if matches!(self.peek(), TokenKind::Pipe) {
+            let start = self.bump().span;
+            let mut params = Vec::new();
+            if !matches!(self.peek(), TokenKind::Pipe) {
+                loop {
+                    let (name, name_span) = self.ident("a parameter name")?;
+                    if !matches!(self.peek(), TokenKind::Colon) {
+                        return Err(Diagnostic::error(
+                            "E0241",
+                            format!("the parameter `{name}` of a closure needs a type"),
+                            name_span,
+                        )
+                        .with_help("write it like `|x: int| x * 2`"));
+                    }
+                    self.bump();
+                    let ty = self.type_ann()?;
+                    params.push(ClosureParam {
+                        name,
+                        name_span,
+                        ty: Some(ty),
+                    });
+                    if matches!(self.peek(), TokenKind::Comma) {
+                        self.bump();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            self.expect(TokenKind::Pipe, "`|`")?;
+            let body = self.parse_expr(0)?;
+            let span = start.join(body.span);
+            return Ok(self.mk(
+                span,
+                ExprKind::Closure {
+                    params,
+                    body: Box::new(body),
+                },
+            ));
+        }
         let (op, bp) = match self.peek() {
             TokenKind::Minus => (UnOp::Neg, BP_UNARY),
             TokenKind::Not => (UnOp::Not, BP_NOT_OPERAND),
@@ -184,17 +224,47 @@ impl Parser {
                 TokenKind::LBracket => {
                     self.bump();
                     self.skip_newlines();
-                    let index = self.parse_expr(0)?;
-                    self.skip_newlines();
-                    let end = self.expect(TokenKind::RBracket, "`]`")?.span;
-                    let span = e.span.join(end);
-                    e = self.mk(
-                        span,
-                        ExprKind::Index {
-                            obj: Box::new(e),
-                            index: Box::new(index),
-                        },
-                    );
+                    // `xs[..]`, `xs[..3]`, `xs[1..3]`, `xs[1..=3]`: a slice.
+                    let start = if matches!(self.peek(), TokenKind::DotDot | TokenKind::DotDotEq) {
+                        None
+                    } else {
+                        let first = self.parse_expr(0)?;
+                        self.skip_newlines();
+                        Some(Box::new(first))
+                    };
+                    let inclusive = matches!(self.peek(), TokenKind::DotDotEq);
+                    if matches!(self.peek(), TokenKind::DotDot | TokenKind::DotDotEq) {
+                        self.bump();
+                        self.skip_newlines();
+                        let end = if matches!(self.peek(), TokenKind::RBracket) {
+                            None
+                        } else {
+                            Some(Box::new(self.parse_expr(0)?))
+                        };
+                        self.skip_newlines();
+                        let close = self.expect(TokenKind::RBracket, "`]`")?.span;
+                        let span = e.span.join(close);
+                        e = self.mk(
+                            span,
+                            ExprKind::Slice {
+                                obj: Box::new(e),
+                                start,
+                                end,
+                                inclusive,
+                            },
+                        );
+                    } else {
+                        let Some(index) = start else { unreachable!("`[` without a value is a slice") };
+                        let close = self.expect(TokenKind::RBracket, "`]`")?.span;
+                        let span = e.span.join(close);
+                        e = self.mk(
+                            span,
+                            ExprKind::Index {
+                                obj: Box::new(e),
+                                index,
+                            },
+                        );
+                    }
                 }
                 TokenKind::Bang => {
                     let end = self.bump().span;

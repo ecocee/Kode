@@ -1,0 +1,12 @@
+// skip-os: windows
+r = exec("/bin/sh", ["-c", "printf hi; printf err >&2; exit 3"], "")
+print(r.code)
+print(r.stdout)
+print(r.stderr)
+
+here = exec("/bin/sh", ["-c", "pwd"], "/")
+print(here.stdout.trim())
+
+// Arguments are passed directly, so the shell never sees them.
+echo = exec("/bin/echo", ["a b", "$HOME"], "")
+print(echo.stdout.trim())

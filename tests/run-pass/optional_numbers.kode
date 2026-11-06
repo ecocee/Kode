@@ -1,0 +1,56 @@
+a: int? = 5
+b: int? = none
+print(a ?? 0, b ?? 0)
+print(a == none, b == none, a != none)
+print("a=${a} b=${b}")
+
+// narrowing to int inside the branch where it cannot be none
+if a != none {
+    print(a + 1)
+}
+if b == none {
+    print("b is none")
+}
+
+// narrowing inside a while body
+count: int? = 3
+total = 0
+while count != none {
+    n = count
+    total += n
+    if n == 0 {
+        count = none
+    } else {
+        count = n - 1
+    }
+}
+print(total)
+
+// narrowing after an early return
+fn pick(flag: bool) -> int {
+    v: int? = none
+    if flag {
+        v = 7
+    }
+    if v == none {
+        return 0
+    }
+    return v + 1
+}
+print(pick(true), pick(false))
+
+// floats and bools work the same way
+f: float? = 2.5
+g: float? = none
+print(f ?? 0.0, g ?? 1.5)
+print(f! * 2.5)
+
+t: bool? = true
+u: bool? = none
+print(t ?? false, u ?? true)
+print("t=${t} u=${u}")
+if t == none {
+    print("no t")
+} else {
+    print(t)
+}

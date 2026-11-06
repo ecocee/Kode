@@ -43,6 +43,8 @@ pub(crate) fn info(f: RtFn) -> (&'static str, Vec<types::Type>, Option<types::Ty
         RtFn::ListPush8 => ("kode_list_push8", vec![I, I], None),
         RtFn::ListGet8 => ("kode_list_get8", vec![I, I, I], Some(I)),
         RtFn::ListSet8 => ("kode_list_set8", vec![I, I, I, I], None),
+        RtFn::ListSlice => ("kode_list_slice", vec![I, I, I], Some(I)),
+        RtFn::ListSlice8 => ("kode_list_slice8", vec![I, I, I], Some(I)),
         RtFn::MapNew => ("kode_map_new", vec![I], Some(I)),
         RtFn::MapSet => ("kode_map_set", vec![I, I, I], None),
         RtFn::MapGet => ("kode_map_get", vec![I, I, I], Some(I)),
@@ -60,6 +62,10 @@ pub(crate) fn info(f: RtFn) -> (&'static str, Vec<types::Type>, Option<types::Ty
         RtFn::UnwrapFail => ("kode_unwrap_fail", vec![I], None),
         RtFn::Exit => ("kode_exit", vec![I], None),
         RtFn::ListOob => ("kode_list_oob", vec![I, I, I], None),
+        RtFn::ChanNew => ("kode_chan_new", vec![], Some(I)),
+        RtFn::ChanSend => ("kode_chan_send", vec![I, I, I], None),
+        RtFn::ChanRecv => ("kode_chan_recv", vec![I], Some(I)),
+        RtFn::ChanClose => ("kode_chan_close", vec![I], None),
     }
 }
 
@@ -90,6 +96,8 @@ const ALL: &[RtFn] = &[
     RtFn::ListPush8,
     RtFn::ListGet8,
     RtFn::ListSet8,
+    RtFn::ListSlice,
+    RtFn::ListSlice8,
     RtFn::MapNew,
     RtFn::MapSet,
     RtFn::MapGet,
@@ -107,6 +115,10 @@ const ALL: &[RtFn] = &[
     RtFn::UnwrapFail,
     RtFn::Exit,
     RtFn::ListOob,
+    RtFn::ChanNew,
+    RtFn::ChanSend,
+    RtFn::ChanRecv,
+    RtFn::ChanClose,
 ];
 
 fn import(

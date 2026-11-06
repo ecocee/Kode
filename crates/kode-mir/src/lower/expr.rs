@@ -53,14 +53,21 @@ impl<'a> Lowerer<'a> {
                 V::val(Operand::Local(t))
             }
             ExprKind::Binary { op, lhs, rhs } => self.binary(*op, lhs, rhs, e),
-            ExprKind::Coalesce { lhs, rhs } => self.coalesce(lhs, rhs),
+            ExprKind::Coalesce { lhs, rhs } => self.coalesce(lhs, rhs, e),
             ExprKind::Unwrap(inner) => self.unwrap(inner, e),
             ExprKind::List(items) => self.list_lit(items, e),
             ExprKind::Map(pairs) => self.map_lit(pairs, e),
             ExprKind::Index { obj, index } => self.index(obj, index, e),
+            ExprKind::Slice {
+                obj,
+                start,
+                end,
+                inclusive,
+            } => self.slice(obj, start.as_deref(), end.as_deref(), *inclusive),
             ExprKind::Member { obj, name, safe, .. } => self.member(obj, name, *safe),
             ExprKind::MethodCall { obj, name, args, .. } => self.method_call(e, obj, name, args),
             ExprKind::Call { callee, args, .. } => self.call(e, callee, args),
+            ExprKind::Closure { .. } => self.closure(e),
             ExprKind::Spawn { callee, args, .. } => self.spawn(e, callee, args),
             ExprKind::Await(inner) => self.await_expr(inner, e),
             ExprKind::Catch { expr, var, block, .. } => self.catch_expr(expr, var, block),
@@ -69,10 +76,16 @@ impl<'a> Lowerer<'a> {
 
     fn ident(&mut self, name: &str) -> V {
         if let Some(id) = self.lookup(name) {
+            if let Some(&flag) = self.opt_flags.get(&id) {
+                return V::opt(Operand::Local(id), Operand::Local(flag));
+            }
             return V::val(Operand::Local(id));
         }
         if let Some(op) = self.const_operand(name) {
             return V::val(op);
+        }
+        if let Some(&idx) = self.checked.fn_index.get(name) {
+            return self.fn_value(idx);
         }
         let (offset, ty) = self.this_field(name).expect("the type checker resolved this name");
         let this = Operand::Local(self.this_local.expect("a field is only visible inside a method"));
@@ -94,6 +107,69 @@ impl<'a> Lowerer<'a> {
         Some((24 + 8 * i as i32, fields[i].ty.clone()))
     }
 
+    /// `|x: int| x * 2`: a heap object `[rc][kind][refmask][code][captures...]`.
+    /// The closure object is passed as the first argument when it is called.
+    fn closure(&mut self, e: &Expr) -> V {
+        let ExprKind::Closure { body, .. } = &e.kind else {
+            unreachable!("a closure literal")
+        };
+        let body = (**body).clone();
+        let info = self.checked.closures[&e.id].clone();
+        let n = info.captures.len();
+        // Field 0 is the code address; capture `i` is field `1 + i`.
+        let mask: i64 = info
+            .captures
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, t))| mir_ty(t) == Ty::Ref)
+            .fold(0, |m, (i, _)| m | (1 << (i + 1)));
+        let obj = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(obj),
+            callee: Callee::Rt(RtFn::ObjNew),
+            args: vec![Operand::Int((n + 1) as i64), Operand::Int(mask)],
+        });
+        let spec = crate::lower::ClosureSpec {
+            params: info.params.iter().map(|(n, t)| (n.clone(), mir_ty(t))).collect(),
+            ret: mir_ty(&info.ret),
+            captures: info.captures.iter().map(|(n, t)| (n.clone(), mir_ty(t))).collect(),
+            body,
+        };
+        let idx = self.strings.closure(spec);
+        self.emit(Inst::Store {
+            base: Operand::Local(obj),
+            offset: 24,
+            value: Operand::ClosureFn(idx),
+        });
+        for (i, (name, ty)) in info.captures.iter().enumerate() {
+            let v = self.ident(name);
+            let op = if mir_ty(ty) == Ty::Ref { self.own(v) } else { v.op };
+            self.emit(Inst::Store {
+                base: Operand::Local(obj),
+                offset: 32 + 8 * i as i32,
+                value: op,
+            });
+        }
+        self.owned(Operand::Local(obj))
+    }
+
+    /// A named function used as a value: a closure object with no captures.
+    fn fn_value(&mut self, idx: usize) -> V {
+        let k = self.strings.fnval(idx);
+        let obj = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(obj),
+            callee: Callee::Rt(RtFn::ObjNew),
+            args: vec![Operand::Int(1), Operand::Int(0)],
+        });
+        self.emit(Inst::Store {
+            base: Operand::Local(obj),
+            offset: 24,
+            value: Operand::FnVal(k),
+        });
+        self.owned(Operand::Local(obj))
+    }
+
     fn binary(&mut self, op: ast::BinOp, lhs: &Expr, rhs: &Expr, e: &Expr) -> V {
         if matches!(op, ast::BinOp::And | ast::BinOp::Or) {
             return self.short_circuit(op, lhs, rhs);
@@ -104,6 +180,24 @@ impl<'a> Lowerer<'a> {
         let lt = self.expr_type(lhs);
         let l = self.expr(lhs);
         let r = self.expr(rhs);
+
+        // `x == none` / `x != none` on an optional number or bool: the answer is
+        // the `present` flag, not a pointer comparison.
+        if matches!(op, ast::BinOp::Eq | ast::BinOp::Ne) {
+            if let Some(flag) = l.present.clone().or_else(|| r.present.clone()) {
+                self.release_if_owned(l);
+                self.release_if_owned(r);
+                if op == ast::BinOp::Ne {
+                    return V::val(flag);
+                }
+                let t = self.new_temp(Ty::Bool);
+                self.emit(Inst::Assign {
+                    dst: t,
+                    rv: Rvalue::Unary(UnOp::Not, flag),
+                });
+                return V::val(Operand::Local(t));
+            }
+        }
 
         if op == ast::BinOp::In {
             let t = self.new_temp(Ty::Bool);
@@ -216,8 +310,38 @@ impl<'a> Lowerer<'a> {
     }
 
     /// `a ?? b`
-    fn coalesce(&mut self, lhs: &Expr, rhs: &Expr) -> V {
+    fn coalesce(&mut self, lhs: &Expr, rhs: &Expr, e: &Expr) -> V {
         let l = self.expr(lhs);
+        // An optional number: take the value or the flag's other side.
+        if let Some(flag) = l.present.clone() {
+            let ty = self.ety(e);
+            let res = self.new_temp(ty);
+            self.emit(Inst::Assign {
+                dst: res,
+                rv: Rvalue::Use(l.op.clone()),
+            });
+            let rhs_bb = self.new_block();
+            let join = self.new_block();
+            self.term(Terminator::Branch {
+                cond: flag,
+                then_bb: join,
+                else_bb: rhs_bb,
+            });
+            self.switch(rhs_bb);
+            let r = self.expr(rhs);
+            let op = if ty == Ty::Ref { self.own(r) } else { r.op };
+            self.emit(Inst::Assign {
+                dst: res,
+                rv: Rvalue::Use(op),
+            });
+            self.term(Terminator::Goto(join));
+            self.switch(join);
+            return if ty == Ty::Ref {
+                self.owned(Operand::Local(res))
+            } else {
+                V::val(Operand::Local(res))
+            };
+        }
         let t = self.new_temp(Ty::Ref);
         let lo = self.own(l);
         self.emit(Inst::Assign {
@@ -251,6 +375,26 @@ impl<'a> Lowerer<'a> {
     /// `a!`
     fn unwrap(&mut self, inner: &Expr, e: &Expr) -> V {
         let v = self.expr(inner);
+        // An optional number: `none` raises, otherwise the value is the answer.
+        if let Some(flag) = v.present.clone() {
+            let fail = self.new_block();
+            let ok = self.new_block();
+            self.term(Terminator::Branch {
+                cond: flag,
+                then_bb: ok,
+                else_bb: fail,
+            });
+            self.switch(fail);
+            let line = self.line_of(e.span.start);
+            self.emit(Inst::Call {
+                dst: None,
+                callee: Callee::Rt(RtFn::UnwrapFail),
+                args: vec![Operand::Int(line)],
+            });
+            self.term(Terminator::Unreachable);
+            self.switch(ok);
+            return V::val(v.op);
+        }
         let isnull = self.new_temp(Ty::Bool);
         self.emit(Inst::Assign {
             dst: isnull,
@@ -275,8 +419,91 @@ impl<'a> Lowerer<'a> {
         v
     }
 
+    /// The text of an enum value, written the way it is written in source:
+    /// `Color.Red`. Every variant is a static string, picked with `select`, so
+    /// this needs no runtime call and does not allocate.
+    fn enum_str(&mut self, name: &str, value: Operand) -> Operand {
+        let ei = self.checked.enum_index[name];
+        let variants = self.checked.enums[ei].variants.clone();
+        let text = |v: &str| format!("{name}.{v}");
+        let mut cur = match variants.last() {
+            Some(last) => {
+                let s = self.intern(&text(last));
+                Operand::Str(s)
+            }
+            None => {
+                let s = self.intern(name);
+                Operand::Str(s)
+            }
+        };
+        for (i, variant) in variants.iter().enumerate().rev() {
+            if i + 1 == variants.len() {
+                continue;
+            }
+            let cond = self.new_temp(Ty::Bool);
+            self.emit(Inst::Assign {
+                dst: cond,
+                rv: Rvalue::Binary(BinOp::Eq, value.clone(), Operand::Int(i as i64)),
+            });
+            let s = self.intern(&text(variant));
+            let t = self.new_temp(Ty::Ref);
+            self.emit(Inst::Assign {
+                dst: t,
+                rv: Rvalue::Select(Operand::Local(cond), Operand::Str(s), cur),
+            });
+            cur = Operand::Local(t);
+        }
+        cur
+    }
+
     /// Turn any printable value into a string value.
     fn to_str(&mut self, v: V, ty: &Type) -> V {
+        // An optional number prints `none`, or the number: the branch is here,
+        // not duplicated at every call site.
+        if let Some(inner) = kode_sema::types::is_opt_scalar(ty) {
+            let flag = v.present.clone().expect("an optional number is a pair");
+            let rt = match inner {
+                Type::Int => RtFn::IntToStr,
+                Type::Float => RtFn::FloatToStr,
+                _ => RtFn::BoolToStr,
+            };
+            let out = self.new_temp(Ty::Ref);
+            let fmt_bb = self.new_block();
+            let none_bb = self.new_block();
+            let join = self.new_block();
+            self.term(Terminator::Branch {
+                cond: flag,
+                then_bb: fmt_bb,
+                else_bb: none_bb,
+            });
+            self.switch(fmt_bb);
+            let s = self.new_temp(Ty::Ref);
+            self.emit(Inst::Call {
+                dst: Some(s),
+                callee: Callee::Rt(rt),
+                args: vec![v.op.clone()],
+            });
+            self.emit(Inst::Assign {
+                dst: out,
+                rv: Rvalue::Use(Operand::Local(s)),
+            });
+            self.term(Terminator::Goto(join));
+            self.switch(none_bb);
+            let text = Operand::Str(self.intern("none"));
+            self.emit(Inst::Assign {
+                dst: out,
+                rv: Rvalue::Use(text),
+            });
+            self.term(Terminator::Goto(join));
+            self.switch(join);
+            return self.owned(Operand::Local(out));
+        }
+        if let Type::Enum(name) = ty {
+            let name = name.clone();
+            let s = self.enum_str(&name, v.op.clone());
+            self.release_if_owned(v);
+            return V::val(s);
+        }
         let rt = match ty {
             Type::Str => return v,
             Type::Int => RtFn::IntToStr,
@@ -367,6 +594,28 @@ impl<'a> Lowerer<'a> {
         if callee == "Router" {
             return self.router_new();
         }
+        // `f(1)` where `f` holds a function value.
+        if self.checked.fn_value_calls.contains(&e.id) {
+            let callee_id = self.lookup(callee).expect("the type checker resolved this call");
+            let n = self.checked.call_args[&e.id].len();
+            let vals = self.call_vals(e.id, args, None, n);
+            let ret = self.ety(e);
+            let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
+            let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
+            self.emit(Inst::CallIndirect {
+                dst,
+                callee: Operand::Local(callee_id),
+                args: ops,
+            });
+            for v in vals {
+                self.release_if_owned(v);
+            }
+            return match dst {
+                Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
+                Some(d) => V::val(Operand::Local(d)),
+                None => V::unit(),
+            };
+        }
         if let Some(b) = builtins::lookup(callee) {
             return self.builtin(b, args, e);
         }
@@ -374,6 +623,12 @@ impl<'a> Lowerer<'a> {
             return self.std_call(f, None, args);
         }
         let checked = self.checked;
+        // A generic call resolved to one concrete instantiation.
+        if let Some(&idx) = checked.generic_calls.get(&e.id) {
+            let n = checked.fns[idx].params.len();
+            let vals = self.call_vals(e.id, args, None, n);
+            return self.emit_call(idx, vals);
+        }
         if let Some(&idx) = checked.fn_index.get(callee) {
             let n = checked.fns[idx].params.len();
             let vals = self.call_vals(e.id, args, None, n);
@@ -405,8 +660,11 @@ impl<'a> Lowerer<'a> {
             | StdTy::MapJson
             | StdTy::MapStrStr
             | StdTy::Json
-            | StdTy::Resp => Ty::Ref,
+            | StdTy::Resp
+            | StdTy::ProcResult => Ty::Ref,
             StdTy::Elem => elem.map(mir_ty).unwrap_or(Ty::Int),
+            StdTy::ElemBits => Ty::Int,
+            StdTy::ListElem => Ty::Ref,
         }
     }
 
@@ -424,7 +682,21 @@ impl<'a> Lowerer<'a> {
             ptys.push(Ty::Ref);
         }
         for (a, p) in args.iter().zip(f.params) {
-            vals.push(self.expr(&a.value));
+            let is_float = *p == StdTy::ElemBits && *self.expr_type(&a.value) == Type::Float;
+            let v = self.expr(&a.value);
+            let v = if is_float {
+                // The runtime stores floats as bits, like list items.
+                let bits = self.new_temp(Ty::Int);
+                self.emit(Inst::Assign {
+                    dst: bits,
+                    rv: Rvalue::Cast(CastKind::FloatToBits, v.op.clone()),
+                });
+                self.release_if_owned(v);
+                V::val(Operand::Local(bits))
+            } else {
+                v
+            };
+            vals.push(v);
             ptys.push(Self::std_ty(*p, elem));
         }
         let rty = Self::std_ty(f.ret, elem);
@@ -593,6 +865,28 @@ impl<'a> Lowerer<'a> {
                         });
                     }
                     let ty = self.expr_type(&a.value);
+                    if let Type::Enum(name) = &ty {
+                        let v = self.expr(&a.value);
+                        let s = self.enum_str(name, v.op.clone());
+                        self.emit(Inst::Call {
+                            dst: None,
+                            callee: Callee::Rt(RtFn::PrintStr),
+                            args: vec![s],
+                        });
+                        self.release_if_owned(v);
+                        continue;
+                    }
+                    if kode_sema::types::is_opt_scalar(&ty).is_some() {
+                        let v = self.expr(&a.value);
+                        let s = self.to_str(v, &ty);
+                        self.emit(Inst::Call {
+                            dst: None,
+                            callee: Callee::Rt(RtFn::PrintStr),
+                            args: vec![s.op.clone()],
+                        });
+                        self.release_if_owned(s);
+                        continue;
+                    }
                     let v = self.expr(&a.value);
                     let rt = match ty {
                         Type::Int => RtFn::PrintInt,
@@ -683,6 +977,61 @@ impl<'a> Lowerer<'a> {
                 let obj = self.make_error(Operand::Str(id));
                 self.raise(obj);
                 self.switch(ok);
+                V::unit()
+            }
+            Builtin::Channel => {
+                let t = self.new_temp(Ty::Ref);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::ChanNew),
+                    args: vec![],
+                });
+                self.owned(Operand::Local(t))
+            }
+            Builtin::Send => {
+                let ch = self.expr(&args[0].value);
+                let payload = match self.expr_type(&args[0].value) {
+                    Type::Chan(t) => (**t).clone(),
+                    _ => Type::NoneT,
+                };
+                let v = self.expr(&args[1].value);
+                let is_ref = payload.is_ref();
+                let op = if is_ref { self.own(v) } else { v.op };
+                let raw = self.to_raw(op, &payload);
+                self.emit(Inst::Call {
+                    dst: None,
+                    callee: Callee::Rt(RtFn::ChanSend),
+                    args: vec![ch.op.clone(), raw, Operand::Int(is_ref as i64)],
+                });
+                self.error_check();
+                self.release_if_owned(ch);
+                V::unit()
+            }
+            Builtin::Recv => {
+                let ch = self.expr(&args[0].value);
+                let payload = match self.expr_type(&args[0].value) {
+                    Type::Chan(t) => (**t).clone(),
+                    _ => Type::NoneT,
+                };
+                let is_ref = payload.is_ref();
+                let raw = self.call_raw(RtFn::ChanRecv, vec![ch.op.clone()], &payload);
+                self.error_check();
+                self.release_if_owned(ch);
+                if is_ref {
+                    self.owned(raw)
+                } else {
+                    V::val(raw)
+                }
+            }
+            Builtin::Close => {
+                let ch = self.expr(&args[0].value);
+                self.emit(Inst::Call {
+                    dst: None,
+                    callee: Callee::Rt(RtFn::ChanClose),
+                    args: vec![ch.op.clone()],
+                });
+                self.error_check();
+                self.release_if_owned(ch);
                 V::unit()
             }
         }

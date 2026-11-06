@@ -1,0 +1,29 @@
+// Generic calls from generic bodies, and two instantiations of one function.
+fn keep<T>(xs: [T], f: fn(T) -> bool) -> [T] {
+    return xs.filter(f)
+}
+
+fn count_of<T>(xs: [T], x: T) -> int {
+    n = 0
+    for v in xs {
+        if v == x {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+fn second<T>(xs: [T]) -> T {
+    return xs[1]
+}
+
+evens = keep([1, 2, 3, 4], |x: int| x % 2 == 0)
+print(evens.len(), evens[0], evens[1])
+
+words = keep(["a", "bb", "c"], |w: string| w.len() > 1)
+print(words.len(), words[0])
+
+print(count_of([1, 2, 2, 3], 2))
+print(count_of(["x", "y", "x"], "x"))
+print(second(evens))
+print(second(["p", "q"]))
