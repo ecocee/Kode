@@ -1,8 +1,9 @@
-// A quick tour of Kode v0.1
+// A tour of Kode 0.3: the shapes you use every day.
+// Run it with: kode run examples/tour.kode
 const GREETING = "Hello"
 const PI = 3.14159
 
-fn area(r: float) -> float => PI * r * r
+pub fn area(r: float) -> float => PI * r * r
 
 fn describe(n: int) -> string {
     if n % 2 == 0 {
@@ -14,6 +15,21 @@ fn describe(n: int) -> string {
 }
 
 fn shout(s: string) -> string => s + "!"
+
+// A generic function: the type comes from the argument at each call.
+pub fn first<T>(xs: [T]) -> T => xs[0]
+
+// An interface is a set of signatures; a class opts in with `implements`.
+// `pub` items are what `kode doc examples` documents.
+pub interface Greeter {
+    fn greet() -> string
+}
+
+pub class Person implements Greeter {
+    name: string
+
+    fn greet() -> string => "hi ${name}"
+}
 
 name = "Asha"
 print(shout("${GREETING}, ${name}"))
@@ -39,4 +55,37 @@ while n < 6 {
 
 ready = n > 3 and not (total == 0)
 print("ready:", ready, "len:", len(name), "int(3.9):", int(3.9), "float(2):", float(2))
+
+// Lists and maps print as they look; strings inside are quoted.
+numbers = [3, 1, 2]
+numbers.sort()
+print("sorted:", numbers)
+print("doubled:", numbers.map(|x: int| x * 2))
+print("odd:", numbers.filter(|x: int| x % 2 == 1))
+print("first:", first(numbers))
+print("slice:", numbers[1..])
+
+scores = {"asha": 90, "ravi": 75}
+scores["mei"] = 88
+print("scores:", scores)
+print("keys:", scores.keys())
+
+// A value that may be missing carries its own check.
+nickname: string? = none
+print("name:", nickname ?? "anonymous")
+
+// An interface value dispatches to the class behind it.
+person: Greeter = Person(name: "Ravi")
+print(person.greet())
+
+// Errors are values with a message and an optional code; `finally` always runs.
+try {
+    throw Error(message: "the disk is full", code: 507)
+} catch e {
+    print("caught:", e.message, e.code)
+} finally {
+    print("cleanup")
+}
+
 assert(total == 15)
+print("tour complete")

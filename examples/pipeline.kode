@@ -1,0 +1,42 @@
+// Fan work out to three tasks over a channel, then collect the results.
+// Run it with: kode run examples/pipeline.kode
+//
+// Tasks share state only through channels: there are no data races.
+fn worker(jobs: Channel<int>, out: Channel<string>, count: int) {
+    for i in 0..count {
+        n = recv(jobs)
+        send(out, "job ${n}: ${n * n}")
+    }
+}
+
+const JOBS = 9
+const WORKERS = 3
+
+jobs: Channel<int> = channel()
+out: Channel<string> = channel()
+
+w1 = spawn worker(jobs, out, JOBS / WORKERS)
+w2 = spawn worker(jobs, out, JOBS / WORKERS)
+w3 = spawn worker(jobs, out, JOBS / WORKERS)
+
+for n in 1..=JOBS {
+    send(jobs, n)
+}
+
+// Collect first, then sort, so the output does not depend on thread timing.
+results: [string] = []
+for i in 0..JOBS {
+    results.add(recv(out))
+}
+results.sort()
+
+await w1
+await w2
+await w3
+close(jobs)
+close(out)
+
+print("results from ${WORKERS} workers:")
+for line in results {
+    print(line)
+}

@@ -102,7 +102,7 @@ crates/
   kode-cli/           the `kode` command
 tests/run-pass/       programs that must run (.kode + .out), checked for leaks
 tests/compile-fail/   programs that must fail (.kode + .err with the error code)
-examples/             small programs
+examples/             small programs, one idea each (see examples/README.md)
 benchmarks/           proof of the cost claims
 docs/                 spec, cheat sheet, design notes, decisions (ADRs), roadmap, error codes
 .github/workflows/    CI (test.yml) and release (release.yml)

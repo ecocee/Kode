@@ -1,0 +1,53 @@
+// Turn CSV text into a report: maps, sorting, string methods, printing.
+// Run it with: kode run examples/report.kode
+//
+// In a real program the text comes from read_file(path); it is inline here so
+// the example runs anywhere.
+const DATA = "north,42\nsouth,17\nnorth,58\neast,9\nsouth,3\nnorth,12"
+
+totals: {string: int} = {}
+orders = 0
+
+for line in DATA.lines() {
+    if line.trim().is_empty() {
+        continue
+    }
+    parts = line.split(",")
+    if parts.len() != 2 {
+        print("skipping malformed line:", line)
+        continue
+    }
+    region = parts[0].trim()
+    amount = parts[1].trim().to_int()
+    if not totals.has(region) {
+        totals[region] = 0
+    }
+    totals[region] = totals[region] + amount
+    orders += 1
+}
+
+regions = totals.keys()
+regions.sort()
+
+print("orders:", orders)
+print("regions:", regions.len())
+print("")
+
+for region in regions {
+    total = totals[region]
+    bar = "#".repeat(total / 10)
+    print(region.upper(), bar, total)
+}
+
+best = ""
+best_total = 0
+for region in regions {
+    if totals[region] > best_total {
+        best = region
+        best_total = totals[region]
+    }
+}
+
+print("")
+print("by region:", totals)
+print("busiest:", best, best_total)

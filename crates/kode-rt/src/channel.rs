@@ -9,7 +9,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex};
 
 use crate::error::throw_msg;
-use crate::object::{alloc_object, free_object, kode_release, kode_retain, Header, CHAN, THREADED};
+use crate::object::{alloc_object, free_object, kode_release, Header, CHAN, THREADED};
 
 const SIZE: usize = 24;
 
@@ -48,8 +48,12 @@ pub extern "C" fn kode_chan_new() -> *mut Header {
     }
 }
 
-/// Queue a payload. The channel takes ownership of `raw` when `is_ref` is 1.
-/// Sending on a closed channel raises a catchable error.
+/// Queue a payload. The caller **transfers** one reference when `is_ref` is 1
+/// (the lowering retains a borrowed argument before the call), so the channel
+/// must not retain again: doing so left one extra reference on every heap
+/// payload, which leaked each value sent through a channel.
+/// Sending on a closed channel raises a catchable error; the caller then keeps
+/// its reference, because the transfer did not happen.
 ///
 /// # Safety
 /// `p` must be a channel.
@@ -62,15 +66,13 @@ pub unsafe extern "C" fn kode_chan_send(p: *mut Header, raw: i64, is_ref: i64) {
         throw_msg("send on a closed channel");
         return;
     }
-    if is_ref != 0 {
-        kode_retain(raw as *mut Header);
-    }
     guard.items.push_back((raw as u64, is_ref != 0));
     drop(guard);
     c.ready.notify_one();
 }
 
-/// Wait for a payload (the caller owns it when it is a heap value).
+/// Wait for a payload. The queued reference is **transferred** to the caller
+/// when it is a heap value, so the caller releases it like any other temporary.
 /// Receiving from a closed, empty channel raises a catchable error.
 ///
 /// # Safety

@@ -1,7 +1,9 @@
 // A small JSON API in the style of Express / FastAPI.
 // Run it with: kode run examples/api.kode -- 8080
 // Then: curl localhost:8080/users/7
-
+//
+// Unknown paths answer 404 and a known path with the wrong method answers 405,
+// so the route table is the whole description of the API.
 fn list_users(req: Request) -> Response {
     limit = "10"
     if req.query.has("limit") {
@@ -14,15 +16,23 @@ fn list_users(req: Request) -> Response {
 }
 
 fn get_user(req: Request) -> Response {
+    id = req.params["id"].to_int()
     user = json_obj()
-    user["id"] = json_int(req.params["id"].to_int())
+    user["id"] = json_int(id)
     user["name"] = json_string("Asha")
     return Response.json(json_map(user))
 }
 
 fn create_user(req: Request) -> Response {
     doc = req.json()
+    if not doc.has("name") {
+        throw Error(message: "a user needs a name", code: 400)
+    }
     return Response(status: 201, body: doc.encode(), content_type: "application/json")
+}
+
+fn delete_user(req: Request) -> Response {
+    return Response(status: 204, body: "", content_type: "text/plain")
 }
 
 fn health(req: Request) -> Response {
@@ -33,6 +43,7 @@ routes = Router()
 routes.get("/users", list_users)
 routes.get("/users/:id", get_user)
 routes.post("/users", create_user)
+routes.delete("/users/:id", delete_user)
 routes.get("/health", health)
 
 port = 8080
@@ -40,4 +51,5 @@ if args().len() > 0 {
     port = args()[0].to_int()
 }
 
+print("listening on http://localhost:${port}")
 serve(port, routes)

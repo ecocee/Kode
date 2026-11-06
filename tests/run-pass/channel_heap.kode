@@ -1,0 +1,20 @@
+// Heap payloads through a channel: the owner transfers one reference on `send`
+// and `recv` gives it back, so nothing leaks (checked with KODE_LEAK_CHECK=1).
+// A double retain here leaked one string per send.
+ch: Channel<string> = channel()
+
+send(ch, "a" + "b")
+first = recv(ch)
+print(first)
+
+// A borrowed variable: the lowering retains it for the channel, not the runtime.
+value = "x" + "y"
+send(ch, value)
+print(recv(ch))
+print(value)
+
+send(ch, "job ${1 + 1}")
+print(recv(ch))
+
+close(ch)
+print("closed")

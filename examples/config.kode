@@ -1,0 +1,55 @@
+// Read configuration: JSON, an environment override, validation, errors.
+// Run it with: kode run examples/config.kode
+//
+// In a real program the JSON comes from read_file("config.json"); it is inline
+// here so the example runs anywhere. `KODE_PORT=9000` overrides the port.
+const CONFIG = "{\"name\": \"shop\", \"port\": 8080, \"debug\": true}"
+
+fn load(text: string) -> {string: string} {
+    doc = json_parse(text)
+    if doc.kind != JsonKind.Map {
+        throw Error(message: "config must be a JSON object", code: 400)
+    }
+    if not doc.has("name") {
+        throw Error(message: "config needs a \"name\"", code: 400)
+    }
+
+    // `env` is a `string?`: an unset variable is none, not an empty string.
+    name = doc["name"].as_string()
+    port = env("KODE_PORT") ?? string(doc["port"].as_int())
+    debug = doc["debug"].as_bool()
+
+    out: {string: string} = {}
+    out["name"] = name
+    out["port"] = port
+    if debug {
+        out["debug"] = "on"
+    } else {
+        out["debug"] = "off"
+    }
+    return out
+}
+
+try {
+    config = load(CONFIG)
+    port = config["port"].to_int()
+    if port < 1024 {
+        throw Error(message: "port ${port} needs root; pick 1024 or above", code: 403)
+    }
+    name = config["name"]
+    debug = config["debug"]
+    print("config:", config)
+    print("${name} listening on ${port} (debug ${debug})")
+} catch e {
+    print("config error:", e.message, e.code)
+} finally {
+    print("done")
+}
+
+// A broken document is a catchable error, not a crash.
+try {
+    bad = load("{\"name\": [1, 2], \"port\": 8080, \"debug\": false}")
+    print("unexpectedly accepted:", bad)
+} catch e {
+    print("rejected:", e.message)
+}

@@ -35,9 +35,13 @@ names: Channel<string> = channel()
   a declared type meets it, exactly like `[]`. Using it before then is E0240:
   `this channel has no type yet; declare it, for example `ch: Channel<int> = channel()``.
 - The payload may be any type a list item may be: `int`, `float`, `bool`,
-  `string`, a class, a list, a map. It is carried in one 64-bit slot; heap
-  payloads are retained when sent and released when received or when the channel
-  is dropped, so a channel can outlive its sender.
+  `string`, a class, a list, a map. It is carried in one 64-bit slot. Ownership
+  is **transferred** on `send`: the lowering retains a borrowed argument before
+  the call, the channel stores that one reference, and `recv` hands it to the
+  receiver, which releases it like any temporary. Queued values are released
+  when the channel is dropped, so a channel can outlive its sender.
+  (Implementing `send` with a second retain in the runtime leaked one object per
+  heap payload; `tests/run-pass/channel_heap.kode` covers the transfer.)
 - `send(ch, v)` does not block (the queue is unbounded in v1), `recv(ch)` blocks
   until a value or a close. `close(ch)` is idempotent. Receiving from a closed,
   empty channel and sending after a close are catchable errors, not crashes.

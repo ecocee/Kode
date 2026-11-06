@@ -3,6 +3,24 @@
 Release notes for the `kode` compiler. Versions follow the binary, not the
 language: a patch release fixes bugs, a minor release may add syntax.
 
+## Unreleased
+
+### Fixed
+
+- **Heap values sent through a channel leaked.** `kode_chan_send` retained the
+  payload a second time even though the lowering already transfers one
+  reference, so every string, list, map or object sent through a channel was
+  never freed. `tests/run-pass/channel_heap.kode` covers the transfer.
+
+### Changed
+
+- **Examples refreshed and extended.** `examples/tour.kode` (now the whole
+  language, not v0.1) and `examples/bank.kode` use current syntax; new
+  `report.kode` (CSV to report), `wordcount.kode` (CLI over a file),
+  `pipeline.kode` (tasks and channels), `config.kode` (JSON plus `env`
+  override), and `api.kode` gains a `delete` route. `examples/README.md` indexes
+  them, and `kode doc examples` has `pub` items to document.
+
 ## 0.3.0
 
 ### Added

@@ -1,0 +1,64 @@
+// A command-line tool: count lines, words, characters and the most common word.
+// Run it with: kode run examples/wordcount.kode -- README.md
+if args().len() == 0 {
+    print("usage: kode run examples/wordcount.kode -- <file>")
+    exit(1)
+}
+
+path = args()[0]
+text = ""
+try {
+    text = read_file(path)
+} catch e {
+    print("cannot read ${path}: ${e.message}")
+    exit(1)
+}
+
+// A token counts as a word when it has at least one letter: this skips the
+// punctuation that CSV and Markdown tables are full of.
+const LETTERS = "abcdefghijklmnopqrstuvwxyz"
+
+fn is_word(s: string) -> bool {
+    for i in 0..s.len() {
+        if LETTERS.contains(s.char_at(i)) {
+            return true
+        }
+    }
+    return false
+}
+
+lines = text.lines()
+counts: {string: int} = {}
+words = 0
+
+for line in lines {
+    for raw in line.split(" ") {
+        word = raw.trim().lower()
+        if not is_word(word) {
+            continue
+        }
+        words += 1
+        if not counts.has(word) {
+            counts[word] = 0
+        }
+        counts[word] = counts[word] + 1
+    }
+}
+
+best = ""
+best_count = 0
+for word, n in counts {
+    if n > best_count {
+        best = word
+        best_count = n
+    }
+}
+
+print("file:", path)
+print("lines:", lines.len())
+print("words:", words)
+print("characters:", text.len())
+print("unique words:", counts.len())
+if best_count > 0 {
+    print("most common:", best, best_count)
+}

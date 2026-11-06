@@ -1,12 +1,16 @@
-// Classes, maps, lists, enums, match and errors in one program
+// Classes, maps, enums, `match`, errors and cleanup in one program.
+// Run it with: kode run examples/bank.kode
 enum Kind { Deposit, Withdraw }
 
 class Account {
     owner: string
     balance: int = 0
-    history: [string] = []
+    history: [int] = []
 
     fn apply(kind: Kind, amount: int) {
+        if amount <= 0 {
+            throw Error(message: "amount must be positive", code: 400)
+        }
         match kind {
             Kind.Deposit => {
                 balance += amount
@@ -18,7 +22,11 @@ class Account {
                 balance -= amount
             }
         }
-        history.add("${amount}")
+        history.add(amount)
+    }
+
+    fn statement() -> string {
+        return "${owner}: ${balance} after ${history.len()} entries ${history}"
     }
 }
 
@@ -27,10 +35,17 @@ accounts = {"asha": Account(owner: "Asha"), "ravi": Account(owner: "Ravi", balan
 accounts["asha"].apply(Kind.Deposit, 100)
 accounts["ravi"].apply(Kind.Withdraw, 20)
 
+// A rejected operation leaves the account untouched.
 accounts["ravi"].apply(Kind.Withdraw, 500) catch e {
     print("failed:", e.message, e.code)
 }
 
-for name, acct in accounts {
-    print(name, acct.balance, len(acct.history))
+accounts["ravi"].apply(Kind.Deposit, 0) catch e {
+    print("failed:", e.message, e.code)
 }
+
+for name, acct in accounts {
+    print(name, "->", acct.statement())
+}
+
+print("total held:", accounts["asha"].balance + accounts["ravi"].balance)
