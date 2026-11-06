@@ -280,7 +280,12 @@ impl<'a> Lowerer<'a> {
             vec![Operand::Local(src), Operand::Local(i), line],
             &el,
         );
-        let res_ty = mir_ty(&out_el);
+        // `map` returns the element type, `filter` takes a predicate and gets a
+        // `bool` back. The destination has to have the type the closure really
+        // returns: a wider slot leaves the upper bits of a `bool` result
+        // undefined, and the branch below then reads garbage and keeps every
+        // item.
+        let res_ty = if name == "filter" { Ty::Bool } else { mir_ty(&out_el) };
         let dst = (res_ty != Ty::Unit).then(|| self.new_temp(res_ty));
         self.emit(Inst::CallIndirect {
             dst,
