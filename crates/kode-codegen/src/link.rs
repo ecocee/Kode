@@ -53,6 +53,8 @@ fn install_hint() -> &'static str {
 fn platform_args(strip: bool) -> Vec<&'static str> {
     if cfg!(target_os = "windows") {
         // MinGW-w64: one static binary, with the Windows libraries std needs.
+        // `gcc` links the C runtime itself, and there is no `libc.a` to name:
+        // asking for `-lc` makes ld stop with "cannot find -lc".
         let mut args = vec![
             "-Wl,--gc-sections",
             "-static",
@@ -62,7 +64,6 @@ fn platform_args(strip: bool) -> Vec<&'static str> {
             "-lntdll",
             "-ladvapi32",
             "-lm",
-            "-lc",
         ];
         if strip {
             args.push("-s");

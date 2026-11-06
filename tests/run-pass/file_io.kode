@@ -1,8 +1,12 @@
-write_file("/tmp/kode_io_test.txt", "line1\nline2\n")
-text = read_file("/tmp/kode_io_test.txt")
+// The temp directory differs per system: `TEMP` on Windows, `TMPDIR` on some
+// Unix systems, and `/tmp` as the fallback both accept.
+tmp = env("TEMP") ?? env("TMPDIR") ?? "/tmp"
+file = tmp + "/kode_io_test.txt"
+write_file(file, "line1\nline2\n")
+text = read_file(file)
 lines = text.trim().split("\n")
 print(len(lines), lines[1])
-missing = read_file("/tmp/definitely/not/here.txt") catch e {
+missing = read_file(tmp + "/definitely/not/here.txt") catch e {
     print("read failed")
     ""
 }

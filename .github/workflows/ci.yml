@@ -29,6 +29,15 @@ jobs:
           install: mingw-w64-ucrt-x86_64-gcc
           path-type: inherit
 
+      # Build with the GNU toolchain, the one `kode` links through. An MSVC
+      # toolchain would embed a runtime MinGW cannot link (`__chkstk`,
+      # `__CxxFrameHandler3`).
+      - name: Use MinGW-w64 as the Rust toolchain on Windows
+        if: runner.os == 'Windows'
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          rustup default stable-x86_64-pc-windows-gnu
+
       - name: Build
         run: cargo build --workspace
 
