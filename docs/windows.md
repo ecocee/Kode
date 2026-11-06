@@ -29,7 +29,17 @@ setup is visible before the first build.
    - MSYS2, then `pacman -S mingw-w64-ucrt-x86_64-gcc`, or
    - the LLVM-MinGW release archive.
 2. Put the folder that contains `gcc.exe` on `PATH`.
-3. Check: `gcc --version`, then `kode doctor`.
+3. Use the GNU Rust toolchain too. The runtime library is linked by `gcc`, and an
+   MSVC toolchain (`stable-x86_64-pc-windows-msvc`, the default on Windows)
+   builds a runtime MinGW cannot link: it references MSVC-only symbols such as
+   `__chkstk` and `__CxxFrameHandler3`.
+
+   ```
+   rustup toolchain install stable-x86_64-pc-windows-gnu
+   rustup default stable-x86_64-pc-windows-gnu
+   ```
+
+4. Check: `gcc --version`, then `kode doctor`.
 
 MSVC (`cl.exe`) is **not** supported: it needs a different object format setup
 and a `.lib` runtime. The error message says so instead of failing with a linker
@@ -37,8 +47,9 @@ dump.
 
 ## What is not tested
 
-- There is no Windows CI job yet; the Windows branch compiles in the source but
-  the linked binaries have not been run on Windows in this repository.
+- CI runs the test suite on `windows-latest` with the GNU toolchain and
+  MinGW-w64, so the compiler and the linker are exercised; the linked binaries
+  are still mostly not run on Windows by hand.
 - Cross-compiling *to* Windows from macOS/Linux needs a MinGW-w64 cross
   toolchain (`x86_64-w64-mingw32-gcc`) and `KODE_CC` set to it. The runtime
   archive is built for the host, so a cross build is not wired up yet.

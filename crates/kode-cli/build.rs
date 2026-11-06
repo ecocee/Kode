@@ -15,7 +15,15 @@ fn main() {
 
     let rustc = env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
     let lib = out.join("libkode_rt.a");
-    let status = Command::new(rustc)
+    let mut cmd = Command::new(rustc);
+    // The runtime is linked by the host C toolchain (`cc`, or `gcc` on Windows),
+    // so it has to be built for the target the compiler itself is built for.
+    // A `windows-msvc` runtime cannot be linked by MinGW-w64: it references
+    // MSVC-only symbols such as `__chkstk` and `__CxxFrameHandler3`.
+    if let Ok(target) = env::var("TARGET") {
+        cmd.arg("--target").arg(target);
+    }
+    let status = cmd
         .args([
             "--crate-name",
             "kode_rt",
