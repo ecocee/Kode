@@ -1,16 +1,15 @@
 
-name: Kode Release
+name: Kode Linux Release
 
 on:
   push:
     tags:
       - "v*"
 
-  # Manually rebuild an existing release
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to publish (example: v0.3.0)"
+        description: "Existing Git tag (example: v0.3.5)"
         required: true
         type: string
 
@@ -18,82 +17,40 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux x86_64
-          - name: linux-x86_64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-
-          # Linux ARM64
-          - name: linux-aarch64
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-
-          # macOS Intel
-          - name: macos-x86_64
-            os: macos-13
-            target: x86_64-apple-darwin
-
-          # macOS Apple Silicon
-          - name: macos-aarch64
-            os: macos-latest
-            target: aarch64-apple-darwin
-
-          # Windows x86_64
-          - name: windows-x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-gnu
+  release:
+    name: Build Linux x86_64
+    runs-on: ubuntu-latest
 
     steps:
-      # Checkout the requested tag
-      - name: Checkout source
+      # 1. Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
-          persist-credentials: true
 
-      # Install Rust
+      # 2. Install Rust
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
-      # Rust build cache
-      - name: Rust cache
+      # 3. Rust cache
+      - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      # Windows compiler
-      - name: Setup MinGW
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: mingw-w64-ucrt-x86_64-gcc
-          path-type: inherit
+      # 4. Verify project
+      - name: Check project
+        run: cargo check --workspace
 
-      - name: Configure Windows linker
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=gcc" >> "$GITHUB_ENV"
+      # 5. Run tests
+      - name: Run tests
+        run: cargo test --workspace
 
-      # Build Kode
-      - name: Build compiler
-        shell: bash
-        run: |
-          cargo build --release --workspace --target "${{ matrix.target }}"
+      # 6. Build Linux binary
+      - name: Build release
+        run: cargo build --release --workspace
 
-      # Stage release files
-      - name: Stage files
+      # 7. Prepare release files
+      - name: Prepare release
         shell: bash
         run: |
           set -euo pipefail
@@ -101,17 +58,14 @@ jobs:
           TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           VERSION="${TAG#v}"
 
-          echo "KODE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
-          EXT=""
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            EXT=".exe"
-          fi
-
-          BIN="target/${{ matrix.target }}/release/kode${EXT}"
+          BIN="target/release/kode"
 
           if [ ! -f "$BIN" ]; then
-            echo "Binary not found: $BIN"
+            echo "ERROR: Kode binary not found!"
+            echo "Checking generated binaries:"
+            find target/release -maxdepth 1 -type f -executable
             exit 1
           fi
 
@@ -119,51 +73,24 @@ jobs:
 
           mkdir -p dist
 
-          cp "$BIN" "dist/kode${EXT}"
+          cp "$BIN" dist/kode
+          chmod 755 dist/kode
 
           [ ! -f README.md ] || cp README.md dist/
           [ ! -f CHANGELOG.md ] || cp CHANGELOG.md dist/
 
-          if [ -d docs ]; then
-            mkdir -p dist/docs
-            [ ! -f docs/editors.md ] || cp docs/editors.md dist/docs/
-            [ ! -f docs/windows.md ] || cp docs/windows.md dist/docs/
-          fi
-
-      # Linux and macOS archives
+      # 8. Create Linux tarball
       - name: Create tarball
-        if: runner.os != 'Windows'
+        run: |
+          tar -czf "kode-${VERSION}-linux-x86_64.tar.gz" -C dist .
+
+      # 9. Create Debian package
+      - name: Create DEB package
         shell: bash
         run: |
           set -euo pipefail
 
-          tar -czf "kode-${KODE_VERSION}-${{ matrix.name }}.tar.gz" -C dist .
-
-      # Windows archive
-      - name: Create Windows ZIP
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          7z a "kode-${KODE_VERSION}-${{ matrix.name }}.zip" dist/*
-
-          cp dist/kode.exe "kode-${KODE_VERSION}-${{ matrix.name }}.exe"
-
-      # Debian package
-      - name: Create Debian package
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          case "${{ matrix.target }}" in
-            x86_64-*) ARCH=amd64 ;;
-            aarch64-*) ARCH=arm64 ;;
-            *) echo "Unsupported target"; exit 1 ;;
-          esac
-
-          ROOT="pkg/kode_${KODE_VERSION}_${ARCH}"
+          ROOT="pkg/kode_${VERSION}_amd64"
 
           mkdir -p "$ROOT/DEBIAN"
           mkdir -p "$ROOT/usr/bin"
@@ -172,104 +99,49 @@ jobs:
           cp dist/kode "$ROOT/usr/bin/kode"
           chmod 755 "$ROOT/usr/bin/kode"
 
-          [ ! -f README.md ] || cp README.md "$ROOT/usr/share/doc/kode/"
-          [ ! -f CHANGELOG.md ] || cp CHANGELOG.md "$ROOT/usr/share/doc/kode/"
+          [ ! -f README.md ] || \
+            cp README.md "$ROOT/usr/share/doc/kode/"
+
+          [ ! -f CHANGELOG.md ] || \
+            cp CHANGELOG.md "$ROOT/usr/share/doc/kode/"
 
           cat > "$ROOT/DEBIAN/control" <<EOF
           Package: kode
-          Version: $KODE_VERSION
+          Version: $VERSION
           Section: devel
           Priority: optional
-          Architecture: $ARCH
+          Architecture: amd64
           Maintainer: ECOCEE <ecoceeteam@gmail.com>
           Description: Kode programming language compiler
            Kode compiles programs to native machine code.
           EOF
 
-          dpkg-deb --root-owner-group --build "$ROOT" \
-            "kode-${KODE_VERSION}-${{ matrix.name }}.deb"
+          dpkg-deb --root-owner-group --build \
+            "$ROOT" \
+            "kode-${VERSION}-linux-x86_64.deb"
 
-      # macOS DMG
-      - name: Create macOS disk image
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set -euo pipefail
+          dpkg-deb --info "kode-${VERSION}-linux-x86_64.deb"
 
-          hdiutil create \
-            -quiet \
-            -volname "Kode ${KODE_VERSION}" \
-            -srcfolder dist \
-            -ov \
-            -format UDZO \
-            "kode-${KODE_VERSION}-${{ matrix.name }}.dmg"
-
-      # Checksums
+      # 10. Generate SHA256 checksums
       - name: Generate checksums
-        shell: bash
         run: |
-          set -euo pipefail
+          sha256sum \
+            "kode-${VERSION}-linux-x86_64.tar.gz" \
+            "kode-${VERSION}-linux-x86_64.deb" \
+            > SHA256SUMS.txt
 
-          if command -v sha256sum >/dev/null; then
-            sha256sum kode-* > "SHA256SUMS-${{ matrix.name }}.txt"
-          else
-            shasum -a 256 kode-* > "SHA256SUMS-${{ matrix.name }}.txt"
-          fi
+          cat SHA256SUMS.txt
 
-          cat "SHA256SUMS-${{ matrix.name }}.txt"
-
-      # Upload build artifacts
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: kode-${{ matrix.name }}
-          path: |
-            kode-*
-            SHA256SUMS-*.txt
-          if-no-files-found: error
-          retention-days: 7
-
-  # Publish all builds
-  publish:
-    name: Publish GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
-
-      # Download all platform builds
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      # Combine checksums
-      - name: Combine checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cat artifacts/SHA256SUMS-*.txt \
-            | sort -k2 > artifacts/SHA256SUMS.txt
-
-          rm artifacts/SHA256SUMS-*.txt
-
-          cat artifacts/SHA256SUMS.txt
-
-      # Publish release
-      - name: Publish GitHub Release
+      # 11. Publish GitHub Release
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          files: artifacts/*
+          name: Kode v${{ env.VERSION }}
           generate_release_notes: true
-          body_path: CHANGELOG.md
-          fail_on_unmatched_files: false
+          files: |
+            kode-${{ env.VERSION }}-linux-x86_64.tar.gz
+            kode-${{ env.VERSION }}-linux-x86_64.deb
+            SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
