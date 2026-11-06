@@ -3,10 +3,10 @@
 For the working plan behind these milestones — branches, budgets and acceptance checks —
 see [PLAN-v1.md](PLAN-v1.md).
 
-Releases are cut from a tag and ship a binary per platform plus notes
-(see `docs/releasing.md`). The release workflow now also produces a native
-installer for each platform — a `.deb` on Linux, a `.dmg` on macOS, and a `.zip`
-plus standalone `.exe` on Windows.
+Releases are cut from a tag and ship a binary plus notes (see `docs/releasing.md`).
+The release workflow builds **Linux x86-64** today: a tarball, a `.deb` and
+`SHA256SUMS-linux-x86_64.txt`. macOS and Windows artifacts are planned and not
+built by CI; Windows has never been verified by hand. See `docs/STATUS.md`.
 
 Goal: a language that serves more requests per cloud server than Java, Node and Python,
 is simple to write, and is easy for AI agents to use.

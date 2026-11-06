@@ -37,13 +37,20 @@ namespaces** like `json.parse`, `math.sqrt` and `http.get`.
 Tools: `kode run | build | check | test | fmt | explain | mir | lsp | doctor`, and packages:
 `kode init | new | add | remove | install` with path dependencies and a checked-in `kode.lock`.
 
-**Tasks** (`spawn` / `await`), a **web server** (`serve`, or a **Router** with `Request`/`Response`), **JSON**, an **HTTP client**, strings, files, arguments and sorting are in too.
-Next: function values and package dependencies, then budgets and AI features (M8), tooling and
-portability (M9).
-See [docs/ROADMAP.md](docs/ROADMAP.md) and the one-page [cheat sheet](docs/agents/cheatsheet.md).
+**Tasks** (`spawn` / `await`), **channels** (`Channel<T>`, `send`/`recv`/`close`), a **web server**
+(`serve`, or a **Router** with `Request`/`Response`), **JSON**, an **HTTP client**, strings, files,
+arguments and sorting are in too. Function values and closures (`fn(int) -> int`, `|x: int| x * 2`),
+generic functions, path dependencies and printing lists and maps (`[1, 2]`, `{"name": "Asha"}`)
+work as well.
 
-Measured on one dev machine (recursive Fibonacci of 35): Kode about 0.06 s, Python about 0.9 to 1.8 s,
-release binary about 330 KB. Treat this as a first data point, not a claim. See `benchmarks/`.
+Next: the M9 production track — TLS, a database client, cycle-safe memory, byte buffers, enum
+payloads; see [docs/PLAN-v1.md](docs/PLAN-v1.md). M8 (budgets, `uses`, typed `ask`/`tool`) is
+skipped. Measurements and known gaps: [docs/STATUS.md](docs/STATUS.md).
+See [docs/ROADMAP.md](docs/ROADMAP.md) and the one-page [cheat sheet](docs/cheatsheet.md).
+
+Measured on one dev machine (macOS arm64, Apple silicon): `fib(35)` in 93 ms against Python's
+4,658 ms and C's 58 ms; `examples/hello.kode` builds to a 450,696-byte binary, 373,336 bytes after
+`strip -x`. Full numbers, targets and the rows that miss: `benchmarks/report.md`.
 
 ## Build and run
 
@@ -105,7 +112,7 @@ tests/compile-fail/   programs that must fail (.kode + .err with the error code)
 examples/             small programs, one idea each (see examples/README.md)
 benchmarks/           proof of the cost claims
 docs/                 spec, cheat sheet, design notes, decisions (ADRs), roadmap, error codes
-.github/workflows/    CI (test.yml) and release (release.yml)
+.github/workflows/    CI (ci.yml) and release (release.yml)
 ```
 
 Start with [`docs/cheatsheet.md`](docs/cheatsheet.md) for the shape of the language and

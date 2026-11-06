@@ -3,7 +3,11 @@
 Release notes for the `kode` compiler. Versions follow the binary, not the
 language: a patch release fixes bugs, a minor release may add syntax.
 
-## Unreleased
+## 0.3.5
+
+The `version` in `Cargo.toml` now matches the latest tag. Tags `v0.3.1` through
+`v0.3.4` were cut without changelog entries; their changes are described under
+0.3.0 and here.
 
 ### Fixed
 

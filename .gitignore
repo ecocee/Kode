@@ -27,3 +27,6 @@ benchmarks/build/
 docs/site/out/
 logs/
 rust-analyzer/docs/site/out/
+
+# Release artifacts are built by CI, never committed
+dist/

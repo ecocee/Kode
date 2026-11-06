@@ -8,25 +8,29 @@ binaries plus notes. Nothing is installed at run time.
 1. **Green suite on all three platforms.** `.github/workflows/ci.yml` runs
    `cargo build --workspace`, `cargo test --workspace` with `KODE_LEAK_CHECK=1`,
    and a conformance smoke test on Linux, macOS and Windows (MinGW-w64).
+   The Windows job has **never been confirmed green**; check it before a release
+   and say so in the notes if it is not.
 2. **Version.** Bump `version` in the workspace `Cargo.toml`. A patch release
    fixes bugs; a minor release may add syntax. Language changes also need an ADR
    in `docs/adr/`.
 3. **Changelog.** Add a section to `CHANGELOG.md` with `Added`, `Changed` and
    `Fixed`. It becomes the release body.
 4. **Tag.** `git tag v<version> && git push origin v<version>`. The release
-   workflow (`.github/workflows/release.yml`) builds five groups of artifacts,
-   one per platform. It also pins the source files (README, CHANGELOG, the two
-   editor docs) next to each binary.
+   workflow (`.github/workflows/release.yml`) has **one job today**: Linux
+   x86-64. It also pins the source files (README, CHANGELOG, the two editor
+   docs) next to the binary.
 
-   | Platform | Release files |
-   |---|---|
-   | Linux x86-64 | `kode-<version>-linux-x86_64.tar.gz`, `kode-<version>-linux-x86_64.deb` |
-   | Linux aarch64 | `kode-<version>-linux-aarch64.tar.gz`, `kode-<version>-linux-aarch64.deb` |
-   | macOS Intel | `kode-<version>-macos-x86_64.tar.gz`, `kode-<version>-macos-x86_64.dmg` |
-   | macOS Apple silicon | `kode-<version>-macos-aarch64.tar.gz`, `kode-<version>-macos-aarch64.dmg` |
-   | Windows x86-64 | `kode-<version>-windows-x86_64.zip`, `kode-<version>-windows-x86_64.exe` |
+   | Platform | Release files | Status |
+   |---|---|---|
+   | Linux x86-64 | `kode-<version>-linux-x86_64.tar.gz`, `kode-<version>-linux-x86_64.deb` | **built by CI** |
+   | Linux aarch64 | `kode-<version>-linux-aarch64.tar.gz`, `kode-<version>-linux-aarch64.deb` | planned |
+   | macOS Intel | `kode-<version>-macos-x86_64.tar.gz`, `kode-<version>-macos-x86_64.dmg` | planned |
+   | macOS Apple silicon | `kode-<version>-macos-aarch64.tar.gz`, `kode-<version>-macos-aarch64.dmg` | planned |
+   | Windows x86-64 | `kode-<version>-windows-x86_64.zip`, `kode-<version>-windows-x86_64.exe` | planned, unverified |
 
-   Each file is also checksummed and published as `SHA256SUMS-<platform>.txt`.
+   The Linux files are checksummed and published as
+   `SHA256SUMS-linux-x86_64.txt`. Per-platform checksum files for the other
+   rows are part of the same planned work.
 
 5. **Check one artifact by hand.** Unpack it, run `kode --version`,
    `kode doctor`, and compile a program that uses the standard library. A
@@ -44,8 +48,8 @@ toolchains make: no VM, no shared runtime, nothing to install alongside it.
 
 Installers are the same shape other native toolchains ship: a tarball you unpack,
 a `.deb` you install on Linux, a `.dmg` you drop into `/Applications` on macOS, and
-a `.zip` plus a standalone `.exe` on Windows. The release workflow produces all of
-these from one tag so each platform gets its normal distribution shape.
+a `.zip` plus a standalone `.exe` on Windows. Only the Linux shapes are produced
+by the workflow today; the others are planned and are listed as such above.
 
 ## Checksums
 
