@@ -1,425 +1,158 @@
-
 #!/usr/bin/env bash
-set -euo pipefail
-
 # ============================================================
-# Kode HTTP Benchmark
-# Languages: Kode, Go, Node.js
-# ============================================================
-
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
-
-IMAGE="${IMAGE:-kode-http-bench}"
-NETWORK="${NETWORK:-kode-http-bench-net}"
-SERVER="${SERVER:-kode-http-server}"
-PORT="${PORT:-8080}"
-
-REPETITIONS="${REPETITIONS:-5}"
-KODE_HTTP_WORKERS="${KODE_HTTP_WORKERS:-}"
-
-CONNECTIONS=(100 1000)
-REQUESTS=(1000 100000)
-LANGUAGES=(kode go node)
-ENDPOINTS=(hello json)
-
-RESULT_DIR="benchmarks/http"
-RESULTS="$RESULT_DIR/results.tsv"
-SUMMARY="$RESULT_DIR/summary.tsv"
-
-CURRENT_SERVER=""
-
-# ============================================================
-# Logging
+# measure.sh: resource measurement helpers for a running container.
+#
+# Source it (run.sh does) or use it standalone:
+#   ./measure.sh snapshot <container>            one-shot CPU / memory / OOM state
+#   ./measure.sh watch    <container> [seconds]  sample N seconds, print summary
+#   ./measure.sh time     <command...>           wall-clock any command
+#
+# Reads cgroup v2 files inside the container (memory.current, memory.peak,
+# cpu.stat). On cgroup v1 hosts the values come back as 0.
+# Sampling uses `docker exec`, so it costs a few ms of the container's own
+# CPU per sample; raise SAMPLE_INTERVAL if you test at 0.25 CPU.
 # ============================================================
 
-log() {
-    printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
-}
-
-# ============================================================
-# Cleanup
-# ============================================================
-
-cleanup() {
-    if [[ -n "${CURRENT_SERVER:-}" ]]; then
-        docker rm -f "$CURRENT_SERVER" >/dev/null 2>&1 || true
-    fi
-
-    docker rm -f "$SERVER-load" >/dev/null 2>&1 || true
-}
-
-trap cleanup EXIT INT TERM
-
-# ============================================================
-# Docker setup
-# ============================================================
-
-ensure_network() {
-    if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
-        docker network create "$NETWORK" >/dev/null
+now_ms() {
+    local t
+    t="$(date +%s%3N 2>/dev/null || true)"
+    if [[ "$t" =~ ^[0-9]+$ ]]; then
+        echo "$t"
+    else
+        python3 -c 'import time; print(int(time.time()*1000))'
     fi
 }
 
-ensure_image() {
-    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-        log "Building benchmark Docker image"
+# cg_read <container> <cgroup-file>
+cg_read() {
+    docker exec "$1" cat "/sys/fs/cgroup/$2" 2>/dev/null || true
+}
 
-        docker build \
-            -f benchmarks/http/Dockerfile \
-            -t "$IMAGE" .
+# Appends: "<ts_ms> <mem_bytes> <cpu_usec> <nr_throttled> <throttled_usec>"
+measure_snapshot() {
+    local container="$1" file="$2" out
+    out="$(docker exec "$container" sh -c \
+        'cat /sys/fs/cgroup/memory.current; awk "/^(usage_usec|nr_throttled|throttled_usec) /{print \$2}" /sys/fs/cgroup/cpu.stat' \
+        2>/dev/null)" || return 0
+    # shellcheck disable=SC2086
+    echo "$(now_ms) $(echo $out)" >> "$file"
+}
+
+MEASURE_PID=""
+MEASURE_CONTAINER=""
+MEASURE_FILE=""
+
+# measure_start <container> <samples-file> [interval-seconds]
+measure_start() {
+    MEASURE_CONTAINER="$1"
+    MEASURE_FILE="$2"
+    local interval="${3:-1}"
+
+    : > "$MEASURE_FILE"
+    measure_snapshot "$MEASURE_CONTAINER" "$MEASURE_FILE"   # exact starting counters
+
+    (
+        while :; do
+            sleep "$interval"
+            measure_snapshot "$MEASURE_CONTAINER" "$MEASURE_FILE"
+        done
+    ) &
+    MEASURE_PID=$!
+    disown "$MEASURE_PID" 2>/dev/null || true
+}
+
+measure_stop() {
+    if [[ -n "${MEASURE_PID:-}" ]]; then
+        kill "$MEASURE_PID" >/dev/null 2>&1 || true
+        MEASURE_PID=""
+        # exact ending counters, so even very short runs get a correct CPU delta
+        measure_snapshot "$MEASURE_CONTAINER" "$MEASURE_FILE"
     fi
 }
 
-# ============================================================
-# Server commands
-# ============================================================
+# measure_summary <samples-file> [wall-seconds]
+# Prints key=value pairs. cpu_avg_pct: 100 = one full core.
+measure_summary() {
+    local file="$1" wall="${2:-}"
 
-server_command() {
-    local language="$1"
+    if [[ ! -s "$file" ]]; then
+        echo "cpu_seconds=0 cpu_avg_pct=0 cpu_max_pct=0 mem_avg_mb=0 mem_max_mb=0 throttled_periods=0 throttled_ms=0 samples=0"
+        return 0
+    fi
 
-    case "$language" in
-        kode)
-            echo "/bench/bin/kode_server $PORT"
+    sort -n "$file" | awk -v wall="$wall" '
+    NR == 1 { t0 = $1; c0 = $3; n0 = $4; h0 = $5; pt = $1; pc = $3 }
+    {
+        mem = $2 / 1048576
+        sum += mem; cnt++
+        if (mem > mx) mx = mem
+        if (NR > 1) {
+            dt = ($1 - pt) * 1000                      # ms -> usec
+            if (dt > 0) { p = ($3 - pc) / dt * 100; if (p > pm) pm = p }
+        }
+        pt = $1; pc = $3
+        lt = $1; lc = $3; ln = $4; lh = $5
+    }
+    END {
+        cpu_s = (lc - c0) / 1e6
+        span  = (wall != "" && wall + 0 > 0) ? wall + 0 : (lt - t0) / 1000
+        avg   = span > 0 ? cpu_s / span * 100 : 0
+        if (pm < avg) pm = avg
+        printf "cpu_seconds=%.3f cpu_avg_pct=%.1f cpu_max_pct=%.1f mem_avg_mb=%.1f mem_max_mb=%.1f throttled_periods=%d throttled_ms=%.0f samples=%d\n",
+               cpu_s, avg, pm, sum / cnt, mx, ln - n0, (lh - h0) / 1000, cnt
+    }'
+}
+
+# container_oom <container>: exit 0 if the kernel OOM-killed it
+container_oom() {
+    [[ "$(docker inspect -f '{{.State.OOMKilled}}' "$1" 2>/dev/null || echo false)" == "true" ]]
+}
+
+# ------------------------------------------------------------
+# Standalone mode
+# ------------------------------------------------------------
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    set -euo pipefail
+
+    cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        snapshot)
+            c="${1:?usage: measure.sh snapshot <container>}"
+            cur="$(cg_read "$c" memory.current)"
+            peak="$(cg_read "$c" memory.peak)"
+            cpu="$(cg_read "$c" cpu.stat | awk '/^usage_usec/{print $2}')"
+            thr="$(cg_read "$c" cpu.stat | awk '/^throttled_usec/{print $2}')"
+            rss="$(docker exec "$c" awk '/VmRSS:/{print $2}' /proc/1/status 2>/dev/null || true)"
+            oom="$(docker inspect -f '{{.State.OOMKilled}}' "$c")"
+            awk -v cur="${cur:-0}" -v peak="${peak:-0}" -v cpu="${cpu:-0}" -v thr="${thr:-0}" \
+                -v rss="${rss:-0}" -v oom="$oom" 'BEGIN {
+                printf "mem_current_mb=%.1f mem_peak_mb=%.1f pid1_rss_mb=%.1f cpu_seconds=%.3f throttled_ms=%.0f oom_killed=%s\n",
+                       cur/1048576, peak/1048576, rss/1024, cpu/1e6, thr/1000, oom }'
             ;;
-        go)
-            echo "/bench/bin/go_server $PORT"
+        watch)
+            c="${1:?usage: measure.sh watch <container> [seconds]}"
+            secs="${2:-10}"
+            f="$(mktemp)"
+            trap 'rm -f "$f"' EXIT
+            measure_start "$c" "$f" "${SAMPLE_INTERVAL:-1}"
+            sleep "$secs"
+            measure_stop
+            measure_summary "$f" "$secs"
             ;;
-        node)
-            echo "node /src/benchmarks/http/server.js $PORT"
+        time)
+            [[ $# -gt 0 ]] || { echo "usage: measure.sh time <command...>" >&2; exit 2; }
+            t0="$(now_ms)"
+            rc=0
+            "$@" || rc=$?
+            t1="$(now_ms)"
+            awk -v a="$t0" -v b="$t1" -v rc="$rc" 'BEGIN { printf "wall_seconds=%.3f exit_code=%d\n", (b-a)/1000, rc }'
+            exit "$rc"
             ;;
         *)
-            echo "Unknown language: $language" >&2
-            return 1
+            sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'
+            exit 2
             ;;
     esac
-}
-
-# ============================================================
-# Start server
-# ============================================================
-
-start_server() {
-    local language="$1"
-    local command
-
-    command="$(server_command "$language")"
-
-    CURRENT_SERVER="${SERVER}-${language}"
-
-    log "Starting $language server"
-
-    # Kode can receive an optional worker override.
-    # Go and Node.js use their normal configurations.
-    if [[ "$language" == "kode" && -n "$KODE_HTTP_WORKERS" ]]; then
-
-        log "Kode HTTP workers: $KODE_HTTP_WORKERS"
-
-        docker run -d \
-            --name "$CURRENT_SERVER" \
-            --network "$NETWORK" \
-            --cpus=1 \
-            --memory=1g \
-            -e "KODE_HTTP_WORKERS=$KODE_HTTP_WORKERS" \
-            "$IMAGE" \
-            bash -lc "exec $command" >/dev/null
-
-    else
-
-        docker run -d \
-            --name "$CURRENT_SERVER" \
-            --network "$NETWORK" \
-            --cpus=1 \
-            --memory=1g \
-            "$IMAGE" \
-            bash -lc "exec $command" >/dev/null
-
-    fi
-
-    # Wait for server readiness.
-    local ready=0
-
-    for _ in $(seq 1 40); do
-
-        if docker exec "$CURRENT_SERVER" \
-            curl -fsS "http://127.0.0.1:$PORT/hello" \
-            >/dev/null 2>&1; then
-
-            ready=1
-            break
-        fi
-
-        sleep 0.5
-    done
-
-    if [[ "$ready" -ne 1 ]]; then
-        echo "ERROR: $language server failed to start."
-
-        docker logs "$CURRENT_SERVER" || true
-
-        return 1
-    fi
-
-    log "$language server is ready"
-}
-
-# ============================================================
-# Stop server
-# ============================================================
-
-stop_server() {
-    if [[ -n "${CURRENT_SERVER:-}" ]]; then
-        docker rm -f "$CURRENT_SERVER" >/dev/null 2>&1 || true
-        CURRENT_SERVER=""
-    fi
-}
-
-# ============================================================
-# Start load generator
-# ============================================================
-
-start_load_generator() {
-    docker rm -f "$SERVER-load" >/dev/null 2>&1 || true
-
-    docker run -d \
-        --name "$SERVER-load" \
-        --network "$NETWORK" \
-        "$IMAGE" \
-        sleep infinity >/dev/null
-}
-
-# ============================================================
-# Exact key-value parser
-# ============================================================
-
-get_value() {
-    local key="$1"
-    local output="$2"
-
-    awk -v key="$key" '
-    {
-        for (i = 1; i <= NF; i++) {
-
-            separator = index($i, "=")
-
-            if (separator > 0) {
-
-                field = substr($i, 1, separator - 1)
-
-                if (field == key) {
-                    print substr($i, separator + 1)
-                    exit
-                }
-            }
-        }
-    }
-    ' <<< "$output"
-}
-
-# ============================================================
-# Run load test
-# ============================================================
-
-run_load() {
-    local language="$1"
-    local endpoint="$2"
-    local connections="$3"
-    local requests="$4"
-    local repetition="$5"
-
-    local url="http://${SERVER}-${language}:${PORT}/${endpoint}"
-    local output
-
-    output="$(
-        docker exec "$SERVER-load" \
-            /bench/bin/load \
-            -url "$url" \
-            -c "$connections" \
-            -n "$requests"
-    )"
-
-    local successful
-    local failed
-    local unattempted
-    local rps
-    local p50
-    local p95
-    local p99
-
-    successful="$(get_value "requests" "$output")"
-    failed="$(get_value "failed_requests" "$output")"
-    unattempted="$(get_value "unattempted_requests" "$output")"
-    rps="$(get_value "rps" "$output")"
-    p50="$(get_value "p50_ms" "$output")"
-    p95="$(get_value "p95_ms" "$output")"
-    p99="$(get_value "p99_ms" "$output")"
-
-    local process_rss
-    local container_current
-    local container_peak
-
-    process_rss="$(
-        docker exec "$CURRENT_SERVER" \
-            awk '/VmRSS:/ {print $2}' /proc/1/status
-    )"
-
-    container_current="$(
-        docker exec "$CURRENT_SERVER" \
-            cat /sys/fs/cgroup/memory.current
-    )"
-
-    container_peak="$(
-        docker exec "$CURRENT_SERVER" \
-            cat /sys/fs/cgroup/memory.peak
-    )"
-
-    process_rss="${process_rss:-0}"
-    container_current="${container_current:-0}"
-    container_peak="${container_peak:-0}"
-
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$language" \
-        "$repetition" \
-        "$endpoint" \
-        "$connections" \
-        "$requests" \
-        "${successful:-0}" \
-        "${failed:-0}" \
-        "${unattempted:-0}" \
-        "${rps:-0}" \
-        "${p50:-0}" \
-        "${p95:-0}" \
-        "${p99:-0}" \
-        "$process_rss" \
-        "$container_current" \
-        "$container_peak" \
-        >> "$RESULTS"
-
-    log "$language $endpoint c=$connections n=$requests rep=$repetition: ${rps:-0} RPS, failed=${failed:-0}, unattempted=${unattempted:-0}"
-}
-
-# ============================================================
-# Warmup
-# ============================================================
-
-warmup() {
-    local language="$1"
-
-    log "Warming up $language"
-
-    docker exec "$SERVER-load" \
-        /bench/bin/load \
-        -url "http://${SERVER}-${language}:${PORT}/hello" \
-        -c 10 \
-        -n 1000 \
-        >/dev/null
-}
-
-# ============================================================
-# Results header
-# ============================================================
-
-write_header() {
-    printf '%s\n' \
-        $'language\trepetition\tendpoint\tconnections\ttarget_requests\tsuccessful_requests\tfailed_requests\tunattempted_requests\trps\tp50_ms\tp95_ms\tp99_ms\tserver_process_rss_kb\tcontainer_current_kb\tcontainer_peak_kb' \
-        > "$RESULTS"
-}
-
-# ============================================================
-# Benchmark execution
-# ============================================================
-
-main() {
-
-    log "Kode HTTP benchmark"
-    log "Repetitions: $REPETITIONS"
-
-    if ! [[ "$REPETITIONS" =~ ^[1-9][0-9]*$ ]]; then
-        echo "ERROR: REPETITIONS must be a positive integer."
-        exit 1
-    fi
-
-    if [[ -n "$KODE_HTTP_WORKERS" ]]; then
-
-        if ! [[ "$KODE_HTTP_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
-            echo "ERROR: KODE_HTTP_WORKERS must be a positive integer."
-            exit 1
-        fi
-
-        log "Kode worker override: $KODE_HTTP_WORKERS"
-
-    else
-
-        log "Kode worker override: default runtime setting"
-
-    fi
-
-    mkdir -p "$RESULT_DIR"
-
-    ensure_network
-    ensure_image
-
-    start_load_generator
-    write_header
-
-    local repetition
-    local language
-    local endpoint
-    local connections
-    local requests
-
-    for ((repetition = 1; repetition <= REPETITIONS; repetition++)); do
-
-        log "============================================"
-        log "Repetition $repetition / $REPETITIONS"
-        log "============================================"
-
-        # Rotate language order to reduce ordering bias.
-        local offset=$(((repetition - 1) % ${#LANGUAGES[@]}))
-        local ordered_languages=()
-
-        for ((i = 0; i < ${#LANGUAGES[@]}; i++)); do
-            ordered_languages+=("${LANGUAGES[$(((i + offset) % ${#LANGUAGES[@]}))]}")
-        done
-
-        for language in "${ordered_languages[@]}"; do
-
-            start_server "$language"
-            warmup "$language"
-
-            for endpoint in "${ENDPOINTS[@]}"; do
-
-                for connections in "${CONNECTIONS[@]}"; do
-
-                    for requests in "${REQUESTS[@]}"; do
-
-                        run_load \
-                            "$language" \
-                            "$endpoint" \
-                            "$connections" \
-                            "$requests" \
-                            "$repetition"
-
-                    done
-                done
-            done
-
-            stop_server
-
-        done
-    done
-
-    log "Generating summary"
-
-    python3 benchmarks/http/summarize.py \
-        "$RESULTS" \
-        "$SUMMARY"
-
-    log "============================================"
-    log "Benchmark completed"
-    log "Raw results: $RESULTS"
-    log "Summary: $SUMMARY"
-    log "============================================"
-}
-
-main "$@"
+fi

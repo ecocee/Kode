@@ -4,40 +4,18 @@
 //! behave the same. Unsupported features (chunked request bodies, `Expect`) are
 //! rejected explicitly instead of being half-handled.
 
-use std::collections::HashMap;
-use std::io::{self, BufRead, Cursor, Read, Write};
+#[cfg(test)]
+use std::collections::VecDeque;
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::fd::{AsRawFd, RawFd};
-use crate::error::fatal;
-
-#[cfg(test)]
-use std::io::BufReader;
-#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
+use std::sync::{Condvar, Mutex};
+use std::thread;
 use std::time::Duration;
 
-#[cfg(unix)]
-mod sys {
-    use std::os::fd::RawFd;
-
-    #[repr(C)]
-    pub struct pollfd {
-        pub fd: RawFd,
-        pub events: i16,
-        pub revents: i16,
-    }
-
-    extern "C" {
-        pub fn poll(fds: *mut pollfd, nfds: usize, timeout: i32) -> i32;
-    }
-
-    pub const POLLIN: i16 = 0x001;
-    pub const POLLOUT: i16 = 0x004;
-    pub const POLLERR: i16 = 0x008;
-    pub const POLLHUP: i16 = 0x010;
-    pub const POLLNVAL: i16 = 0x020;
-}
+use crate::error::fatal;
 
 pub(crate) const MAX_REQUEST_LINE: usize = 8 * 1024;
 pub(crate) const MAX_HEADER_BYTES: usize = 32 * 1024;
@@ -93,8 +71,8 @@ where
 {
     let handle = Arc::new(handle);
     let workers = worker_count().max(1);
-    let queue = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
-    let cv = Arc::new(std::sync::Condvar::new());
+    let queue = Arc::new(Mutex::new(VecDeque::new()));
+    let cv = Arc::new(Condvar::new());
 
     for _ in 0..workers {
         let h = Arc::clone(&handle);
@@ -105,6 +83,8 @@ where
                 let mut guard = q.lock().unwrap_or_else(|e| e.into_inner());
                 loop {
                     if let Some(s) = guard.pop_front() {
+                        // Wake an acceptor that is waiting for room in the queue.
+                        c.notify_all();
                         break Some(s);
                     }
                     guard = c.wait(guard).unwrap_or_else(|e| e.into_inner());
@@ -125,189 +105,570 @@ where
                     guard = cv.wait(guard).unwrap_or_else(|e| e.into_inner());
                 }
                 guard.push_back(stream);
-                cv.notify_one();
+                cv.notify_all();
             }
             Err(_) => std::thread::sleep(Duration::from_millis(50)),
         }
     }
 }
 
-struct ActiveConn {
-    stream: TcpStream,
-    read_buf: Vec<u8>,
-    write_buf: Vec<u8>,
-    requests_served: usize,
-    close_after_write: bool,
-}
-
-impl ActiveConn {
-    fn new(stream: TcpStream) -> Self {
-        Self {
-            stream,
-            read_buf: Vec::new(),
-            write_buf: Vec::new(),
-            requests_served: 0,
-            close_after_write: false,
-        }
+/// `TcpListener::bind` leaves a small accept backlog (128). A burst of 1000
+/// connections overflows it, the kernel drops SYNs, and clients wait 1s to retry.
+/// Calling `listen` again on the same socket raises the limit (the kernel caps it
+/// at `net.core.somaxconn`).
+#[cfg(unix)]
+fn raise_backlog(listener: &TcpListener) {
+    use std::os::unix::io::AsRawFd;
+    unsafe extern "C" {
+        fn listen(fd: i32, backlog: i32) -> i32;
+    }
+    unsafe {
+        listen(listener.as_raw_fd(), 4096);
     }
 }
 
-pub(crate) fn event_loop<F>(listener: TcpListener, mut dispatch: F)
+#[cfg(not(unix))]
+fn raise_backlog(_listener: &TcpListener) {}
+
+struct ActiveGuard(Arc<AtomicUsize>);
+
+impl Drop for ActiveGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Portable fallback: one thread per connection, capped at `MAX_ACTIVE_CONNECTIONS`.
+fn threaded_loop<F>(listener: TcpListener, dispatch: Arc<F>)
 where
-    F: FnMut(&Request) -> (i64, Vec<u8>, Vec<u8>) + Send + Sync + 'static,
+    F: Fn(&Request) -> (i64, Vec<u8>, Vec<u8>) + Send + Sync + 'static,
 {
-    let _ = listener.set_nonblocking(true);
-    let mut clients: HashMap<RawFd, ActiveConn> = HashMap::new();
-    let listener_fd = listener.as_raw_fd();
+    let active = Arc::new(AtomicUsize::new(0));
 
     loop {
-        let mut fds = Vec::with_capacity(clients.len() + 1);
-        fds.push(sys::pollfd {
-            fd: listener_fd,
-            events: sys::POLLIN,
-            revents: 0,
-        });
-
-        for (&fd, client) in &clients {
-            let mut events = sys::POLLIN;
-            if !client.write_buf.is_empty() {
-                events |= sys::POLLOUT;
-            }
-            fds.push(sys::pollfd {
-                fd,
-                events,
-                revents: 0,
-            });
-        }
-
-        let ready = unsafe { sys::poll(fds.as_mut_ptr(), fds.len(), 50) };
-        if ready <= 0 {
-            continue;
-        }
-
-        if fds[0].revents & sys::POLLIN != 0 {
-            loop {
-                if clients.len() >= MAX_ACTIVE_CONNECTIONS {
-                    match listener.accept() {
-                        Ok((stream, _)) => {
-                            let _ = stream.shutdown(std::net::Shutdown::Both);
-                        }
-                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                        Err(_) => break,
-                    }
+        match listener.accept() {
+            Ok((stream, _)) => {
+                if active.fetch_add(1, Ordering::AcqRel) >= MAX_ACTIVE_CONNECTIONS {
+                    active.fetch_sub(1, Ordering::AcqRel);
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
                     continue;
                 }
-                match listener.accept() {
-                    Ok((stream, _)) => {
-                        let _ = stream.set_nonblocking(true);
-                        let fd = stream.as_raw_fd();
-                        clients.insert(fd, ActiveConn::new(stream));
-                    }
-                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(_) => break,
+                let d = Arc::clone(&dispatch);
+                let guard = ActiveGuard(Arc::clone(&active));
+                let spawned = thread::Builder::new().spawn(move || {
+                    let _guard = guard;
+                    serve_connection(stream, |req| d(req));
+                });
+                if spawned.is_err() {
+                    // The closure and its guard were dropped, so the count is fixed.
+                    std::thread::sleep(Duration::from_millis(50));
                 }
             }
-        }
-
-        let mut closed = Vec::new();
-        for client_fd in fds.iter().skip(1) {
-            let Some(client) = clients.get_mut(&client_fd.fd) else {
-                continue;
-            };
-            let revents = client_fd.revents;
-            if revents & (sys::POLLERR | sys::POLLHUP | sys::POLLNVAL) != 0 {
-                closed.push(client_fd.fd);
-                continue;
-            }
-
-            if revents & sys::POLLIN != 0 {
-                let mut chunk = [0u8; 8 * 1024];
-                loop {
-                    match client.stream.read(&mut chunk) {
-                        Ok(0) => {
-                            closed.push(client_fd.fd);
-                            break;
-                        }
-                        Ok(n) => {
-                            client.read_buf.extend_from_slice(&chunk[..n]);
-                            loop {
-                                let mut cursor = Cursor::new(client.read_buf.clone());
-                                match read_request(&mut cursor) {
-                                    Ok(req) => {
-                                        let consumed = cursor.position() as usize;
-                                        if consumed == 0 {
-                                            break;
-                                        }
-                                        let keep_alive = req.keep_alive && client.requests_served + 1 < MAX_REQUESTS_PER_CONNECTION;
-                                        client.requests_served += 1;
-                                        let (status, body, ctype) = dispatch(&req);
-                                        let mut response = Vec::new();
-                                        let _ = write_response(
-                                            &mut response,
-                                            status,
-                                            &ctype,
-                                            &body,
-                                            keep_alive,
-                                            req.method == "HEAD",
-                                        );
-                                        client.write_buf.extend_from_slice(&response);
-                                        if !keep_alive {
-                                            client.close_after_write = true;
-                                        }
-                                        client.read_buf.drain(..consumed);
-                                        if client.close_after_write {
-                                            break;
-                                        }
-                                    }
-                                    Err(ReadError::Closed) => break,
-                                    Err(ReadError::Reject(code, msg)) => {
-                                        let mut response = Vec::new();
-                                        let _ = write_response(
-                                            &mut response,
-                                            i64::from(code),
-                                            b"text/plain; charset=utf-8",
-                                            msg.as_bytes(),
-                                            false,
-                                            false,
-                                        );
-                                        client.write_buf.extend_from_slice(&response);
-                                        client.close_after_write = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                        Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                        Err(_) => {
-                            closed.push(client_fd.fd);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if revents & sys::POLLOUT != 0 && !client.write_buf.is_empty() {
-                let before = client.write_buf.len();
-                let written = client.stream.write(&client.write_buf).unwrap_or(0);
-                if written > 0 {
-                    client.write_buf.drain(..written);
-                }
-                if written == 0 || client.write_buf.len() == before {
-                    closed.push(client_fd.fd);
-                }
-            }
-
-            if client.close_after_write && client.write_buf.is_empty() {
-                closed.push(client_fd.fd);
-            }
-        }
-
-        for fd in closed {
-            clients.remove(&fd);
+            Err(_) => std::thread::sleep(Duration::from_millis(50)),
         }
     }
 }
+
+/// Serve forever. `dispatch` is shared and may run on several threads at once.
+///
+/// Linux: epoll event loop, one thread per CPU (override with `KODE_HTTP_WORKERS`;
+/// `1` runs every handler on a single thread). Other systems: one thread per
+/// connection.
+pub(crate) fn event_loop<F>(listener: TcpListener, dispatch: F)
+where
+    F: Fn(&Request) -> (i64, Vec<u8>, Vec<u8>) + Send + Sync + 'static,
+{
+    raise_backlog(&listener);
+    let dispatch = Arc::new(dispatch);
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(ep) = epoll::Epoll::new() {
+            return epoll::run(listener, dispatch, ep);
+        }
+    }
+
+    threaded_loop(listener, dispatch)
+}
+
+#[cfg(target_os = "linux")]
+mod epoll {
+    //! Readiness-based server loop. Sockets are non-blocking; each worker thread owns
+    //! an epoll instance and a slab of connections, reads whatever arrived, answers
+    //! every complete request in one `write`, and never blocks on a slow client.
+
+    use super::*;
+    use std::io::ErrorKind;
+    use std::os::unix::io::AsRawFd;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::time::Instant;
+
+    const EPOLLIN: u32 = 0x001;
+    const EPOLLOUT: u32 = 0x004;
+    const EPOLLERR: u32 = 0x008;
+    const EPOLLHUP: u32 = 0x010;
+    const EPOLLEXCLUSIVE: u32 = 1 << 28;
+    const EPOLL_CTL_ADD: i32 = 1;
+    const EPOLL_CTL_MOD: i32 = 3;
+    const EPOLL_CLOEXEC: i32 = 0o2_000_000;
+
+    const LISTENER: u64 = u64::MAX;
+    const READ_BUF: usize = 16 * 1024;
+    const MAX_EVENTS: usize = 256;
+    const ACCEPTS_PER_WAKE: usize = 32;
+    /// A keep-alive connection with nothing in flight.
+    const IDLE: Duration = Duration::from_secs(60);
+    /// A request that started but stopped making progress.
+    const PARTIAL: Duration = Duration::from_secs(5);
+    const SWEEP_EVERY: Duration = Duration::from_secs(1);
+
+    // The kernel packs this struct on x86_64 only.
+    #[cfg_attr(target_arch = "x86_64", repr(C, packed))]
+    #[cfg_attr(not(target_arch = "x86_64"), repr(C))]
+    #[derive(Clone, Copy)]
+    struct EpollEvent {
+        events: u32,
+        data: u64,
+    }
+
+    unsafe extern "C" {
+        fn epoll_create1(flags: i32) -> i32;
+        fn epoll_ctl(epfd: i32, op: i32, fd: i32, event: *mut EpollEvent) -> i32;
+        fn epoll_wait(epfd: i32, events: *mut EpollEvent, maxevents: i32, timeout: i32) -> i32;
+        fn close(fd: i32) -> i32;
+    }
+
+    pub(super) struct Epoll(i32);
+
+    impl Epoll {
+        pub(super) fn new() -> Option<Epoll> {
+            let fd = unsafe { epoll_create1(EPOLL_CLOEXEC) };
+            (fd >= 0).then_some(Epoll(fd))
+        }
+
+        fn ctl(&self, op: i32, fd: i32, events: u32, token: u64) -> bool {
+            let mut ev = EpollEvent { events, data: token };
+            unsafe { epoll_ctl(self.0, op, fd, &mut ev) == 0 }
+        }
+
+        fn wait(&self, out: &mut [EpollEvent], timeout_ms: i32) -> usize {
+            let n = unsafe { epoll_wait(self.0, out.as_mut_ptr(), out.len() as i32, timeout_ms) };
+            if n < 0 {
+                0
+            } else {
+                n as usize
+            }
+        }
+    }
+
+    impl Drop for Epoll {
+        fn drop(&mut self) {
+            unsafe {
+                close(self.0);
+            }
+        }
+    }
+
+    struct Conn {
+        stream: TcpStream,
+        /// Bytes of an unfinished request. Empty on the fast path.
+        buf: Vec<u8>,
+        /// Headers already parsed while the body is still arriving, with their length.
+        head: Option<(Head, usize)>,
+        /// Response bytes the socket could not take yet.
+        out: Vec<u8>,
+        out_pos: usize,
+        /// Close once `out` is flushed.
+        closing: bool,
+        served: usize,
+        last: Instant,
+    }
+
+    impl Conn {
+        fn pending_write(&self) -> bool {
+            self.out_pos < self.out.len()
+        }
+    }
+
+    fn worker_threads() -> usize {
+        std::env::var("KODE_HTTP_WORKERS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(1)
+            })
+            .min(256)
+    }
+
+    pub(super) fn run<F>(listener: TcpListener, dispatch: Arc<F>, first: Epoll)
+    where
+        F: Fn(&Request) -> (i64, Vec<u8>, Vec<u8>) + Send + Sync + 'static,
+    {
+        if listener.set_nonblocking(true).is_err() {
+            fatal("cannot make the listening socket non-blocking");
+        }
+        let listener = Arc::new(listener);
+        let active = Arc::new(AtomicUsize::new(0));
+
+        for _ in 1..worker_threads() {
+            let Some(ep) = Epoll::new() else { break };
+            let l = Arc::clone(&listener);
+            let d = Arc::clone(&dispatch);
+            let a = Arc::clone(&active);
+            let spawned = thread::Builder::new().spawn(move || Worker::new(l, d, a, ep).run());
+            if spawned.is_err() {
+                break;
+            }
+        }
+        Worker::new(listener, dispatch, active, first).run();
+    }
+
+    struct Worker<F> {
+        ep: Epoll,
+        listener: Arc<TcpListener>,
+        dispatch: Arc<F>,
+        active: Arc<AtomicUsize>,
+        slab: Vec<Option<Conn>>,
+        free: Vec<usize>,
+        rbuf: Vec<u8>,
+        scratch: Vec<u8>,
+        now: Instant,
+    }
+
+    impl<F> Worker<F>
+    where
+        F: Fn(&Request) -> (i64, Vec<u8>, Vec<u8>),
+    {
+        fn new(listener: Arc<TcpListener>, dispatch: Arc<F>, active: Arc<AtomicUsize>, ep: Epoll) -> Self {
+            let fd = listener.as_raw_fd();
+            // EPOLLEXCLUSIVE wakes one worker per connection instead of all of them.
+            if !ep.ctl(EPOLL_CTL_ADD, fd, EPOLLIN | EPOLLEXCLUSIVE, LISTENER)
+                && !ep.ctl(EPOLL_CTL_ADD, fd, EPOLLIN, LISTENER)
+            {
+                fatal("cannot watch the listening socket");
+            }
+            Worker {
+                ep,
+                listener,
+                dispatch,
+                active,
+                slab: Vec::new(),
+                free: Vec::new(),
+                rbuf: vec![0u8; READ_BUF],
+                scratch: Vec::with_capacity(4 * 1024),
+                now: Instant::now(),
+            }
+        }
+
+        fn run(mut self) {
+            let mut events = [EpollEvent { events: 0, data: 0 }; MAX_EVENTS];
+            let mut last_sweep = Instant::now();
+            loop {
+                let n = self.ep.wait(&mut events, 1000);
+                self.now = Instant::now();
+                for ev in events.iter().take(n) {
+                    let flags = ev.events;
+                    let token = ev.data;
+                    if token == LISTENER {
+                        self.accept_ready();
+                    } else {
+                        self.conn_event(token as usize, flags);
+                    }
+                }
+                if self.now.duration_since(last_sweep) >= SWEEP_EVERY {
+                    last_sweep = self.now;
+                    self.sweep();
+                }
+            }
+        }
+
+        fn release(&mut self, idx: usize) {
+            self.free.push(idx);
+            self.active.fetch_sub(1, Ordering::AcqRel);
+        }
+
+        fn accept_ready(&mut self) {
+            for _ in 0..ACCEPTS_PER_WAKE {
+                match self.listener.accept() {
+                    Ok((stream, _)) => {
+                        if self.active.fetch_add(1, Ordering::AcqRel) >= MAX_ACTIVE_CONNECTIONS {
+                            self.active.fetch_sub(1, Ordering::AcqRel);
+                            continue; // dropping the stream closes it
+                        }
+                        let _ = stream.set_nodelay(true);
+                        if stream.set_nonblocking(true).is_err() {
+                            self.active.fetch_sub(1, Ordering::AcqRel);
+                            continue;
+                        }
+                        let fd = stream.as_raw_fd();
+                        let idx = match self.free.pop() {
+                            Some(i) => i,
+                            None => {
+                                self.slab.push(None);
+                                self.slab.len() - 1
+                            }
+                        };
+                        if !self.ep.ctl(EPOLL_CTL_ADD, fd, EPOLLIN, idx as u64) {
+                            self.release(idx);
+                            continue;
+                        }
+                        self.slab[idx] = Some(Conn {
+                            stream,
+                            buf: Vec::new(),
+                            head: None,
+                            out: Vec::new(),
+                            out_pos: 0,
+                            closing: false,
+                            served: 0,
+                            last: self.now,
+                        });
+                    }
+                    Err(e) => match e.kind() {
+                        ErrorKind::WouldBlock => return,
+                        ErrorKind::Interrupted | ErrorKind::ConnectionAborted => continue,
+                        // For example "too many open files": back off, do not spin.
+                        _ => {
+                            thread::sleep(Duration::from_millis(50));
+                            return;
+                        }
+                    },
+                }
+            }
+        }
+
+        fn conn_event(&mut self, idx: usize, events: u32) {
+            let Some(mut c) = self.slab.get_mut(idx).and_then(|slot| slot.take()) else {
+                return;
+            };
+            let alive = if c.pending_write() {
+                self.on_writable(idx, &mut c, events)
+            } else {
+                self.on_readable(idx, &mut c)
+            };
+            if alive {
+                self.slab[idx] = Some(c);
+            } else {
+                self.release(idx); // `c` drops here and closes the socket
+            }
+        }
+
+        fn on_readable(&mut self, idx: usize, c: &mut Conn) -> bool {
+            let n = match c.stream.read(&mut self.rbuf) {
+                Ok(0) => return false,
+                Ok(n) => n,
+                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => {
+                    return true
+                }
+                Err(_) => return false,
+            };
+            c.last = self.now;
+            self.scratch.clear();
+
+            if c.buf.is_empty() {
+                // Fast path: parse straight from the read buffer, copy only leftovers.
+                let used = handle_input(&*self.dispatch, &mut self.scratch, c, &self.rbuf[..n]);
+                if !c.closing && used < n {
+                    c.buf.extend_from_slice(&self.rbuf[used..n]);
+                }
+            } else {
+                c.buf.extend_from_slice(&self.rbuf[..n]);
+                let mut data = std::mem::take(&mut c.buf);
+                let used = handle_input(&*self.dispatch, &mut self.scratch, c, &data);
+                if !c.closing && used < data.len() {
+                    data.drain(..used);
+                    c.buf = data;
+                }
+            }
+            self.flush(idx, c)
+        }
+
+        /// Send `self.scratch`. Returns false when the connection should close.
+        fn flush(&mut self, idx: usize, c: &mut Conn) -> bool {
+            let mut off = 0;
+            while off < self.scratch.len() {
+                match c.stream.write(&self.scratch[off..]) {
+                    Ok(0) => return false,
+                    Ok(k) => off += k,
+                    Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                    Err(_) => return false,
+                }
+            }
+            if off < self.scratch.len() {
+                // The client is slow: keep the rest, stop reading, wait for room.
+                c.out.clear();
+                c.out.extend_from_slice(&self.scratch[off..]);
+                c.out_pos = 0;
+                return self.ep.ctl(EPOLL_CTL_MOD, c.stream.as_raw_fd(), EPOLLOUT, idx as u64);
+            }
+            !c.closing
+        }
+
+        fn on_writable(&mut self, idx: usize, c: &mut Conn, events: u32) -> bool {
+            while c.out_pos < c.out.len() {
+                match c.stream.write(&c.out[c.out_pos..]) {
+                    Ok(0) => return false,
+                    Ok(k) => {
+                        c.out_pos += k;
+                        c.last = self.now;
+                    }
+                    Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                        return (events & (EPOLLERR | EPOLLHUP)) == 0;
+                    }
+                    Err(_) => return false,
+                }
+            }
+            c.out = Vec::new();
+            c.out_pos = 0;
+            if c.closing {
+                return false;
+            }
+            self.ep.ctl(EPOLL_CTL_MOD, c.stream.as_raw_fd(), EPOLLIN, idx as u64)
+        }
+
+        /// Drop connections that went quiet.
+        fn sweep(&mut self) {
+            for idx in 0..self.slab.len() {
+                let stale = match &self.slab[idx] {
+                    Some(c) => {
+                        let quiet = self.now.duration_since(c.last);
+                        if c.pending_write() {
+                            quiet > WRITE_TIMEOUT
+                        } else if c.buf.is_empty() && c.head.is_none() {
+                            quiet > IDLE
+                        } else {
+                            quiet > PARTIAL
+                        }
+                    }
+                    None => false,
+                };
+                if stale {
+                    self.slab[idx] = None;
+                    self.release(idx);
+                }
+            }
+        }
+    }
+
+    /// Answer every complete request in `data`, appending the responses to `scratch`.
+    /// Returns how many bytes were consumed; the rest is an unfinished request.
+    fn handle_input<F>(dispatch: &F, scratch: &mut Vec<u8>, c: &mut Conn, data: &[u8]) -> usize
+    where
+        F: Fn(&Request) -> (i64, Vec<u8>, Vec<u8>),
+    {
+        let mut pos = 0;
+        while pos < data.len() && !c.closing {
+            let rest = &data[pos..];
+            let (head, head_len) = match c.head.take() {
+                Some(h) => h,
+                None => {
+                    let mut cur = rest;
+                    match read_head(&mut cur) {
+                        Ok(h) => (h, rest.len() - cur.len()),
+                        // Reading from memory only fails by running out: wait for more.
+                        Err(ReadError::Closed) => break,
+                        Err(ReadError::Reject(code, msg)) => {
+                            let _ = write_response(
+                                scratch,
+                                i64::from(code),
+                                b"text/plain; charset=utf-8",
+                                msg.as_bytes(),
+                                false,
+                                false,
+                            );
+                            c.closing = true;
+                            return data.len();
+                        }
+                    }
+                }
+            };
+            let total = head_len + head.content_length;
+            if rest.len() < total {
+                c.head = Some((head, head_len));
+                break;
+            }
+            let body = rest[head_len..total].to_vec();
+            pos += total;
+            c.served += 1;
+            let keep = head.keep_alive && c.served < MAX_REQUESTS_PER_CONNECTION;
+            let req = head.into_request(body);
+            let (status, body, ctype) = match catch_unwind(AssertUnwindSafe(|| dispatch(&req))) {
+                Ok(r) => r,
+                Err(_) => {
+                    c.closing = true;
+                    (
+                        500,
+                        b"internal error".to_vec(),
+                        b"text/plain; charset=utf-8".to_vec(),
+                    )
+                }
+            };
+            let keep = keep && !c.closing;
+            if !keep {
+                c.closing = true;
+            }
+            let _ = write_response(scratch, status, &ctype, &body, keep, req.method == "HEAD");
+        }
+        pos
+    }
+}
+
+pub(crate) fn serve_connection<F>(stream: TcpStream, mut dispatch: F)
+where
+    F: FnMut(&Request) -> (i64, Vec<u8>, Vec<u8>),
+{
+    let _ = stream.set_nodelay(true);
+    let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
+    let Ok(read_half) = stream.try_clone() else {
+        return;
+    };
+    let mut reader = BufReader::with_capacity(8 * 1024, read_half);
+    let mut out = stream;
+
+    for served in 1..=MAX_REQUESTS_PER_CONNECTION {
+        let _ = reader.get_ref().set_read_timeout(Some(IDLE_TIMEOUT));
+        match reader.fill_buf() {
+            Ok(buf) if !buf.is_empty() => {}
+            _ => return,
+        }
+        let _ = reader.get_ref().set_read_timeout(Some(READ_TIMEOUT));
+
+        let req = match read_request(&mut reader) {
+            Ok(r) => r,
+            Err(ReadError::Closed) => return,
+            Err(ReadError::Reject(code, msg)) => {
+                let _ = write_response(
+                    &mut out,
+                    i64::from(code),
+                    b"text/plain; charset=utf-8",
+                    msg.as_bytes(),
+                    false,
+                    false,
+                );
+                return;
+            }
+        };
+        let keep = req.keep_alive && served < MAX_REQUESTS_PER_CONNECTION;
+        let (status, body, ctype) = dispatch(&req);
+        if write_response(&mut out, status, &ctype, &body, keep, req.method == "HEAD").is_err()
+            || !keep
+        {
+            return;
+        }
+    }
+}
+
+// Tests use a short idle timeout; real servers keep keep-alive connections open.
+#[cfg(test)]
+pub(crate) const IDLE_TIMEOUT: Duration = Duration::from_millis(300);
+#[cfg(not(test))]
+pub(crate) const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const READ_TIMEOUT: Duration = Duration::from_millis(500);
+pub(crate) const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn trim_eol(line: &mut Vec<u8>) {
     if line.last() == Some(&b'\n') {
@@ -349,7 +710,29 @@ fn read_line<R: BufRead>(
     Ok(Some(buf))
 }
 
-pub(crate) fn read_request<R: BufRead>(r: &mut R) -> Result<Request, ReadError> {
+/// A parsed request line and headers, before the body is read.
+struct Head {
+    method: String,
+    target: String,
+    headers: Vec<(String, String)>,
+    content_length: usize,
+    keep_alive: bool,
+}
+
+impl Head {
+    fn into_request(self, body: Vec<u8>) -> Request {
+        Request {
+            method: self.method,
+            target: self.target,
+            headers: self.headers,
+            body,
+            keep_alive: self.keep_alive,
+        }
+    }
+}
+
+/// Parse the request line and headers. Stops before the body.
+fn read_head<R: BufRead>(r: &mut R) -> Result<Head, ReadError> {
     use ReadError::{Closed, Reject};
 
     let mut line = read_line(r, MAX_REQUEST_LINE, 414)?.ok_or(Closed)?;
@@ -445,24 +828,29 @@ pub(crate) fn read_request<R: BufRead>(r: &mut R) -> Result<Request, ReadError> 
     if len > MAX_BODY {
         return Err(Reject(413, "the request body is too large"));
     }
+    Ok(Head {
+        method: method.to_string(),
+        target: target.to_string(),
+        headers,
+        content_length: len,
+        keep_alive: if http11 { !close } else { keep && !close },
+    })
+}
+
+pub(crate) fn read_request<R: BufRead>(r: &mut R) -> Result<Request, ReadError> {
+    let head = read_head(r)?;
+    let len = head.content_length;
     // Read incrementally: a lying Content-Length must not allocate memory up front.
     let mut body = Vec::with_capacity(len.min(64 * 1024));
     let got = r
         .by_ref()
         .take(len as u64)
         .read_to_end(&mut body)
-        .map_err(|_| Closed)?;
+        .map_err(|_| ReadError::Closed)?;
     if got != len {
-        return Err(Closed); // the client disconnected mid-body
+        return Err(ReadError::Closed); // the client disconnected mid-body
     }
-
-    Ok(Request {
-        method: method.to_string(),
-        target: target.to_string(),
-        headers,
-        body,
-        keep_alive: if http11 { !close } else { keep && !close },
-    })
+    Ok(head.into_request(body))
 }
 
 pub(crate) fn status_text(code: i64) -> &'static str {
@@ -909,55 +1297,253 @@ mod worker_count_tests {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn serve_connection(
-    stream: TcpStream,
-    mut dispatch: impl FnMut(&Request) -> (i64, Vec<u8>, Vec<u8>),
-) {
-    let _ = stream.set_nodelay(true);
-    let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
-    let Ok(read_half) = stream.try_clone() else {
-        return;
-    };
-    let mut reader = BufReader::with_capacity(8 * 1024, read_half);
-    let mut out = stream;
+#[cfg(all(test, target_os = "linux"))]
+mod epoll_tests {
+    //! The real `event_loop` over real sockets.
+    use super::*;
+    use std::time::Instant;
 
-    for served in 1..=MAX_REQUESTS_PER_CONNECTION {
-        let _ = reader.get_ref().set_read_timeout(Some(IDLE_TIMEOUT));
-        match reader.fill_buf() {
-            Ok(buf) if !buf.is_empty() => {}
-            _ => return,
-        }
-        let _ = reader.get_ref().set_read_timeout(Some(READ_TIMEOUT));
+    fn start() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            event_loop(listener, |req| {
+                if req.target == "/panic" {
+                    panic!("handler exploded");
+                }
+                if req.target == "/large" {
+                    return (200, vec![b'x'; 4 * 1024 * 1024], b"text/plain".to_vec());
+                }
+                (
+                    200,
+                    format!("hi {} {}", req.target, req.body.len()).into_bytes(),
+                    b"text/plain".to_vec(),
+                )
+            })
+        });
+        port
+    }
 
-        let req = match read_request(&mut reader) {
-            Ok(r) => r,
-            Err(ReadError::Closed) => return,
-            Err(ReadError::Reject(code, msg)) => {
-                let _ = write_response(
-                    &mut out,
-                    i64::from(code),
-                    b"text/plain; charset=utf-8",
-                    msg.as_bytes(),
-                    false,
-                    false,
-                );
-                return;
+    fn connect(port: u16) -> TcpStream {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match TcpStream::connect(("127.0.0.1", port)) {
+                Ok(s) => {
+                    s.set_read_timeout(Some(Duration::from_secs(5)))
+                        .expect("timeout");
+                    return s;
+                }
+                Err(e) if Instant::now() > deadline => panic!("server did not start: {e}"),
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
             }
-        };
-        let keep = req.keep_alive && served < MAX_REQUESTS_PER_CONNECTION;
-        let (status, body, ctype) = dispatch(&req);
-        if write_response(&mut out, status, &ctype, &body, keep, req.method == "HEAD").is_err()
-            || !keep
+        }
+    }
+
+    fn read_response(r: &mut BufReader<TcpStream>) -> Option<(u16, Vec<u8>)> {
+        let mut status_line = String::new();
+        if r.read_line(&mut status_line).ok()? == 0 {
+            return None;
+        }
+        let status: u16 = status_line.split(' ').nth(1)?.parse().ok()?;
+        let mut len = 0usize;
+        loop {
+            let mut h = String::new();
+            r.read_line(&mut h).ok()?;
+            let h = h.trim_end();
+            if h.is_empty() {
+                break;
+            }
+            if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
+                len = v.trim().parse().ok()?;
+            }
+        }
+        let mut body = vec![0u8; len];
+        r.read_exact(&mut body).ok()?;
+        Some((status, body))
+    }
+
+    fn is_closed(r: &mut BufReader<TcpStream>) -> bool {
+        let mut b = [0u8; 1];
+        matches!(r.read(&mut b), Ok(0) | Err(_))
+    }
+
+    #[test]
+    fn keep_alive_and_pipelining() {
+        let port = start();
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        write!(c, "GET /a HTTP/1.1\r\n\r\n").expect("write");
+        assert_eq!(read_response(&mut r).expect("a").1, b"hi /a 0");
+        // Three requests in one packet are answered in order.
+        c.write_all(b"GET /1 HTTP/1.1\r\n\r\nGET /2 HTTP/1.1\r\n\r\nGET /3 HTTP/1.1\r\n\r\n")
+            .expect("write");
+        for i in 1..=3 {
+            let (status, body) = read_response(&mut r).expect("pipelined");
+            assert_eq!(status, 200);
+            assert_eq!(body, format!("hi /{i} 0").into_bytes());
+        }
+    }
+
+    #[test]
+    fn request_split_across_packets() {
+        let port = start();
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        c.write_all(b"GET /sp").expect("write");
+        std::thread::sleep(Duration::from_millis(50));
+        c.write_all(b"lit HTTP/1.1\r\nHo").expect("write");
+        std::thread::sleep(Duration::from_millis(50));
+        c.write_all(b"st: x\r\n\r\n").expect("write");
+        assert_eq!(read_response(&mut r).expect("split").1, b"hi /split 0");
+    }
+
+    #[test]
+    fn body_arriving_in_chunks() {
+        let port = start();
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        c.write_all(b"POST /big HTTP/1.1\r\nContent-Length: 100000\r\n\r\n")
+            .expect("write");
+        for _ in 0..10 {
+            c.write_all(&[b'z'; 10_000]).expect("write");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(read_response(&mut r).expect("big").1, b"hi /big 100000");
+        // The connection is still usable afterwards.
+        c.write_all(b"GET /after HTTP/1.1\r\n\r\n").expect("write");
+        assert_eq!(read_response(&mut r).expect("after").1, b"hi /after 0");
+    }
+
+    #[test]
+    fn head_has_no_body_and_close_is_honoured() {
+        let port = start();
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        c.write_all(b"HEAD /x HTTP/1.1\r\n\r\nGET /y HTTP/1.1\r\nConnection: close\r\n\r\n")
+            .expect("write");
+        let mut line = String::new();
+        r.read_line(&mut line).expect("status");
+        assert!(line.starts_with("HTTP/1.1 200"));
+        loop {
+            line.clear();
+            r.read_line(&mut line).expect("header");
+            if line == "\r\n" {
+                break;
+            }
+        }
+        let (status, body) = read_response(&mut r).expect("second");
+        assert_eq!(status, 200);
+        assert_eq!(body, b"hi /y 0");
+        assert!(is_closed(&mut r));
+    }
+
+    #[test]
+    fn bad_requests_are_rejected_then_closed() {
+        let port = start();
+        for (raw, code) in [
+            (&b"this is not http\r\n\r\n"[..], 400),
+            (&b"POST / HTTP/1.1\r\nContent-Length: 99999999\r\n\r\n"[..], 413),
+            (&b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"[..], 501),
+        ] {
+            let mut c = connect(port);
+            let mut r = BufReader::new(c.try_clone().expect("clone"));
+            c.write_all(raw).expect("write");
+            assert_eq!(read_response(&mut r).expect("response").0, code);
+            assert!(is_closed(&mut r));
+        }
+    }
+
+    #[test]
+    fn endless_request_line_is_rejected() {
+        let port = start();
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        let junk = vec![b'a'; MAX_REQUEST_LINE + 100];
+        c.write_all(b"GET /").expect("write");
+        c.write_all(&junk).expect("write");
+        assert_eq!(read_response(&mut r).expect("response").0, 414);
+    }
+
+    #[test]
+    fn idle_connections_do_not_block_others() {
+        let port = start();
+        let _idle: Vec<_> = (0..200).map(|_| connect(port)).collect();
+        let started = Instant::now();
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        c.write_all(b"GET /late HTTP/1.1\r\n\r\n").expect("write");
+        assert_eq!(read_response(&mut r).expect("served").0, 200);
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn client_disconnect_mid_body_is_harmless() {
+        let port = start();
         {
-            return;
+            let mut c = connect(port);
+            c.write_all(b"POST / HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc")
+                .expect("write");
+        }
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        c.write_all(b"GET /ok HTTP/1.1\r\n\r\n").expect("write");
+        assert_eq!(read_response(&mut r).expect("served").0, 200);
+    }
+
+    #[test]
+    fn handler_panic_costs_one_connection_not_the_server() {
+        let port = start();
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        c.write_all(b"GET /panic HTTP/1.1\r\n\r\n").expect("write");
+        assert_eq!(read_response(&mut r).expect("500").0, 500);
+        assert!(is_closed(&mut r));
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        c.write_all(b"GET /ok HTTP/1.1\r\n\r\n").expect("write");
+        assert_eq!(read_response(&mut r).expect("served").0, 200);
+    }
+
+    #[test]
+    fn slow_reader_gets_a_large_response_intact() {
+        let port = start();
+        let mut c = connect(port);
+        let mut r = BufReader::new(c.try_clone().expect("clone"));
+        c.write_all(b"GET /large HTTP/1.1\r\n\r\n").expect("write");
+        // Do not read for a while: the server must park the rest and keep going.
+        let mut other = connect(port);
+        let mut other_r = BufReader::new(other.try_clone().expect("clone"));
+        other.write_all(b"GET /fast HTTP/1.1\r\n\r\n").expect("write");
+        assert_eq!(read_response(&mut other_r).expect("fast").1, b"hi /fast 0");
+        std::thread::sleep(Duration::from_millis(300));
+        let (status, body) = read_response(&mut r).expect("large");
+        assert_eq!(status, 200);
+        assert_eq!(body.len(), 4 * 1024 * 1024);
+        assert!(body.iter().all(|&b| b == b'x'));
+        // And the same connection keeps working after the flush.
+        c.write_all(b"GET /next HTTP/1.1\r\n\r\n").expect("write");
+        assert_eq!(read_response(&mut r).expect("next").1, b"hi /next 0");
+    }
+
+    #[test]
+    fn many_concurrent_clients_are_all_served() {
+        let port = start();
+        let handles: Vec<_> = (0..64)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    let mut c = connect(port);
+                    let mut r = BufReader::new(c.try_clone().expect("clone"));
+                    for j in 0..20 {
+                        write!(c, "GET /{i}-{j} HTTP/1.1\r\n\r\n").expect("write");
+                        let (status, body) = read_response(&mut r).expect("response");
+                        assert_eq!(status, 200);
+                        assert_eq!(body, format!("hi /{i}-{j} 0").into_bytes());
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("client thread");
         }
     }
 }
-
-#[cfg(test)]
-const IDLE_TIMEOUT: Duration = Duration::from_millis(300);
-#[cfg(test)]
-const READ_TIMEOUT: Duration = Duration::from_millis(500);
-#[cfg(test)]
-const WRITE_TIMEOUT: Duration = Duration::from_secs(10);

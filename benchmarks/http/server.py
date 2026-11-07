@@ -1,7 +1,13 @@
 """HTTP benchmark server, Python standard library only.
 
 Uses HTTP/1.1 with keep-alive and one thread per connection, which is the
-closest the standard library gets to what the other three servers do.
+closest the standard library gets to what the other servers do.
+
+Two socket settings are needed for a fair test:
+  * disable_nagle_algorithm: http.server sends headers and body as separate
+    writes; without TCP_NODELAY, Nagle + delayed ACK add ~40 ms per request.
+  * request_queue_size: the default listen backlog is 5, which refuses most
+    of 1000 simultaneous connections.
 """
 
 import sys
@@ -12,6 +18,7 @@ JSON = b'{"message":"hello","ok":true,"n":1}'
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    disable_nagle_algorithm = True
 
     def do_GET(self):  # noqa: N802 - the name is fixed by BaseHTTPRequestHandler
         if self.path == "/json":
@@ -28,9 +35,13 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+class Server(ThreadingHTTPServer):
+    request_queue_size = 4096
+    daemon_threads = True
+
+
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    server.daemon_threads = True
+    port = int((sys.argv[1] if len(sys.argv) > 1 else "8080").lstrip(":"))
+    server = Server(("0.0.0.0", port), Handler)
     print(f"listening on {port}", flush=True)
     server.serve_forever()
