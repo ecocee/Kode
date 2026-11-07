@@ -21,7 +21,9 @@ pub(crate) fn always_returns(stmts: &[Stmt]) -> bool {
             else_: Some(else_),
             ..
         } => always_returns(then) && always_returns(else_),
-        Stmt::Match { arms, .. } => !arms.is_empty() && arms.iter().all(|a| always_returns(&a.body)),
+        Stmt::Match { arms, .. } => {
+            !arms.is_empty() && arms.iter().all(|a| always_returns(&a.body))
+        }
         _ => false,
     })
 }
@@ -47,7 +49,9 @@ impl Checker {
     /// When `cond` is `x != none` (or `x == none`), the local `x` has its inner
     /// type in the branch where that is known to hold.
     fn narrow_cond(&mut self, cond: &Expr, when_true: bool) -> Option<(String, Type)> {
-        let ExprKind::Binary { op, lhs, rhs } = &cond.kind else { return None };
+        let ExprKind::Binary { op, lhs, rhs } = &cond.kind else {
+            return None;
+        };
         let narrows_when_true = match op {
             BinOp::Ne => true,
             BinOp::Eq => false,
@@ -57,7 +61,9 @@ impl Checker {
             return None;
         }
         let name = match (&lhs.kind, &rhs.kind) {
-            (ExprKind::Ident(n), ExprKind::None) | (ExprKind::None, ExprKind::Ident(n)) => n.clone(),
+            (ExprKind::Ident(n), ExprKind::None) | (ExprKind::None, ExprKind::Ident(n)) => {
+                n.clone()
+            }
             _ => return None,
         };
         let declared = self.scopes.peek_var(&name)?;
@@ -73,7 +79,10 @@ impl Checker {
                 self.errors.push(
                     Diagnostic::error(
                         "E0209",
-                        format!("the condition of {what} must be a bool, found {}", t.article()),
+                        format!(
+                            "the condition of {what} must be a bool, found {}",
+                            t.article()
+                        ),
                         cond.span,
                     )
                     .with_help("compare it, for example `x != 0` or `x != none`"),
@@ -84,7 +93,11 @@ impl Checker {
 
     pub(crate) fn field_of_current_class(&self, name: &str) -> Option<Type> {
         let ci = self.cur_class?;
-        self.classes[ci].fields.iter().find(|f| f.name == name).map(|f| f.ty.clone())
+        self.classes[ci]
+            .fields
+            .iter()
+            .find(|f| f.name == name)
+            .map(|f| f.ty.clone())
     }
 
     pub(crate) fn stmt(&mut self, stmt: &Stmt) {
@@ -92,7 +105,9 @@ impl Checker {
             Stmt::Expr(e) => {
                 self.expr(e);
             }
-            Stmt::Assign { target, ty, value, .. } => self.assign(target, ty.as_ref(), value),
+            Stmt::Assign {
+                target, ty, value, ..
+            } => self.assign(target, ty.as_ref(), value),
             Stmt::If { cond, then, else_ } => {
                 self.condition(cond, "`if`");
                 let yes = self.narrow_cond(cond, true);
@@ -194,7 +209,11 @@ impl Checker {
             }
             Stmt::Break(span) | Stmt::Continue(span) => {
                 if self.loop_depth == 0 {
-                    let word = if matches!(stmt, Stmt::Break(_)) { "break" } else { "continue" };
+                    let word = if matches!(stmt, Stmt::Break(_)) {
+                        "break"
+                    } else {
+                        "continue"
+                    };
                     self.errors.push(Diagnostic::error(
                         "E0314",
                         format!("`{word}` can only be used inside a loop"),
@@ -205,8 +224,12 @@ impl Checker {
             Stmt::Return { value, span } => {
                 if !self.in_fn {
                     self.errors.push(
-                        Diagnostic::error("E0311", "`return` can only be used inside a function", *span)
-                            .with_help("top-level code simply runs to the end"),
+                        Diagnostic::error(
+                            "E0311",
+                            "`return` can only be used inside a function",
+                            *span,
+                        )
+                        .with_help("top-level code simply runs to the end"),
                     );
                     return;
                 }
@@ -222,7 +245,10 @@ impl Checker {
                                         "this function returns nothing, but `return` has a value",
                                         v.span,
                                     )
-                                    .with_help(format!("declare the type, for example `-> {}`", t.name())),
+                                    .with_help(format!(
+                                        "declare the type, for example `-> {}`",
+                                        t.name()
+                                    )),
                                 );
                             } else {
                                 self.coerce(v, Some(t), &ret, "the returned value", "E0310");
@@ -250,7 +276,9 @@ impl Checker {
             Target::Index { obj, index } => {
                 let ot = self.expr(obj);
                 let it = self.expr(index);
-                let (Some(ot), Some(it)) = (ot, it) else { return };
+                let (Some(ot), Some(it)) = (ot, it) else {
+                    return;
+                };
                 match ot {
                     Type::List(el) => {
                         if it != Type::Int {
@@ -283,10 +311,18 @@ impl Checker {
                     )),
                 }
             }
-            Target::Field { obj, name, name_span } => {
+            Target::Field {
+                obj,
+                name,
+                name_span,
+            } => {
                 let Some(ot) = self.expr(obj) else { return };
                 let Type::Class(cn) = &ot else {
-                    let code = if matches!(ot, Type::Opt(_)) { "E0220" } else { "E0218" };
+                    let code = if matches!(ot, Type::Opt(_)) {
+                        "E0220"
+                    } else {
+                        "E0218"
+                    };
                     self.errors.push(Diagnostic::error(
                         code,
                         format!("cannot assign a field of {}", ot.article()),
@@ -295,7 +331,12 @@ impl Checker {
                     return;
                 };
                 let ci = self.class_index[cn];
-                match self.classes[ci].fields.iter().find(|f| f.name == *name).map(|f| f.ty.clone()) {
+                match self.classes[ci]
+                    .fields
+                    .iter()
+                    .find(|f| f.name == *name)
+                    .map(|f| f.ty.clone())
+                {
                     Some(ft) => {
                         self.coerce(value, vt, &ft, "the value", "E0202");
                     }
@@ -313,14 +354,25 @@ impl Checker {
             .map(|f| f.name.clone())
             .chain(self.classes[ci].methods.keys().cloned())
             .collect();
-        let mut d = Diagnostic::error("E0217", format!("`{class}` has no field or method `{name}`"), span);
+        let mut d = Diagnostic::error(
+            "E0217",
+            format!("`{class}` has no field or method `{name}`"),
+            span,
+        );
         if let Some(s) = closest(name, names.iter().map(|s| s.as_str())) {
             d = d.with_help(format!("did you mean `{s}`?"));
         }
         self.errors.push(d);
     }
 
-    fn assign_var(&mut self, name: &str, name_span: Span, ty: Option<&TypeAnn>, value: &Expr, vt: Option<Type>) {
+    fn assign_var(
+        &mut self,
+        name: &str,
+        name_span: Span,
+        ty: Option<&TypeAnn>,
+        value: &Expr,
+        vt: Option<Type>,
+    ) {
         // A new value could be `none`, so a narrowed type stops applying.
         self.narrowed.retain(|(_, n, _)| n != name);
         let ann = ty.and_then(|a| self.resolve_type(a));
@@ -344,7 +396,10 @@ impl Checker {
             ));
             return;
         }
-        let existing = self.scopes.peek_var(name).or_else(|| self.field_of_current_class(name));
+        let existing = self
+            .scopes
+            .peek_var(name)
+            .or_else(|| self.field_of_current_class(name));
         if let Some(existing) = existing {
             if ty.is_some() {
                 self.errors.push(
@@ -352,13 +407,25 @@ impl Checker {
                         .with_help("write the type only the first time"),
                 );
             } else {
-                self.coerce(value, Some(vt), &existing, &format!("the value for `{name}`"), "E0202");
+                self.coerce(
+                    value,
+                    Some(vt),
+                    &existing,
+                    &format!("the value for `{name}`"),
+                    "E0202",
+                );
             }
             return;
         }
         let declared = match ann {
             Some(a) => {
-                if !self.coerce(value, Some(vt), &a, &format!("the value for `{name}`"), "E0202") {
+                if !self.coerce(
+                    value,
+                    Some(vt),
+                    &a,
+                    &format!("the value for `{name}`"),
+                    "E0202",
+                ) {
                     return;
                 }
                 a
@@ -373,8 +440,12 @@ impl Checker {
                 }
                 if vt.is_empty_collection() {
                     self.errors.push(
-                        Diagnostic::error("E0222", "an empty list or map needs a declared type", value.span)
-                            .with_help(format!("write it like `{name}: [int] = []`")),
+                        Diagnostic::error(
+                            "E0222",
+                            "an empty list or map needs a declared type",
+                            value.span,
+                        )
+                        .with_help(format!("write it like `{name}: [int] = []`")),
                     );
                     return;
                 }
@@ -403,8 +474,12 @@ impl Checker {
             }
             Some(t) => {
                 self.errors.push(
-                    Diagnostic::error("E0214", format!("cannot loop over {}", t.article()), iter.span)
-                        .with_help("loop over a range `0..10`, a list or a map"),
+                    Diagnostic::error(
+                        "E0214",
+                        format!("cannot loop over {}", t.article()),
+                        iter.span,
+                    )
+                    .with_help("loop over a range `0..10`, a list or a map"),
                 );
                 vec![Type::Int; vars.len()]
             }
@@ -430,8 +505,12 @@ impl Checker {
         if let Some(t) = &st {
             if !matches!(t, Type::Int | Type::Str | Type::Bool | Type::Enum(_)) {
                 self.errors.push(
-                    Diagnostic::error("E0223", format!("cannot `match` on {}", t.article()), scrutinee.span)
-                        .with_help("match works on ints, strings, bools and enums"),
+                    Diagnostic::error(
+                        "E0223",
+                        format!("cannot `match` on {}", t.article()),
+                        scrutinee.span,
+                    )
+                    .with_help("match works on ints, strings, bools and enums"),
                 );
             }
         }
@@ -444,7 +523,11 @@ impl Checker {
                         if s != pt {
                             self.errors.push(Diagnostic::error(
                                 "E0223",
-                                format!("this pattern is {} but the value is {}", pt.article(), s.article()),
+                                format!(
+                                    "this pattern is {} but the value is {}",
+                                    pt.article(),
+                                    s.article()
+                                ),
                                 arm.pattern_span,
                             ));
                         } else {
@@ -468,15 +551,22 @@ impl Checker {
                 Type::Enum(n) => {
                     let all = &self.enums[self.enum_index[n]].variants;
                     let m: Vec<&String> = all.iter().filter(|v| !variants.contains(v)).collect();
-                    (!m.is_empty()).then(|| format!("these cases are missing: {}", m.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")))
+                    (!m.is_empty()).then(|| {
+                        format!(
+                            "these cases are missing: {}",
+                            m.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                        )
+                    })
                 }
-                Type::Bool => (!(saw_true && saw_false)).then(|| "both true and false must be covered".to_string()),
+                Type::Bool => (!(saw_true && saw_false))
+                    .then(|| "both true and false must be covered".to_string()),
                 Type::Int | Type::Str => Some("add a `_ =>` arm for all other values".to_string()),
                 _ => None,
             };
             if let Some(help) = missing {
                 self.errors.push(
-                    Diagnostic::error("E0224", "this `match` does not cover every case", span).with_help(help),
+                    Diagnostic::error("E0224", "this `match` does not cover every case", span)
+                        .with_help(help),
                 );
             }
         }

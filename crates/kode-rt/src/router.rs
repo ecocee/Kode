@@ -1,5 +1,5 @@
 //! The Express/FastAPI-style web API layer: `Router()`, `router.get(path, handler)`
-//! and `serve(port, router)`.
+//! and `serve(port, router)`
 //!
 //! A route stores the handler's function pointer, the HTTP method and the path
 //! pattern. Handlers are Kode functions `fn handler(req: Request) -> Response`.
@@ -15,16 +15,15 @@
 //! The registry copies every pattern and method into Rust strings, so it never
 //! holds a Kode object alive.
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{OnceLock, RwLock};
 
 use crate::error::{fatal, take_err, throw_msg};
-use crate::http::status_text;
+use crate::http_wire::{checked_port, event_loop};
 use crate::map::{kode_map_new, kode_map_set};
 use crate::object::{kode_obj_new, kode_release, kode_retain, Header, THREADED};
-use crate::string::{bytes, from_bytes};
+use crate::string::{bytes, from_bytes, from_external};
 
 type Handler = extern "C" fn(*mut Header) -> *mut Header;
 
@@ -46,27 +45,35 @@ struct Route {
     handler: usize,
 }
 
-static ROUTES: OnceLock<Mutex<Vec<Route>>> = OnceLock::new();
+static ROUTES: OnceLock<RwLock<Vec<Route>>> = OnceLock::new();
 static NEXT_ROUTER: AtomicI64 = AtomicI64::new(1);
 
-fn routes() -> &'static Mutex<Vec<Route>> {
-    ROUTES.get_or_init(|| Mutex::new(Vec::new()))
+fn routes() -> &'static RwLock<Vec<Route>> {
+    ROUTES.get_or_init(|| RwLock::new(Vec::new()))
 }
 
 /// # Safety
 /// `router` must be a valid `Router`, and the strings must be valid Kode strings.
 #[no_mangle]
-pub unsafe extern "C" fn kode_router_add(router: *mut Header, method: *mut Header, pattern: *mut Header, handler: usize) {
+pub unsafe extern "C" fn kode_router_add(
+    router: *mut Header,
+    method: *mut Header,
+    pattern: *mut Header,
+    handler: usize,
+) {
     let id = *((router as *const i64).add(3));
     let method = String::from_utf8_lossy(bytes(method)).to_ascii_uppercase();
     let pattern = String::from_utf8_lossy(bytes(pattern)).to_string();
     let segs = pattern_segments(&pattern);
-    routes().lock().unwrap_or_else(|e| e.into_inner()).push(Route {
-        router: id,
-        method,
-        segs,
-        handler,
-    });
+    routes()
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(Route {
+            router: id,
+            method,
+            segs,
+            handler,
+        });
 }
 
 #[no_mangle]
@@ -129,7 +136,7 @@ fn match_segments(pattern: &[Seg], path: &[&str]) -> Option<Vec<(String, String)
 /// exists for another method (the caller answers 405 instead of 404).
 fn lookup(router: i64, method: &str, path: &str) -> (Option<usize>, Vec<(String, String)>, bool) {
     let segs = split_path(path);
-    let list = routes().lock().unwrap_or_else(|e| e.into_inner());
+    let list = routes().read().unwrap_or_else(|e| e.into_inner());
     let mut path_matched = false;
     for route in list.iter().filter(|r| r.router == router) {
         if let Some(params) = match_segments(&route.segs, &segs) {
@@ -197,7 +204,7 @@ unsafe fn build_request(
     }
     set_field(req, 4, header_map);
 
-    set_field(req, 5, from_bytes(body));
+    set_field(req, 5, from_external(body));
     req
 }
 
@@ -205,15 +212,30 @@ unsafe fn read_response(resp: *mut Header) -> (i64, Vec<u8>, Vec<u8>) {
     let status = *((resp as *const i64).add(3));
     let body = *((resp as *const *mut Header).add(4));
     let ctype = *((resp as *const *mut Header).add(5));
-    let body = if body.is_null() { Vec::new() } else { bytes(body).to_vec() };
-    let ctype = if ctype.is_null() { Vec::new() } else { bytes(ctype).to_vec() };
+    let body = if body.is_null() {
+        Vec::new()
+    } else {
+        bytes(body).to_vec()
+    };
+    let ctype = if ctype.is_null() {
+        Vec::new()
+    } else {
+        bytes(ctype).to_vec()
+    };
     (status, body, ctype)
 }
 
 unsafe fn read_error(err: *mut Header) -> (Vec<u8>, i64) {
     let message = *((err as *const *mut Header).add(3));
     let code = *((err as *const i64).add(4));
-    (if message.is_null() { Vec::new() } else { bytes(message).to_vec() }, code)
+    (
+        if message.is_null() {
+            Vec::new()
+        } else {
+            bytes(message).to_vec()
+        },
+        code,
+    )
 }
 
 fn content_type_for(body: &[u8]) -> Vec<u8> {
@@ -226,7 +248,13 @@ fn content_type_for(body: &[u8]) -> Vec<u8> {
 const NOT_FOUND: &[u8] = b"not found";
 const METHOD_NOT_ALLOWED: &[u8] = b"method not allowed";
 
-fn dispatch(router: i64, method: &str, target: &str, headers: &[(String, String)], body: &[u8]) -> (i64, Vec<u8>, Vec<u8>) {
+fn dispatch(
+    router: i64,
+    method: &str,
+    target: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> (i64, Vec<u8>, Vec<u8>) {
     let (path, query) = match target.split_once('?') {
         Some((p, q)) => (p, q),
         None => (target, ""),
@@ -234,14 +262,24 @@ fn dispatch(router: i64, method: &str, target: &str, headers: &[(String, String)
     let (handler, params, path_matched) = lookup(router, method, path);
     let Some(handler) = handler else {
         return if path_matched {
-            (405, METHOD_NOT_ALLOWED.to_vec(), b"text/plain; charset=utf-8".to_vec())
+            (
+                405,
+                METHOD_NOT_ALLOWED.to_vec(),
+                b"text/plain; charset=utf-8".to_vec(),
+            )
         } else {
-            (404, NOT_FOUND.to_vec(), b"text/plain; charset=utf-8".to_vec())
+            (
+                404,
+                NOT_FOUND.to_vec(),
+                b"text/plain; charset=utf-8".to_vec(),
+            )
         };
     };
 
     let handler: Handler = unsafe { std::mem::transmute(handler) };
     let req = unsafe { build_request(method, path, params, query, headers, body) };
+    // Isolation: a request never inherits an error left on this worker thread.
+    unsafe { kode_release(take_err()) };
     let resp = handler(req);
     let err = take_err();
     if !err.is_null() {
@@ -250,12 +288,20 @@ fn dispatch(router: i64, method: &str, target: &str, headers: &[(String, String)
             kode_release(req);
             kode_release(err);
         }
-        let status = if (400..600).contains(&code) { code } else { 500 };
+        let status = if (400..600).contains(&code) {
+            code
+        } else {
+            500
+        };
         return (status, message, b"text/plain; charset=utf-8".to_vec());
     }
     if resp.is_null() {
         unsafe { kode_release(req) };
-        return (500, b"the handler returned no response".to_vec(), b"text/plain; charset=utf-8".to_vec());
+        return (
+            500,
+            b"the handler returned no response".to_vec(),
+            b"text/plain; charset=utf-8".to_vec(),
+        );
     }
 
     let (status, body, ctype) = unsafe { read_response(resp) };
@@ -263,69 +309,12 @@ fn dispatch(router: i64, method: &str, target: &str, headers: &[(String, String)
         kode_release(resp);
         kode_release(req);
     }
-    let ctype = if ctype.is_empty() { content_type_for(&body) } else { ctype };
+    let ctype = if ctype.is_empty() {
+        content_type_for(&body)
+    } else {
+        ctype
+    };
     (status, body, ctype)
-}
-
-fn handle_connection(stream: TcpStream, router: i64) {
-    let _ = stream.set_nodelay(true);
-    let Ok(read_half) = stream.try_clone() else { return };
-    let mut reader = BufReader::new(read_half);
-    let mut out = stream;
-
-    loop {
-        let mut line = String::new();
-        if reader.read_line(&mut line).unwrap_or(0) == 0 {
-            return;
-        }
-        let mut parts = line.split_whitespace();
-        let (Some(method), Some(target)) = (parts.next(), parts.next()) else { return };
-        let (method, target) = (method.to_ascii_uppercase(), target.to_string());
-
-        let mut content_length = 0usize;
-        let mut close = false;
-        let mut headers = Vec::new();
-        loop {
-            let mut header = String::new();
-            if reader.read_line(&mut header).unwrap_or(0) == 0 {
-                return;
-            }
-            let header = header.trim_end_matches(['\r', '\n']);
-            if header.is_empty() {
-                break;
-            }
-            if let Some((name, value)) = header.split_once(':') {
-                let name = name.trim().to_ascii_lowercase();
-                let value = value.trim().to_string();
-                if name == "content-length" {
-                    content_length = value.parse().unwrap_or(0);
-                }
-                if name == "connection" && value.to_ascii_lowercase().contains("close") {
-                    close = true;
-                }
-                headers.push((name, value));
-            }
-        }
-        let mut body = vec![0u8; content_length.min(64 << 20)];
-        if reader.read_exact(&mut body).is_err() {
-            return;
-        }
-
-        let (status, body, ctype) = dispatch(router, &method, &target, &headers, &body);
-        let head = format!(
-            "HTTP/1.1 {status} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n",
-            status_text(status),
-            String::from_utf8_lossy(&ctype),
-            body.len(),
-            if close { "close" } else { "keep-alive" }
-        );
-        if out.write_all(head.as_bytes()).is_err() || out.write_all(&body).is_err() {
-            return;
-        }
-        if close {
-            return;
-        }
-    }
 }
 
 /// Run a router until the program is stopped.
@@ -336,26 +325,13 @@ fn handle_connection(stream: TcpStream, router: i64) {
 pub unsafe extern "C" fn kode_http_serve_router(port: i64, router: *mut Header) {
     let id = *((router as *const i64).add(3));
     THREADED.store(true, Ordering::SeqCst);
-    let listener = TcpListener::bind(("0.0.0.0", port as u16))
+    let port = checked_port(port);
+    let listener = TcpListener::bind(("0.0.0.0", port))
         .unwrap_or_else(|e| fatal(&format!("cannot listen on port {port}: {e}")));
     eprintln!("kode: listening on http://localhost:{port}");
-    let workers = std::env::var("KODE_HTTP_WORKERS")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).max(4));
-    let mut threads = Vec::new();
-    for _ in 0..workers {
-        let l = listener.try_clone().unwrap_or_else(|e| fatal(&format!("cannot share the socket: {e}")));
-        threads.push(std::thread::spawn(move || loop {
-            if let Ok((stream, _)) = l.accept() {
-                handle_connection(stream, id);
-            }
-        }));
-    }
-    for t in threads {
-        let _ = t.join();
-    }
+    event_loop(listener, move |req| {
+        dispatch(id, &req.method, &req.target, &req.headers, &req.body)
+    });
 }
 
 /// `req.json()`: parse the request body, raising a catchable error on bad JSON.
@@ -392,7 +368,11 @@ pub extern "C" fn kode_json_obj() -> *mut Header {
 /// # Safety
 /// `body` and `ctype` must be valid strings.
 #[no_mangle]
-pub unsafe extern "C" fn kode_response_new(status: i64, body: *mut Header, ctype: *mut Header) -> *mut Header {
+pub unsafe extern "C" fn kode_response_new(
+    status: i64,
+    body: *mut Header,
+    ctype: *mut Header,
+) -> *mut Header {
     let p = kode_obj_new(RESPONSE_FIELDS, RESPONSE_MASK);
     *((p as *mut i64).add(3)) = status;
     kode_retain(body);

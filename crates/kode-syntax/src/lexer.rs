@@ -52,7 +52,13 @@ impl<'a> Lexer<'a> {
         });
     }
 
-    fn error(&mut self, code: &'static str, msg: impl Into<String>, start: usize, end: usize) -> &mut Diagnostic {
+    fn error(
+        &mut self,
+        code: &'static str,
+        msg: impl Into<String>,
+        start: usize,
+        end: usize,
+    ) -> &mut Diagnostic {
         self.errors
             .push(Diagnostic::error(code, msg, Span::new(start, end)));
         self.errors.last_mut().unwrap()
@@ -164,12 +170,19 @@ impl<'a> Lexer<'a> {
                 }
                 ';' => {
                     self.error("E0007", "unexpected character `;`", start, start + 1)
-                        .help = Some("Kode does not use semicolons; end a statement with a new line".into());
+                        .help = Some(
+                        "Kode does not use semicolons; end a statement with a new line".into(),
+                    );
                     self.i += 1;
                 }
                 other => {
                     let len = other.len_utf8();
-                    self.error("E0007", format!("unexpected character `{other}`"), start, start + len);
+                    self.error(
+                        "E0007",
+                        format!("unexpected character `{other}`"),
+                        start,
+                        start + len,
+                    );
                     self.i += len;
                 }
             }
@@ -232,8 +245,13 @@ impl<'a> Lexer<'a> {
             Some('*') => match self.src[start + 2..].find("*/") {
                 Some(rel) => self.i = start + 2 + rel + 2,
                 None => {
-                    self.error("E0004", "this block comment is never closed", start, start + 2)
-                        .help = Some("end it with `*/`".into());
+                    self.error(
+                        "E0004",
+                        "this block comment is never closed",
+                        start,
+                        start + 2,
+                    )
+                    .help = Some("end it with `*/`".into());
                     self.i = self.src.len();
                 }
             },
@@ -280,11 +298,19 @@ impl<'a> Lexer<'a> {
                 self.i += 1;
             }
             let text = self.src[start..self.i].to_string();
-            self.error("E0006", format!("`{text}` is not a valid number"), start, self.i)
-                .help = Some("write numbers like 42, 1_000, 3.14 or 2.5e3".into());
+            self.error(
+                "E0006",
+                format!("`{text}` is not a valid number"),
+                start,
+                self.i,
+            )
+            .help = Some("write numbers like 42, 1_000, 3.14 or 2.5e3".into());
             return;
         }
-        let text: String = self.src[start..self.i].chars().filter(|c| *c != '_').collect();
+        let text: String = self.src[start..self.i]
+            .chars()
+            .filter(|c| *c != '_')
+            .collect();
         if is_float {
             match text.parse::<f64>() {
                 Ok(v) => self.push(TokenKind::Float(v), start, self.i),
@@ -297,7 +323,8 @@ impl<'a> Lexer<'a> {
                 Ok(v) => self.push(TokenKind::Int(v), start, self.i),
                 Err(_) => {
                     self.error("E0005", "this integer is too large", start, self.i)
-                        .help = Some("int is a 64-bit signed integer (max 9223372036854775807)".into());
+                        .help =
+                        Some("int is a 64-bit signed integer (max 9223372036854775807)".into());
                 }
             }
         }
@@ -333,7 +360,8 @@ impl<'a> Lexer<'a> {
                     Some(other) if other != '\n' => {
                         let end = self.i + 1 + other.len_utf8();
                         self.error("E0002", format!("unknown escape `\\{other}`"), self.i, end)
-                            .help = Some("valid escapes are \\n \\t \\r \\0 \\\" \\\\ and \\$".into());
+                            .help =
+                            Some("valid escapes are \\n \\t \\r \\0 \\\" \\\\ and \\$".into());
                         self.i = end;
                     }
                     _ => self.i += 1,

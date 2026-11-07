@@ -36,9 +36,19 @@ pub fn dump(p: &MirProgram) -> String {
             .map(|i| format!("_{i}: {}", ty(f.locals[i].ty)))
             .collect();
         let marker = if fi == p.entry { "  // entry" } else { "" };
-        let _ = writeln!(out, "fn {}({}) -> {} {{{marker}", f.name, params.join(", "), ty(f.ret));
+        let _ = writeln!(
+            out,
+            "fn {}({}) -> {} {{{marker}",
+            f.name,
+            params.join(", "),
+            ty(f.ret)
+        );
         for (i, l) in f.locals.iter().enumerate().skip(f.param_count) {
-            let name = l.name.as_deref().map(|n| format!("  // {n}")).unwrap_or_default();
+            let name = l
+                .name
+                .as_deref()
+                .map(|n| format!("  // {n}"))
+                .unwrap_or_default();
             let _ = writeln!(out, "    let _{i}: {}{name}", ty(l.ty));
         }
         for (bi, b) in f.blocks.iter().enumerate() {
@@ -48,12 +58,21 @@ pub fn dump(p: &MirProgram) -> String {
                     Inst::Assign { dst, rv } => {
                         let r = match rv {
                             Rvalue::Use(a) => op(p, a),
-                            Rvalue::Unary(u, a) => format!("{} {}", format!("{u:?}").to_lowercase(), op(p, a)),
+                            Rvalue::Unary(u, a) => {
+                                format!("{} {}", format!("{u:?}").to_lowercase(), op(p, a))
+                            }
                             Rvalue::Binary(b, x, y) => {
-                                format!("{} {}, {}", format!("{b:?}").to_lowercase(), op(p, x), op(p, y))
+                                format!(
+                                    "{} {}, {}",
+                                    format!("{b:?}").to_lowercase(),
+                                    op(p, x),
+                                    op(p, y)
+                                )
                             }
                             Rvalue::Cast(c, a) => format!("cast {c:?} {}", op(p, a)),
-                            Rvalue::Select(c, a, b) => format!("select {}, {}, {}", op(p, c), op(p, a), op(p, b)),
+                            Rvalue::Select(c, a, b) => {
+                                format!("select {}, {}, {}", op(p, c), op(p, a), op(p, b))
+                            }
                         };
                         format!("_{dst} = {r}")
                     }
@@ -72,12 +91,20 @@ pub fn dump(p: &MirProgram) -> String {
                     Inst::CallIndirect { dst, callee, args } => {
                         let args: Vec<String> = args.iter().map(|a| op(p, a)).collect();
                         match dst {
-                            Some(d) => format!("_{d} = call {} with ({})", op(p, callee), args.join(", ")),
+                            Some(d) => {
+                                format!("_{d} = call {} with ({})", op(p, callee), args.join(", "))
+                            }
                             None => format!("call {} with ({})", op(p, callee), args.join(", ")),
                         }
                     }
-                    Inst::Load { dst, base, offset, .. } => format!("_{dst} = load {}+{offset}", op(p, base)),
-                    Inst::Store { base, offset, value } => format!("store {}+{offset}, {}", op(p, base), op(p, value)),
+                    Inst::Load {
+                        dst, base, offset, ..
+                    } => format!("_{dst} = load {}+{offset}", op(p, base)),
+                    Inst::Store {
+                        base,
+                        offset,
+                        value,
+                    } => format!("store {}+{offset}, {}", op(p, base), op(p, value)),
                     Inst::Retain(a) => format!("retain {}", op(p, a)),
                     Inst::Release(a) => format!("release {}", op(p, a)),
                 };
@@ -85,7 +112,11 @@ pub fn dump(p: &MirProgram) -> String {
             }
             let t = match &b.term {
                 Terminator::Goto(t) => format!("goto bb{t}"),
-                Terminator::Branch { cond, then_bb, else_bb } => {
+                Terminator::Branch {
+                    cond,
+                    then_bb,
+                    else_bb,
+                } => {
                     format!("branch {}, bb{then_bb}, bb{else_bb}", op(p, cond))
                 }
                 Terminator::Return(Some(v)) => format!("return {}", op(p, v)),

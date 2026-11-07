@@ -129,7 +129,12 @@ pub fn ann_type(ann: &kode_syntax::ast::TypeAnn, checked: &crate::Checked) -> Op
     match &ann.kind {
         TypeAnnKind::Name(n) => Type::from_name(n)
             .or_else(|| checked.class_index.get(n).map(|_| Type::Class(n.clone())))
-            .or_else(|| checked.interface_index.get(n).map(|_| Type::Interface(n.clone())))
+            .or_else(|| {
+                checked
+                    .interface_index
+                    .get(n)
+                    .map(|_| Type::Interface(n.clone()))
+            })
             .or_else(|| checked.enum_index.get(n).map(|_| Type::Enum(n.clone()))),
         TypeAnnKind::List(i) => Some(Type::List(Box::new(ann_type(i, checked)?))),
         TypeAnnKind::Map(i) => Some(Type::Map(Box::new(ann_type(i, checked)?))),
@@ -137,7 +142,10 @@ pub fn ann_type(ann: &kode_syntax::ast::TypeAnn, checked: &crate::Checked) -> Op
         TypeAnnKind::Task(i) => Some(Type::Task(Box::new(ann_type(i, checked)?))),
         TypeAnnKind::Channel(i) => Some(Type::Chan(Box::new(ann_type(i, checked)?))),
         TypeAnnKind::Fn(params, ret) => {
-            let ps = params.iter().map(|p| ann_type(p, checked)).collect::<Option<Vec<_>>>()?;
+            let ps = params
+                .iter()
+                .map(|p| ann_type(p, checked))
+                .collect::<Option<Vec<_>>>()?;
             Some(Type::Fn(ps, Box::new(ann_type(ret, checked)?)))
         }
     }

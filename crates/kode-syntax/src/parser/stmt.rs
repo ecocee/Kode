@@ -28,10 +28,12 @@ impl Parser {
                     return Ok(stmts);
                 }
                 TokenKind::Eof => {
-                    return Err(
-                        Diagnostic::error("E0106", "this block is never closed", open.span)
-                            .with_help("add a matching `}`"),
-                    );
+                    return Err(Diagnostic::error(
+                        "E0106",
+                        "this block is never closed",
+                        open.span,
+                    )
+                    .with_help("add a matching `}`"));
                 }
                 _ => {}
             }
@@ -79,7 +81,10 @@ impl Parser {
                 let has_catch = matches!(self.peek(), TokenKind::Catch);
                 let has_finally = matches!(self.peek(), TokenKind::Finally);
                 if !has_catch && !has_finally {
-                    self.expect(TokenKind::Catch, "`catch` or `finally` after the `try` block")?;
+                    self.expect(
+                        TokenKind::Catch,
+                        "`catch` or `finally` after the `try` block",
+                    )?;
                 }
                 let (var, handler) = if has_catch {
                     self.bump();
@@ -154,7 +159,10 @@ impl Parser {
         if !matches!(self.peek(), TokenKind::Assign) {
             return Err(Diagnostic::error(
                 "E0107",
-                format!("expected `=` after the type, found {}", self.peek().describe()),
+                format!(
+                    "expected `=` after the type, found {}",
+                    self.peek().describe()
+                ),
                 self.span(),
             )
             .with_help("write it like `count: int = 0`"));
@@ -311,7 +319,11 @@ impl Parser {
                 break;
             }
             if matches!(self.peek(), TokenKind::Eof) {
-                return Err(Diagnostic::error("E0106", "this `match` is never closed", span));
+                return Err(Diagnostic::error(
+                    "E0106",
+                    "this `match` is never closed",
+                    span,
+                ));
             }
             let pattern_span = self.span();
             let pattern = match (self.peek().clone(), self.peek_at(1)) {

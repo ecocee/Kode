@@ -64,11 +64,18 @@ pub fn explain(code: &str) -> Option<String> {
     let t = title(&code)?;
     let mut out = format!("{code}: {t}\n");
     if let Some((_, why, bad, good)) = DETAILS.iter().find(|d| d.0 == code) {
-        out.push_str(&format!("\n{why}\n\nExample that fails:\n\n{}\n\nFixed:\n\n{}\n", indent(bad), indent(good)));
+        out.push_str(&format!(
+            "\n{why}\n\nExample that fails:\n\n{}\n\nFixed:\n\n{}\n",
+            indent(bad),
+            indent(good)
+        ));
     }
     Some(out)
 }
 
 fn indent(s: &str) -> String {
-    s.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n")
+    s.lines()
+        .map(|l| format!("    {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

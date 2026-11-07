@@ -151,7 +151,13 @@ fn load_file(
     let dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
     for item in &program.items {
         let Item::Import(imp) = item else { continue };
-        let target = match resolve_import(&dir, st.manifest.as_ref(), &st.deps, &imp.path, imp.path_span) {
+        let target = match resolve_import(
+            &dir,
+            st.manifest.as_ref(),
+            &st.deps,
+            &imp.path,
+            imp.path_span,
+        ) {
             Ok(t) => t,
             Err(e) => {
                 st.errors.push(e);
@@ -165,7 +171,11 @@ fn load_file(
                     target.display(),
                     m.name,
                     m.version,
-                    st.deps.iter().map(|d| d.name.as_str()).collect::<Vec<_>>().join(", ")
+                    st.deps
+                        .iter()
+                        .map(|d| d.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
                 Some(m) => format!(
                     "looked for {} in package `{}` {}",

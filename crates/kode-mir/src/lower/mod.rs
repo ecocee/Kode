@@ -44,7 +44,15 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
     // Declared functions and methods, then every generic instantiation.
     for (i, f) in checked.bodies.iter().enumerate() {
         let is_method = checked.fns[i].class.is_some();
-        funcs.push(lower_fn(f, i, is_method, checked, src, &mut strings, &iface_dispatch));
+        funcs.push(lower_fn(
+            f,
+            i,
+            is_method,
+            checked,
+            src,
+            &mut strings,
+            &iface_dispatch,
+        ));
     }
     funcs.extend(dispatches);
 
@@ -61,19 +69,40 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
             funcs.push(lw.finish("<main>".to_string()));
             e
         }
-        Mode::Test =>            tests::lower_tests(program, checked, src, &mut strings, &mut funcs, &iface_dispatch),
+        Mode::Test => tests::lower_tests(
+            program,
+            checked,
+            src,
+            &mut strings,
+            &mut funcs,
+            &iface_dispatch,
+        ),
     };
 
-    let thunks: Vec<MirFunc> = strings.thunk_specs.iter().map(|&i| make_thunk(checked, i)).collect();
+    let thunks: Vec<MirFunc> = strings
+        .thunk_specs
+        .iter()
+        .map(|&i| make_thunk(checked, i))
+        .collect();
     // Closure bodies may contain more closures, so keep going until none is left.
     let mut closures: Vec<MirFunc> = Vec::new();
     let mut ci = 0;
     while ci < strings.closure_specs.len() {
         let spec = strings.closure_specs[ci].clone();
-        closures.push(lower_closure(&spec, checked, src, &mut strings, &iface_dispatch));
+        closures.push(lower_closure(
+            &spec,
+            checked,
+            src,
+            &mut strings,
+            &iface_dispatch,
+        ));
         ci += 1;
     }
-    let fnvals: Vec<MirFunc> = strings.fnval_specs.iter().map(|&i| make_fnval(checked, i)).collect();
+    let fnvals: Vec<MirFunc> = strings
+        .fnval_specs
+        .iter()
+        .map(|&i| make_fnval(checked, i))
+        .collect();
     MirProgram {
         funcs,
         strings: strings.list,
@@ -145,7 +174,10 @@ fn make_fnval(checked: &Checked, idx: usize) -> MirFunc {
     let dst = if ret == Ty::Unit {
         None
     } else {
-        locals.push(LocalDecl { ty: ret, name: None });
+        locals.push(LocalDecl {
+            ty: ret,
+            name: None,
+        });
         Some(locals.len() - 1)
     };
     let term = match dst {
@@ -202,7 +234,10 @@ fn make_thunk(checked: &Checked, idx: usize) -> MirFunc {
         });
         Operand::Int(0)
     } else {
-        locals.push(LocalDecl { ty: ret, name: None });
+        locals.push(LocalDecl {
+            ty: ret,
+            name: None,
+        });
         let r = locals.len() - 1;
         insts.push(Inst::Call {
             dst: Some(r),
@@ -216,7 +251,10 @@ fn make_thunk(checked: &Checked, idx: usize) -> MirFunc {
         };
         match kind {
             Some(k) => {
-                locals.push(LocalDecl { ty: Ty::Int, name: None });
+                locals.push(LocalDecl {
+                    ty: Ty::Int,
+                    name: None,
+                });
                 let c = locals.len() - 1;
                 insts.push(Inst::Assign {
                     dst: c,
@@ -297,17 +335,26 @@ fn build_dispatch(
         };
     }
     let kind = locals.len();
-    locals.push(LocalDecl { ty: Ty::Int, name: None });
+    locals.push(LocalDecl {
+        ty: Ty::Int,
+        name: None,
+    });
     let conds: Vec<LocalId> = (0..n)
         .map(|_| {
-            locals.push(LocalDecl { ty: Ty::Bool, name: None });
+            locals.push(LocalDecl {
+                ty: Ty::Bool,
+                name: None,
+            });
             locals.len() - 1
         })
         .collect();
     let dst = if ret == Ty::Unit {
         None
     } else {
-        locals.push(LocalDecl { ty: ret, name: None });
+        locals.push(LocalDecl {
+            ty: ret,
+            name: None,
+        });
         Some(locals.len() - 1)
     };
     let mut blocks: Vec<Block> = (0..2 * n + 1)
@@ -370,7 +417,10 @@ fn lower_fn(
     lw.param_count = sig.params.len();
     if is_method {
         lw.this_local = Some(0);
-        lw.cur_class = sig.class.as_ref().and_then(|c| checked.class_index.get(c).copied());
+        lw.cur_class = sig
+            .class
+            .as_ref()
+            .and_then(|c| checked.class_index.get(c).copied());
     }
 
     match &f.body {
@@ -823,7 +873,11 @@ impl<'a> Lowerer<'a> {
                 for id in self.ref_locals.clone() {
                     self.emit(Inst::Release(Operand::Local(id)));
                 }
-                self.term(Terminator::Return(if self.ret == Ty::Unit { None } else { Some(default) }));
+                self.term(Terminator::Return(if self.ret == Ty::Unit {
+                    None
+                } else {
+                    Some(default)
+                }));
             }
         }
 

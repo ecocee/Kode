@@ -77,7 +77,10 @@ pub fn remove(opts: &Options) -> Result<u8, String> {
         .map_err(describe)?
         .ok_or("no `kode.toml` here; run `kode init` first")?;
     if !manifest::remove_dependency(&m.dir, name)? {
-        return Err(format!("`{name}` is not a dependency in {}", m.dir.join("kode.toml").display()));
+        return Err(format!(
+            "`{name}` is not a dependency in {}",
+            m.dir.join("kode.toml").display()
+        ));
     }
     println!("removed `{name}`");
     install(opts)?;
@@ -113,8 +116,15 @@ mod tests {
 
     #[test]
     fn describes_a_diagnostic_with_its_hint() {
-        let d = Diagnostic::error("E0412", "dependency `utils` is not a package", Default::default())
-            .with_help("check the path");
-        assert_eq!(describe(d), "E0412: dependency `utils` is not a package (help: check the path)");
+        let d = Diagnostic::error(
+            "E0412",
+            "dependency `utils` is not a package",
+            Default::default(),
+        )
+        .with_help("check the path");
+        assert_eq!(
+            describe(d),
+            "E0412: dependency `utils` is not a package (help: check the path)"
+        );
     }
 }

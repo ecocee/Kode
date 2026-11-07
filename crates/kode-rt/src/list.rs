@@ -4,7 +4,9 @@
 use std::mem::ManuallyDrop;
 
 use crate::error::fatal;
-use crate::object::{alloc_object, free_object, kode_release, kode_retain, Header, ITEMS_ARE_REFS, LIST, PACKED1};
+use crate::object::{
+    alloc_object, free_object, kode_release, kode_retain, Header, ITEMS_ARE_REFS, LIST, PACKED1,
+};
 
 const SIZE: usize = 40;
 
@@ -29,7 +31,11 @@ impl Raw {
     }
     /// Run `f` on the items as a `Vec`, then store it back.
     unsafe fn with_vec<R>(&self, f: impl FnOnce(&mut Vec<u64>) -> R) -> R {
-        let mut v = ManuallyDrop::new(Vec::from_raw_parts(*self.ptr(), *self.len() as usize, *self.cap() as usize));
+        let mut v = ManuallyDrop::new(Vec::from_raw_parts(
+            *self.ptr(),
+            *self.len() as usize,
+            *self.cap() as usize,
+        ));
         let r = f(&mut v);
         *self.ptr() = v.as_mut_ptr();
         *self.len() = v.len() as i64;
@@ -41,7 +47,12 @@ impl Raw {
 #[no_mangle]
 pub extern "C" fn kode_list_new(items_are_refs: i64) -> *mut Header {
     unsafe {
-        let kind = LIST | if items_are_refs != 0 { ITEMS_ARE_REFS } else { 0 };
+        let kind = LIST
+            | if items_are_refs != 0 {
+                ITEMS_ARE_REFS
+            } else {
+                0
+            };
         let p = alloc_object(SIZE, kind);
         let r = Raw(p);
         let mut v = ManuallyDrop::new(Vec::<u64>::new());
@@ -55,7 +66,11 @@ pub extern "C" fn kode_list_new(items_are_refs: i64) -> *mut Header {
 pub unsafe fn drop_list(p: *mut Header) {
     let r = Raw(p);
     if (*p).kind & PACKED1 != 0 {
-        drop(Vec::from_raw_parts(*r.ptr() as *mut u8, *r.len() as usize, *r.cap() as usize));
+        drop(Vec::from_raw_parts(
+            *r.ptr() as *mut u8,
+            *r.len() as usize,
+            *r.cap() as usize,
+        ));
         free_object(p, SIZE);
         return;
     }
@@ -93,7 +108,9 @@ pub unsafe extern "C" fn kode_list_get(p: *mut Header, idx: i64, line: i64) -> i
     let r = Raw(p);
     let len = *r.len();
     if idx < 0 || idx >= len {
-        fatal(&format!("list index {idx} is out of range (length {len}) at line {line}"));
+        fatal(&format!(
+            "list index {idx} is out of range (length {len}) at line {line}"
+        ));
     }
     *(*r.ptr()).add(idx as usize) as i64
 }
@@ -105,7 +122,9 @@ pub unsafe extern "C" fn kode_list_set(p: *mut Header, idx: i64, raw: i64, line:
     let r = Raw(p);
     let len = *r.len();
     if idx < 0 || idx >= len {
-        fatal(&format!("list index {idx} is out of range (length {len}) at line {line}"));
+        fatal(&format!(
+            "list index {idx} is out of range (length {len}) at line {line}"
+        ));
     }
     let slot = (*r.ptr()).add(idx as usize);
     let old = *slot;
@@ -118,7 +137,9 @@ pub unsafe extern "C" fn kode_list_set(p: *mut Header, idx: i64, raw: i64, line:
 /// Called by compiled code when an inlined list access is out of range.
 #[no_mangle]
 pub extern "C" fn kode_list_oob(idx: i64, len: i64, line: i64) -> ! {
-    fatal(&format!("list index {idx} is out of range (length {len}) at line {line}"));
+    fatal(&format!(
+        "list index {idx} is out of range (length {len}) at line {line}"
+    ));
 }
 
 // ---- reading every item, for formatting and library code ----
@@ -161,7 +182,11 @@ pub extern "C" fn kode_list_new_packed() -> *mut Header {
 #[no_mangle]
 pub unsafe extern "C" fn kode_list_push8(p: *mut Header, raw: i64) {
     let r = Raw(p);
-    let mut v = ManuallyDrop::new(Vec::from_raw_parts(*r.ptr() as *mut u8, *r.len() as usize, *r.cap() as usize));
+    let mut v = ManuallyDrop::new(Vec::from_raw_parts(
+        *r.ptr() as *mut u8,
+        *r.len() as usize,
+        *r.cap() as usize,
+    ));
     v.push(raw as u8);
     *r.ptr() = v.as_mut_ptr() as *mut u64;
     *r.len() = v.len() as i64;
@@ -175,7 +200,9 @@ pub unsafe extern "C" fn kode_list_get8(p: *mut Header, idx: i64, line: i64) -> 
     let r = Raw(p);
     let len = *r.len();
     if idx < 0 || idx >= len {
-        fatal(&format!("list index {idx} is out of range (length {len}) at line {line}"));
+        fatal(&format!(
+            "list index {idx} is out of range (length {len}) at line {line}"
+        ));
     }
     *(*r.ptr() as *const u8).add(idx as usize) as i64
 }
@@ -187,7 +214,9 @@ pub unsafe extern "C" fn kode_list_set8(p: *mut Header, idx: i64, raw: i64, line
     let r = Raw(p);
     let len = *r.len();
     if idx < 0 || idx >= len {
-        fatal(&format!("list index {idx} is out of range (length {len}) at line {line}"));
+        fatal(&format!(
+            "list index {idx} is out of range (length {len}) at line {line}"
+        ));
     }
     *(*r.ptr() as *mut u8).add(idx as usize) = raw as u8;
 }
@@ -271,14 +300,17 @@ pub unsafe extern "C" fn kode_list_sort_int(p: *mut Header) {
 /// `p` must be a list of floats.
 #[no_mangle]
 pub unsafe extern "C" fn kode_list_sort_float(p: *mut Header) {
-    items_mut(p).sort_by(|a, b| f64::from_bits(*a).partial_cmp(&f64::from_bits(*b)).unwrap_or(std::cmp::Ordering::Equal));
+    // total_cmp is a total order, so NaN cannot make the sort panic (a panic here would abort).
+    items_mut(p).sort_by(|a, b| f64::from_bits(*a).total_cmp(&f64::from_bits(*b)));
 }
 
 /// # Safety
 /// `p` must be a list of strings.
 #[no_mangle]
 pub unsafe extern "C" fn kode_list_sort_str(p: *mut Header) {
-    items_mut(p).sort_by(|a, b| crate::string::bytes(*a as *const Header).cmp(crate::string::bytes(*b as *const Header)));
+    items_mut(p).sort_by(|a, b| {
+        crate::string::bytes(*a as *const Header).cmp(crate::string::bytes(*b as *const Header))
+    });
 }
 
 /// Remove the last item and give it to the caller.
@@ -334,21 +366,31 @@ pub unsafe extern "C" fn kode_list_contains_float(p: *mut Header, v: f64) -> i64
 #[no_mangle]
 pub unsafe extern "C" fn kode_list_contains_str(p: *mut Header, v: *const Header) -> i64 {
     let needle = crate::string::bytes(v);
-    items(p).iter().any(|x| crate::string::bytes(*x as *const Header) == needle) as i64
+    items(p)
+        .iter()
+        .any(|x| crate::string::bytes(*x as *const Header) == needle) as i64
 }
 
 /// # Safety
 /// `p` must be a list of ints.
 #[no_mangle]
 pub unsafe extern "C" fn kode_list_index_int(p: *mut Header, v: i64) -> i64 {
-    items(p).iter().position(|x| *x as i64 == v).map(|i| i as i64).unwrap_or(-1)
+    items(p)
+        .iter()
+        .position(|x| *x as i64 == v)
+        .map(|i| i as i64)
+        .unwrap_or(-1)
 }
 
 /// # Safety
 /// `p` must be a list of floats.
 #[no_mangle]
 pub unsafe extern "C" fn kode_list_index_float(p: *mut Header, v: f64) -> i64 {
-    items(p).iter().position(|x| f64::from_bits(*x) == v).map(|i| i as i64).unwrap_or(-1)
+    items(p)
+        .iter()
+        .position(|x| f64::from_bits(*x) == v)
+        .map(|i| i as i64)
+        .unwrap_or(-1)
 }
 
 /// # Safety
@@ -381,7 +423,9 @@ pub unsafe extern "C" fn kode_list_insert(p: *mut Header, idx: i64, raw: i64, li
     let r = Raw(p);
     let len = *r.len();
     if idx < 0 || idx > len {
-        crate::error::throw_msg(&format!("insert index {idx} is out of range (length {len}) at line {line}"));
+        crate::error::throw_msg(&format!(
+            "insert index {idx} is out of range (length {len}) at line {line}"
+        ));
         return;
     }
     if r.is_refs() {
@@ -399,7 +443,9 @@ pub unsafe extern "C" fn kode_list_remove_at(p: *mut Header, idx: i64, line: i64
     let r = Raw(p);
     let len = *r.len();
     if idx < 0 || idx >= len {
-        crate::error::throw_msg(&format!("remove index {idx} is out of range (length {len}) at line {line}"));
+        crate::error::throw_msg(&format!(
+            "remove index {idx} is out of range (length {len}) at line {line}"
+        ));
         return;
     }
     let refs = r.is_refs();

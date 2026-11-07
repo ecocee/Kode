@@ -10,7 +10,10 @@ const RT_ABI: &str = "0003";
 
 pub fn run() -> Result<u8, String> {
     let on = style::on_stdout();
-    println!("{}", style::bold(on, &format!("kode {} — toolchain check", crate::VERSION)));
+    println!(
+        "{}",
+        style::bold(on, &format!("kode {} — toolchain check", crate::VERSION))
+    );
 
     let cc = cc_program();
     let (cc_ok, cc_text) = describe_cc(&cc);
@@ -25,10 +28,7 @@ pub fn run() -> Result<u8, String> {
         (
             true,
             "runtime",
-            format!(
-                "{} KB embedded, ABI {RT_ABI}",
-                crate::RUNTIME.len() / 1024
-            ),
+            format!("{} KB embedded, ABI {RT_ABI}", crate::RUNTIME.len() / 1024),
         ),
         (cc_ok, "linker", format!("{cc}: {cc_text}")),
         (pkg_ok, "package", pkg_text),
@@ -71,7 +71,14 @@ fn describe_cc(cc: &str) -> (bool, String) {
         }
         Ok(out) => {
             let text = String::from_utf8_lossy(&out.stderr);
-            (false, text.lines().next().unwrap_or("it did not run").trim().to_string())
+            (
+                false,
+                text.lines()
+                    .next()
+                    .unwrap_or("it did not run")
+                    .trim()
+                    .to_string(),
+            )
         }
         Err(e) => (false, format!("not found ({e})")),
     }
@@ -80,7 +87,10 @@ fn describe_cc(cc: &str) -> (bool, String) {
 /// A package is optional, so "no manifest" is a healthy result, not a failure.
 fn package_state() -> (bool, String) {
     let Some(manifest) = find_up("kode.toml") else {
-        return (true, "no kode.toml here (fine for a single file)".to_string());
+        return (
+            true,
+            "no kode.toml here (fine for a single file)".to_string(),
+        );
     };
     let lock = manifest.with_file_name("kode.lock");
     if !lock.exists() {
@@ -93,10 +103,16 @@ fn package_state() -> (bool, String) {
     if stale {
         (
             false,
-            format!("{}: kode.lock is older than kode.toml, run `kode install`", manifest.display()),
+            format!(
+                "{}: kode.lock is older than kode.toml, run `kode install`",
+                manifest.display()
+            ),
         )
     } else {
-        (true, format!("{} with a current kode.lock", manifest.display()))
+        (
+            true,
+            format!("{} with a current kode.lock", manifest.display()),
+        )
     }
 }
 

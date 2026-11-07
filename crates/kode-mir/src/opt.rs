@@ -24,7 +24,9 @@ pub fn optimize(p: &mut MirProgram) {
 
 /// Can this instruction run on a path where it would not have run before?
 fn speculable(f: &MirFunc, inst: &Inst) -> bool {
-    let Inst::Assign { dst, rv } = inst else { return false };
+    let Inst::Assign { dst, rv } = inst else {
+        return false;
+    };
     if f.locals[*dst].ty == Ty::Ref || f.locals[*dst].ty == Ty::Unit {
         return false;
     }
@@ -32,7 +34,9 @@ fn speculable(f: &MirFunc, inst: &Inst) -> bool {
         Rvalue::Use(_) | Rvalue::Unary(..) | Rvalue::Select(..) => true,
         Rvalue::Cast(..) => true,
         // division can trap, so it must stay behind its branch
-        Rvalue::Binary(BinOp::Div | BinOp::Rem, _, d) => matches!(d, Operand::Int(k) if *k != 0 && *k != -1),
+        Rvalue::Binary(BinOp::Div | BinOp::Rem, _, d) => {
+            matches!(d, Operand::Int(k) if *k != 0 && *k != -1)
+        }
         Rvalue::Binary(..) => true,
     }
 }
@@ -60,7 +64,9 @@ fn speculate(f: &mut MirFunc, insts: &[Inst]) -> (Vec<Inst>, HashMap<LocalId, Lo
     let mut map: HashMap<LocalId, LocalId> = HashMap::new();
     let mut out = Vec::new();
     for inst in insts {
-        let Inst::Assign { dst, rv } = inst else { unreachable!("checked by speculable") };
+        let Inst::Assign { dst, rv } = inst else {
+            unreachable!("checked by speculable")
+        };
         let rv = map_rv(rv, &map);
         let ty = f.locals[*dst].ty;
         f.locals.push(LocalDecl { ty, name: None });
@@ -76,7 +82,9 @@ fn if_convert(f: &mut MirFunc) -> bool {
     for b in &f.blocks {
         match &b.term {
             Terminator::Goto(t) => preds[*t] += 1,
-            Terminator::Branch { then_bb, else_bb, .. } => {
+            Terminator::Branch {
+                then_bb, else_bb, ..
+            } => {
                 preds[*then_bb] += 1;
                 preds[*else_bb] += 1;
             }
@@ -85,7 +93,14 @@ fn if_convert(f: &mut MirFunc) -> bool {
     }
     let mut changed = false;
     for bi in 0..f.blocks.len() {
-        let Terminator::Branch { cond, then_bb, else_bb } = f.blocks[bi].term.clone() else { continue };
+        let Terminator::Branch {
+            cond,
+            then_bb,
+            else_bb,
+        } = f.blocks[bi].term.clone()
+        else {
+            continue;
+        };
         if then_bb == else_bb || then_bb == bi || else_bb == bi {
             continue;
         }
@@ -106,13 +121,21 @@ fn if_convert(f: &mut MirFunc) -> bool {
         if join == bi {
             continue;
         }
-        let then_insts = then_arm.map(|b| f.blocks[b].insts.clone()).unwrap_or_default();
-        let else_insts = else_arm.map(|b| f.blocks[b].insts.clone()).unwrap_or_default();
+        let then_insts = then_arm
+            .map(|b| f.blocks[b].insts.clone())
+            .unwrap_or_default();
+        let else_insts = else_arm
+            .map(|b| f.blocks[b].insts.clone())
+            .unwrap_or_default();
         let total = then_insts.len() + else_insts.len();
         if total == 0 || then_insts.len() > 4 || else_insts.len() > 4 || total > 6 {
             continue;
         }
-        if !then_insts.iter().chain(else_insts.iter()).all(|i| speculable(f, i)) {
+        if !then_insts
+            .iter()
+            .chain(else_insts.iter())
+            .all(|i| speculable(f, i))
+        {
             continue;
         }
         let (t_code, t_map) = speculate(f, &then_insts);
@@ -199,13 +222,22 @@ fn shift_inst(i: &Inst, loff: usize) -> Inst {
             callee: s(callee),
             args: args.iter().map(s).collect(),
         },
-        Inst::Load { dst, base, offset, ty } => Inst::Load {
+        Inst::Load {
+            dst,
+            base,
+            offset,
+            ty,
+        } => Inst::Load {
             dst: dst + loff,
             base: s(base),
             offset: *offset,
             ty: *ty,
         },
-        Inst::Store { base, offset, value } => Inst::Store {
+        Inst::Store {
+            base,
+            offset,
+            value,
+        } => Inst::Store {
             base: s(base),
             offset: *offset,
             value: s(value),
@@ -217,8 +249,15 @@ fn shift_inst(i: &Inst, loff: usize) -> Inst {
 
 /// Replace the call at `f.blocks[bi].insts[ii]` with a copy of `callee`.
 /// Returns the range of blocks that hold the copy.
-fn inline_one(f: &mut MirFunc, callee: &MirFunc, bi: BlockId, ii: usize) -> std::ops::Range<BlockId> {
-    let Inst::Call { dst, args, .. } = f.blocks[bi].insts[ii].clone() else { unreachable!() };
+fn inline_one(
+    f: &mut MirFunc,
+    callee: &MirFunc,
+    bi: BlockId,
+    ii: usize,
+) -> std::ops::Range<BlockId> {
+    let Inst::Call { dst, args, .. } = f.blocks[bi].insts[ii].clone() else {
+        unreachable!()
+    };
     let loff = f.locals.len();
     f.locals.extend(callee.locals.iter().cloned());
     let cont = f.blocks.len();
@@ -243,7 +282,11 @@ fn inline_one(f: &mut MirFunc, callee: &MirFunc, bi: BlockId, ii: usize) -> std:
         let mut insts: Vec<Inst> = cb.insts.iter().map(|i| shift_inst(i, loff)).collect();
         let term = match &cb.term {
             Terminator::Goto(t) => Terminator::Goto(t + boff),
-            Terminator::Branch { cond, then_bb, else_bb } => Terminator::Branch {
+            Terminator::Branch {
+                cond,
+                then_bb,
+                else_bb,
+            } => Terminator::Branch {
                 cond: shift_op(cond, loff),
                 then_bb: then_bb + boff,
                 else_bb: else_bb + boff,
@@ -276,9 +319,18 @@ fn inline_calls(p: &mut MirProgram) {
             }
             let mut inlined = false;
             for ii in 0..p.funcs[fi].blocks[bi].insts.len() {
-                let Inst::Call { callee: Callee::User(g), .. } = &p.funcs[fi].blocks[bi].insts[ii] else { continue };
+                let Inst::Call {
+                    callee: Callee::User(g),
+                    ..
+                } = &p.funcs[fi].blocks[bi].insts[ii]
+                else {
+                    continue;
+                };
                 let g = *g;
-                if g == p.entry || !inlinable(&snapshot[g]) || inst_count(&p.funcs[fi]) > MAX_CALLER_INSTS {
+                if g == p.entry
+                    || !inlinable(&snapshot[g])
+                    || inst_count(&p.funcs[fi]) > MAX_CALLER_INSTS
+                {
                     continue;
                 }
                 let range = inline_one(&mut p.funcs[fi], &snapshot[g], bi, ii);

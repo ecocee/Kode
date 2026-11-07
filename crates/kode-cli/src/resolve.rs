@@ -128,7 +128,10 @@ pub fn lock_text(top: &Manifest, deps: &[Resolved]) -> String {
         out.push_str("\n[[package]]\n");
         out.push_str(&format!("name = \"{}\"\n", dep.name));
         out.push_str(&format!("version = \"{}\"\n", dep.version));
-        out.push_str(&format!("path = \"{}\"\n", relative_path(&top.dir, &dep.dir)));
+        out.push_str(&format!(
+            "path = \"{}\"\n",
+            relative_path(&top.dir, &dep.dir)
+        ));
     }
     out
 }
@@ -141,7 +144,11 @@ fn relative_path(from: &Path, to: &Path) -> String {
     let tc: Vec<_> = to.components().collect();
     let common = fc.iter().zip(&tc).take_while(|(a, b)| a == b).count();
     let mut parts: Vec<String> = vec!["..".to_string(); fc.len() - common];
-    parts.extend(tc[common..].iter().map(|c| c.as_os_str().to_string_lossy().to_string()));
+    parts.extend(
+        tc[common..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().to_string()),
+    );
     if parts.is_empty() {
         ".".to_string()
     } else {
@@ -182,8 +189,16 @@ mod tests {
     fn resolves_direct_and_indirect_dependencies() {
         let dir = workspace("chain");
         package(&dir.join("c"), "c", "");
-        package(&dir.join("b"), "b", "\n[dependencies]\nc = { path = \"../c\" }\n");
-        package(&dir.join("a"), "a", "\n[dependencies]\nb = { path = \"../b\" }\n");
+        package(
+            &dir.join("b"),
+            "b",
+            "\n[dependencies]\nc = { path = \"../c\" }\n",
+        );
+        package(
+            &dir.join("a"),
+            "a",
+            "\n[dependencies]\nb = { path = \"../b\" }\n",
+        );
         let top = manifest::read(&dir.join("a/kode.toml")).unwrap();
         let deps = dependencies(&top).unwrap();
         let names: Vec<&str> = deps.iter().map(|d| d.name.as_str()).collect();
@@ -195,7 +210,11 @@ mod tests {
     #[test]
     fn reports_a_missing_package() {
         let dir = workspace("missing");
-        package(&dir.join("a"), "a", "\n[dependencies]\nghost = { path = \"../ghost\" }\n");
+        package(
+            &dir.join("a"),
+            "a",
+            "\n[dependencies]\nghost = { path = \"../ghost\" }\n",
+        );
         let top = manifest::read(&dir.join("a/kode.toml")).unwrap();
         let err = dependencies(&top).unwrap_err();
         assert_eq!(err.code, "E0412");
@@ -206,7 +225,11 @@ mod tests {
     fn reports_a_version_mismatch() {
         let dir = workspace("version");
         package(&dir.join("u"), "u", "");
-        package(&dir.join("a"), "a", "\n[dependencies]\nu = { path = \"../u\", version = \"9.9\" }\n");
+        package(
+            &dir.join("a"),
+            "a",
+            "\n[dependencies]\nu = { path = \"../u\", version = \"9.9\" }\n",
+        );
         let top = manifest::read(&dir.join("a/kode.toml")).unwrap();
         let err = dependencies(&top).unwrap_err();
         assert_eq!(err.code, "E0413");
@@ -217,7 +240,11 @@ mod tests {
     fn reports_a_dependency_renamed_by_its_importer() {
         let dir = workspace("clash");
         package(&dir.join("two/u"), "u", "");
-        package(&dir.join("a"), "a", "\n[dependencies]\nother = { path = \"../two/u\" }\n");
+        package(
+            &dir.join("a"),
+            "a",
+            "\n[dependencies]\nother = { path = \"../two/u\" }\n",
+        );
         let top = manifest::read(&dir.join("a/kode.toml")).unwrap();
         let err = dependencies(&top).unwrap_err();
         assert_eq!(err.code, "E0414");
@@ -228,8 +255,16 @@ mod tests {
     #[test]
     fn reports_a_dependency_cycle() {
         let dir = workspace("cycle");
-        package(&dir.join("b"), "b", "\n[dependencies]\na = { path = \"../a\" }\n");
-        package(&dir.join("a"), "a", "\n[dependencies]\nb = { path = \"../b\" }\n");
+        package(
+            &dir.join("b"),
+            "b",
+            "\n[dependencies]\na = { path = \"../a\" }\n",
+        );
+        package(
+            &dir.join("a"),
+            "a",
+            "\n[dependencies]\nb = { path = \"../b\" }\n",
+        );
         let top = manifest::read(&dir.join("a/kode.toml")).unwrap();
         assert_eq!(dependencies(&top).unwrap_err().code, "E0414");
         let _ = std::fs::remove_dir_all(&dir);
@@ -239,7 +274,11 @@ mod tests {
     fn lock_paths_are_relative_to_the_package() {
         let dir = workspace("lock");
         package(&dir.join("libs/utils"), "utils", "");
-        package(&dir.join("app"), "app", "\n[dependencies]\nutils = { path = \"../libs/utils\" }\n");
+        package(
+            &dir.join("app"),
+            "app",
+            "\n[dependencies]\nutils = { path = \"../libs/utils\" }\n",
+        );
         let top = manifest::read(&dir.join("app/kode.toml")).unwrap();
         let deps = dependencies(&top).unwrap();
         assert!(lock_text(&top, &deps).contains("path = \"../libs/utils\""));

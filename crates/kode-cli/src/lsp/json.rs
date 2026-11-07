@@ -128,7 +128,10 @@ fn write_string(s: &str, out: &mut String) {
 
 /// Parse a JSON text. Rejects trailing data.
 pub fn parse(text: &str) -> Result<Json, String> {
-    let mut p = Parser { b: text.as_bytes(), i: 0 };
+    let mut p = Parser {
+        b: text.as_bytes(),
+        i: 0,
+    };
     p.skip_ws();
     let value = p.value()?;
     p.skip_ws();
@@ -234,7 +237,10 @@ impl<'a> Parser<'a> {
         if self.b.get(self.i) == Some(&b'-') {
             self.i += 1;
         }
-        while matches!(self.b.get(self.i), Some(b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')) {
+        while matches!(
+            self.b.get(self.i),
+            Some(b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
+        ) {
             self.i += 1;
         }
         let text = std::str::from_utf8(&self.b[start..self.i]).map_err(|e| e.to_string())?;
@@ -273,7 +279,9 @@ impl<'a> Parser<'a> {
                         b'u' => {
                             let mut code = self.hex4()?;
                             // A surrogate pair arrives as two \u escapes.
-                            if (0xD800..0xDC00).contains(&code) && self.b.get(self.i) == Some(&b'\\') {
+                            if (0xD800..0xDC00).contains(&code)
+                                && self.b.get(self.i) == Some(&b'\\')
+                            {
                                 let save = self.i;
                                 self.i += 1;
                                 if self.b.get(self.i) == Some(&b'u') {
@@ -316,7 +324,10 @@ mod tests {
 
     #[test]
     fn parses_nested_messages() {
-        let msg = parse(r#"{"jsonrpc":"2.0","id":1,"params":{"text":"hi\nthere","n":[1,2.5,true,null]}}"#).unwrap();
+        let msg = parse(
+            r#"{"jsonrpc":"2.0","id":1,"params":{"text":"hi\nthere","n":[1,2.5,true,null]}}"#,
+        )
+        .unwrap();
         assert_eq!(msg.int_of("id"), Some(1));
         let params = msg.get("params").unwrap();
         assert_eq!(params.str_of("text"), Some("hi\nthere"));

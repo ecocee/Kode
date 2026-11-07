@@ -13,36 +13,156 @@ pub struct Alias {
 }
 
 pub static ALIASES: &[Alias] = &[
-    Alias { module: "json", name: "parse", target: "json_parse" },
-    Alias { module: "json", name: "stringify", target: "json_encode" },
-    Alias { module: "json", name: "object", target: "json_obj" },
-    Alias { module: "json", name: "null", target: "json_null" },
-    Alias { module: "json", name: "bool", target: "json_bool" },
-    Alias { module: "json", name: "int", target: "json_int" },
-    Alias { module: "json", name: "float", target: "json_float" },
-    Alias { module: "json", name: "string", target: "json_string" },
-    Alias { module: "json", name: "list", target: "json_list" },
-    Alias { module: "json", name: "map", target: "json_map" },
-    Alias { module: "http", name: "get", target: "http_get" },
-    Alias { module: "http", name: "post", target: "http_post" },
-    Alias { module: "http", name: "request", target: "http_request" },
-    Alias { module: "fs", name: "read", target: "read_file" },
-    Alias { module: "fs", name: "write", target: "write_file" },
-    Alias { module: "time", name: "now_ms", target: "now_ms" },
-    Alias { module: "time", name: "sleep", target: "sleep" },
-    Alias { module: "math", name: "sqrt", target: "math_sqrt" },
-    Alias { module: "math", name: "abs", target: "math_abs" },
-    Alias { module: "math", name: "floor", target: "math_floor" },
-    Alias { module: "math", name: "ceil", target: "math_ceil" },
-    Alias { module: "math", name: "round", target: "math_round" },
-    Alias { module: "math", name: "pow", target: "math_pow" },
-    Alias { module: "math", name: "min", target: "math_min" },
-    Alias { module: "math", name: "max", target: "math_max" },
-    Alias { module: "math", name: "sin", target: "math_sin" },
-    Alias { module: "math", name: "cos", target: "math_cos" },
-    Alias { module: "math", name: "tan", target: "math_tan" },
-    Alias { module: "math", name: "log", target: "math_log" },
-    Alias { module: "math", name: "exp", target: "math_exp" },
+    Alias {
+        module: "json",
+        name: "parse",
+        target: "json_parse",
+    },
+    Alias {
+        module: "json",
+        name: "stringify",
+        target: "json_encode",
+    },
+    Alias {
+        module: "json",
+        name: "object",
+        target: "json_obj",
+    },
+    Alias {
+        module: "json",
+        name: "null",
+        target: "json_null",
+    },
+    Alias {
+        module: "json",
+        name: "bool",
+        target: "json_bool",
+    },
+    Alias {
+        module: "json",
+        name: "int",
+        target: "json_int",
+    },
+    Alias {
+        module: "json",
+        name: "float",
+        target: "json_float",
+    },
+    Alias {
+        module: "json",
+        name: "string",
+        target: "json_string",
+    },
+    Alias {
+        module: "json",
+        name: "list",
+        target: "json_list",
+    },
+    Alias {
+        module: "json",
+        name: "map",
+        target: "json_map",
+    },
+    Alias {
+        module: "http",
+        name: "get",
+        target: "http_get",
+    },
+    Alias {
+        module: "http",
+        name: "post",
+        target: "http_post",
+    },
+    Alias {
+        module: "http",
+        name: "request",
+        target: "http_request",
+    },
+    Alias {
+        module: "fs",
+        name: "read",
+        target: "read_file",
+    },
+    Alias {
+        module: "fs",
+        name: "write",
+        target: "write_file",
+    },
+    Alias {
+        module: "time",
+        name: "now_ms",
+        target: "now_ms",
+    },
+    Alias {
+        module: "time",
+        name: "sleep",
+        target: "sleep",
+    },
+    Alias {
+        module: "math",
+        name: "sqrt",
+        target: "math_sqrt",
+    },
+    Alias {
+        module: "math",
+        name: "abs",
+        target: "math_abs",
+    },
+    Alias {
+        module: "math",
+        name: "floor",
+        target: "math_floor",
+    },
+    Alias {
+        module: "math",
+        name: "ceil",
+        target: "math_ceil",
+    },
+    Alias {
+        module: "math",
+        name: "round",
+        target: "math_round",
+    },
+    Alias {
+        module: "math",
+        name: "pow",
+        target: "math_pow",
+    },
+    Alias {
+        module: "math",
+        name: "min",
+        target: "math_min",
+    },
+    Alias {
+        module: "math",
+        name: "max",
+        target: "math_max",
+    },
+    Alias {
+        module: "math",
+        name: "sin",
+        target: "math_sin",
+    },
+    Alias {
+        module: "math",
+        name: "cos",
+        target: "math_cos",
+    },
+    Alias {
+        module: "math",
+        name: "tan",
+        target: "math_tan",
+    },
+    Alias {
+        module: "math",
+        name: "log",
+        target: "math_log",
+    },
+    Alias {
+        module: "math",
+        name: "exp",
+        target: "math_exp",
+    },
 ];
 
 pub fn function(module: &str, name: &str) -> Option<&'static StdFn> {

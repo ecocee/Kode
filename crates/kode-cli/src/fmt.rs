@@ -11,8 +11,8 @@ struct Scan {
 }
 
 const OPERATORS: &[&str] = &[
-    "+", "-", "*", "/", "%", "=", "==", "!=", "<", ">", "<=", ">=", ",", "??", "=>", "&", "|", "^", "~", "<<",
-    ">>", "&=", "|=", "^=", "<<=", ">>=",
+    "+", "-", "*", "/", "%", "=", "==", "!=", "<", ">", "<=", ">=", ",", "??", "=>", "&", "|", "^",
+    "~", "<<", ">>", "&=", "|=", "^=", "<<=", ">>=",
 ];
 
 fn scan(line: &str, in_block: &mut bool) -> Scan {
@@ -99,7 +99,8 @@ fn scan(line: &str, in_block: &mut bool) -> Scan {
                 .map(|p| !(p.is_alphanumeric() || p == '_'))
                 .unwrap_or(true)
     };
-    s.ends_with_operator = OPERATORS.iter().any(|o| code.ends_with(o)) || word_end("and") || word_end("or");
+    s.ends_with_operator =
+        OPERATORS.iter().any(|o| code.ends_with(o)) || word_end("and") || word_end("or");
     s
 }
 

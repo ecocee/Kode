@@ -229,8 +229,10 @@ impl Parser {
                 self.bump();
                 let key = self.type_ann()?;
                 if !matches!(&key.kind, TypeAnnKind::Name(n) if n == "string") {
-                    return Err(Diagnostic::error("E0115", "map keys must be strings", key.span)
-                        .with_help("write it like `{string: int}`"));
+                    return Err(
+                        Diagnostic::error("E0115", "map keys must be strings", key.span)
+                            .with_help("write it like `{string: int}`"),
+                    );
                 }
                 self.expect(TokenKind::Colon, "`:`")?;
                 let value = self.type_ann()?;

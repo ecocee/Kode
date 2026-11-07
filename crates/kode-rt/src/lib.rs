@@ -5,6 +5,7 @@
 //! * `string`, `list`, `map`: the built-in heap types
 //! * `error`: `throw`, `catch` and runtime errors
 //! * `task`: `spawn` / `await`; `http`: the web server; `http_client`: the HTTP client
+//! * `http_wire`: request parsing, limits, timeouts and response writing shared by both servers
 //! * `json`: dynamic JSON values and their parser; `std_fns`: strings, files, sorting, ...
 //! * `process`: `exec`, so a Kode program can run a compiler or a linker
 //! * `router`: the `Router` / `Request` / `Response` web API layer
@@ -14,6 +15,7 @@ mod channel;
 mod error;
 mod http;
 mod http_client;
+mod http_wire;
 mod io;
 mod json;
 mod json_parse;

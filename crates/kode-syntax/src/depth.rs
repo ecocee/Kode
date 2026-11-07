@@ -288,7 +288,9 @@ fn stmt_span(s: &Stmt) -> Span {
 }
 
 fn block_span(b: &Block) -> Span {
-    b.first().map(stmt_span).unwrap_or(Span { start: 0, end: 0 })
+    b.first()
+        .map(stmt_span)
+        .unwrap_or(Span { start: 0, end: 0 })
 }
 
 fn target_span(t: &Target) -> Span {

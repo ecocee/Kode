@@ -1,10 +1,13 @@
 //! `throw` / `catch` and runtime errors.
 //!
-//! A thrown error is parked in one global slot. After a call that can throw,
-//! compiled code asks `kode_err_pending` and jumps to its handler if set.
+//! A thrown error is parked in a per-thread slot (`thread_local!`), so errors never
+//! cross between worker threads or tasks. After a call that can throw, compiled code
+//! asks `kode_err_pending` and jumps to its handler if set. Throwing while an error
+//! is already pending releases the old one. `fatal` is different: it prints a message
+//! and ends the whole process, and `try`/`catch` cannot intercept it.
 
-use std::io::Write;
 use std::cell::Cell;
+use std::io::Write;
 
 use crate::io::flush;
 use crate::object::{kode_release, Header};

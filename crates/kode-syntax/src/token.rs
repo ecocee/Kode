@@ -5,7 +5,10 @@ use kode_diagnostics::Span;
 pub enum StrPart {
     Lit(String),
     /// Source text of a `${...}` hole, and where it starts in the file.
-    Code { src: String, offset: usize },
+    Code {
+        src: String,
+        offset: usize,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]

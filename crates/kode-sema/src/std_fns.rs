@@ -68,7 +68,14 @@ macro_rules! f {
 pub static STD: &[StdFn] = &[
     // files, environment, time
     f!("read_file", Free, [T::Str], T::Str, true, "kode_read_file"),
-    f!("write_file", Free, [T::Str, T::Str], T::Unit, true, "kode_write_file"),
+    f!(
+        "write_file",
+        Free,
+        [T::Str, T::Str],
+        T::Unit,
+        true,
+        "kode_write_file"
+    ),
     f!("args", Free, [], T::ListStr, false, "kode_args"),
     f!("env", Free, [T::Str], T::OptStr, false, "kode_env"),
     f!("exit", Free, [T::Int], T::Unit, false, "kode_exit"),
@@ -76,19 +83,61 @@ pub static STD: &[StdFn] = &[
     f!("now_ms", Free, [], T::Int, false, "kode_now_ms"),
     f!("chr", Free, [T::Int], T::Str, false, "kode_chr"),
     // processes: run a program directly, without a shell
-    f!("exec", Free, [T::Str, T::ListStr, T::Str], T::ProcResult, true, "kode_proc_exec"),
+    f!(
+        "exec",
+        Free,
+        [T::Str, T::ListStr, T::Str],
+        T::ProcResult,
+        true,
+        "kode_proc_exec"
+    ),
     // strings
     f!("size", Str, [], T::Int, false, "kode_str_size"),
     f!("byte_at", Str, [T::Int], T::Int, false, "kode_str_byte_at"),
-    f!("slice", Str, [T::Int, T::Int], T::Str, true, "kode_str_slice"),
-    f!("contains", Str, [T::Str], T::Bool, false, "kode_str_contains"),
-    f!("starts_with", Str, [T::Str], T::Bool, false, "kode_str_starts_with"),
-    f!("ends_with", Str, [T::Str], T::Bool, false, "kode_str_ends_with"),
+    f!(
+        "slice",
+        Str,
+        [T::Int, T::Int],
+        T::Str,
+        true,
+        "kode_str_slice"
+    ),
+    f!(
+        "contains",
+        Str,
+        [T::Str],
+        T::Bool,
+        false,
+        "kode_str_contains"
+    ),
+    f!(
+        "starts_with",
+        Str,
+        [T::Str],
+        T::Bool,
+        false,
+        "kode_str_starts_with"
+    ),
+    f!(
+        "ends_with",
+        Str,
+        [T::Str],
+        T::Bool,
+        false,
+        "kode_str_ends_with"
+    ),
     f!("find", Str, [T::Str], T::Int, false, "kode_str_find"),
     f!("upper", Str, [], T::Str, false, "kode_str_upper"),
     f!("lower", Str, [], T::Str, false, "kode_str_lower"),
     f!("trim", Str, [], T::Str, false, "kode_str_trim"),
-    f!("replace", Str, [T::Str, T::Str], T::Str, false, "kode_str_replace"),
+    f!(
+        "replace",
+        Str,
+        [T::Str, T::Str],
+        T::Str,
+        false,
+        "kode_str_replace"
+    ),
     f!("repeat", Str, [T::Int], T::Str, false, "kode_str_repeat"),
     f!("split", Str, [T::Str], T::ListStr, false, "kode_str_split"),
     f!("to_int", Str, [], T::Int, true, "kode_str_to_int"),
@@ -101,47 +150,250 @@ pub static STD: &[StdFn] = &[
     f!("join", ListStr, [T::Str], T::Str, false, "kode_list_join"),
     f!("sort", ListStr, [], T::Unit, false, "kode_list_sort_str"),
     f!("sort", ListInt, [], T::Unit, false, "kode_list_sort_int"),
-    f!("sort", ListFloat, [], T::Unit, false, "kode_list_sort_float"),
+    f!(
+        "sort",
+        ListFloat,
+        [],
+        T::Unit,
+        false,
+        "kode_list_sort_float"
+    ),
     f!("pop", ListAny, [], T::Elem, false, "kode_list_pop"),
     f!("clear", ListAny, [], T::Unit, false, "kode_list_clear"),
-    f!("contains", ListStr, [T::Str], T::Bool, false, "kode_list_contains_str"),
-    f!("contains", ListInt, [T::Int], T::Bool, false, "kode_list_contains_int"),
-    f!("contains", ListFloat, [T::Float], T::Bool, false, "kode_list_contains_float"),
-    f!("index_of", ListStr, [T::Str], T::Int, false, "kode_list_index_str"),
-    f!("index_of", ListInt, [T::Int], T::Int, false, "kode_list_index_int"),
-    f!("index_of", ListFloat, [T::Float], T::Int, false, "kode_list_index_float"),
+    f!(
+        "contains",
+        ListStr,
+        [T::Str],
+        T::Bool,
+        false,
+        "kode_list_contains_str"
+    ),
+    f!(
+        "contains",
+        ListInt,
+        [T::Int],
+        T::Bool,
+        false,
+        "kode_list_contains_int"
+    ),
+    f!(
+        "contains",
+        ListFloat,
+        [T::Float],
+        T::Bool,
+        false,
+        "kode_list_contains_float"
+    ),
+    f!(
+        "index_of",
+        ListStr,
+        [T::Str],
+        T::Int,
+        false,
+        "kode_list_index_str"
+    ),
+    f!(
+        "index_of",
+        ListInt,
+        [T::Int],
+        T::Int,
+        false,
+        "kode_list_index_int"
+    ),
+    f!(
+        "index_of",
+        ListFloat,
+        [T::Float],
+        T::Int,
+        false,
+        "kode_list_index_float"
+    ),
     f!("reverse", ListAny, [], T::Unit, false, "kode_list_reverse"),
-    f!("insert", ListAny, [T::Int, T::ElemBits], T::Unit, true, "kode_list_insert"),
-    f!("remove_at", ListAny, [T::Int], T::Unit, true, "kode_list_remove_at"),
+    f!(
+        "insert",
+        ListAny,
+        [T::Int, T::ElemBits],
+        T::Unit,
+        true,
+        "kode_list_insert"
+    ),
+    f!(
+        "remove_at",
+        ListAny,
+        [T::Int],
+        T::Unit,
+        true,
+        "kode_list_remove_at"
+    ),
     f!("first", ListAny, [], T::Elem, true, "kode_list_first"),
     f!("last", ListAny, [], T::Elem, true, "kode_list_last"),
     // maps
     f!("remove", Map, [T::Str], T::Unit, false, "kode_map_remove"),
     f!("values", Map, [], T::ListElem, false, "kode_map_values"),
     // JSON: build, read, write
-    f!("json_parse", Free, [T::Str], T::Json, true, "kode_json_parse"),
+    f!(
+        "json_parse",
+        Free,
+        [T::Str],
+        T::Json,
+        true,
+        "kode_json_parse"
+    ),
     f!("json_null", Free, [], T::Json, false, "kode_json_null"),
-    f!("json_bool", Free, [T::Bool], T::Json, false, "kode_json_bool"),
+    f!(
+        "json_bool",
+        Free,
+        [T::Bool],
+        T::Json,
+        false,
+        "kode_json_bool"
+    ),
     f!("json_int", Free, [T::Int], T::Json, false, "kode_json_int"),
-    f!("json_float", Free, [T::Float], T::Json, false, "kode_json_float"),
-    f!("json_string", Free, [T::Str], T::Json, false, "kode_json_string"),
-    f!("json_list", Free, [T::ListJson], T::Json, false, "kode_json_list"),
-    f!("json_map", Free, [T::MapJson], T::Json, false, "kode_json_map"),
-    f!("json_encode", Free, [T::Json], T::Str, true, "kode_json_encode"),
+    f!(
+        "json_float",
+        Free,
+        [T::Float],
+        T::Json,
+        false,
+        "kode_json_float"
+    ),
+    f!(
+        "json_string",
+        Free,
+        [T::Str],
+        T::Json,
+        false,
+        "kode_json_string"
+    ),
+    f!(
+        "json_list",
+        Free,
+        [T::ListJson],
+        T::Json,
+        false,
+        "kode_json_list"
+    ),
+    f!(
+        "json_map",
+        Free,
+        [T::MapJson],
+        T::Json,
+        false,
+        "kode_json_map"
+    ),
+    f!(
+        "json_encode",
+        Free,
+        [T::Json],
+        T::Str,
+        true,
+        "kode_json_encode"
+    ),
     // math (the `math.*` names are aliases for these)
-    f!("math_sqrt", Free, [T::Float], T::Float, false, "kode_math_sqrt"),
-    f!("math_abs", Free, [T::Float], T::Float, false, "kode_math_abs"),
-    f!("math_floor", Free, [T::Float], T::Float, false, "kode_math_floor"),
-    f!("math_ceil", Free, [T::Float], T::Float, false, "kode_math_ceil"),
-    f!("math_round", Free, [T::Float], T::Float, false, "kode_math_round"),
-    f!("math_sin", Free, [T::Float], T::Float, false, "kode_math_sin"),
-    f!("math_cos", Free, [T::Float], T::Float, false, "kode_math_cos"),
-    f!("math_tan", Free, [T::Float], T::Float, false, "kode_math_tan"),
-    f!("math_log", Free, [T::Float], T::Float, false, "kode_math_log"),
-    f!("math_exp", Free, [T::Float], T::Float, false, "kode_math_exp"),
-    f!("math_pow", Free, [T::Float, T::Float], T::Float, false, "kode_math_pow"),
-    f!("math_min", Free, [T::Float, T::Float], T::Float, false, "kode_math_min"),
-    f!("math_max", Free, [T::Float, T::Float], T::Float, false, "kode_math_max"),
+    f!(
+        "math_sqrt",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_sqrt"
+    ),
+    f!(
+        "math_abs",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_abs"
+    ),
+    f!(
+        "math_floor",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_floor"
+    ),
+    f!(
+        "math_ceil",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_ceil"
+    ),
+    f!(
+        "math_round",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_round"
+    ),
+    f!(
+        "math_sin",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_sin"
+    ),
+    f!(
+        "math_cos",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_cos"
+    ),
+    f!(
+        "math_tan",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_tan"
+    ),
+    f!(
+        "math_log",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_log"
+    ),
+    f!(
+        "math_exp",
+        Free,
+        [T::Float],
+        T::Float,
+        false,
+        "kode_math_exp"
+    ),
+    f!(
+        "math_pow",
+        Free,
+        [T::Float, T::Float],
+        T::Float,
+        false,
+        "kode_math_pow"
+    ),
+    f!(
+        "math_min",
+        Free,
+        [T::Float, T::Float],
+        T::Float,
+        false,
+        "kode_math_min"
+    ),
+    f!(
+        "math_max",
+        Free,
+        [T::Float, T::Float],
+        T::Float,
+        false,
+        "kode_math_max"
+    ),
     f!("is_null", Json, [], T::Bool, false, "kode_json_is_null"),
     f!("as_bool", Json, [], T::Bool, true, "kode_json_as_bool"),
     f!("as_int", Json, [], T::Int, true, "kode_json_as_int"),
@@ -154,13 +406,48 @@ pub static STD: &[StdFn] = &[
     f!("encode", Json, [], T::Str, true, "kode_json_encode"),
     // HTTP client (plain HTTP; TLS is not implemented yet)
     f!("http_get", Free, [T::Str], T::Resp, true, "kode_http_get"),
-    f!("http_post", Free, [T::Str, T::Str, T::Str], T::Resp, true, "kode_http_post"),
-    f!("http_request", Free, [T::Str, T::Str, T::MapStrStr, T::Str], T::Resp, true, "kode_http_request"),
+    f!(
+        "http_post",
+        Free,
+        [T::Str, T::Str, T::Str],
+        T::Resp,
+        true,
+        "kode_http_post"
+    ),
+    f!(
+        "http_request",
+        Free,
+        [T::Str, T::Str, T::MapStrStr, T::Str],
+        T::Resp,
+        true,
+        "kode_http_request"
+    ),
     // web API helpers: build JSON objects, build responses, read a request body
     f!("json_obj", Free, [], T::MapJson, false, "kode_json_obj"),
-    f!("response_json", Free, [T::Json], T::Resp, true, "kode_response_json"),
-    f!("response_text", Free, [T::Str], T::Resp, false, "kode_response_text"),
-    f!("response", Free, [T::Int, T::Str, T::Str], T::Resp, false, "kode_response_new"),
+    f!(
+        "response_json",
+        Free,
+        [T::Json],
+        T::Resp,
+        true,
+        "kode_response_json"
+    ),
+    f!(
+        "response_text",
+        Free,
+        [T::Str],
+        T::Resp,
+        false,
+        "kode_response_text"
+    ),
+    f!(
+        "response",
+        Free,
+        [T::Int, T::Str, T::Str],
+        T::Resp,
+        false,
+        "kode_response_new"
+    ),
     f!("json", Request, [], T::Json, true, "kode_request_json"),
 ];
 
@@ -188,7 +475,8 @@ fn recvs_of(t: &Type) -> Vec<Recv> {
 
 pub fn find_method(recv: &Type, name: &str) -> Option<&'static StdFn> {
     let kinds = recvs_of(recv);
-    STD.iter().find(|f| f.name == name && f.recv != Free && kinds.contains(&f.recv))
+    STD.iter()
+        .find(|f| f.name == name && f.recv != Free && kinds.contains(&f.recv))
 }
 
 /// The language type of a table type (`elem` is the list item type for `Elem`).

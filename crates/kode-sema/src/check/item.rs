@@ -9,7 +9,8 @@ use crate::types::Type;
 
 /// The types a written annotation can name, in one place so every "unknown
 /// type" hint stays true.
-const AVAILABLE_TYPES: &str = "The types are int, float, bool, string, your classes, interfaces and \
+const AVAILABLE_TYPES: &str =
+    "The types are int, float, bool, string, your classes, interfaces and \
                               enums, [T] for a list, {string: T} for a map, T? for an optional, \
                               Task<T>, Channel<T> and fn(T) -> U";
 
@@ -19,8 +20,7 @@ fn is_fixed_width_number(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     let digits = lower.trim_start_matches(|c: char| !c.is_ascii_digit());
     let prefix = &lower[..lower.len() - digits.len()];
-    matches!(prefix, "u" | "i" | "uint" | "f")
-        && matches!(digits, "8" | "16" | "32" | "64" | "128")
+    matches!(prefix, "u" | "i" | "uint" | "f") && matches!(digits, "8" | "16" | "32" | "64" | "128")
 }
 
 impl Checker {
@@ -55,8 +55,14 @@ impl Checker {
                 let t = self.resolve_type(inner)?;
                 if crate::types::is_opt_scalar(&t).is_some() {
                     self.errors.push(
-                        Diagnostic::error("E0219", format!("a list of `{}` is not supported yet", t.name()), ann.span)
-                            .with_help("keep the value and a `bool` in a class or two separate lists for now"),
+                        Diagnostic::error(
+                            "E0219",
+                            format!("a list of `{}` is not supported yet", t.name()),
+                            ann.span,
+                        )
+                        .with_help(
+                            "keep the value and a `bool` in a class or two separate lists for now",
+                        ),
                     );
                     return None;
                 }
@@ -66,8 +72,12 @@ impl Checker {
                 let t = self.resolve_type(inner)?;
                 if crate::types::is_opt_scalar(&t).is_some() {
                     self.errors.push(
-                        Diagnostic::error("E0219", format!("a map of `{}` is not supported yet", t.name()), ann.span)
-                            .with_help("keep the value and a `bool` in a class for now"),
+                        Diagnostic::error(
+                            "E0219",
+                            format!("a map of `{}` is not supported yet", t.name()),
+                            ann.span,
+                        )
+                        .with_help("keep the value and a `bool` in a class for now"),
                     );
                     return None;
                 }
@@ -109,7 +119,11 @@ impl Checker {
                         || self.enum_index.contains_key(&c.name)
                         || self.interface_index.contains_key(&c.name)
                     {
-                        let what = if c.name == "Error" { "is built in" } else { "is defined twice" };
+                        let what = if c.name == "Error" {
+                            "is built in"
+                        } else {
+                            "is defined twice"
+                        };
                         self.errors.push(Diagnostic::error(
                             "E0301",
                             format!("the class `{}` {what}", c.name),
@@ -154,7 +168,8 @@ impl Checker {
                             i.name_span,
                         ));
                     } else {
-                        self.interface_index.insert(i.name.clone(), self.interfaces.len());
+                        self.interface_index
+                            .insert(i.name.clone(), self.interfaces.len());
                         self.interfaces.push(InterfaceInfo {
                             name: i.name.clone(),
                             methods: Vec::new(),
@@ -167,7 +182,9 @@ impl Checker {
         // 1b. interface method signatures
         for item in &program.items {
             let Item::Interface(i) = item else { continue };
-            let Some(&ii) = self.interface_index.get(&i.name) else { continue };
+            let Some(&ii) = self.interface_index.get(&i.name) else {
+                continue;
+            };
             let mut methods: Vec<IfaceMethod> = Vec::new();
             for m in &i.methods {
                 if methods.iter().any(|x| x.name == m.name) {
@@ -309,25 +326,33 @@ impl Checker {
     fn check_implements(&mut self, program: &Program) {
         for item in &program.items {
             let Item::Class(c) = item else { continue };
-            let Some(&ci) = self.class_index.get(&c.name) else { continue };
+            let Some(&ci) = self.class_index.get(&c.name) else {
+                continue;
+            };
             let implements = self.classes[ci].implements.clone();
             let methods = self.classes[ci].methods.clone();
             for iname in implements {
-                let Some(&ii) = self.interface_index.get(&iname) else { continue };
+                let Some(&ii) = self.interface_index.get(&iname) else {
+                    continue;
+                };
                 let wanted = self.interfaces[ii].methods.clone();
                 for m in wanted {
                     match methods.get(&m.name).copied() {
                         None => self.errors.push(
                             Diagnostic::error(
                                 "E0234",
-                                format!("`{}` implements `{iname}` but has no method `{}`", c.name, m.name),
+                                format!(
+                                    "`{}` implements `{iname}` but has no method `{}`",
+                                    c.name, m.name
+                                ),
                                 c.name_span,
                             )
                             .with_help("add the method with the same parameters and return type"),
                         ),
                         Some(mi) => {
                             let sig = self.fns[mi].clone();
-                            let got: Vec<Type> = sig.params.iter().skip(1).map(|(_, t)| t.clone()).collect();
+                            let got: Vec<Type> =
+                                sig.params.iter().skip(1).map(|(_, t)| t.clone()).collect();
                             let want: Vec<Type> = m.params.iter().map(|(_, t)| t.clone()).collect();
                             if got != want || sig.ret != m.ret {
                                 self.errors.push(
@@ -354,7 +379,10 @@ impl Checker {
                 ExprKind::Float(v) => Some((Type::Float, ConstVal::Float(*v))),
                 ExprKind::Bool(v) => Some((Type::Bool, ConstVal::Bool(*v))),
                 ExprKind::Str(s) => Some((Type::Str, ConstVal::Str(s.clone()))),
-                ExprKind::Unary { op: UnOp::Neg, expr } => match expr.kind {
+                ExprKind::Unary {
+                    op: UnOp::Neg,
+                    expr,
+                } => match expr.kind {
                     ExprKind::Int(v) => Some((Type::Int, ConstVal::Int(v.wrapping_neg()))),
                     ExprKind::Float(v) => Some((Type::Float, ConstVal::Float(-v))),
                     _ => None,
@@ -409,7 +437,13 @@ impl Checker {
             }
             let field_names: Vec<String> = cls
                 .and_then(|c| self.class_index.get(&c.name))
-                .map(|&ci| self.classes[ci].fields.iter().map(|f| f.name.clone()).collect())
+                .map(|&ci| {
+                    self.classes[ci]
+                        .fields
+                        .iter()
+                        .map(|f| f.name.clone())
+                        .collect()
+                })
                 .unwrap_or_default();
             for p in &f.params {
                 if params.iter().any(|(n, _)| *n == p.name) {
@@ -451,16 +485,24 @@ impl Checker {
             let index = self.fns.len();
             let name = match cls {
                 None => {
-                    if builtins::lookup(&f.name).is_some() || crate::std_fns::find_free(&f.name).is_some() || f.name == "serve" {
+                    if builtins::lookup(&f.name).is_some()
+                        || crate::std_fns::find_free(&f.name).is_some()
+                        || f.name == "serve"
+                    {
                         self.errors.push(
                             Diagnostic::error(
                                 "E0302",
-                                format!("`{}` is a built-in function and cannot be redefined", f.name),
+                                format!(
+                                    "`{}` is a built-in function and cannot be redefined",
+                                    f.name
+                                ),
                                 f.name_span,
                             )
                             .with_help("pick another name"),
                         );
-                    } else if self.fn_index.contains_key(&f.name) || self.class_index.contains_key(&f.name) {
+                    } else if self.fn_index.contains_key(&f.name)
+                        || self.class_index.contains_key(&f.name)
+                    {
                         self.errors.push(Diagnostic::error(
                             "E0301",
                             format!("the name `{}` is defined twice", f.name),
@@ -506,7 +548,10 @@ impl Checker {
             self.errors.push(
                 Diagnostic::error(
                     "E0252",
-                    format!("the method `{}.{}` cannot have type parameters yet", c.name, f.name),
+                    format!(
+                        "the method `{}.{}` cannot have type parameters yet",
+                        c.name, f.name
+                    ),
                     f.name_span,
                 )
                 .with_help("move it out of the class as a free `fn` with the same parameters"),
@@ -523,11 +568,17 @@ impl Checker {
                 ));
             }
         }
-        if builtins::lookup(&f.name).is_some() || crate::std_fns::find_free(&f.name).is_some() || f.name == "serve" {
+        if builtins::lookup(&f.name).is_some()
+            || crate::std_fns::find_free(&f.name).is_some()
+            || f.name == "serve"
+        {
             self.errors.push(
                 Diagnostic::error(
                     "E0302",
-                    format!("`{}` is a built-in function and cannot be redefined", f.name),
+                    format!(
+                        "`{}` is a built-in function and cannot be redefined",
+                        f.name
+                    ),
                     f.name_span,
                 )
                 .with_help("pick another name"),
@@ -543,7 +594,8 @@ impl Checker {
                 f.name_span,
             ));
         } else {
-            self.generic_index.insert(f.name.clone(), self.generic_decls.len());
+            self.generic_index
+                .insert(f.name.clone(), self.generic_decls.len());
             self.generic_decls.push(f.clone());
         }
     }
@@ -556,7 +608,11 @@ impl Checker {
         self.cur_class = class.and_then(|c| self.class_index.get(c).copied());
         let skip = usize::from(class.is_some());
         for (i, (name, ty)) in sig.params.iter().enumerate() {
-            let span = if i < skip { f.name_span } else { f.params[i - skip].name_span };
+            let span = if i < skip {
+                f.name_span
+            } else {
+                f.params[i - skip].name_span
+            };
             self.scopes.declare(name, ty.clone(), span, true);
         }
         self.ret_type = sig.ret.clone();
@@ -610,7 +666,9 @@ impl Checker {
     pub(crate) fn check_field_defaults(&mut self, program: &Program) {
         for item in &program.items {
             let Item::Class(c) = item else { continue };
-            let Some(&ci) = self.class_index.get(&c.name) else { continue };
+            let Some(&ci) = self.class_index.get(&c.name) else {
+                continue;
+            };
             if c.name == "Error" {
                 continue;
             }

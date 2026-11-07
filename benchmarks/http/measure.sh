@@ -1,92 +1,425 @@
-#!/usr/bin/env bash
-# HTTP benchmark: hello and JSON, at 100 and 1,000 keep-alive connections, for
-# 1,000 and 100,000 requests. Runs inside the image built from ./Dockerfile on a
-# 1 vCPU / 1 GB container; every number is written to results.tsv.
-#
-#   docker build -f benchmarks/http/Dockerfile -t kode-http-bench .
-#   docker run --rm --cpus=1 --memory=1g -v "$PWD/benchmarks/http:/bench" \
-#       kode-http-bench bash /bench/measure.sh
-set -uo pipefail
 
-KODE=${KODE:-/src/target/release/kode}
-PORT=${PORT:-8080}
-RESULTS=/bench/results.tsv
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ============================================================
+# Kode HTTP Benchmark
+# Languages: Kode, Go, Node.js
+# ============================================================
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+
+IMAGE="${IMAGE:-kode-http-bench}"
+NETWORK="${NETWORK:-kode-http-bench-net}"
+SERVER="${SERVER:-kode-http-server}"
+PORT="${PORT:-8080}"
+
+REPETITIONS="${REPETITIONS:-5}"
+KODE_HTTP_WORKERS="${KODE_HTTP_WORKERS:-}"
+
 CONNECTIONS=(100 1000)
 REQUESTS=(1000 100000)
+LANGUAGES=(kode go node)
 ENDPOINTS=(hello json)
 
-printf 'language\tendpoint\tconnections\trequests\tactual_requests\trps\tp50_ms\tp99_ms\terrors\trss_after_kb\tpeak_rss_kb\tstatus\n' > "$RESULTS"
+RESULT_DIR="benchmarks/http"
+RESULTS="$RESULT_DIR/results.tsv"
+SUMMARY="$RESULT_DIR/summary.tsv"
 
-log() { printf '%s\n' "$*" >&2; }
+CURRENT_SERVER=""
 
-# --- build the servers and the load client -----------------------------------
-mkdir -p /bench/bin
-log "building the load client"
-go build -o /bench/bin/load /bench/load.go || { log "load client failed to build"; exit 1; }
-log "building the Kode server with --release"
-if ! "$KODE" build /bench/server.kode --release -o /bench/bin/kode_server >/tmp/kbuild.log 2>&1; then
-    log "kode build failed:"; cat /tmp/kbuild.log; exit 1
-fi
-log "building the Go server (go build is optimized by default)"
-go build -o /bench/bin/go_server /bench/server.go || { log "go build failed"; exit 1; }
+# ============================================================
+# Logging
+# ============================================================
 
-start_server() {
-    case "$1" in
-        kode)   /bench/bin/kode_server "$PORT" >/tmp/srv.log 2>&1 & echo $! ;;
-        go)     /bench/bin/go_server "$PORT" >/tmp/srv.log 2>&1 & echo $! ;;
-        node)   node /bench/server.js "$PORT" >/tmp/srv.log 2>&1 & echo $! ;;
-        python) python3 /bench/server.py "$PORT" >/tmp/srv.log 2>&1 & echo $! ;;
+log() {
+    printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
+}
+
+# ============================================================
+# Cleanup
+# ============================================================
+
+cleanup() {
+    if [[ -n "${CURRENT_SERVER:-}" ]]; then
+        docker rm -f "$CURRENT_SERVER" >/dev/null 2>&1 || true
+    fi
+
+    docker rm -f "$SERVER-load" >/dev/null 2>&1 || true
+}
+
+trap cleanup EXIT INT TERM
+
+# ============================================================
+# Docker setup
+# ============================================================
+
+ensure_network() {
+    if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
+        docker network create "$NETWORK" >/dev/null
+    fi
+}
+
+ensure_image() {
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        log "Building benchmark Docker image"
+
+        docker build \
+            -f benchmarks/http/Dockerfile \
+            -t "$IMAGE" .
+    fi
+}
+
+# ============================================================
+# Server commands
+# ============================================================
+
+server_command() {
+    local language="$1"
+
+    case "$language" in
+        kode)
+            echo "/bench/bin/kode_server $PORT"
+            ;;
+        go)
+            echo "/bench/bin/go_server $PORT"
+            ;;
+        node)
+            echo "node /src/benchmarks/http/server.js $PORT"
+            ;;
+        *)
+            echo "Unknown language: $language" >&2
+            return 1
+            ;;
     esac
 }
 
-ready() {
-    for _ in $(seq 1 150); do
-        if curl -sf -m 1 "http://127.0.0.1:$PORT/hello" >/dev/null 2>&1; then return 0; fi
-        sleep 0.1
-    done
-    return 1
-}
+# ============================================================
+# Start server
+# ============================================================
 
-rss_kb()  { awk '/^VmRSS:/ {print $2}' "/proc/$1/status" 2>/dev/null || echo 0; }
-peak_kb() { awk '/^VmHWM:/ {print $2}' "/proc/$1/status" 2>/dev/null || echo 0; }
+start_server() {
+    local language="$1"
+    local command
 
-measure() {  # measure <language> <endpoint> <connections> <requests>
-    local lang=$1 endpoint=$2 conns=$3 reqs=$4
-    local out
-    out=$(/bench/bin/load -url "http://127.0.0.1:$PORT/$endpoint" -n "$reqs" -c "$conns" 2>/dev/null)
-    local actual rps p50 p99 errs status
-    actual=$(sed -n 's/.*requests=\([0-9]*\).*/\1/p' <<<"$out")
-    rps=$(sed -n 's/.*rps=\([0-9.]*\).*/\1/p' <<<"$out")
-    p50=$(sed -n 's/.*p50_ms=\([0-9.]*\).*/\1/p' <<<"$out")
-    p99=$(sed -n 's/.*p99_ms=\([0-9.]*\).*/\1/p' <<<"$out")
-    errs=$(sed -n 's/.*errors=\([0-9]*\).*/\1/p' <<<"$out")
-    : "${actual:=0}" "${rps:=0}" "${p50:=0}" "${p99:=0}" "${errs:=0}"
-    status=ok
-    [ "$actual" = "0" ] && status=failed
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$lang" "$endpoint" "$conns" "$reqs" "$actual" "$rps" "$p50" "$p99" "$errs" \
-        "$(rss_kb "$SERVER_PID")" "$(peak_kb "$SERVER_PID")" "$status" >> "$RESULTS"
-    log "  $lang $endpoint c=$conns n=$reqs -> $actual reqs, $rps rps, p99 $p99 ms, $errs errors"
-}
+    command="$(server_command "$language")"
 
-for lang in kode go node python; do
-    SERVER_PID=$(start_server "$lang")
-    if ! ready; then
-        log "$lang: server did not answer"
-        printf '%s\t-\t-\t-\t0\t0\t0\t0\t0\t0\t0\tno-server\n' "$lang" >> "$RESULTS"
-        kill "$SERVER_PID" 2>/dev/null; continue
+    CURRENT_SERVER="${SERVER}-${language}"
+
+    log "Starting $language server"
+
+    # Kode can receive an optional worker override.
+    # Go and Node.js use their normal configurations.
+    if [[ "$language" == "kode" && -n "$KODE_HTTP_WORKERS" ]]; then
+
+        log "Kode HTTP workers: $KODE_HTTP_WORKERS"
+
+        docker run -d \
+            --name "$CURRENT_SERVER" \
+            --network "$NETWORK" \
+            --cpus=1 \
+            --memory=1g \
+            -e "KODE_HTTP_WORKERS=$KODE_HTTP_WORKERS" \
+            "$IMAGE" \
+            bash -lc "exec $command" >/dev/null
+
+    else
+
+        docker run -d \
+            --name "$CURRENT_SERVER" \
+            --network "$NETWORK" \
+            --cpus=1 \
+            --memory=1g \
+            "$IMAGE" \
+            bash -lc "exec $command" >/dev/null
+
     fi
-    log "$lang: up (pid $SERVER_PID, rss $(rss_kb "$SERVER_PID") KB idle)"
-    for endpoint in "${ENDPOINTS[@]}"; do
-        for conns in "${CONNECTIONS[@]}"; do
-            for reqs in "${REQUESTS[@]}"; do
-                measure "$lang" "$endpoint" "$conns" "$reqs"
+
+    # Wait for server readiness.
+    local ready=0
+
+    for _ in $(seq 1 40); do
+
+        if docker exec "$CURRENT_SERVER" \
+            curl -fsS "http://127.0.0.1:$PORT/hello" \
+            >/dev/null 2>&1; then
+
+            ready=1
+            break
+        fi
+
+        sleep 0.5
+    done
+
+    if [[ "$ready" -ne 1 ]]; then
+        echo "ERROR: $language server failed to start."
+
+        docker logs "$CURRENT_SERVER" || true
+
+        return 1
+    fi
+
+    log "$language server is ready"
+}
+
+# ============================================================
+# Stop server
+# ============================================================
+
+stop_server() {
+    if [[ -n "${CURRENT_SERVER:-}" ]]; then
+        docker rm -f "$CURRENT_SERVER" >/dev/null 2>&1 || true
+        CURRENT_SERVER=""
+    fi
+}
+
+# ============================================================
+# Start load generator
+# ============================================================
+
+start_load_generator() {
+    docker rm -f "$SERVER-load" >/dev/null 2>&1 || true
+
+    docker run -d \
+        --name "$SERVER-load" \
+        --network "$NETWORK" \
+        "$IMAGE" \
+        sleep infinity >/dev/null
+}
+
+# ============================================================
+# Exact key-value parser
+# ============================================================
+
+get_value() {
+    local key="$1"
+    local output="$2"
+
+    awk -v key="$key" '
+    {
+        for (i = 1; i <= NF; i++) {
+
+            separator = index($i, "=")
+
+            if (separator > 0) {
+
+                field = substr($i, 1, separator - 1)
+
+                if (field == key) {
+                    print substr($i, separator + 1)
+                    exit
+                }
+            }
+        }
+    }
+    ' <<< "$output"
+}
+
+# ============================================================
+# Run load test
+# ============================================================
+
+run_load() {
+    local language="$1"
+    local endpoint="$2"
+    local connections="$3"
+    local requests="$4"
+    local repetition="$5"
+
+    local url="http://${SERVER}-${language}:${PORT}/${endpoint}"
+    local output
+
+    output="$(
+        docker exec "$SERVER-load" \
+            /bench/bin/load \
+            -url "$url" \
+            -c "$connections" \
+            -n "$requests"
+    )"
+
+    local successful
+    local failed
+    local unattempted
+    local rps
+    local p50
+    local p95
+    local p99
+
+    successful="$(get_value "requests" "$output")"
+    failed="$(get_value "failed_requests" "$output")"
+    unattempted="$(get_value "unattempted_requests" "$output")"
+    rps="$(get_value "rps" "$output")"
+    p50="$(get_value "p50_ms" "$output")"
+    p95="$(get_value "p95_ms" "$output")"
+    p99="$(get_value "p99_ms" "$output")"
+
+    local process_rss
+    local container_current
+    local container_peak
+
+    process_rss="$(
+        docker exec "$CURRENT_SERVER" \
+            awk '/VmRSS:/ {print $2}' /proc/1/status
+    )"
+
+    container_current="$(
+        docker exec "$CURRENT_SERVER" \
+            cat /sys/fs/cgroup/memory.current
+    )"
+
+    container_peak="$(
+        docker exec "$CURRENT_SERVER" \
+            cat /sys/fs/cgroup/memory.peak
+    )"
+
+    process_rss="${process_rss:-0}"
+    container_current="${container_current:-0}"
+    container_peak="${container_peak:-0}"
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$language" \
+        "$repetition" \
+        "$endpoint" \
+        "$connections" \
+        "$requests" \
+        "${successful:-0}" \
+        "${failed:-0}" \
+        "${unattempted:-0}" \
+        "${rps:-0}" \
+        "${p50:-0}" \
+        "${p95:-0}" \
+        "${p99:-0}" \
+        "$process_rss" \
+        "$container_current" \
+        "$container_peak" \
+        >> "$RESULTS"
+
+    log "$language $endpoint c=$connections n=$requests rep=$repetition: ${rps:-0} RPS, failed=${failed:-0}, unattempted=${unattempted:-0}"
+}
+
+# ============================================================
+# Warmup
+# ============================================================
+
+warmup() {
+    local language="$1"
+
+    log "Warming up $language"
+
+    docker exec "$SERVER-load" \
+        /bench/bin/load \
+        -url "http://${SERVER}-${language}:${PORT}/hello" \
+        -c 10 \
+        -n 1000 \
+        >/dev/null
+}
+
+# ============================================================
+# Results header
+# ============================================================
+
+write_header() {
+    printf '%s\n' \
+        $'language\trepetition\tendpoint\tconnections\ttarget_requests\tsuccessful_requests\tfailed_requests\tunattempted_requests\trps\tp50_ms\tp95_ms\tp99_ms\tserver_process_rss_kb\tcontainer_current_kb\tcontainer_peak_kb' \
+        > "$RESULTS"
+}
+
+# ============================================================
+# Benchmark execution
+# ============================================================
+
+main() {
+
+    log "Kode HTTP benchmark"
+    log "Repetitions: $REPETITIONS"
+
+    if ! [[ "$REPETITIONS" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: REPETITIONS must be a positive integer."
+        exit 1
+    fi
+
+    if [[ -n "$KODE_HTTP_WORKERS" ]]; then
+
+        if ! [[ "$KODE_HTTP_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "ERROR: KODE_HTTP_WORKERS must be a positive integer."
+            exit 1
+        fi
+
+        log "Kode worker override: $KODE_HTTP_WORKERS"
+
+    else
+
+        log "Kode worker override: default runtime setting"
+
+    fi
+
+    mkdir -p "$RESULT_DIR"
+
+    ensure_network
+    ensure_image
+
+    start_load_generator
+    write_header
+
+    local repetition
+    local language
+    local endpoint
+    local connections
+    local requests
+
+    for ((repetition = 1; repetition <= REPETITIONS; repetition++)); do
+
+        log "============================================"
+        log "Repetition $repetition / $REPETITIONS"
+        log "============================================"
+
+        # Rotate language order to reduce ordering bias.
+        local offset=$(((repetition - 1) % ${#LANGUAGES[@]}))
+        local ordered_languages=()
+
+        for ((i = 0; i < ${#LANGUAGES[@]}; i++)); do
+            ordered_languages+=("${LANGUAGES[$(((i + offset) % ${#LANGUAGES[@]}))]}")
+        done
+
+        for language in "${ordered_languages[@]}"; do
+
+            start_server "$language"
+            warmup "$language"
+
+            for endpoint in "${ENDPOINTS[@]}"; do
+
+                for connections in "${CONNECTIONS[@]}"; do
+
+                    for requests in "${REQUESTS[@]}"; do
+
+                        run_load \
+                            "$language" \
+                            "$endpoint" \
+                            "$connections" \
+                            "$requests" \
+                            "$repetition"
+
+                    done
+                done
             done
+
+            stop_server
+
         done
     done
-    kill "$SERVER_PID" 2>/dev/null
-    wait "$SERVER_PID" 2>/dev/null
-done
 
-log "done: $RESULTS"
-cat "$RESULTS" >&2
+    log "Generating summary"
+
+    python3 benchmarks/http/summarize.py \
+        "$RESULTS" \
+        "$SUMMARY"
+
+    log "============================================"
+    log "Benchmark completed"
+    log "Raw results: $RESULTS"
+    log "Summary: $SUMMARY"
+    log "============================================"
+}
+
+main "$@"

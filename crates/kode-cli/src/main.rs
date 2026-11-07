@@ -139,12 +139,14 @@ fn run_object(object: &[u8], tag: &str, prog_args: &[String]) -> Result<u8, Stri
     let dir = std::env::temp_dir().join(format!("kode-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let exe = dir.join("program");
-    let result = runtime_lib(&dir).and_then(|rt| kode_codegen::link(object, &exe, &rt, false)).and_then(|_| {
-        Command::new(&exe)
-            .args(prog_args)
-            .status()
-            .map_err(|e| format!("cannot run the program: {e}"))
-    });
+    let result = runtime_lib(&dir)
+        .and_then(|rt| kode_codegen::link(object, &exe, &rt, false))
+        .and_then(|_| {
+            Command::new(&exe)
+                .args(prog_args)
+                .status()
+                .map_err(|e| format!("cannot run the program: {e}"))
+        });
     let _ = std::fs::remove_dir_all(&dir);
     Ok(result?.code().unwrap_or(1) as u8)
 }
@@ -228,14 +230,18 @@ fn run_command(opts: &Options) -> Result<u8, String> {
         };
         let tmp = std::env::temp_dir().join(format!("kode-build-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
-        let linked = runtime_lib(&tmp).and_then(|rt| kode_codegen::link(&object, &out, &rt, opts.release));
+        let linked =
+            runtime_lib(&tmp).and_then(|rt| kode_codegen::link(&object, &out, &rt, opts.release));
         let _ = std::fs::remove_dir_all(&tmp);
         linked?;
         let on = style::on_stderr();
         eprintln!("{} {}", style::green(on, "built"), out.display());
         eprintln!(
             "{}",
-            style::dim(on, &format!("linked in {}", style::millis(started.elapsed())))
+            style::dim(
+                on,
+                &format!("linked in {}", style::millis(started.elapsed()))
+            )
         );
         return Ok(0);
     }
@@ -245,7 +251,11 @@ fn run_command(opts: &Options) -> Result<u8, String> {
 // ---- kode test ---------------------------------------------------------
 
 fn test_command(opts: &Options) -> Result<u8, String> {
-    let paths: Vec<String> = if opts.files.is_empty() { vec![".".into()] } else { opts.files.clone() };
+    let paths: Vec<String> = if opts.files.is_empty() {
+        vec![".".into()]
+    } else {
+        opts.files.clone()
+    };
     let explicit_file = paths.len() == 1 && Path::new(&paths[0]).is_file();
     let files = collect_kode_files(&paths)?;
     let multi = files.len() > 1;
@@ -261,7 +271,12 @@ fn test_command(opts: &Options) -> Result<u8, String> {
                 continue;
             }
         };
-        if !front.program.items.iter().any(|i| matches!(i, Item::Test(_))) {
+        if !front
+            .program
+            .items
+            .iter()
+            .any(|i| matches!(i, Item::Test(_)))
+        {
             if explicit_file {
                 eprintln!("kode: no `test` blocks in {file_s}");
             }
@@ -291,14 +306,16 @@ fn fmt_command(opts: &Options) -> Result<u8, String> {
     }
     let mut changed = 0;
     for file in collect_kode_files(&opts.files)? {
-        let src = std::fs::read_to_string(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+        let src = std::fs::read_to_string(&file)
+            .map_err(|e| format!("cannot read {}: {e}", file.display()))?;
         let out = fmt::format_source(&src);
         if out != src {
             changed += 1;
             if opts.check {
                 println!("would reformat {}", file.display());
             } else {
-                std::fs::write(&file, out).map_err(|e| format!("cannot write {}: {e}", file.display()))?;
+                std::fs::write(&file, out)
+                    .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
                 println!("formatted {}", file.display());
             }
         }
@@ -309,7 +326,9 @@ fn fmt_command(opts: &Options) -> Result<u8, String> {
 // ---- kode explain ------------------------------------------------------
 
 fn explain_command(opts: &Options) -> Result<u8, String> {
-    let code = opts.file().ok_or("`kode explain` needs an error code, for example `kode explain E0201`")?;
+    let code = opts
+        .file()
+        .ok_or("`kode explain` needs an error code, for example `kode explain E0201`")?;
     match explain::explain(code) {
         Some(text) => {
             print!("{text}");
@@ -328,7 +347,10 @@ fn collect_kode_files(paths: &[String]) -> Result<Vec<PathBuf>, String> {
             .collect();
         entries.sort();
         for p in entries {
-            let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
             if p.is_dir() {
                 if name != "target" && !name.starts_with('.') {
                     walk(&p, out)?;

@@ -111,7 +111,11 @@ unsafe fn expect(j: *mut Header, kind: i64, what: &str) -> Result<(), String> {
     }
     let actual = kind_of(j);
     if actual != kind {
-        return Err(format!("this Json value is {}, not {}", kind_name(actual), what));
+        return Err(format!(
+            "this Json value is {}, not {}",
+            kind_name(actual),
+            what
+        ));
     }
     Ok(())
 }
@@ -324,7 +328,10 @@ pub unsafe extern "C" fn kode_json_as_float(j: *mut Header) -> f64 {
         FLOAT => *(field(j, 2) as *const f64),
         INT => *(field(j, 1) as *const i64) as f64,
         other => {
-            throw_msg(&format!("this Json value is {}, not a float", kind_name(other)));
+            throw_msg(&format!(
+                "this Json value is {}, not a float",
+                kind_name(other)
+            ));
             0.0
         }
     }
@@ -434,7 +441,11 @@ pub unsafe extern "C" fn kode_json_has(j: *mut Header, key: *mut Header) -> i64 
 /// # Safety
 /// `j` must be a valid JSON value and `key` a valid string.
 #[no_mangle]
-pub unsafe extern "C" fn kode_json_index_key(j: *mut Header, key: *mut Header, line: i64) -> *mut Header {
+pub unsafe extern "C" fn kode_json_index_key(
+    j: *mut Header,
+    key: *mut Header,
+    line: i64,
+) -> *mut Header {
     if let Err(msg) = expect(j, MAP, "a map") {
         throw_msg(&format!("{msg} (line {line})"));
         return std::ptr::null_mut();

@@ -42,7 +42,11 @@ fn run_pass() {
         // A test that can only run on one family of systems says so on its first
         // line: `// skip-os: windows` or `// skip-os: unix`.
         let source = std::fs::read_to_string(file).unwrap_or_default();
-        if let Some(os) = source.lines().next().and_then(|l| l.strip_prefix("// skip-os: ")) {
+        if let Some(os) = source
+            .lines()
+            .next()
+            .and_then(|l| l.strip_prefix("// skip-os: "))
+        {
             let skip = match os.trim() {
                 "windows" => cfg!(windows),
                 "unix" => !cfg!(windows),
@@ -170,7 +174,11 @@ fn fmt_command() {
 
     // Messy input gets fixed, and the result is stable.
     let tmp = std::env::temp_dir().join(format!("kode-fmt-test-{}.kode", std::process::id()));
-    std::fs::write(&tmp, "fn f(a: int) -> int {\nreturn a+1\n}\n\n\n\nif true {\nprint( \"x\" )\n  }\n").unwrap();
+    std::fs::write(
+        &tmp,
+        "fn f(a: int) -> int {\nreturn a+1\n}\n\n\n\nif true {\nprint( \"x\" )\n  }\n",
+    )
+    .unwrap();
     let (code, _, _) = run_kode(&["fmt", tmp.to_str().unwrap()]);
     assert_eq!(code, 0);
     let formatted = std::fs::read_to_string(&tmp).unwrap();

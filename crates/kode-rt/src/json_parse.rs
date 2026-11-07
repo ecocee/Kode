@@ -14,7 +14,11 @@ const MAX_DEPTH: usize = 256;
 
 pub(crate) fn parse(text: &str) -> Result<*mut Header, String> {
     let bytes = text.as_bytes();
-    let start = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) { 3 } else { 0 };
+    let start = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        3
+    } else {
+        0
+    };
     let mut p = Parser {
         s: bytes,
         i: start,
@@ -241,11 +245,14 @@ impl<'a> Parser<'a> {
                 let high = self.hex4()?;
                 let code = if (0xD800..=0xDBFF).contains(&high) {
                     if self.bump() != Some(b'\\') || self.bump() != Some(b'u') {
-                        return Err(self.err("a high surrogate must be followed by a low surrogate"));
+                        return Err(
+                            self.err("a high surrogate must be followed by a low surrogate")
+                        );
                     }
                     let low = self.hex4()?;
                     if !(0xDC00..=0xDFFF).contains(&low) {
-                        return Err(self.err("the second half of the surrogate pair is not a low surrogate"));
+                        return Err(self
+                            .err("the second half of the surrogate pair is not a low surrogate"));
                     }
                     0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)
                 } else if (0xDC00..=0xDFFF).contains(&high) {
@@ -253,7 +260,8 @@ impl<'a> Parser<'a> {
                 } else {
                     high
                 };
-                let c = char::from_u32(code).ok_or_else(|| self.err("this is not a Unicode character"))?;
+                let c = char::from_u32(code)
+                    .ok_or_else(|| self.err("this is not a Unicode character"))?;
                 out.push(c);
             }
             _ => return Err(self.err("unknown escape in a string")),

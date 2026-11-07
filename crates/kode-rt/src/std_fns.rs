@@ -82,7 +82,10 @@ pub extern "C" fn kode_now_ms() -> i64 {
 
 #[no_mangle]
 pub extern "C" fn kode_chr(n: i64) -> *mut Header {
-    let c = u32::try_from(n).ok().and_then(char::from_u32).unwrap_or('\u{fffd}');
+    let c = u32::try_from(n)
+        .ok()
+        .and_then(char::from_u32)
+        .unwrap_or('\u{fffd}');
     from_bytes(c.to_string().as_bytes())
 }
 
@@ -101,7 +104,10 @@ pub unsafe extern "C" fn kode_str_size(s: *const Header) -> i64 {
 pub unsafe extern "C" fn kode_str_byte_at(s: *const Header, i: i64) -> i64 {
     let b = bytes(s);
     if i < 0 || i as usize >= b.len() {
-        fatal(&format!("byte index {i} is out of range (size {})", b.len()));
+        fatal(&format!(
+            "byte index {i} is out of range (size {})",
+            b.len()
+        ));
     }
     b[i as usize] as i64
 }
@@ -111,8 +117,16 @@ pub unsafe extern "C" fn kode_str_byte_at(s: *const Header, i: i64) -> i64 {
 #[no_mangle]
 pub unsafe extern "C" fn kode_str_slice(s: *const Header, a: i64, b: i64) -> *mut Header {
     let t = text(s);
-    if a < 0 || b < a || b as usize > t.len() || !t.is_char_boundary(a as usize) || !t.is_char_boundary(b as usize) {
-        throw_msg(&format!("slice({a}, {b}) is not valid for a string of size {}", t.len()));
+    if a < 0
+        || b < a
+        || b as usize > t.len()
+        || !t.is_char_boundary(a as usize)
+        || !t.is_char_boundary(b as usize)
+    {
+        throw_msg(&format!(
+            "slice({a}, {b}) is not valid for a string of size {}",
+            t.len()
+        ));
         return std::ptr::null_mut();
     }
     from_bytes(&t.as_bytes()[a as usize..b as usize])
@@ -170,7 +184,11 @@ pub unsafe extern "C" fn kode_str_trim(s: *const Header) -> *mut Header {
 /// # Safety
 /// All arguments must be valid strings.
 #[no_mangle]
-pub unsafe extern "C" fn kode_str_replace(s: *const Header, a: *const Header, b: *const Header) -> *mut Header {
+pub unsafe extern "C" fn kode_str_replace(
+    s: *const Header,
+    a: *const Header,
+    b: *const Header,
+) -> *mut Header {
     let from = text(a);
     if from.is_empty() {
         return from_bytes(bytes(s));

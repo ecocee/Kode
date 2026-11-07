@@ -58,7 +58,13 @@ struct State {
 fn analyze(path: &Path, text: &str) -> Doc {
     let wanted = path.to_path_buf();
     let source = text.to_string();
-    let overlay = move |p: &Path| if p == wanted { Some(source.clone()) } else { None };
+    let overlay = move |p: &Path| {
+        if p == wanted {
+            Some(source.clone())
+        } else {
+            None
+        }
+    };
     match driver::load_with(path, &overlay) {
         Err((map, errors)) => Doc {
             path: path.to_path_buf(),
@@ -96,7 +102,10 @@ impl State {
         let params = msg.get("params").cloned().unwrap_or(Json::Null);
         match method {
             "initialize" => self.respond(out, id, capabilities()),
-            "initialized" | "workspace/didChangeConfiguration" | "$/setTrace" | "$/cancelRequest" => {}
+            "initialized"
+            | "workspace/didChangeConfiguration"
+            | "$/setTrace"
+            | "$/cancelRequest" => {}
             "shutdown" => {
                 self.shutdown = true;
                 self.respond(out, id, Json::Null);
@@ -125,48 +134,83 @@ impl State {
     }
 
     fn did_open(&mut self, params: &Json, out: &mut impl Write) {
-        let Some(doc) = params.get("textDocument") else { return };
-        let (Some(uri), Some(text)) = (doc.str_of("uri"), doc.str_of("text")) else { return };
-        let Some(path) = position::path_from_uri(uri) else { return };
+        let Some(doc) = params.get("textDocument") else {
+            return;
+        };
+        let (Some(uri), Some(text)) = (doc.str_of("uri"), doc.str_of("text")) else {
+            return;
+        };
+        let Some(path) = position::path_from_uri(uri) else {
+            return;
+        };
         self.docs.insert(uri.to_string(), analyze(&path, text));
         self.publish(uri, out);
     }
 
     fn did_change(&mut self, params: &Json, out: &mut impl Write) {
-        let Some(doc) = params.get("textDocument") else { return };
+        let Some(doc) = params.get("textDocument") else {
+            return;
+        };
         let Some(uri) = doc.str_of("uri") else { return };
-        let Some(change) = params.arr_of("contentChanges").last() else { return };
-        let Some(text) = change.str_of("text") else { return };
-        let Some(current) = self.docs.get(uri) else { return };
+        let Some(change) = params.arr_of("contentChanges").last() else {
+            return;
+        };
+        let Some(text) = change.str_of("text") else {
+            return;
+        };
+        let Some(current) = self.docs.get(uri) else {
+            return;
+        };
         let path = current.path.clone();
         self.docs.insert(uri.to_string(), analyze(&path, text));
         self.publish(uri, out);
     }
 
     fn did_save(&mut self, params: &Json, out: &mut impl Write) {
-        let Some(doc) = params.get("textDocument") else { return };
+        let Some(doc) = params.get("textDocument") else {
+            return;
+        };
         let Some(uri) = doc.str_of("uri") else { return };
         self.publish(uri, out);
     }
 
     fn did_close(&mut self, params: &Json, out: &mut impl Write) {
-        let Some(doc) = params.get("textDocument") else { return };
+        let Some(doc) = params.get("textDocument") else {
+            return;
+        };
         let Some(uri) = doc.str_of("uri") else { return };
         self.docs.remove(uri);
         self.notify(
             out,
             "textDocument/publishDiagnostics",
-            Json::obj(vec![("uri", Json::str(uri)), ("diagnostics", Json::Arr(Vec::new()))]),
+            Json::obj(vec![
+                ("uri", Json::str(uri)),
+                ("diagnostics", Json::Arr(Vec::new())),
+            ]),
         );
     }
 
     fn hover(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
-        let Some(doc) = params.get("textDocument") else { return self.respond(out, id, Json::Null) };
-        let Some(uri) = doc.str_of("uri") else { return self.respond(out, id, Json::Null) };
-        let Some(d) = self.docs.get(uri) else { return self.respond(out, id, Json::Null) };
-        let (Some(program), Some(checked)) = (&d.program, &d.checked) else { return self.respond(out, id, Json::Null) };
-        let line = params.get("position").and_then(|p| p.int_of("line")).unwrap_or(0) as u32;
-        let character = params.get("position").and_then(|p| p.int_of("character")).unwrap_or(0) as u32;
+        let Some(doc) = params.get("textDocument") else {
+            return self.respond(out, id, Json::Null);
+        };
+        let Some(uri) = doc.str_of("uri") else {
+            return self.respond(out, id, Json::Null);
+        };
+        let Some(d) = self.docs.get(uri) else {
+            return self.respond(out, id, Json::Null);
+        };
+        let (Some(program), Some(checked)) = (&d.program, &d.checked) else {
+            return self.respond(out, id, Json::Null);
+        };
+        let line = params
+            .get("position")
+            .and_then(|p| p.int_of("line"))
+            .unwrap_or(0) as u32;
+        let character = params
+            .get("position")
+            .and_then(|p| p.int_of("character"))
+            .unwrap_or(0) as u32;
         let local = position::offset(&d.text, line, character);
         let name = d.path.display().to_string();
         let result = features::hover(program, checked, &d.map, &name, local).unwrap_or(Json::Null);
@@ -174,30 +218,58 @@ impl State {
     }
 
     fn completion(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
-        let Some(doc) = params.get("textDocument") else { return self.respond(out, id, Json::Null) };
-        let Some(uri) = doc.str_of("uri") else { return self.respond(out, id, Json::Null) };
-        let Some(d) = self.docs.get(uri) else { return self.respond(out, id, Json::Null) };
-        let line = params.get("position").and_then(|p| p.int_of("line")).unwrap_or(0) as u32;
-        let character = params.get("position").and_then(|p| p.int_of("character")).unwrap_or(0) as u32;
+        let Some(doc) = params.get("textDocument") else {
+            return self.respond(out, id, Json::Null);
+        };
+        let Some(uri) = doc.str_of("uri") else {
+            return self.respond(out, id, Json::Null);
+        };
+        let Some(d) = self.docs.get(uri) else {
+            return self.respond(out, id, Json::Null);
+        };
+        let line = params
+            .get("position")
+            .and_then(|p| p.int_of("line"))
+            .unwrap_or(0) as u32;
+        let character = params
+            .get("position")
+            .and_then(|p| p.int_of("character"))
+            .unwrap_or(0) as u32;
         let at = position::offset(&d.text, line, character);
         // A buffer that does not parse is still worth completing: fall back to
         // whatever the last good parse of the text gives.
-        let fallback = if d.program.is_none() { kode_syntax::parse_source(&d.text).ok() } else { None };
+        let fallback = if d.program.is_none() {
+            kode_syntax::parse_source(&d.text).ok()
+        } else {
+            None
+        };
         let program = d.program.as_ref().or(fallback.as_ref());
         self.respond(out, id, features::completion(program, &d.text, at));
     }
 
     fn document_symbols(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
-        let Some(doc) = params.get("textDocument") else { return self.respond(out, id, Json::Null) };
-        let Some(uri) = doc.str_of("uri") else { return self.respond(out, id, Json::Null) };
-        let Some(d) = self.docs.get(uri) else { return self.respond(out, id, Json::Null) };
+        let Some(doc) = params.get("textDocument") else {
+            return self.respond(out, id, Json::Null);
+        };
+        let Some(uri) = doc.str_of("uri") else {
+            return self.respond(out, id, Json::Null);
+        };
+        let Some(d) = self.docs.get(uri) else {
+            return self.respond(out, id, Json::Null);
+        };
         self.respond(out, id, features::symbols(&d.text));
     }
 
     fn formatting(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
-        let Some(doc) = params.get("textDocument") else { return self.respond(out, id, Json::Null) };
-        let Some(uri) = doc.str_of("uri") else { return self.respond(out, id, Json::Null) };
-        let Some(d) = self.docs.get(uri) else { return self.respond(out, id, Json::Null) };
+        let Some(doc) = params.get("textDocument") else {
+            return self.respond(out, id, Json::Null);
+        };
+        let Some(uri) = doc.str_of("uri") else {
+            return self.respond(out, id, Json::Null);
+        };
+        let Some(d) = self.docs.get(uri) else {
+            return self.respond(out, id, Json::Null);
+        };
         self.respond(out, id, features::formatting(&d.text));
     }
 
@@ -207,7 +279,9 @@ impl State {
     }
 
     fn definition(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
-        let Some(d) = self.doc(params) else { return self.respond(out, id, Json::Null) };
+        let Some(d) = self.doc(params) else {
+            return self.respond(out, id, Json::Null);
+        };
         let at = cursor(d, params);
         let uri = position::uri_from_path(&d.path);
         let result = nav::definition(&d.text, &uri, at).unwrap_or(Json::Null);
@@ -215,7 +289,9 @@ impl State {
     }
 
     fn references(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
-        let Some(d) = self.doc(params) else { return self.respond(out, id, Json::Null) };
+        let Some(d) = self.doc(params) else {
+            return self.respond(out, id, Json::Null);
+        };
         let at = cursor(d, params);
         let uri = position::uri_from_path(&d.path);
         let result = Json::Arr(nav::references(&d.text, &uri, at));
@@ -223,7 +299,9 @@ impl State {
     }
 
     fn rename(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
-        let Some(d) = self.doc(params) else { return self.respond(out, id, Json::Null) };
+        let Some(d) = self.doc(params) else {
+            return self.respond(out, id, Json::Null);
+        };
         let at = cursor(d, params);
         let uri = position::uri_from_path(&d.path);
         let new_name = params.str_of("newName").unwrap_or("");
@@ -232,26 +310,37 @@ impl State {
     }
 
     fn signature_help(&mut self, params: &Json, out: &mut impl Write, id: Option<Json>) {
-        let Some(d) = self.doc(params) else { return self.respond(out, id, Json::Null) };
+        let Some(d) = self.doc(params) else {
+            return self.respond(out, id, Json::Null);
+        };
         let at = cursor(d, params);
         let result = nav::signature_help(&d.text, at).unwrap_or(Json::Null);
         self.respond(out, id, result);
     }
 
     fn publish(&self, uri: &str, out: &mut impl Write) {
-        let Some(doc) = self.docs.get(uri) else { return };
+        let Some(doc) = self.docs.get(uri) else {
+            return;
+        };
         let name = doc.path.display().to_string();
         let diags = features::diagnostics_for(&doc.map, &name, &doc.errors);
         self.notify(
             out,
             "textDocument/publishDiagnostics",
-            Json::obj(vec![("uri", Json::str(uri)), ("diagnostics", Json::Arr(diags))]),
+            Json::obj(vec![
+                ("uri", Json::str(uri)),
+                ("diagnostics", Json::Arr(diags)),
+            ]),
         );
     }
 
     fn respond(&self, out: &mut impl Write, id: Option<Json>, result: Json) {
         let Some(id) = id else { return };
-        let msg = Json::obj(vec![("jsonrpc", Json::str("2.0")), ("id", id), ("result", result)]);
+        let msg = Json::obj(vec![
+            ("jsonrpc", Json::str("2.0")),
+            ("id", id),
+            ("result", result),
+        ]);
         let _ = write_message(out, &msg);
     }
 
@@ -259,19 +348,31 @@ impl State {
         let msg = Json::obj(vec![
             ("jsonrpc", Json::str("2.0")),
             ("id", id),
-            ("error", Json::obj(vec![("code", Json::int(code)), ("message", Json::str(message))])),
+            (
+                "error",
+                Json::obj(vec![
+                    ("code", Json::int(code)),
+                    ("message", Json::str(message)),
+                ]),
+            ),
         ]);
         let _ = write_message(out, &msg);
     }
 
     fn notify(&self, out: &mut impl Write, method: &str, params: Json) {
-        let msg = Json::obj(vec![("jsonrpc", Json::str("2.0")), ("method", Json::str(method)), ("params", params)]);
+        let msg = Json::obj(vec![
+            ("jsonrpc", Json::str("2.0")),
+            ("method", Json::str(method)),
+            ("params", params),
+        ]);
         let _ = write_message(out, &msg);
     }
 }
 
 fn cursor(d: &Doc, params: &Json) -> usize {
-    let Some(p) = params.get("position") else { return 0 };
+    let Some(p) = params.get("position") else {
+        return 0;
+    };
     let line = p.int_of("line").unwrap_or(0) as u32;
     let character = p.int_of("character").unwrap_or(0) as u32;
     position::offset(&d.text, line, character)
@@ -353,7 +454,10 @@ mod tests {
     fn reads_a_framed_message() {
         let raw = "Content-Length: 7\r\n\r\n{\"a\":1}";
         let mut input = Cursor::new(raw.as_bytes());
-        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some("{\"a\":1}"));
+        assert_eq!(
+            read_message(&mut input).unwrap().as_deref(),
+            Some("{\"a\":1}")
+        );
         assert_eq!(read_message(&mut input).unwrap(), None);
     }
 
@@ -381,7 +485,11 @@ mod tests {
         std::fs::write(&file, "print(1)\n").unwrap();
         let doc = analyze(&file, "x = 1\nprint(missing)\n");
         assert!(doc.checked.is_none());
-        assert!(doc.errors.iter().any(|e| e.code == "E0201"), "{:?}", doc.errors);
+        assert!(
+            doc.errors.iter().any(|e| e.code == "E0201"),
+            "{:?}",
+            doc.errors
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

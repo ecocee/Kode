@@ -56,7 +56,9 @@ fn stmt(s: &Stmt, f: &mut dyn FnMut(&Expr)) {
             expr(cond, f);
             stmts(body, f);
         }
-        Stmt::For { start, end, body, .. } => {
+        Stmt::For {
+            start, end, body, ..
+        } => {
             expr(start, f);
             expr(end, f);
             stmts(body, f);
@@ -65,7 +67,9 @@ fn stmt(s: &Stmt, f: &mut dyn FnMut(&Expr)) {
             expr(iter, f);
             stmts(body, f);
         }
-        Stmt::Match { scrutinee, arms, .. } => {
+        Stmt::Match {
+            scrutinee, arms, ..
+        } => {
             expr(scrutinee, f);
             for arm in arms {
                 if let Pattern::Value(p) = &arm.pattern {
@@ -134,7 +138,9 @@ pub fn expr(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             expr(obj, f);
             expr(index, f);
         }
-        ExprKind::Slice { obj, start, end, .. } => {
+        ExprKind::Slice {
+            obj, start, end, ..
+        } => {
             expr(obj, f);
             for bound in [start, end].into_iter().flatten() {
                 expr(bound, f);
@@ -152,13 +158,17 @@ pub fn expr(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 expr(&a.value, f);
             }
         }
-        ExprKind::Unary { expr: inner, .. } | ExprKind::Unwrap(inner) | ExprKind::Await(inner) => expr(inner, f),
+        ExprKind::Unary { expr: inner, .. } | ExprKind::Unwrap(inner) | ExprKind::Await(inner) => {
+            expr(inner, f)
+        }
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Coalesce { lhs, rhs } => {
             expr(lhs, f);
             expr(rhs, f);
         }
         ExprKind::Closure { body, .. } => expr(body, f),
-        ExprKind::Catch { expr: inner, block, .. } => {
+        ExprKind::Catch {
+            expr: inner, block, ..
+        } => {
             expr(inner, f);
             stmts(block, f);
         }
@@ -176,7 +186,9 @@ pub fn innermost_at(items: &[Item], offset: usize) -> Option<(ExprId, kode_diagn
     let mut best: Option<(ExprId, kode_diagnostics::Span)> = None;
     items_fn(items, &mut |e| {
         if e.span.start <= offset && offset <= e.span.end {
-            let better = best.map(|(_, s)| e.span.end - e.span.start < s.end - s.start).unwrap_or(true);
+            let better = best
+                .map(|(_, s)| e.span.end - e.span.start < s.end - s.start)
+                .unwrap_or(true);
             if better {
                 best = Some((e.id, e.span));
             }

@@ -11,9 +11,15 @@ pub fn verify(p: &MirProgram) -> Result<(), String> {
         let nb = f.blocks.len();
         let check_op = |o: &Operand| -> Result<(), String> {
             match o {
-                Operand::Local(i) if *i >= nl => Err(format!("{}: local _{i} does not exist", f.name)),
-                Operand::Thunk(i) if *i >= p.thunks.len() => Err(format!("{}: thunk {i} does not exist", f.name)),
-                Operand::FuncAddr(i) if *i >= p.funcs.len() => Err(format!("{}: function {i} does not exist", f.name)),
+                Operand::Local(i) if *i >= nl => {
+                    Err(format!("{}: local _{i} does not exist", f.name))
+                }
+                Operand::Thunk(i) if *i >= p.thunks.len() => {
+                    Err(format!("{}: thunk {i} does not exist", f.name))
+                }
+                Operand::FuncAddr(i) if *i >= p.funcs.len() => {
+                    Err(format!("{}: function {i} does not exist", f.name))
+                }
                 Operand::ClosureFn(i) if *i >= p.closures.len() => {
                     Err(format!("{}: closure body {i} does not exist", f.name))
                 }
@@ -34,10 +40,15 @@ pub fn verify(p: &MirProgram) -> Result<(), String> {
                 match inst {
                     Inst::Assign { dst, rv } => {
                         if *dst >= nl {
-                            return Err(format!("{}: bb{bi} assigns to missing local _{dst}", f.name));
+                            return Err(format!(
+                                "{}: bb{bi} assigns to missing local _{dst}",
+                                f.name
+                            ));
                         }
                         match rv {
-                            Rvalue::Use(a) | Rvalue::Unary(_, a) | Rvalue::Cast(_, a) => check_op(a)?,
+                            Rvalue::Use(a) | Rvalue::Unary(_, a) | Rvalue::Cast(_, a) => {
+                                check_op(a)?
+                            }
                             Rvalue::Binary(_, a, c) => {
                                 check_op(a)?;
                                 check_op(c)?;
@@ -57,12 +68,18 @@ pub fn verify(p: &MirProgram) -> Result<(), String> {
                         }
                         if let Callee::Std(i) = callee {
                             if *i >= p.std_sigs.len() {
-                                return Err(format!("{}: bb{bi} calls a missing library function", f.name));
+                                return Err(format!(
+                                    "{}: bb{bi} calls a missing library function",
+                                    f.name
+                                ));
                             }
                         }
                         if let Callee::User(i) = callee {
                             if *i >= p.funcs.len() {
-                                return Err(format!("{}: bb{bi} calls missing function #{i}", f.name));
+                                return Err(format!(
+                                    "{}: bb{bi} calls missing function #{i}",
+                                    f.name
+                                ));
                             }
                         }
                         for a in args {
@@ -82,7 +99,10 @@ pub fn verify(p: &MirProgram) -> Result<(), String> {
                     }
                     Inst::Load { dst, base, .. } => {
                         if *dst >= nl {
-                            return Err(format!("{}: bb{bi} loads into missing local _{dst}", f.name));
+                            return Err(format!(
+                                "{}: bb{bi} loads into missing local _{dst}",
+                                f.name
+                            ));
                         }
                         check_op(base)?;
                     }
@@ -97,7 +117,11 @@ pub fn verify(p: &MirProgram) -> Result<(), String> {
                 Terminator::Goto(t) if *t >= nb => {
                     return Err(format!("{}: bb{bi} jumps to missing bb{t}", f.name))
                 }
-                Terminator::Branch { cond, then_bb, else_bb } => {
+                Terminator::Branch {
+                    cond,
+                    then_bb,
+                    else_bb,
+                } => {
                     check_op(cond)?;
                     if *then_bb >= nb || *else_bb >= nb {
                         return Err(format!("{}: bb{bi} branches to a missing block", f.name));

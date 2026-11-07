@@ -1,31 +1,47 @@
-# One Linux image with Kode, Go, Node and Python, so every server runs on the
-# same kernel, the same 1 vCPU and the same RAM.
-# Go's own image, because Debian's golang-go (1.19) is too old for the load
-# tool; Rust is installed on top of it.
+
 FROM golang:1.24-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
-        ca-certificates \
-        curl \
-        nodejs \
-        python3 \
-        procps \
+    build-essential \
+    ca-certificates \
+    curl \
+    nodejs \
+    python3 \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Rust.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --profile minimal --default-toolchain stable
-ENV PATH=/root/.cargo/bin:$PATH
 
-# The load tool: `hey` speaks keep-alive, takes a fixed request count and prints
-# the 99th percentile.
-ENV GOPATH=/root/go
-ENV PATH=/root/go/bin:$PATH
-RUN go install github.com/rakyll/hey@latest
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /src
+
 COPY . /src
+
+# Build the Kode compiler.
 RUN cargo build --release --bin kode
 
+# Prepare benchmark binaries.
+RUN mkdir -p /bench/bin
+
+# Build the Kode HTTP server.
+RUN /src/target/release/kode build \
+    /src/benchmarks/http/server.kode \
+    --release \
+    -o /bench/bin/kode_server
+
+# Build the Go HTTP server.
+RUN go build \
+    -o /bench/bin/go_server \
+    /src/benchmarks/http/server.go
+
+# Build the custom Go load generator.
+RUN go build \
+    -o /bench/bin/load \
+    /src/benchmarks/http/load.go
+
 WORKDIR /bench
-CMD ["bash", "/bench/measure.sh"]
+
+CMD ["bash"]

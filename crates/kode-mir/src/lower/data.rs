@@ -52,7 +52,11 @@ impl<'a> Lowerer<'a> {
     /// Call a runtime function that returns a 64-bit slot, and convert it to `ty`.
     pub fn call_raw(&mut self, rt: RtFn, args: Vec<Operand>, ty: &Type) -> Operand {
         let m = mir_ty(ty);
-        let raw_ty = if matches!(m, Ty::Int | Ty::Ref) { m } else { Ty::Int };
+        let raw_ty = if matches!(m, Ty::Int | Ty::Ref) {
+            m
+        } else {
+            Ty::Int
+        };
         let t = self.new_temp(raw_ty);
         self.emit(Inst::Call {
             dst: Some(t),
@@ -114,18 +118,32 @@ impl<'a> Lowerer<'a> {
     }
 
     pub(crate) fn list_lit(&mut self, items: &[Expr], e: &Expr) -> V {
-        let Type::List(el) = self.expr_type(e) else { unreachable!("a list literal has a list type") };
+        let Type::List(el) = self.expr_type(e) else {
+            unreachable!("a list literal has a list type")
+        };
         let el: &Type = el;
         let t = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
             dst: Some(t),
-            callee: Callee::Rt(if packed(el) { RtFn::ListNewPacked } else { RtFn::ListNew }),
-            args: if packed(el) { vec![] } else { vec![Operand::Int((el.is_ref() && *el != Type::NoneT) as i64)] },
+            callee: Callee::Rt(if packed(el) {
+                RtFn::ListNewPacked
+            } else {
+                RtFn::ListNew
+            }),
+            args: if packed(el) {
+                vec![]
+            } else {
+                vec![Operand::Int((el.is_ref() && *el != Type::NoneT) as i64)]
+            },
         });
         let lv = self.owned(Operand::Local(t));
         for x in items {
             let v = self.expr(x);
-            let op = if mir_ty(el) == Ty::Ref { self.own(v) } else { v.op };
+            let op = if mir_ty(el) == Ty::Ref {
+                self.own(v)
+            } else {
+                v.op
+            };
             let raw = self.raw_value(op, el);
             self.emit(Inst::Call {
                 dst: None,
@@ -137,7 +155,9 @@ impl<'a> Lowerer<'a> {
     }
 
     pub(crate) fn map_lit(&mut self, pairs: &[(Expr, Expr)], e: &Expr) -> V {
-        let Type::Map(el) = self.expr_type(e) else { unreachable!("a map literal has a map type") };
+        let Type::Map(el) = self.expr_type(e) else {
+            unreachable!("a map literal has a map type")
+        };
         let el: &Type = el;
         let t = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
@@ -149,7 +169,11 @@ impl<'a> Lowerer<'a> {
         for (k, v) in pairs {
             let kv = self.expr(k);
             let vv = self.expr(v);
-            let op = if mir_ty(el) == Ty::Ref { self.own(vv) } else { vv.op };
+            let op = if mir_ty(el) == Ty::Ref {
+                self.own(vv)
+            } else {
+                vv.op
+            };
             let raw = self.raw_value(op, el);
             self.emit(Inst::Call {
                 dst: None,
@@ -162,9 +186,17 @@ impl<'a> Lowerer<'a> {
     }
 
     /// `xs[a..b]`: a new list holding a copy of the range.
-    pub(crate) fn slice(&mut self, obj: &Expr, start: Option<&Expr>, end: Option<&Expr>, inclusive: bool) -> V {
+    pub(crate) fn slice(
+        &mut self,
+        obj: &Expr,
+        start: Option<&Expr>,
+        end: Option<&Expr>,
+        inclusive: bool,
+    ) -> V {
         let ot = self.expr_type(obj);
-        let Type::List(el) = ot else { unreachable!("checked: a list") };
+        let Type::List(el) = ot else {
+            unreachable!("checked: a list")
+        };
         let ov = self.expr(obj);
         let s = match start {
             Some(x) => {
@@ -240,7 +272,9 @@ impl<'a> Lowerer<'a> {
             args: if packed(&out_el) {
                 vec![]
             } else {
-                vec![Operand::Int((out_el.is_ref() && *out_el != Type::NoneT) as i64)]
+                vec![Operand::Int(
+                    (out_el.is_ref() && *out_el != Type::NoneT) as i64,
+                )]
             },
         });
         let result = self.owned(Operand::Local(out));
@@ -285,7 +319,11 @@ impl<'a> Lowerer<'a> {
         // returns: a wider slot leaves the upper bits of a `bool` result
         // undefined, and the branch below then reads garbage and keeps every
         // item.
-        let res_ty = if name == "filter" { Ty::Bool } else { mir_ty(&out_el) };
+        let res_ty = if name == "filter" {
+            Ty::Bool
+        } else {
+            mir_ty(&out_el)
+        };
         let dst = (res_ty != Ty::Unit).then(|| self.new_temp(res_ty));
         self.emit(Inst::CallIndirect {
             dst,
@@ -411,12 +449,18 @@ impl<'a> Lowerer<'a> {
                 && self.this_field(n).is_none()
             {
                 if let Some(&ei) = self.checked.enum_index.get(n) {
-                    let tag = self.checked.enums[ei].variants.iter().position(|v| v == name).unwrap();
+                    let tag = self.checked.enums[ei]
+                        .variants
+                        .iter()
+                        .position(|v| v == name)
+                        .unwrap();
                     return V::val(Operand::Int(tag as i64));
                 }
             }
         }
-        let Type::Class(cn) = strip_opt(self.expr_type(obj)) else { unreachable!("checked: a class value") };
+        let Type::Class(cn) = strip_opt(self.expr_type(obj)) else {
+            unreachable!("checked: a class value")
+        };
         let class = &self.checked.classes[self.checked.class_index[cn]];
         let fi = class.fields.iter().position(|f| f.name == name).unwrap();
         let fty = &class.fields[fi].ty;
@@ -570,7 +614,11 @@ impl<'a> Lowerer<'a> {
             }
             (Type::List(el), "add") => {
                 let v = self.expr(&args[0].value);
-                let op = if mir_ty(el) == Ty::Ref { self.own(v) } else { v.op };
+                let op = if mir_ty(el) == Ty::Ref {
+                    self.own(v)
+                } else {
+                    v.op
+                };
                 let raw = self.raw_value(op, el);
                 self.emit(Inst::Call {
                     dst: None,
@@ -631,11 +679,20 @@ impl<'a> Lowerer<'a> {
         let router = self.expr(obj);
         let path = self.expr(&args[0].value);
         let m = Operand::Str(self.intern(method));
-        let sig = self.std_sig("kode_router_add", vec![Ty::Ref, Ty::Ref, Ty::Ref, Ty::Int], Ty::Unit);
+        let sig = self.std_sig(
+            "kode_router_add",
+            vec![Ty::Ref, Ty::Ref, Ty::Ref, Ty::Int],
+            Ty::Unit,
+        );
         self.emit(Inst::Call {
             dst: None,
             callee: Callee::Std(sig),
-            args: vec![router.op.clone(), m, path.op.clone(), Operand::FuncAddr(idx)],
+            args: vec![
+                router.op.clone(),
+                m,
+                path.op.clone(),
+                Operand::FuncAddr(idx),
+            ],
         });
         self.release_if_owned(path);
         self.release_if_owned(router);
@@ -655,16 +712,28 @@ impl<'a> Lowerer<'a> {
         self.emit(Inst::Call {
             dst: Some(p),
             callee: Callee::Rt(RtFn::ObjNewClass),
-            args: vec![Operand::Int(fields.len() as i64), Operand::Int(mask), Operand::Int(ci as i64)],
+            args: vec![
+                Operand::Int(fields.len() as i64),
+                Operand::Int(mask),
+                Operand::Int(ci as i64),
+            ],
         });
         let obj = self.owned(Operand::Local(p));
         let slots = checked.call_args[&e.id].clone();
         for (i, f) in fields.iter().enumerate() {
             let v = match slots[i] {
                 Some(ai) => self.expr(&args[ai].value),
-                None => self.expr(f.default.as_ref().expect("the type checker made sure a default exists")),
+                None => self.expr(
+                    f.default
+                        .as_ref()
+                        .expect("the type checker made sure a default exists"),
+                ),
             };
-            let op = if mir_ty(&f.ty) == Ty::Ref { self.own(v) } else { v.op };
+            let op = if mir_ty(&f.ty) == Ty::Ref {
+                self.own(v)
+            } else {
+                v.op
+            };
             self.emit(Inst::Store {
                 base: Operand::Local(p),
                 offset: 24 + 8 * i as i32,

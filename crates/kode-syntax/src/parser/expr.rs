@@ -118,12 +118,27 @@ impl Parser {
                 let start = self.bump().span;
                 let call = self.parse_postfix()?;
                 return match call.kind {
-                    ExprKind::Call { callee, callee_span, args } => {
+                    ExprKind::Call {
+                        callee,
+                        callee_span,
+                        args,
+                    } => {
                         let span = start.join(call.span);
-                        Ok(self.mk(span, ExprKind::Spawn { callee, callee_span, args }))
+                        Ok(self.mk(
+                            span,
+                            ExprKind::Spawn {
+                                callee,
+                                callee_span,
+                                args,
+                            },
+                        ))
                     }
-                    _ => Err(Diagnostic::error("E0117", "`spawn` needs a function call", call.span)
-                        .with_help("write it like `spawn work(1, 2)`")),
+                    _ => {
+                        Err(
+                            Diagnostic::error("E0117", "`spawn` needs a function call", call.span)
+                                .with_help("write it like `spawn work(1, 2)`"),
+                        )
+                    }
                 };
             }
             _ => {}
@@ -266,7 +281,9 @@ impl Parser {
                             },
                         );
                     } else {
-                        let Some(index) = start else { unreachable!("`[` without a value is a slice") };
+                        let Some(index) = start else {
+                            unreachable!("`[` without a value is a slice")
+                        };
                         let close = self.expect(TokenKind::RBracket, "`]`")?.span;
                         let span = e.span.join(close);
                         e = self.mk(

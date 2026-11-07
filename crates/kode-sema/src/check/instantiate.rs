@@ -120,7 +120,11 @@ impl Checker {
     ) -> Option<usize> {
         let types: Vec<Type> = params.iter().map(|n| subst[n].clone()).collect();
         let key: Vec<String> = types.iter().map(mangle).collect();
-        if let Some((_, idx)) = self.instances.iter().find(|((g, k), _)| *g == gidx && *k == key) {
+        if let Some((_, idx)) = self
+            .instances
+            .iter()
+            .find(|((g, k), _)| *g == gidx && *k == key)
+        {
             return Some(*idx);
         }
 
@@ -163,7 +167,12 @@ impl Checker {
 /// Match a declared parameter type against the type of an argument, binding type
 /// parameters as they are met. `pair<T>(a: T, b: T)` called with `(1, "x")` fails
 /// because `T` is already `int`.
-fn unify(ann: &TypeAnn, actual: &Type, params: &[String], subst: &mut HashMap<String, Type>) -> bool {
+fn unify(
+    ann: &TypeAnn,
+    actual: &Type,
+    params: &[String],
+    subst: &mut HashMap<String, Type>,
+) -> bool {
     match &ann.kind {
         TypeAnnKind::Name(n) if params.iter().any(|p| p == n) => match subst.get(n) {
             Some(t) => t == actual,
@@ -199,7 +208,8 @@ fn unify(ann: &TypeAnn, actual: &Type, params: &[String], subst: &mut HashMap<St
         },
         TypeAnnKind::Fn(ps, ret) => match actual {
             Type::Fn(aps, ar) if aps.len() == ps.len() => {
-                ps.iter().zip(aps).all(|(p, a)| unify(p, a, params, subst)) && unify(ret, ar, params, subst)
+                ps.iter().zip(aps).all(|(p, a)| unify(p, a, params, subst))
+                    && unify(ret, ar, params, subst)
             }
             _ => false,
         },
@@ -283,7 +293,12 @@ fn mangle(t: &Type) -> String {
             format!("fn{}_{}_to_{}", ps.len(), ps.join("_"), mangle(r))
         }
         Type::Class(n) | Type::Interface(n) | Type::Enum(n) => {
-            format!("cls_{}", n.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect::<String>())
+            format!(
+                "cls_{}",
+                n.chars()
+                    .map(|c| if c.is_alphanumeric() { c } else { '_' })
+                    .collect::<String>()
+            )
         }
         Type::NoneT => "none".into(),
     }
@@ -329,7 +344,9 @@ fn renumber_stmt(s: &mut Stmt, next: &mut u32) {
             renumber_expr(cond, next);
             renumber_block(body, next);
         }
-        Stmt::For { start, end, body, .. } => {
+        Stmt::For {
+            start, end, body, ..
+        } => {
             renumber_expr(start, next);
             renumber_expr(end, next);
             renumber_block(body, next);
@@ -338,7 +355,9 @@ fn renumber_stmt(s: &mut Stmt, next: &mut u32) {
             renumber_expr(iter, next);
             renumber_block(body, next);
         }
-        Stmt::Match { scrutinee, arms, .. } => {
+        Stmt::Match {
+            scrutinee, arms, ..
+        } => {
             renumber_expr(scrutinee, next);
             for arm in arms {
                 if let Pattern::Value(v) = &mut arm.pattern {
@@ -348,7 +367,12 @@ fn renumber_stmt(s: &mut Stmt, next: &mut u32) {
             }
         }
         Stmt::Throw { value, .. } => renumber_expr(value, next),
-        Stmt::Try { body, handler, finally, .. } => {
+        Stmt::Try {
+            body,
+            handler,
+            finally,
+            ..
+        } => {
             renumber_block(body, next);
             if let Some(b) = handler {
                 renumber_block(b, next);
@@ -392,7 +416,9 @@ fn renumber_expr(e: &mut Expr, next: &mut u32) {
             renumber_expr(obj, next);
             renumber_expr(index, next);
         }
-        ExprKind::Slice { obj, start, end, .. } => {
+        ExprKind::Slice {
+            obj, start, end, ..
+        } => {
             renumber_expr(obj, next);
             for bound in [start, end].into_iter().flatten() {
                 renumber_expr(bound, next);

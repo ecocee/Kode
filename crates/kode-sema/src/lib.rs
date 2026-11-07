@@ -4,14 +4,15 @@
 //! expression and the signature of every function, or a list of errors.
 
 pub mod builtins;
-pub mod modules;
 mod check;
+pub mod modules;
 pub mod scope;
 pub mod std_fns;
 pub mod suggest;
 pub mod types;
 
 pub use check::{
-    check, Checked, ClassInfo, ConstVal, EnumInfo, FieldInfo, FnSig, IfaceMethod, InterfaceInfo, ModuleInfo,
+    check, Checked, ClassInfo, ConstVal, EnumInfo, FieldInfo, FnSig, IfaceMethod, InterfaceInfo,
+    ModuleInfo,
 };
 pub use types::{assignable, Type};

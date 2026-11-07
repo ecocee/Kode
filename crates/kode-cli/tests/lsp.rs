@@ -42,15 +42,29 @@ fn reports_diagnostics_for_an_unsaved_buffer() {
     }
 
     let mut stdout = String::new();
-    child.stdout.as_mut().expect("stdout").read_to_string(&mut stdout).expect("read");
+    child
+        .stdout
+        .as_mut()
+        .expect("stdout")
+        .read_to_string(&mut stdout)
+        .expect("read");
     let status = child.wait().expect("wait");
     let _ = std::fs::remove_dir_all(&dir);
 
     assert!(status.success(), "the server should exit 0 after shutdown");
-    assert!(stdout.contains("\"capabilities\""), "no initialize result: {stdout}");
+    assert!(
+        stdout.contains("\"capabilities\""),
+        "no initialize result: {stdout}"
+    );
     assert!(stdout.contains("\"hoverProvider\":true"), "{stdout}");
-    assert!(stdout.contains("textDocument/publishDiagnostics"), "{stdout}");
-    assert!(stdout.contains("E0201"), "the unknown variable was not reported: {stdout}");
+    assert!(
+        stdout.contains("textDocument/publishDiagnostics"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("E0201"),
+        "the unknown variable was not reported: {stdout}"
+    );
 
     // Every message on stdout is framed, and the frames are valid JSON.
     let mut rest = stdout.as_str();
@@ -65,7 +79,10 @@ fn reports_diagnostics_for_an_unsaved_buffer() {
         seen += 1;
         rest = &after[len..];
     }
-    assert_eq!(seen, 3, "expected initialize, diagnostics and shutdown responses: {stdout}");
+    assert_eq!(
+        seen, 3,
+        "expected initialize, diagnostics and shutdown responses: {stdout}"
+    );
 }
 
 #[test]
@@ -79,15 +96,34 @@ fn rejects_unknown_methods_without_dying() {
 
     {
         let stdin = child.stdin.as_mut().expect("stdin");
-        stdin.write_all(frame(r#"{"jsonrpc":"2.0","id":7,"method":"textDocument/nope","params":{}}"#).as_bytes()).expect("write");
-        stdin.write_all(frame(r#"{"jsonrpc":"2.0","id":8,"method":"shutdown","params":null}"#).as_bytes()).expect("write");
-        stdin.write_all(frame(r#"{"jsonrpc":"2.0","method":"exit","params":null}"#).as_bytes()).expect("write");
+        stdin
+            .write_all(
+                frame(r#"{"jsonrpc":"2.0","id":7,"method":"textDocument/nope","params":{}}"#)
+                    .as_bytes(),
+            )
+            .expect("write");
+        stdin
+            .write_all(
+                frame(r#"{"jsonrpc":"2.0","id":8,"method":"shutdown","params":null}"#).as_bytes(),
+            )
+            .expect("write");
+        stdin
+            .write_all(frame(r#"{"jsonrpc":"2.0","method":"exit","params":null}"#).as_bytes())
+            .expect("write");
         stdin.flush().expect("flush");
     }
 
     let mut stdout = String::new();
-    child.stdout.as_mut().expect("stdout").read_to_string(&mut stdout).expect("read");
+    child
+        .stdout
+        .as_mut()
+        .expect("stdout")
+        .read_to_string(&mut stdout)
+        .expect("read");
     child.wait().expect("wait");
-    assert!(stdout.contains("-32601"), "no method-not-found error: {stdout}");
+    assert!(
+        stdout.contains("-32601"),
+        "no method-not-found error: {stdout}"
+    );
     assert!(stdout.contains("\"id\":7"), "{stdout}");
 }

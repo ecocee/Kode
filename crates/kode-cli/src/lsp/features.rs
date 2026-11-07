@@ -14,8 +14,20 @@ use crate::source::SourceMap;
 
 pub fn range(start: (u32, u32), end: (u32, u32)) -> Json {
     Json::obj(vec![
-        ("start", Json::obj(vec![("line", Json::int(start.0 as i64)), ("character", Json::int(start.1 as i64))])),
-        ("end", Json::obj(vec![("line", Json::int(end.0 as i64)), ("character", Json::int(end.1 as i64))])),
+        (
+            "start",
+            Json::obj(vec![
+                ("line", Json::int(start.0 as i64)),
+                ("character", Json::int(start.1 as i64)),
+            ]),
+        ),
+        (
+            "end",
+            Json::obj(vec![
+                ("line", Json::int(end.0 as i64)),
+                ("character", Json::int(end.1 as i64)),
+            ]),
+        ),
     ])
 }
 
@@ -49,7 +61,13 @@ pub fn diagnostics_for(map: &SourceMap, doc_name: &str, diags: &[Diagnostic]) ->
 }
 
 /// The type of the expression under the cursor.
-pub fn hover(program: &Program, checked: &Checked, map: &SourceMap, doc_name: &str, local: usize) -> Option<Json> {
+pub fn hover(
+    program: &Program,
+    checked: &Checked,
+    map: &SourceMap,
+    doc_name: &str,
+    local: usize,
+) -> Option<Json> {
     let base = map.start_of(doc_name)?;
     let at = base + local;
     let (id, span) = walk::innermost_at(&program.items, at)?;
@@ -85,14 +103,46 @@ pub fn hover(program: &Program, checked: &Checked, map: &SourceMap, doc_name: &s
                 ("value", Json::str(format!("```kode\n{body}\n```"))),
             ]),
         ),
-        ("range", range(position(&file.text, start), position(&file.text, end))),
+        (
+            "range",
+            range(position(&file.text, start), position(&file.text, end)),
+        ),
     ]))
 }
 
 const KEYWORDS: &[&str] = &[
-    "and", "as", "assert", "await", "break", "catch", "class", "const", "continue", "else", "enum", "false", "fn",
-    "for", "from", "if", "implements", "import", "in", "interface", "match", "none", "not", "or", "pub", "return",
-    "spawn", "test", "throw", "true", "try", "while",
+    "and",
+    "as",
+    "assert",
+    "await",
+    "break",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "else",
+    "enum",
+    "false",
+    "fn",
+    "for",
+    "from",
+    "if",
+    "implements",
+    "import",
+    "in",
+    "interface",
+    "match",
+    "none",
+    "not",
+    "or",
+    "pub",
+    "return",
+    "spawn",
+    "test",
+    "throw",
+    "true",
+    "try",
+    "while",
 ];
 
 const TYPE_NAMES: &[&str] = &[
@@ -118,7 +168,10 @@ pub fn completion(program: Option<&Program>, text: &str, at: usize) -> Json {
     };
 
     if after_dot {
-        for f in kode_sema::std_fns::STD.iter().filter(|f| f.recv != kode_sema::std_fns::Recv::Free) {
+        for f in kode_sema::std_fns::STD
+            .iter()
+            .filter(|f| f.recv != kode_sema::std_fns::Recv::Free)
+        {
             push(f.name, 2, "stdlib method", &mut seen);
         }
     } else {
@@ -131,7 +184,10 @@ pub fn completion(program: Option<&Program>, text: &str, at: usize) -> Json {
         for t in TYPE_NAMES {
             push(t, 25, "type", &mut seen);
         }
-        for f in kode_sema::std_fns::STD.iter().filter(|f| f.recv == kode_sema::std_fns::Recv::Free) {
+        for f in kode_sema::std_fns::STD
+            .iter()
+            .filter(|f| f.recv == kode_sema::std_fns::Recv::Free)
+        {
             push(f.name, 3, "stdlib function", &mut seen);
         }
         if let Some(program) = program {
@@ -168,7 +224,10 @@ pub fn completion(program: Option<&Program>, text: &str, at: usize) -> Json {
             ])
         })
         .collect();
-    Json::obj(vec![("isIncomplete", Json::Bool(false)), ("items", Json::Arr(items))])
+    Json::obj(vec![
+        ("isIncomplete", Json::Bool(false)),
+        ("items", Json::Arr(items)),
+    ])
 }
 
 /// Items declared in the text, whether or not the file parses. This is what
@@ -191,7 +250,10 @@ fn declared_items(text: &str) -> Vec<(String, i64, &'static str)> {
         } else {
             continue;
         };
-        let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
         if !name.is_empty() {
             out.push((name, kind, detail));
         }
@@ -224,7 +286,10 @@ fn variables_before(text: &str, at: usize) -> Vec<String> {
             }
         };
         if let Some(name) = candidate {
-            if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') && seen.insert(name.clone()) {
+            if !name.is_empty()
+                && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+                && seen.insert(name.clone())
+            {
                 out.push(name);
             }
         }
@@ -232,7 +297,13 @@ fn variables_before(text: &str, at: usize) -> Vec<String> {
     out
 }
 
-fn symbol(name: &str, kind: i64, span: kode_diagnostics::Span, text: &str, children: Vec<Json>) -> Json {
+fn symbol(
+    name: &str,
+    kind: i64,
+    span: kode_diagnostics::Span,
+    text: &str,
+    children: Vec<Json>,
+) -> Json {
     let start = position(text, span.start);
     let end = position(text, span.end);
     let mut pairs = vec![
@@ -256,19 +327,41 @@ pub fn symbols(text: &str) -> Json {
     for item in &program.items {
         match item {
             Item::Fn(d) => out.push(symbol(&d.name, 12, d.name_span, text, Vec::new())),
-            Item::Test(t) => out.push(symbol(&format!("test \"{}\"", t.name), 12, t.name_span, text, Vec::new())),
+            Item::Test(t) => out.push(symbol(
+                &format!("test \"{}\"", t.name),
+                12,
+                t.name_span,
+                text,
+                Vec::new(),
+            )),
             Item::Const(c) => out.push(symbol(&c.name, 14, c.name_span, text, Vec::new())),
             Item::Class(c) => {
-                let mut children: Vec<Json> = c.fields.iter().map(|f| symbol(&f.name, 8, f.name_span, text, Vec::new())).collect();
-                children.extend(c.methods.iter().map(|m| symbol(&m.name, 6, m.name_span, text, Vec::new())));
+                let mut children: Vec<Json> = c
+                    .fields
+                    .iter()
+                    .map(|f| symbol(&f.name, 8, f.name_span, text, Vec::new()))
+                    .collect();
+                children.extend(
+                    c.methods
+                        .iter()
+                        .map(|m| symbol(&m.name, 6, m.name_span, text, Vec::new())),
+                );
                 out.push(symbol(&c.name, 5, c.name_span, text, children));
             }
             Item::Interface(i) => {
-                let children: Vec<Json> = i.methods.iter().map(|m| symbol(&m.name, 6, m.name_span, text, Vec::new())).collect();
+                let children: Vec<Json> = i
+                    .methods
+                    .iter()
+                    .map(|m| symbol(&m.name, 6, m.name_span, text, Vec::new()))
+                    .collect();
                 out.push(symbol(&i.name, 11, i.name_span, text, children));
             }
             Item::Enum(e) => {
-                let children: Vec<Json> = e.variants.iter().map(|(v, span)| symbol(v, 22, *span, text, Vec::new())).collect();
+                let children: Vec<Json> = e
+                    .variants
+                    .iter()
+                    .map(|(v, span)| symbol(v, 22, *span, text, Vec::new()))
+                    .collect();
                 out.push(symbol(&e.name, 10, e.name_span, text, children));
             }
             Item::Import(_) | Item::Stmt(_) => {}
@@ -305,7 +398,10 @@ mod tests {
         assert!(!items.iter().any(|i| i.str_of("label") == Some("total")));
         let text2 = "total = 2\ntot";
         let result2 = completion(None, text2, text2.len());
-        assert!(result2.arr_of("items").iter().any(|i| i.str_of("label") == Some("total")));
+        assert!(result2
+            .arr_of("items")
+            .iter()
+            .any(|i| i.str_of("label") == Some("total")));
     }
 
     #[test]
@@ -314,14 +410,21 @@ mod tests {
         let text = "x = \"abc\"\nx.";
         assert!(kode_syntax::parse_source(text).is_err());
         let result = completion(None, text, text.len());
-        assert!(result.arr_of("items").iter().any(|i| i.str_of("label") == Some("trim")));
+        assert!(result
+            .arr_of("items")
+            .iter()
+            .any(|i| i.str_of("label") == Some("trim")));
     }
 
     #[test]
     fn outlines_a_file() {
         let text = "const LIMIT = 3\nfn work(a: int) -> int => a\nclass Shop {\n    name: string\n    fn total() -> int => 1\n}\n";
         let symbols = symbols(text);
-        let names: Vec<&str> = symbols.items().iter().filter_map(|s| s.str_of("name")).collect();
+        let names: Vec<&str> = symbols
+            .items()
+            .iter()
+            .filter_map(|s| s.str_of("name"))
+            .collect();
         assert_eq!(names, vec!["LIMIT", "work", "Shop"]);
         assert_eq!(symbols.items()[2].arr_of("children").len(), 2);
     }
@@ -331,7 +434,12 @@ mod tests {
         let bad = "fn f() -> int {\nreturn 1\n}\n";
         let edits = formatting(bad);
         assert_eq!(edits.items().len(), 1);
-        assert!(edits.items()[0].str_of("newText").unwrap().contains("    return 1"));
-        assert!(formatting(&crate::fmt::format_source(bad)).items().is_empty());
+        assert!(edits.items()[0]
+            .str_of("newText")
+            .unwrap()
+            .contains("    return 1"));
+        assert!(formatting(&crate::fmt::format_source(bad))
+            .items()
+            .is_empty());
     }
 }

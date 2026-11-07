@@ -64,13 +64,19 @@ impl<'a> Lowerer<'a> {
                 end,
                 inclusive,
             } => self.slice(obj, start.as_deref(), end.as_deref(), *inclusive),
-            ExprKind::Member { obj, name, safe, .. } => self.member(obj, name, *safe),
-            ExprKind::MethodCall { obj, name, args, .. } => self.method_call(e, obj, name, args),
+            ExprKind::Member {
+                obj, name, safe, ..
+            } => self.member(obj, name, *safe),
+            ExprKind::MethodCall {
+                obj, name, args, ..
+            } => self.method_call(e, obj, name, args),
             ExprKind::Call { callee, args, .. } => self.call(e, callee, args),
             ExprKind::Closure { .. } => self.closure(e),
             ExprKind::Spawn { callee, args, .. } => self.spawn(e, callee, args),
             ExprKind::Await(inner) => self.await_expr(inner, e),
-            ExprKind::Catch { expr, var, block, .. } => self.catch_expr(expr, var, block),
+            ExprKind::Catch {
+                expr, var, block, ..
+            } => self.catch_expr(expr, var, block),
         }
     }
 
@@ -87,8 +93,13 @@ impl<'a> Lowerer<'a> {
         if let Some(&idx) = self.checked.fn_index.get(name) {
             return self.fn_value(idx);
         }
-        let (offset, ty) = self.this_field(name).expect("the type checker resolved this name");
-        let this = Operand::Local(self.this_local.expect("a field is only visible inside a method"));
+        let (offset, ty) = self
+            .this_field(name)
+            .expect("the type checker resolved this name");
+        let this = Operand::Local(
+            self.this_local
+                .expect("a field is only visible inside a method"),
+        );
         let dst = self.new_temp(mir_ty(&ty));
         self.emit(Inst::Load {
             dst,
@@ -130,9 +141,17 @@ impl<'a> Lowerer<'a> {
             args: vec![Operand::Int((n + 1) as i64), Operand::Int(mask)],
         });
         let spec = crate::lower::ClosureSpec {
-            params: info.params.iter().map(|(n, t)| (n.clone(), mir_ty(t))).collect(),
+            params: info
+                .params
+                .iter()
+                .map(|(n, t)| (n.clone(), mir_ty(t)))
+                .collect(),
             ret: mir_ty(&info.ret),
-            captures: info.captures.iter().map(|(n, t)| (n.clone(), mir_ty(t))).collect(),
+            captures: info
+                .captures
+                .iter()
+                .map(|(n, t)| (n.clone(), mir_ty(t)))
+                .collect(),
             body,
         };
         let idx = self.strings.closure(spec);
@@ -143,7 +162,11 @@ impl<'a> Lowerer<'a> {
         });
         for (i, (name, ty)) in info.captures.iter().enumerate() {
             let v = self.ident(name);
-            let op = if mir_ty(ty) == Ty::Ref { self.own(v) } else { v.op };
+            let op = if mir_ty(ty) == Ty::Ref {
+                self.own(v)
+            } else {
+                v.op
+            };
             self.emit(Inst::Store {
                 base: Operand::Local(obj),
                 offset: 32 + 8 * i as i32,
@@ -262,9 +285,20 @@ impl<'a> Lowerer<'a> {
         if !matches!(op, ast::BinOp::Eq | ast::BinOp::Ne) {
             return None;
         }
-        let ExprKind::Int(0) = rhs.kind else { return None };
-        let ExprKind::Binary { op: ast::BinOp::Rem, lhs: x, rhs: m } = &lhs.kind else { return None };
-        let ExprKind::Int(c) = m.kind else { return None };
+        let ExprKind::Int(0) = rhs.kind else {
+            return None;
+        };
+        let ExprKind::Binary {
+            op: ast::BinOp::Rem,
+            lhs: x,
+            rhs: m,
+        } = &lhs.kind
+        else {
+            return None;
+        };
+        let ExprKind::Int(c) = m.kind else {
+            return None;
+        };
         if c <= 0 || c & (c - 1) != 0 {
             return None;
         }
@@ -292,7 +326,11 @@ impl<'a> Lowerer<'a> {
         });
         let rhs_bb = self.new_block();
         let join = self.new_block();
-        let (then_bb, else_bb) = if op == ast::BinOp::And { (rhs_bb, join) } else { (join, rhs_bb) };
+        let (then_bb, else_bb) = if op == ast::BinOp::And {
+            (rhs_bb, join)
+        } else {
+            (join, rhs_bb)
+        };
         self.term(Terminator::Branch {
             cond: Operand::Local(res),
             then_bb,
@@ -593,7 +631,13 @@ impl<'a> Lowerer<'a> {
     }
 
     /// Evaluate call arguments in parameter order, using the slot map from the checker.
-    pub(crate) fn call_vals(&mut self, id: ast::ExprId, args: &[Arg], first: Option<V>, count: usize) -> Vec<V> {
+    pub(crate) fn call_vals(
+        &mut self,
+        id: ast::ExprId,
+        args: &[Arg],
+        first: Option<V>,
+        count: usize,
+    ) -> Vec<V> {
         let slots = self.checked.call_args[&id].clone();
         let mut vals: Vec<V> = first.into_iter().collect();
         for slot in slots.iter().take(count) {
@@ -612,7 +656,9 @@ impl<'a> Lowerer<'a> {
         }
         // `f(1)` where `f` holds a function value.
         if self.checked.fn_value_calls.contains(&e.id) {
-            let callee_id = self.lookup(callee).expect("the type checker resolved this call");
+            let callee_id = self
+                .lookup(callee)
+                .expect("the type checker resolved this call");
             let n = self.checked.call_args[&e.id].len();
             let vals = self.call_vals(e.id, args, None, n);
             let ret = self.ety(e);
@@ -784,7 +830,9 @@ impl<'a> Lowerer<'a> {
             });
             return V::unit();
         }
-        let ExprKind::Ident(name) = &args[1].value.kind else { unreachable!("checked") };
+        let ExprKind::Ident(name) = &args[1].value.kind else {
+            unreachable!("checked")
+        };
         let idx = self.checked.fn_index[name];
         let sig = self.std_sig("kode_http_serve", vec![Ty::Int, Ty::Int], Ty::Unit);
         self.emit(Inst::Call {
@@ -817,7 +865,11 @@ impl<'a> Lowerer<'a> {
         let block = self.owned(Operand::Local(p));
         for (i, (_, ty)) in sig_fn.params.iter().enumerate() {
             let v = self.expr(&args[slots[i].expect("checked")].value);
-            let op = if mir_ty(ty) == Ty::Ref { self.own(v) } else { v.op };
+            let op = if mir_ty(ty) == Ty::Ref {
+                self.own(v)
+            } else {
+                v.op
+            };
             self.emit(Inst::Store {
                 base: Operand::Local(p),
                 offset: 24 + 8 * i as i32,
@@ -831,7 +883,11 @@ impl<'a> Lowerer<'a> {
         self.emit(Inst::Call {
             dst: Some(task),
             callee: Callee::Std(sig),
-            args: vec![Operand::Thunk(thunk), Operand::Local(p), Operand::Int(result_is_ref as i64)],
+            args: vec![
+                Operand::Thunk(thunk),
+                Operand::Local(p),
+                Operand::Int(result_is_ref as i64),
+            ],
         });
         self.own(block); // the task now owns the argument block
         self.owned(Operand::Local(task))
@@ -855,7 +911,11 @@ impl<'a> Lowerer<'a> {
         match m {
             Ty::Ref => self.owned(Operand::Local(t)),
             Ty::Bool | Ty::Float => {
-                let kind = if m == Ty::Bool { CastKind::IntToBool } else { CastKind::BitsToFloat };
+                let kind = if m == Ty::Bool {
+                    CastKind::IntToBool
+                } else {
+                    CastKind::BitsToFloat
+                };
                 let c = self.new_temp(m);
                 self.emit(Inst::Assign {
                     dst: c,
