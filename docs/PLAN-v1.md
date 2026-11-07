@@ -11,9 +11,9 @@ one commit set, so `git log` reads like the plan.
 
 | Area | Today | Gap for v1.0 |
 |---|---|---|
-| Language | int/float/bool/string, lists, maps, classes, enums, interfaces, `match`, `try`/`catch`, `T?`, packages, modules | `finally`, channels, `int?` + narrowing, `weak` fields |
+| Language | int/float/bool/string, lists, maps, classes, enums, interfaces, `match`, `try`/`catch`/`finally`, `T?` (locals for `int?`), channels, packages, modules, closures, generic functions | cycle-safe memory (`weak`), enum payloads, fixed-width ints, generic classes |
 | Standard library | strings, lists, maps, files, args, env, sort, JSON, HTTP client, server, router, math, time | collection helpers (`contains`, `index_of`, `reverse`, `insert`, …), `map.values()`, string ergonomics |
-| Errors | stable codes, hints, JSON output, `kode explain` | suggestions everywhere, `finally`, better runtime messages |
+| Errors | stable codes, hints, JSON output, `kode explain`, `finally` | suggestions everywhere, better runtime messages, a depth-limit diagnostic |
 | Tools | run/build/check/test/fmt/explain/mir/lsp/doc/doctor, JSON diagnostics | language server, `kode doc`, `kode doctor`, editor integration |
 | Packages | `kode.toml` with one source root, `import ... as`, `pub` | dependencies (path first), `kode.lock`, `kode add/install`, reuse across projects |
 | Performance | Cranelift, inlining, if-conversion, RC strings/objects | measured numbers per release, RSS budget, `--release` tuning |

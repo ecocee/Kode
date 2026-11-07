@@ -35,7 +35,11 @@ fn signature(module: &ObjectModule, f: &MirFunc) -> cranelift_codegen::ir::Signa
 fn declare_std(module: &mut ObjectModule, s: &StdSig) -> Result<FuncId, String> {
     let mut sig = module.make_signature();
     for p in &s.params {
-        sig.params.push(AbiParam::new(if *p == Ty::Float { types::F64 } else { types::I64 }));
+        sig.params.push(AbiParam::new(if *p == Ty::Float {
+            types::F64
+        } else {
+            types::I64
+        }));
     }
     match s.ret {
         Ty::Unit => {}
@@ -76,12 +80,15 @@ pub fn compile_to_object(program: &MirProgram, optimize: bool) -> Result<Vec<u8>
         .map_err(|e| e.to_string())?;
     flags.set("is_pic", "true").map_err(|e| e.to_string())?;
     // No frame pointer: one more register and a shorter function entry and exit.
-    flags.set("preserve_frame_pointers", "false").map_err(|e| e.to_string())?;
+    flags
+        .set("preserve_frame_pointers", "false")
+        .map_err(|e| e.to_string())?;
     let isa = cranelift_native::builder()
         .map_err(|e| e.to_string())?
         .finish(settings::Flags::new(flags))
         .map_err(|e| e.to_string())?;
-    let builder = ObjectBuilder::new(isa, "kode", default_libcall_names()).map_err(|e| e.to_string())?;
+    let builder =
+        ObjectBuilder::new(isa, "kode", default_libcall_names()).map_err(|e| e.to_string())?;
     let mut module = ObjectModule::new(builder);
     if module.target_config().pointer_type() != types::I64 {
         return Err("only 64-bit targets are supported".into());

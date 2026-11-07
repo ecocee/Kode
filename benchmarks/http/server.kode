@@ -1,0 +1,24 @@
+// HTTP benchmark server: /hello returns plain text, /json returns a small JSON
+// document. The same two routes exist in server.js, server.py and server.go.
+fn hello(req: Request) -> Response {
+    return Response.text("hello")
+}
+
+fn json_doc(req: Request) -> Response {
+    doc = json_obj()
+    doc["message"] = json_string("hello")
+    doc["ok"] = json_bool(true)
+    doc["n"] = json_int(1)
+    return Response.json(json_map(doc))
+}
+
+routes = Router()
+routes.get("/hello", hello)
+routes.get("/json", json_doc)
+
+port = 8080
+if args().len() > 0 {
+    port = args()[0].to_int()
+}
+
+serve(port, routes)

@@ -5,19 +5,20 @@
 //! read with `Content-Length`, chunked transfer encoding, or up to end of stream.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use crate::error::throw_msg;
 use crate::map::{entries, kode_map_new, kode_map_set};
 use crate::object::{kode_obj_new, kode_release, Header};
-use crate::string::{bytes, from_bytes};
+use crate::string::{bytes, from_bytes, from_external};
 
 const MAX_BODY: usize = 64 << 20;
 const MAX_LINE: usize = 8 << 10;
 const MAX_HEADER_BYTES: usize = 64 << 10;
 const MAX_HEADERS: usize = 200;
 const TIMEOUT: Duration = Duration::from_secs(30);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Target {
     host: String,
@@ -40,12 +41,12 @@ fn parse_url(url: &str) -> Result<Target, String> {
     if url.chars().any(|c| c.is_control() || c == ' ') {
         return Err("the URL contains a space or control character".into());
     }
-    let scheme_end = url
-        .find("://")
-        .ok_or("the URL must start with http://")?;
+    let scheme_end = url.find("://").ok_or("the URL must start with http://")?;
     let scheme = &url[..scheme_end];
     if scheme.eq_ignore_ascii_case("https") {
-        return Err("https is not supported yet: the Kode HTTP client speaks plain http:// only".into());
+        return Err(
+            "https is not supported yet: the Kode HTTP client speaks plain http:// only".into(),
+        );
     }
     if !scheme.eq_ignore_ascii_case("http") {
         return Err(format!("unsupported URL scheme `{scheme}`"));
@@ -112,6 +113,21 @@ fn parse_url(url: &str) -> Result<Target, String> {
     })
 }
 
+/// Connect with a timeout, trying every address the name resolves to.
+fn connect(host: &str, port: u16) -> Result<TcpStream, String> {
+    let addrs = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("cannot resolve {host}: {e}"))?;
+    let mut last = String::from("no address found");
+    for addr in addrs {
+        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+            Ok(s) => return Ok(s),
+            Err(e) => last = e.to_string(),
+        }
+    }
+    Err(format!("cannot connect to {host}:{port}: {last}"))
+}
+
 fn valid_method(method: &str) -> bool {
     !method.is_empty()
         && method.len() <= 20
@@ -122,9 +138,9 @@ fn valid_method(method: &str) -> bool {
 
 fn valid_header_name(name: &str) -> bool {
     !name.is_empty()
-        && name.bytes().all(|b| {
-            b.is_ascii_alphanumeric() || b"-_.!#$%&'*+^`|~".contains(&b)
-        })
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.!#$%&'*+^`|~".contains(&b))
 }
 
 fn valid_header_value(value: &str) -> bool {
@@ -172,14 +188,20 @@ fn read_chunked(reader: &mut impl BufRead) -> Result<Vec<u8>, String> {
             }
             return Ok(body);
         }
-        if body.len() + size > MAX_BODY {
-            return Err("the response body is larger than the limit".into());
-        }
-        let start = body.len();
-        body.resize(start + size, 0);
-        reader
-            .read_exact(&mut body[start..])
+        // checked_add: a huge chunk size must not overflow (a panic here would abort).
+        let new_len = body
+            .len()
+            .checked_add(size)
+            .filter(|&n| n <= MAX_BODY)
+            .ok_or("the response body is larger than the limit")?;
+        let got = reader
+            .by_ref()
+            .take(size as u64)
+            .read_to_end(&mut body)
             .map_err(|e| format!("a chunk ended early: {e}"))?;
+        if got != size || body.len() != new_len {
+            return Err("a chunk ended early".into());
+        }
         let mut crlf = [0u8; 2];
         reader
             .read_exact(&mut crlf)
@@ -193,7 +215,7 @@ fn read_chunked(reader: &mut impl BufRead) -> Result<Vec<u8>, String> {
 unsafe fn response(status: i64, body: &[u8], headers: *mut Header) -> *mut Header {
     let p = kode_obj_new(3, 0b110);
     *((p as *mut i64).add(3)) = status;
-    *((p as *mut *mut Header).add(4)) = from_bytes(body);
+    *((p as *mut *mut Header).add(4)) = from_external(body);
     *((p as *mut *mut Header).add(5)) = headers;
     p
 }
@@ -224,7 +246,9 @@ unsafe fn request_inner(
             return Err(format!("`{name}` is not a valid HTTP header name"));
         }
         if !valid_header_value(value) {
-            return Err(format!("the value of header `{name}` contains a control character"));
+            return Err(format!(
+                "the value of header `{name}` contains a control character"
+            ));
         }
         head.push_str(&format!("{name}: {value}\r\n"));
     }
@@ -234,8 +258,7 @@ unsafe fn request_inner(
     }
     head.push_str("\r\n");
 
-    let mut stream = TcpStream::connect((target.host.as_str(), target.port))
-        .map_err(|e| format!("cannot connect to {}: {e}", target.host_header))?;
+    let mut stream = connect(&target.host, target.port)?;
     let _ = stream.set_read_timeout(Some(TIMEOUT));
     let _ = stream.set_write_timeout(Some(TIMEOUT));
     stream
@@ -300,10 +323,16 @@ unsafe fn request_inner(
             if n > MAX_BODY {
                 return Err("the response body is larger than the limit".into());
             }
-            body_out.resize(n, 0);
-            reader
-                .read_exact(&mut body_out)
+            // Read incrementally: a server claiming a huge length must not make us
+            // allocate that much up front.
+            let got = reader
+                .by_ref()
+                .take(n as u64)
+                .read_to_end(&mut body_out)
                 .map_err(|e| format!("the response body ended early: {e}"))?;
+            if got != n {
+                return Err("the response body ended early".into());
+            }
         } else {
             reader
                 .by_ref()
@@ -319,7 +348,7 @@ unsafe fn request_inner(
     let map = kode_map_new(1);
     for (name, value) in &headers {
         let key = from_bytes(name.as_bytes());
-        kode_map_set(map, key, from_bytes(value.as_bytes()) as i64);
+        kode_map_set(map, key, from_external(value.as_bytes()) as i64);
         kode_release(key);
     }
     Ok(response(status as i64, &body_out, map))

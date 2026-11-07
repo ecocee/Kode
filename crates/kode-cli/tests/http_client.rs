@@ -13,9 +13,7 @@ fn read_request(stream: &TcpStream) -> (String, String) {
     let mut length = 0usize;
     loop {
         let mut header = String::new();
-        if reader.read_line(&mut header).expect("header") == 0
-            || header == "\r\n"
-            || header == "\n"
+        if reader.read_line(&mut header).expect("header") == 0 || header == "\r\n" || header == "\n"
         {
             break;
         }
@@ -34,7 +32,9 @@ fn read_request(stream: &TcpStream) -> (String, String) {
 fn http_client_gets_posts_and_reads_chunked() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind a test port");
     let port = listener.local_addr().unwrap().port();
-    listener.set_nonblocking(true).expect("nonblocking listener");
+    listener
+        .set_nonblocking(true)
+        .expect("nonblocking listener");
 
     let server = std::thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(10);

@@ -119,12 +119,14 @@ pub fn read(path: &Path) -> Result<Manifest, Diagnostic> {
                 if raw_deps.iter().any(|(n, _, _)| n == key) {
                     return Err(code(
                         "E0414",
-                        format!("{}: `{key}` is listed twice under [dependencies]", path.display()),
+                        format!(
+                            "{}: `{key}` is listed twice under [dependencies]",
+                            path.display()
+                        ),
                     ));
                 }
-                let (dep_path, dep_version) = dep_value(value).map_err(|m| {
-                    at(format!("{}:{}: {m}", path.display(), i + 1))
-                })?;
+                let (dep_path, dep_version) = dep_value(value)
+                    .map_err(|m| at(format!("{}:{}: {m}", path.display(), i + 1)))?;
                 raw_deps.push((key.to_string(), dep_path, dep_version));
             }
             _ => {}
@@ -149,7 +151,10 @@ pub fn read(path: &Path) -> Result<Manifest, Diagnostic> {
         if dep_name == name {
             return Err(code(
                 "E0414",
-                format!("{}: a package cannot depend on itself (`{name}`)", path.display()),
+                format!(
+                    "{}: a package cannot depend on itself (`{name}`)",
+                    path.display()
+                ),
             ));
         }
         let Some(relative) = dep_path.filter(|p| !p.is_empty()) else {
@@ -245,13 +250,22 @@ pub fn create(dir: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 /// Add or replace one `[dependencies]` entry.
-pub fn add_dependency(dir: &Path, name: &str, dep_path: &str, version: Option<&str>) -> Result<(), String> {
+pub fn add_dependency(
+    dir: &Path,
+    name: &str,
+    dep_path: &str,
+    version: Option<&str>,
+) -> Result<(), String> {
     if !valid_name(name) {
         return Err(format!("`{name}` is not a valid dependency name"));
     }
     let file = dir.join("kode.toml");
-    let text = std::fs::read_to_string(&file)
-        .map_err(|e| format!("cannot read {}: {e} (run `kode init` first)", file.display()))?;
+    let text = std::fs::read_to_string(&file).map_err(|e| {
+        format!(
+            "cannot read {}: {e} (run `kode init` first)",
+            file.display()
+        )
+    })?;
     let entry = match version {
         Some(v) => format!("{name} = {{ path = \"{dep_path}\", version = \"{v}\" }}"),
         None => format!("{name} = {{ path = \"{dep_path}\" }}"),
@@ -263,11 +277,16 @@ pub fn add_dependency(dir: &Path, name: &str, dep_path: &str, version: Option<&s
 /// Remove one `[dependencies]` entry. Returns false when it was not there.
 pub fn remove_dependency(dir: &Path, name: &str) -> Result<bool, String> {
     let file = dir.join("kode.toml");
-    let text = std::fs::read_to_string(&file)
-        .map_err(|e| format!("cannot read {}: {e} (run `kode init` first)", file.display()))?;
+    let text = std::fs::read_to_string(&file).map_err(|e| {
+        format!(
+            "cannot read {}: {e} (run `kode init` first)",
+            file.display()
+        )
+    })?;
     let (updated, removed) = remove_from_section(&text, "dependencies", name);
     if removed {
-        std::fs::write(&file, updated).map_err(|e| format!("cannot write {}: {e}", file.display()))?;
+        std::fs::write(&file, updated)
+            .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
     }
     Ok(removed)
 }
@@ -294,7 +313,9 @@ fn upsert_in_section(text: &str, section: &str, key: &str, entry: &str) -> Strin
         .unwrap_or(lines.len());
     let existing = (start + 1..end).find(|&i| {
         let line = lines[i].trim_start();
-        line.strip_prefix(key).map(|rest| rest.starts_with(' ') || rest.starts_with('=')).unwrap_or(false)
+        line.strip_prefix(key)
+            .map(|rest| rest.starts_with(' ') || rest.starts_with('='))
+            .unwrap_or(false)
     });
     match existing {
         Some(i) => lines[i] = entry.to_string(),
@@ -318,9 +339,13 @@ fn remove_from_section(text: &str, section: &str, key: &str) -> (String, bool) {
         .unwrap_or(lines.len());
     let found = (start + 1..end).find(|&i| {
         let line = lines[i].trim_start();
-        line.strip_prefix(key).map(|rest| rest.starts_with(' ') || rest.starts_with('=')).unwrap_or(false)
+        line.strip_prefix(key)
+            .map(|rest| rest.starts_with(' ') || rest.starts_with('='))
+            .unwrap_or(false)
     });
-    let Some(i) = found else { return (text.to_string(), false) };
+    let Some(i) = found else {
+        return (text.to_string(), false);
+    };
     lines.remove(i);
     let mut out = lines.join("\n");
     out.push('\n');
@@ -366,7 +391,11 @@ mod tests {
     fn reads_package_keys() {
         let dir = temp_dir("keys");
         let file = dir.join("kode.toml");
-        std::fs::write(&file, "[package]\nname = \"shop\"\nversion = \"1.2.0\"\nroot = \"lib\"\n").unwrap();
+        std::fs::write(
+            &file,
+            "[package]\nname = \"shop\"\nversion = \"1.2.0\"\nroot = \"lib\"\n",
+        )
+        .unwrap();
         let m = read(&file).unwrap();
         assert_eq!(m.name, "shop");
         assert_eq!(m.version, "1.2.0");
@@ -406,7 +435,11 @@ mod tests {
     fn a_version_only_dependency_has_a_useful_error() {
         let dir = temp_dir("version-only");
         let file = dir.join("kode.toml");
-        std::fs::write(&file, "[package]\nname = \"app\"\n\n[dependencies]\nutils = \"1.0\"\n").unwrap();
+        std::fs::write(
+            &file,
+            "[package]\nname = \"app\"\n\n[dependencies]\nutils = \"1.0\"\n",
+        )
+        .unwrap();
         let err = read(&file).unwrap_err();
         assert_eq!(err.code, "E0413");
         assert!(err.help.unwrap().contains("path"));
@@ -417,7 +450,11 @@ mod tests {
     fn rejects_a_self_dependency_and_duplicates() {
         let dir = temp_dir("self");
         let file = dir.join("kode.toml");
-        std::fs::write(&file, "[package]\nname = \"app\"\n\n[dependencies]\napp = { path = \".\" }\n").unwrap();
+        std::fs::write(
+            &file,
+            "[package]\nname = \"app\"\n\n[dependencies]\napp = { path = \".\" }\n",
+        )
+        .unwrap();
         assert_eq!(read(&file).unwrap_err().code, "E0414");
         std::fs::write(&file, "[package]\nname = \"app\"\n\n[dependencies]\nutils = { path = \"a\" }\nutils = { path = \"b\" }\n").unwrap();
         assert_eq!(read(&file).unwrap_err().code, "E0414");
@@ -427,7 +464,11 @@ mod tests {
     #[test]
     fn adds_and_removes_a_dependency() {
         let dir = temp_dir("edit");
-        std::fs::write(dir.join("kode.toml"), "[package]\nname = \"app\"\nroot = \"src\"\n").unwrap();
+        std::fs::write(
+            dir.join("kode.toml"),
+            "[package]\nname = \"app\"\nroot = \"src\"\n",
+        )
+        .unwrap();
         add_dependency(&dir, "utils", "../utils", None).unwrap();
         add_dependency(&dir, "pricing", "../pricing", Some("0.2.0")).unwrap();
         let m = read(&dir.join("kode.toml")).unwrap();
@@ -456,7 +497,9 @@ mod tests {
         let m = read(&pkg.join("kode.toml")).unwrap();
         assert_eq!(m.name, "notes");
         assert_eq!(m.root, pkg.join("src"));
-        assert!(create(&pkg, "notes").unwrap_err().contains("already has a kode.toml"));
+        assert!(create(&pkg, "notes")
+            .unwrap_err()
+            .contains("already has a kode.toml"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

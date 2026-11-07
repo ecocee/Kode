@@ -31,6 +31,17 @@ pub fn from_bytes(b: &[u8]) -> *mut Header {
     }
 }
 
+/// Build a Kode string from bytes that did not come from a Rust `str` (a request
+/// body, a response body, process output). Invalid UTF-8 becomes U+FFFD, so every
+/// Kode string stays valid UTF-8 and the `from_utf8_unchecked` calls elsewhere in
+/// the runtime stay sound.
+pub fn from_external(b: &[u8]) -> *mut Header {
+    match std::str::from_utf8(b) {
+        Ok(_) => from_bytes(b),
+        Err(_) => from_bytes(String::from_utf8_lossy(b).as_bytes()),
+    }
+}
+
 /// # Safety
 /// Both pointers must be valid strings.
 #[no_mangle]

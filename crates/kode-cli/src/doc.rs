@@ -25,8 +25,8 @@ pub fn run(opts: &Options) -> Result<u8, String> {
 
     let mut pages: Vec<(String, Vec<Entry>)> = Vec::new();
     for file in &files {
-        let text =
-            std::fs::read_to_string(file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+        let text = std::fs::read_to_string(file)
+            .map_err(|e| format!("cannot read {}: {e}", file.display()))?;
         let items = entries(&text);
         if !items.is_empty() {
             pages.push((file.display().to_string(), items));

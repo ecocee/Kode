@@ -55,8 +55,17 @@ pub fn offset(text: &str, line: u32, character: u32) -> usize {
 pub fn word_at(text: &str, at: usize) -> (usize, usize) {
     let at = at.min(text.len());
     let is_word = |c: char| c.is_alphanumeric() || c == '_';
-    let start = text[..at].char_indices().rev().find(|(_, c)| !is_word(*c)).map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
-    let end = text[at..].char_indices().find(|(_, c)| !is_word(*c)).map(|(i, _)| at + i).unwrap_or(text.len());
+    let start = text[..at]
+        .char_indices()
+        .rev()
+        .find(|(_, c)| !is_word(*c))
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    let end = text[at..]
+        .char_indices()
+        .find(|(_, c)| !is_word(*c))
+        .map(|(i, _)| at + i)
+        .unwrap_or(text.len());
     (start, end)
 }
 
@@ -75,11 +84,17 @@ pub fn path_from_uri(uri: &str) -> Option<PathBuf> {
 /// (go-to-definition), and covered by the tests below.
 #[allow(dead_code)]
 pub fn uri_from_path(path: &std::path::Path) -> String {
-    let text = path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string();
+    let text = path
+        .canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string();
     let mut out = String::from("file://");
     for b in text.bytes() {
         match b {
-            b'/' | b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b':' => out.push(b as char),
+            b'/' | b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b':' => {
+                out.push(b as char)
+            }
             other => out.push_str(&format!("%{other:02X}")),
         }
     }

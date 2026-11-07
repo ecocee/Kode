@@ -73,6 +73,12 @@ for i, x in xs { print(i, x) }
   `{"name": "Asha"}`. Strings inside a collection are quoted and escaped.
 - Not yet: integer map keys.
 
+## Limits
+
+- Expressions and blocks nest at most 128 levels (E0118). A long `+` chain
+  counts one level per term, so 129 added terms in one line is an error; build
+  the value with a loop instead (ADR 0032).
+
 ## Enums and printing
 
 ```

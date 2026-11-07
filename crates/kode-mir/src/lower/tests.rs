@@ -7,8 +7,8 @@ use kode_sema::Checked;
 use std::collections::HashMap;
 
 use super::{Lowerer, Strings};
-use crate::LineMap;
 use crate::ir::*;
+use crate::LineMap;
 
 pub(crate) fn lower_tests(
     program: &Program,
@@ -113,7 +113,11 @@ pub(crate) fn lower_tests(
     let passed = lw.new_temp(Ty::Int);
     lw.emit(Inst::Assign {
         dst: passed,
-        rv: Rvalue::Binary(BinOp::Sub, Operand::Int(names.len() as i64), Operand::Local(failed)),
+        rv: Rvalue::Binary(
+            BinOp::Sub,
+            Operand::Int(names.len() as i64),
+            Operand::Local(failed),
+        ),
     });
     lw.emit(Inst::Call {
         dst: None,

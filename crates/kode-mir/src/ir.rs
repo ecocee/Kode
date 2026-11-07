@@ -241,7 +241,10 @@ pub struct MirProgram {
 
 impl MirFunc {
     pub fn param_tys(&self) -> Vec<Ty> {
-        self.locals[..self.param_count].iter().map(|l| l.ty).collect()
+        self.locals[..self.param_count]
+            .iter()
+            .map(|l| l.ty)
+            .collect()
     }
 
     pub fn operand_ty(&self, op: &Operand) -> Ty {

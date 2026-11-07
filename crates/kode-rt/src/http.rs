@@ -1,113 +1,69 @@
 //! A small HTTP/1.1 server for `serve(port, handler)`.
 //! The handler is a Kode function `(method, path, body) -> string`. A handler that
 //! throws an `Error` answers with the error's `code` (400 to 599) or 500.
+//!
+//! Parsing, limits, timeouts and response writing are in `http_wire.rs`
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::atomic::Ordering;
 
 use crate::error::{fatal, take_err};
+use crate::http_wire::{checked_port, event_loop, Request};
 use crate::object::{kode_release, Header, THREADED};
-use crate::string::{bytes, from_bytes};
+use crate::string::{bytes, from_bytes, from_external};
+
+// `router.rs` and tests import it from here.
+#[allow(unused_imports)]
+pub(crate) use crate::http_wire::status_text;
 
 type Handler = extern "C" fn(*mut Header, *mut Header, *mut Header) -> *mut Header;
 
-pub(crate) fn status_text(code: i64) -> &'static str {
-    match code {
-        200 => "OK",
-        201 => "Created",
-        204 => "No Content",
-        400 => "Bad Request",
-        401 => "Unauthorized",
-        403 => "Forbidden",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        409 => "Conflict",
-        _ if code >= 500 => "Internal Server Error",
-        _ => "Status",
-    }
-}
-
-fn handle_connection(stream: TcpStream, handler: usize) {
-    let _ = stream.set_nodelay(true);
-    let Ok(read_half) = stream.try_clone() else { return };
-    let mut reader = BufReader::new(read_half);
-    let mut out = stream;
-    let handler: Handler = unsafe { std::mem::transmute(handler) };
-
-    loop {
-        let mut line = String::new();
-        if reader.read_line(&mut line).unwrap_or(0) == 0 {
-            return;
-        }
-        let mut parts = line.split_whitespace();
-        let (Some(method), Some(path)) = (parts.next(), parts.next()) else { return };
-        let (method, path) = (method.to_string(), path.to_string());
-
-        let mut content_length = 0usize;
-        let mut close = false;
-        loop {
-            let mut h = String::new();
-            if reader.read_line(&mut h).unwrap_or(0) == 0 {
-                return;
-            }
-            let h = h.trim_end();
-            if h.is_empty() {
-                break;
-            }
-            let lower = h.to_ascii_lowercase();
-            if let Some(v) = lower.strip_prefix("content-length:") {
-                content_length = v.trim().parse().unwrap_or(0);
-            } else if lower.starts_with("connection:") && lower.contains("close") {
-                close = true;
-            }
-        }
-        let mut body = vec![0u8; content_length.min(64 << 20)];
-        if reader.read_exact(&mut body).is_err() {
-            return;
-        }
-
-        let (status, text) = unsafe {
-            let m = from_bytes(method.as_bytes());
-            let p = from_bytes(path.as_bytes());
-            let b = from_bytes(&body);
-            let r = handler(m, p, b);
-            kode_release(m);
-            kode_release(p);
-            kode_release(b);
-            let err = take_err();
-            if !err.is_null() {
-                kode_release(r);
-                let msg_ptr = *((err as *const *const Header).add(3));
-                let code = *((err as *const i64).add(4));
-                let msg = if msg_ptr.is_null() { Vec::new() } else { bytes(msg_ptr).to_vec() };
-                kode_release(err);
-                (if (400..600).contains(&code) { code } else { 500 }, msg)
+fn call_handler(handler: Handler, req: &Request) -> (i64, Vec<u8>, Vec<u8>) {
+    unsafe {
+        // Isolation: a request never inherits an error left on this worker thread.
+        kode_release(take_err());
+        let m = from_bytes(req.method.as_bytes());
+        let p = from_bytes(req.target.as_bytes());
+        let b = from_external(&req.body);
+        let r = handler(m, p, b);
+        kode_release(m);
+        kode_release(p);
+        kode_release(b);
+        let err = take_err();
+        let (status, text) = if !err.is_null() {
+            kode_release(r);
+            let msg_ptr = *((err as *const *const Header).add(3));
+            let code = *((err as *const i64).add(4));
+            let msg = if msg_ptr.is_null() {
+                Vec::new()
             } else {
-                let t = if r.is_null() { Vec::new() } else { bytes(r).to_vec() };
-                kode_release(r);
-                (200, t)
-            }
-        };
-
-        let trimmed = text.iter().find(|c| !c.is_ascii_whitespace());
-        let ctype = if matches!(trimmed, Some(b'{') | Some(b'[')) {
-            "application/json"
+                bytes(msg_ptr).to_vec()
+            };
+            kode_release(err);
+            (
+                if (400..600).contains(&code) {
+                    code
+                } else {
+                    500
+                },
+                msg,
+            )
         } else {
-            "text/plain; charset=utf-8"
+            let t = if r.is_null() {
+                Vec::new()
+            } else {
+                bytes(r).to_vec()
+            };
+            kode_release(r);
+            (200, t)
         };
-        let head = format!(
-            "HTTP/1.1 {status} {}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n",
-            status_text(status),
-            text.len(),
-            if close { "close" } else { "keep-alive" }
-        );
-        if out.write_all(head.as_bytes()).is_err() || out.write_all(&text).is_err() {
-            return;
-        }
-        if close {
-            return;
-        }
+        let first = text.iter().find(|c| !c.is_ascii_whitespace());
+        let ctype: &[u8] = if matches!(first, Some(b'{') | Some(b'[')) {
+            b"application/json"
+        } else {
+            b"text/plain; charset=utf-8"
+        };
+        (status, text, ctype.to_vec())
     }
 }
 
@@ -118,21 +74,119 @@ fn handle_connection(stream: TcpStream, handler: usize) {
 #[no_mangle]
 pub unsafe extern "C" fn kode_http_serve(port: i64, handler: Handler) {
     THREADED.store(true, Ordering::SeqCst);
-    let listener = TcpListener::bind(("0.0.0.0", port as u16))
+    let port = checked_port(port);
+    let listener = TcpListener::bind(("0.0.0.0", port))
         .unwrap_or_else(|e| fatal(&format!("cannot listen on port {port}: {e}")));
     eprintln!("kode: listening on http://localhost:{port}");
-    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).max(4);
     let h = handler as usize;
-    let mut threads = Vec::new();
-    for _ in 0..workers {
-        let l = listener.try_clone().unwrap_or_else(|e| fatal(&format!("cannot share the socket: {e}")));
-        threads.push(std::thread::spawn(move || loop {
-            if let Ok((stream, _)) = l.accept() {
-                handle_connection(stream, h);
+    event_loop(listener, move |req| {
+        let handler: Handler = unsafe { std::mem::transmute::<usize, Handler>(h) };
+        call_handler(handler, req)
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::{kode_err_throw, make_error};
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::{Duration, Instant};
+
+    extern "C" fn handler(_m: *mut Header, p: *mut Header, b: *mut Header) -> *mut Header {
+        unsafe {
+            match bytes(p) {
+                b"/json" => from_bytes(br#"{"ok":true}"#),
+                b"/err" => {
+                    kode_err_throw(make_error("teapot", 418));
+                    from_bytes(b"")
+                }
+                b"/status" => from_bytes(b"plain"),
+                _ => from_bytes(bytes(b)), // echo the request body
             }
-        }));
+        }
     }
-    for t in threads {
-        let _ = t.join();
+
+    fn free_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("bind")
+            .local_addr()
+            .expect("addr")
+            .port()
+    }
+
+    fn connect(port: u16) -> TcpStream {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match TcpStream::connect(("127.0.0.1", port)) {
+                Ok(s) => {
+                    s.set_read_timeout(Some(Duration::from_secs(5)))
+                        .expect("timeout");
+                    return s;
+                }
+                Err(e) if Instant::now() > deadline => panic!("server did not start: {e}"),
+                Err(_) => std::thread::sleep(Duration::from_millis(20)),
+            }
+        }
+    }
+
+    /// Send a request and read one response (head text, body bytes).
+    fn exchange(c: &mut TcpStream, raw: &[u8]) -> (String, Vec<u8>) {
+        c.write_all(raw).expect("write");
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            c.read_exact(&mut byte).expect("head");
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8(head).expect("utf8 head");
+        let len = head
+            .lines()
+            .find_map(|l| {
+                l.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|v| v.trim().parse::<usize>().expect("len"))
+            })
+            .expect("Content-Length is always sent");
+        let mut body = vec![0u8; len];
+        c.read_exact(&mut body).expect("body");
+        (head, body)
+    }
+
+    #[test]
+    fn serve_end_to_end() {
+        let port = free_port();
+        std::thread::spawn(move || unsafe { kode_http_serve(i64::from(port), handler) });
+        let mut c = connect(port);
+
+        let (head, body) = exchange(&mut c, b"GET /json HTTP/1.1\r\n\r\n");
+        assert!(head.starts_with("HTTP/1.1 200 OK"));
+        assert!(head.contains("Content-Type: application/json"));
+        assert_eq!(body, br#"{"ok":true}"#);
+
+        // A thrown error becomes its status code, and the NEXT request on the same
+        // connection must not inherit it.
+        let (head, body) = exchange(&mut c, b"GET /err HTTP/1.1\r\n\r\n");
+        assert!(head.starts_with("HTTP/1.1 418 "));
+        assert_eq!(body, b"teapot");
+        let (head, body) = exchange(&mut c, b"GET /status HTTP/1.1\r\n\r\n");
+        assert!(head.starts_with("HTTP/1.1 200 OK"));
+        assert_eq!(body, b"plain");
+
+        // Invalid UTF-8 from the client must come back as valid UTF-8 text.
+        let mut post = b"POST /echo HTTP/1.1\r\nContent-Length: 4\r\n\r\n".to_vec();
+        post.extend_from_slice(&[b'a', 0xff, 0xfe, b'z']);
+        let (head, body) = exchange(&mut c, &post);
+        assert!(head.starts_with("HTTP/1.1 200 OK"));
+        let text = String::from_utf8(body).expect("the echoed body is valid UTF-8");
+        assert!(text.starts_with('a') && text.ends_with('z') && text.contains('\u{fffd}'));
+
+        // Unsupported framing is refused, not guessed at.
+        let mut c2 = connect(port);
+        let (head, _) = exchange(
+            &mut c2,
+            b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+        );
+        assert!(head.starts_with("HTTP/1.1 501 "));
     }
 }

@@ -19,7 +19,11 @@ pub struct SourceMap {
 impl SourceMap {
     /// Add a file and return its start offset.
     pub fn add(&mut self, name: String, text: String) -> usize {
-        let start = self.files.last().map(|f| f.start + f.text.len() + 1).unwrap_or(0);
+        let start = self
+            .files
+            .last()
+            .map(|f| f.start + f.text.len() + 1)
+            .unwrap_or(0);
         self.files.push(SourceFile { name, text, start });
         start
     }

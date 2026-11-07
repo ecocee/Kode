@@ -14,7 +14,7 @@ use std::process::Command;
 use crate::error::throw_msg;
 use crate::list::{kode_list_get, kode_list_len};
 use crate::object::{kode_obj_new, Header};
-use crate::string::{bytes, from_bytes};
+use crate::string::{bytes, from_external};
 
 /// `ProcessResult { code: int, stdout: string, stderr: string }`, mirroring the
 /// class declared in `kode-sema/src/check/mod.rs`.
@@ -29,8 +29,8 @@ unsafe fn text(p: *const Header) -> String {
 unsafe fn result(code: i64, out: &[u8], err: &[u8]) -> *mut Header {
     let p = kode_obj_new(FIELDS, MASK);
     *((p as *mut i64).add(3)) = code;
-    *((p as *mut *mut Header).add(4)) = from_bytes(out);
-    *((p as *mut *mut Header).add(5)) = from_bytes(err);
+    *((p as *mut *mut Header).add(4)) = from_external(out);
+    *((p as *mut *mut Header).add(5)) = from_external(err);
     p
 }
 

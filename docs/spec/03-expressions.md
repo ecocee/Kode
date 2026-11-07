@@ -28,3 +28,22 @@ From highest to lowest precedence:
 - `and` and `or` stop early: the right side runs only when needed.
 - Conditions must be `bool`. There is no truthy or falsy (E0209).
 - `if` is a statement in v0.1, not an expression.
+
+## Nesting limit
+
+An expression or block may nest at most 128 levels deep (ADR 0032). Depth is
+counted the way the compiler walks the tree: one level per nested expression,
+statement or block, and one level per operand of a left-to-right chain, so
+`a + b + c` is two levels and 129 chained `+` operators are refused. Deeper
+input is `E0118` with a hint to split it, not a compiler crash.
+
+```
+# 129 terms in one expression: E0118
+x: int = 1 + 1 + ...
+
+# the same value, accepted
+total = 0
+for i in 0..129 {
+    total = total + 1
+}
+```

@@ -37,6 +37,9 @@ impl Parser {
                 }
                 Err(e) => {
                     self.errors.push(e);
+                    if self.fatal {
+                        break;
+                    }
                     self.recover();
                 }
             }
@@ -170,8 +173,10 @@ impl Parser {
                     break;
                 }
                 TokenKind::Eof => {
-                    return Err(Diagnostic::error("E0106", "this class is never closed", open.span)
-                        .with_help("add a matching `}`"))
+                    return Err(
+                        Diagnostic::error("E0106", "this class is never closed", open.span)
+                            .with_help("add a matching `}`"),
+                    )
                 }
                 TokenKind::Fn => methods.push(self.parse_fn()?),
                 TokenKind::Ident(_) if matches!(self.peek_at(1), Some(TokenKind::Colon)) => {
@@ -197,7 +202,9 @@ impl Parser {
                         format!("expected a field or a method, found {}", other.describe()),
                         self.span(),
                     )
-                    .with_help("fields look like `name: string`, methods like `fn show() { ... }`"))
+                    .with_help(
+                        "fields look like `name: string`, methods like `fn show() { ... }`",
+                    ))
                 }
             }
             self.expect_end()?;
@@ -228,8 +235,12 @@ impl Parser {
                     break;
                 }
                 TokenKind::Eof => {
-                    return Err(Diagnostic::error("E0106", "this interface is never closed", open.span)
-                        .with_help("add a matching `}`"))
+                    return Err(Diagnostic::error(
+                        "E0106",
+                        "this interface is never closed",
+                        open.span,
+                    )
+                    .with_help("add a matching `}`"))
                 }
                 TokenKind::Fn => methods.push(self.parse_iface_method()?),
                 other => {
@@ -336,7 +347,9 @@ impl Parser {
         match self.peek().clone() {
             TokenKind::Str(parts) if parts.len() == 1 && matches!(parts[0], StrPart::Lit(_)) => {
                 let span = self.bump().span;
-                let StrPart::Lit(s) = &parts[0] else { unreachable!() };
+                let StrPart::Lit(s) = &parts[0] else {
+                    unreachable!()
+                };
                 Ok((s.clone(), span))
             }
             other => Err(Diagnostic::error(

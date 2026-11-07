@@ -55,4 +55,7 @@ jobs:
 
       - name: Formatting is a no-op
         shell: bash
-        run: ./target/debug/kode fmt tests/run-pass --check
+        run: ./target/debug/kode fmt tests/run-pass examples --check
+
+      - name: Lints
+        run: cargo clippy --workspace --all-targets -- -D warnings

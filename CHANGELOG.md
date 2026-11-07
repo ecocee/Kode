@@ -7,6 +7,28 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Fixed
 
+- Two diagnostics that sent readers looking in the wrong place now say what is
+  actually missing. `Shape.Circle(1)` reports `E0253` "enum payloads are not
+  supported yet" with a class-based example instead of "unknown variable
+  `Shape`", and `x: u8 = 1` reports `E0303` with the list of real types and a
+  note that fixed-width numbers are planned.
+- `kode explain` no longer answers "unknown error code" for 15 codes that the
+  compiler emits (`E0111`-`E0117`, `E0234`-`E0239`, `E0310`-`E0314`): they were
+  missing from `docs/errors/index.md`.
+- Deeply nested input no longer crashes the compiler. 300 nested parentheses, a
+  2,000-term `+` chain and 500 nested `if` blocks used to abort with a stack
+  overflow and exit code 134; they now report `E0118` with a hint. The limit is
+  128 levels (ADR 0032), checked both while parsing and by an iterative walk of
+  the finished tree that also covers `kode fmt` and `kode lsp`.
+
+## 0.3.5
+
+The `version` in `Cargo.toml` now matches the latest tag. Tags `v0.3.1` through
+`v0.3.4` were cut without changelog entries; their changes are described under
+0.3.0 and here.
+
+### Fixed
+
 - **Heap values sent through a channel leaked.** `kode_chan_send` retained the
   payload a second time even though the lowering already transfers one
   reference, so every string, list, map or object sent through a channel was

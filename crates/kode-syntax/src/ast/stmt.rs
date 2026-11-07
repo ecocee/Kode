@@ -30,8 +30,15 @@ pub enum TypeAnnKind {
 #[derive(Debug, Clone)]
 pub enum Target {
     Var(String, Span),
-    Index { obj: Expr, index: Expr },
-    Field { obj: Expr, name: String, name_span: Span },
+    Index {
+        obj: Expr,
+        index: Expr,
+    },
+    Field {
+        obj: Expr,
+        name: String,
+        name_span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -5,7 +5,9 @@ use std::collections::HashMap;
 
 use crate::error::fatal;
 use crate::list::{kode_list_new, kode_list_push};
-use crate::object::{alloc_object, free_object, kode_release, kode_retain, Header, ITEMS_ARE_REFS, MAP};
+use crate::object::{
+    alloc_object, free_object, kode_release, kode_retain, Header, ITEMS_ARE_REFS, MAP,
+};
 use crate::string::bytes;
 
 struct MapInner {
@@ -32,7 +34,12 @@ unsafe fn is_refs(p: *const Header) -> bool {
 #[no_mangle]
 pub extern "C" fn kode_map_new(items_are_refs: i64) -> *mut Header {
     unsafe {
-        let kind = MAP | if items_are_refs != 0 { ITEMS_ARE_REFS } else { 0 };
+        let kind = MAP
+            | if items_are_refs != 0 {
+                ITEMS_ARE_REFS
+            } else {
+                0
+            };
         let p = alloc_object(24, kind);
         let b = Box::new(MapInner {
             keys: Vec::new(),
@@ -165,7 +172,9 @@ pub unsafe extern "C" fn kode_map_values(p: *mut Header) -> *mut Header {
 #[no_mangle]
 pub unsafe extern "C" fn kode_map_remove(p: *mut Header, key: *mut Header) {
     let m = inner(p);
-    let Some(i) = m.index.remove(bytes(key)) else { return };
+    let Some(i) = m.index.remove(bytes(key)) else {
+        return;
+    };
     let k = m.keys.remove(i);
     let v = m.vals.remove(i);
     kode_release(k);

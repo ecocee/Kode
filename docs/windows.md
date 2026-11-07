@@ -47,9 +47,11 @@ dump.
 
 ## What is not tested
 
-- CI runs the test suite on `windows-latest` with the GNU toolchain and
-  MinGW-w64, so the compiler and the linker are exercised; the linked binaries
-  are still mostly not run on Windows by hand.
+- A `windows-latest` CI job exists (GNU toolchain + MinGW-w64) and runs the full
+  suite, so the compiler and linker are exercised there. **That job has never
+  been confirmed green**, and the linked binaries are still mostly not run on
+  Windows by hand. Treat Windows as unverified until a green run is linked in
+  `docs/releasing.md`.
 - Cross-compiling *to* Windows from macOS/Linux needs a MinGW-w64 cross
   toolchain (`x86_64-w64-mingw32-gcc`) and `KODE_CC` set to it. The runtime
   archive is built for the host, so a cross build is not wired up yet.
@@ -59,12 +61,15 @@ dump.
 
 ## Releases on Windows
 
-A release is published from a Git tag and, for Windows, ships these files:
+**Windows artifacts are planned, not built.** `.github/workflows/release.yml`
+builds Linux x86-64 and macOS arm64, so a release currently contains no Windows
+file. The planned shape is:
 
 - `kode-<version>-windows-x86_64.zip` — the `kode.exe` binary plus README,
-  CHANGELOG, the two editor docs, zipped with 7-Zip.
+  CHANGELOG, the two editor docs.
 - `kode-<version>-windows-x86_64.exe` — the `kode.exe` binary by itself, so it
   can be downloaded and dropped in a folder without unzipping.
 
-The binary is a single MinGW-w64 build, statically linked by default, and needs
-no C runtime beside it.
+The binary would be a single MinGW-w64 build, statically linked by default,
+needing no C runtime beside it. `dist/` in the repository holds an old 0.3.0
+build from before this was automated; it is not a release artifact.

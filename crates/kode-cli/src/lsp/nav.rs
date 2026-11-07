@@ -34,10 +34,40 @@ fn is_identifier(s: &str) -> bool {
 fn is_keyword(s: &str) -> bool {
     matches!(
         s,
-        "fn" | "class" | "const" | "enum" | "interface" | "if" | "else" | "while" | "for" | "in"
-            | "match" | "return" | "break" | "continue" | "throw" | "try" | "catch" | "finally"
-            | "spawn" | "await" | "none" | "true" | "false" | "and" | "or" | "not" | "int"
-            | "float" | "bool" | "string" | "test" | "import" | "from" | "as" | "pub"
+        "fn" | "class"
+            | "const"
+            | "enum"
+            | "interface"
+            | "if"
+            | "else"
+            | "while"
+            | "for"
+            | "in"
+            | "match"
+            | "return"
+            | "break"
+            | "continue"
+            | "throw"
+            | "try"
+            | "catch"
+            | "finally"
+            | "spawn"
+            | "await"
+            | "none"
+            | "true"
+            | "false"
+            | "and"
+            | "or"
+            | "not"
+            | "int"
+            | "float"
+            | "bool"
+            | "string"
+            | "test"
+            | "import"
+            | "from"
+            | "as"
+            | "pub"
     )
 }
 
@@ -46,7 +76,10 @@ fn location(uri: &str, text: &str, start: usize, end: usize) -> Json {
         ("uri", Json::str(uri)),
         (
             "range",
-            range(position::position(text, start), position::position(text, end)),
+            range(
+                position::position(text, start),
+                position::position(text, end),
+            ),
         ),
     ])
 }

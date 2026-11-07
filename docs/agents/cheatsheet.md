@@ -1,4 +1,7 @@
-# Kode cheat sheet (v0.3)
+# Kode cheat sheet for agents (v0.3)
+
+Agent-facing summary: dense shapes, no prose. The full cheat sheet is
+[`docs/cheatsheet.md`](../cheatsheet.md).
 
 Compiled language, one statement per line, no semicolons. Types: `int float bool string`,
 `[T]` list, `{string: T}` map, `T?` optional (string, list, map, class), classes, enums.

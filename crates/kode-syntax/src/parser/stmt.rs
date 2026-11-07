@@ -8,6 +8,16 @@ use crate::token::TokenKind;
 impl Parser {
     /// `{ ... }` with one statement per line.
     pub(crate) fn parse_block(&mut self) -> Result<Block, Diagnostic> {
+        if self.depth >= super::MAX_NESTING {
+            return Err(self.too_deep());
+        }
+        self.depth += 1;
+        let parsed = self.parse_block_at();
+        self.depth -= 1;
+        parsed
+    }
+
+    fn parse_block_at(&mut self) -> Result<Block, Diagnostic> {
         let open = self.expect(TokenKind::LBrace, "`{`")?;
         let mut stmts = Vec::new();
         loop {
@@ -18,10 +28,12 @@ impl Parser {
                     return Ok(stmts);
                 }
                 TokenKind::Eof => {
-                    return Err(
-                        Diagnostic::error("E0106", "this block is never closed", open.span)
-                            .with_help("add a matching `}`"),
-                    );
+                    return Err(Diagnostic::error(
+                        "E0106",
+                        "this block is never closed",
+                        open.span,
+                    )
+                    .with_help("add a matching `}`"));
                 }
                 _ => {}
             }
@@ -32,6 +44,12 @@ impl Parser {
             match result {
                 Ok(s) => stmts.push(s),
                 Err(e) => {
+                    // A depth error means every enclosing block is unreadable
+                    // too, so stop instead of reporting the same thing at each
+                    // level of the leftover `}`s.
+                    if self.fatal {
+                        return Err(e);
+                    }
                     self.errors.push(e);
                     self.recover();
                 }
@@ -63,7 +81,10 @@ impl Parser {
                 let has_catch = matches!(self.peek(), TokenKind::Catch);
                 let has_finally = matches!(self.peek(), TokenKind::Finally);
                 if !has_catch && !has_finally {
-                    self.expect(TokenKind::Catch, "`catch` or `finally` after the `try` block")?;
+                    self.expect(
+                        TokenKind::Catch,
+                        "`catch` or `finally` after the `try` block",
+                    )?;
                 }
                 let (var, handler) = if has_catch {
                     self.bump();
@@ -138,7 +159,10 @@ impl Parser {
         if !matches!(self.peek(), TokenKind::Assign) {
             return Err(Diagnostic::error(
                 "E0107",
-                format!("expected `=` after the type, found {}", self.peek().describe()),
+                format!(
+                    "expected `=` after the type, found {}",
+                    self.peek().describe()
+                ),
                 self.span(),
             )
             .with_help("write it like `count: int = 0`"));
@@ -295,7 +319,11 @@ impl Parser {
                 break;
             }
             if matches!(self.peek(), TokenKind::Eof) {
-                return Err(Diagnostic::error("E0106", "this `match` is never closed", span));
+                return Err(Diagnostic::error(
+                    "E0106",
+                    "this `match` is never closed",
+                    span,
+                ));
             }
             let pattern_span = self.span();
             let pattern = match (self.peek().clone(), self.peek_at(1)) {

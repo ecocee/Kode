@@ -449,7 +449,8 @@ impl Checker {
     /// variable is assigned.
     pub(crate) fn narrow(&mut self, name: &str, ty: Type) {
         let depth = self.scopes.depth();
-        self.narrowed.retain(|(d, n, _)| !(*d == depth && n == name));
+        self.narrowed
+            .retain(|(d, n, _)| !(*d == depth && n == name));
         self.narrowed.push((depth, name.to_string(), ty));
     }
 

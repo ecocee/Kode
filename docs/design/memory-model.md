@@ -38,5 +38,8 @@ object is left at the end. `cargo test` sets it for every run-pass program.
 ## Known limits
 
 - A variable lives until its function exits or it is re-assigned, not until its block ends.
-- Counts are not atomic yet; concurrency (M6) will make them atomic.
-- Two objects that point at each other leak. `weak` references are planned.
+- Counts use atomics once a program creates its first channel (`THREADED` in the object header,
+  set in `crates/kode-rt/src/channel.rs`); single-threaded programs pay nothing extra.
+- Two objects that point at each other leak, because reference counting cannot see a cycle.
+  `weak` references are planned (M9.5 in `docs/PLAN-v1.md`); until then keep back-links out of
+  the object graph or break them by hand (`a.next = none`).

@@ -1,0 +1,4 @@
+// Fixed-width integers from other languages are not part of Kode yet. The
+// diagnostic says so and names the type to use instead.
+x: u8 = 1
+print(x)

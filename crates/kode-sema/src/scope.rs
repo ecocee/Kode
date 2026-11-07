@@ -71,12 +71,15 @@ impl Scopes {
 
     /// Declare a variable in the innermost scope.
     pub fn declare(&mut self, name: &str, ty: Type, span: Span, used: bool) {
-        self.stack.last_mut().expect("a scope is open").push(VarInfo {
-            name: name.to_string(),
-            ty,
-            span,
-            used,
-        });
+        self.stack
+            .last_mut()
+            .expect("a scope is open")
+            .push(VarInfo {
+                name: name.to_string(),
+                ty,
+                span,
+                used,
+            });
     }
 
     /// Every visible variable and its type, innermost last. A closure captures

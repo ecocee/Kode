@@ -86,7 +86,11 @@ impl<'a> Lowerer<'a> {
                 offset,
                 ty: Ty::Ref,
             });
-            self.emit(Inst::Store { base, offset, value: new });
+            self.emit(Inst::Store {
+                base,
+                offset,
+                value: new,
+            });
             self.emit(Inst::Release(Operand::Local(old)));
         } else {
             self.emit(Inst::Store {
@@ -103,12 +107,18 @@ impl<'a> Lowerer<'a> {
                 let v = self.expr(e);
                 self.release_if_owned(v);
             }
-            Stmt::Assign { target, ty, value, .. } => self.assign(target, ty.as_ref(), value),
+            Stmt::Assign {
+                target, ty, value, ..
+            } => self.assign(target, ty.as_ref(), value),
             Stmt::If { cond, then, else_ } => {
                 let c = self.expr(cond);
                 let then_bb = self.new_block();
                 let join = self.new_block();
-                let else_bb = if else_.is_some() { self.new_block() } else { join };
+                let else_bb = if else_.is_some() {
+                    self.new_block()
+                } else {
+                    join
+                };
                 self.term(Terminator::Branch {
                     cond: c.op,
                     then_bb,
@@ -152,7 +162,9 @@ impl<'a> Lowerer<'a> {
                 ..
             } => self.lower_for(var, start, end, *inclusive, body),
             Stmt::ForIn { vars, iter, body } => self.lower_for_in(vars, iter, body),
-            Stmt::Match { scrutinee, arms, .. } => self.lower_match(scrutinee, arms),
+            Stmt::Match {
+                scrutinee, arms, ..
+            } => self.lower_match(scrutinee, arms),
             Stmt::Throw { value, .. } => {
                 let ty = self.expr_type(value);
                 let v = self.expr(value);
@@ -324,8 +336,12 @@ impl<'a> Lowerer<'a> {
                     Type::List(el) => (el, list_rt(el, RtFn::ListSet)),
                     _ => unreachable!("checked: a list or map"),
                 };
-                let op = if mir_ty(el) == Ty::Ref { self.own(v) } else { v.op };
-                let raw = self.to_raw(op, el);
+                let op = if mir_ty(el) == Ty::Ref {
+                    self.own(v)
+                } else {
+                    v.op
+                };
+                let raw = self.raw_value(op, el);
                 let args = if rt == RtFn::MapSet {
                     vec![ov.op.clone(), iv.op.clone(), raw]
                 } else {
@@ -341,7 +357,9 @@ impl<'a> Lowerer<'a> {
             }
             Target::Field { obj, name, .. } => {
                 let ot = self.expr_type(obj);
-                let Type::Class(cn) = ot else { unreachable!("checked: a class value") };
+                let Type::Class(cn) = ot else {
+                    unreachable!("checked: a class value")
+                };
                 let class = &self.checked.classes[self.checked.class_index[cn]];
                 let fi = class.fields.iter().position(|f| f.name == *name).unwrap();
                 let fty = mir_ty(&class.fields[fi].ty);
@@ -410,7 +428,12 @@ impl<'a> Lowerer<'a> {
     }
 
     /// `for x in list`, `for i, x in list`, `for k, v in map`
-    fn lower_for_in(&mut self, vars: &[(String, kode_diagnostics::Span)], iter: &Expr, body: &[Stmt]) {
+    fn lower_for_in(
+        &mut self,
+        vars: &[(String, kode_diagnostics::Span)],
+        iter: &Expr,
+        body: &[Stmt],
+    ) {
         let it_ty = self.expr_type(iter);
         let is_map = matches!(it_ty, Type::Map(_));
         let iv = self.expr(iter);
@@ -486,7 +509,8 @@ impl<'a> Lowerer<'a> {
                 let kv = self.declare_var(&vars[0].0, Ty::Ref);
                 self.store_local(kv, V::val(Operand::Local(key)), Ty::Ref);
                 if vars.len() == 2 {
-                    let val = self.call_raw(RtFn::MapValAt, vec![h.clone(), Operand::Local(idx)], el);
+                    let val =
+                        self.call_raw(RtFn::MapValAt, vec![h.clone(), Operand::Local(idx)], el);
                     let ety = mir_ty(el);
                     let vv = self.declare_var(&vars[1].0, ety);
                     self.store_local(vv, V::val(val), ety);

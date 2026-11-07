@@ -6,8 +6,8 @@ use cranelift_codegen::ir::{self, types, InstBuilder, MemFlags, TrapCode, Value}
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataId, FuncId, Module};
 use cranelift_object::ObjectModule;
-use kode_mir::*;
 use kode_mir::StdSig;
+use kode_mir::*;
 
 use crate::clif_ty;
 use crate::runtime::{self, Rt};
@@ -43,14 +43,24 @@ pub(crate) fn translate(
     let mut b = FunctionBuilder::new(func, fb_ctx);
     let blocks: Vec<ir::Block> = (0..f.blocks.len()).map(|_| b.create_block()).collect();
     b.append_block_params_for_function_params(blocks[0]);
-    let vars: Vec<Variable> = f.locals.iter().map(|l| b.declare_var(clif_ty(l.ty))).collect();
+    let vars: Vec<Variable> = f
+        .locals
+        .iter()
+        .map(|l| b.declare_var(clif_ty(l.ty)))
+        .collect();
     b.switch_to_block(blocks[0]);
     let params: Vec<Value> = b.block_params(blocks[0]).to_vec();
     for (i, v) in params.into_iter().enumerate() {
         b.def_var(vars[i], v);
     }
 
-    let mut g = Gen { b, f, env, vars, blocks };
+    let mut g = Gen {
+        b,
+        f,
+        env,
+        vars,
+        blocks,
+    };
     for (bi, blk) in f.blocks.iter().enumerate() {
         if bi != 0 {
             g.b.switch_to_block(g.blocks[bi]);
@@ -73,24 +83,39 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
             Operand::Float(v) => self.b.ins().f64const(Ieee64::with_float(*v)),
             Operand::Bool(v) => self.b.ins().iconst(types::I8, *v as i64),
             Operand::Str(i) => {
-                let gv = self.env.module.declare_data_in_func(self.env.strings[*i], self.b.func);
+                let gv = self
+                    .env
+                    .module
+                    .declare_data_in_func(self.env.strings[*i], self.b.func);
                 self.b.ins().global_value(types::I64, gv)
             }
             Operand::NullRef => self.b.ins().iconst(types::I64, 0),
             Operand::Thunk(i) => {
-                let r = self.env.module.declare_func_in_func(self.env.thunks[*i], self.b.func);
+                let r = self
+                    .env
+                    .module
+                    .declare_func_in_func(self.env.thunks[*i], self.b.func);
                 self.b.ins().func_addr(types::I64, r)
             }
             Operand::FuncAddr(i) => {
-                let r = self.env.module.declare_func_in_func(self.env.user[*i], self.b.func);
+                let r = self
+                    .env
+                    .module
+                    .declare_func_in_func(self.env.user[*i], self.b.func);
                 self.b.ins().func_addr(types::I64, r)
             }
             Operand::ClosureFn(i) => {
-                let r = self.env.module.declare_func_in_func(self.env.closures[*i], self.b.func);
+                let r = self
+                    .env
+                    .module
+                    .declare_func_in_func(self.env.closures[*i], self.b.func);
                 self.b.ins().func_addr(types::I64, r)
             }
             Operand::FnVal(i) => {
-                let r = self.env.module.declare_func_in_func(self.env.fnvals[*i], self.b.func);
+                let r = self
+                    .env
+                    .module
+                    .declare_func_in_func(self.env.fnvals[*i], self.b.func);
                 self.b.ins().func_addr(types::I64, r)
             }
         }
@@ -150,7 +175,8 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                 sig.params.push(ir::AbiParam::new(types::I64));
                 let mut vals = vec![clo];
                 for a in args {
-                    sig.params.push(ir::AbiParam::new(clif_ty(self.f.operand_ty(a))));
+                    sig.params
+                        .push(ir::AbiParam::new(clif_ty(self.f.operand_ty(a))));
                     vals.push(self.val(a));
                 }
                 let ret = match dst {
@@ -167,12 +193,24 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                     self.b.def_var(self.vars[*d], r);
                 }
             }
-            Inst::Load { dst, base, offset, ty } => {
+            Inst::Load {
+                dst,
+                base,
+                offset,
+                ty,
+            } => {
                 let b = self.val(base);
-                let v = self.b.ins().load(clif_ty(*ty), MemFlags::trusted(), b, *offset);
+                let v = self
+                    .b
+                    .ins()
+                    .load(clif_ty(*ty), MemFlags::trusted(), b, *offset);
                 self.b.def_var(self.vars[*dst], v);
             }
-            Inst::Store { base, offset, value } => {
+            Inst::Store {
+                base,
+                offset,
+                value,
+            } => {
                 let b = self.val(base);
                 let v = self.val(value);
                 self.b.ins().store(MemFlags::trusted(), v, b, *offset);
@@ -191,7 +229,12 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
 
     /// Inline `len`, item reads and item writes of lists (no function call).
     /// Layout: `[rc][kind][len][capacity][data pointer]`, 8 bytes per item.
-    fn try_inline_list(&mut self, dst: &Option<LocalId>, callee: &Callee, args: &[Operand]) -> bool {
+    fn try_inline_list(
+        &mut self,
+        dst: &Option<LocalId>,
+        callee: &Callee,
+        args: &[Operand],
+    ) -> bool {
         let Callee::Rt(rt) = callee else { return false };
         match rt {
             RtFn::ListLen => {
@@ -214,7 +257,10 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                 let idx = self.val(&args[1]);
                 let line = self.val(&args[2]);
                 let addr = self.checked_item_addr(list, idx, line, 0);
-                let v = self.b.ins().uload8(types::I64, MemFlags::trusted(), addr, 0);
+                let v = self
+                    .b
+                    .ins()
+                    .uload8(types::I64, MemFlags::trusted(), addr, 0);
                 self.b.def_var(self.vars[dst.unwrap()], v);
                 true
             }
@@ -233,7 +279,10 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                 let raw = self.val(&args[1]);
                 let len = self.b.ins().load(types::I64, MemFlags::trusted(), list, 16);
                 let cap = self.b.ins().load(types::I64, MemFlags::trusted(), list, 24);
-                let full = self.b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, len, cap);
+                let full = self
+                    .b
+                    .ins()
+                    .icmp(IntCC::UnsignedGreaterThanOrEqual, len, cap);
                 let slow = self.b.create_block();
                 let fast = self.b.create_block();
                 let join = self.b.create_block();
@@ -241,7 +290,11 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
                 self.b.ins().brif(full, slow, &[], fast, &[]);
                 self.b.switch_to_block(fast);
                 let data = self.b.ins().load(types::I64, MemFlags::trusted(), list, 32);
-                let off = if packed { len } else { self.b.ins().ishl_imm(len, 3) };
+                let off = if packed {
+                    len
+                } else {
+                    self.b.ins().ishl_imm(len, 3)
+                };
                 let addr = self.b.ins().iadd(data, off);
                 if packed {
                     self.b.ins().istore8(MemFlags::trusted(), raw, addr, 0);
@@ -274,7 +327,10 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
     /// Bounds-check `idx` (unsigned compare also catches negatives) and return the item address.
     fn checked_item_addr(&mut self, list: Value, idx: Value, line: Value, shift: i64) -> Value {
         let len = self.b.ins().load(types::I64, MemFlags::trusted(), list, 16);
-        let oob = self.b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, idx, len);
+        let oob = self
+            .b
+            .ins()
+            .icmp(IntCC::UnsignedGreaterThanOrEqual, idx, len);
         let bad = self.b.create_block();
         let ok = self.b.create_block();
         self.b.set_cold_block(bad);
@@ -284,7 +340,11 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
         self.b.ins().trap(TrapCode::INTEGER_OVERFLOW);
         self.b.switch_to_block(ok);
         let data = self.b.ins().load(types::I64, MemFlags::trusted(), list, 32);
-        let off = if shift == 0 { idx } else { self.b.ins().ishl_imm(idx, shift) };
+        let off = if shift == 0 {
+            idx
+        } else {
+            self.b.ins().ishl_imm(idx, shift)
+        };
         self.b.ins().iadd(data, off)
     }
 
@@ -320,7 +380,11 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
             Rvalue::Binary(op, x, y) => {
                 let ty = self.f.operand_ty(x);
                 let (a, c) = (self.val(x), self.val(y));
-                let k = if let Operand::Int(k) = y { Some(*k) } else { None };
+                let k = if let Operand::Int(k) = y {
+                    Some(*k)
+                } else {
+                    None
+                };
                 match ty {
                     Ty::Int | Ty::Ref => self.int_binary(*op, a, c, k),
                     Ty::Float => self.float_binary(*op, a, c)?,
@@ -372,7 +436,10 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
     /// Shifts by 64 or more (or by a negative count) give 0 instead of wrapping.
     fn shift(&mut self, a: Value, amount: Value, left: bool) -> Value {
         let zero = self.b.ins().iconst(types::I64, 0);
-        let big = self.b.ins().icmp_imm(IntCC::UnsignedGreaterThanOrEqual, amount, 64);
+        let big = self
+            .b
+            .ins()
+            .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, amount, 64);
         let shifted = if left {
             self.b.ins().ishl(a, amount)
         } else {
@@ -433,7 +500,11 @@ impl<'a, 'b, 'c> Gen<'a, 'b, 'c> {
             Terminator::Goto(bb) => {
                 self.b.ins().jump(self.blocks[*bb], &[]);
             }
-            Terminator::Branch { cond, then_bb, else_bb } => {
+            Terminator::Branch {
+                cond,
+                then_bb,
+                else_bb,
+            } => {
                 let c = self.val(cond);
                 self.b
                     .ins()

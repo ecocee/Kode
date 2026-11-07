@@ -722,7 +722,7 @@ page_header() {
 
     <div class="sidebar-group">
         <div class="sidebar-label">Project</div>
-        <a href="whatsnew.html">Project information</a>
+        <a href="whatsnew.html">What's new</a>
     </div>
 </aside>
 
@@ -1159,8 +1159,8 @@ HTML
         "Compiler reference" \
         "Understand compiler diagnostics and error codes."
 
-    if [[ -f "$ROOT/COPYING.txt" ]]; then
-        md2html "$ROOT/COPYING.txt" "$OUT/whatsnew.html" "Project information"
+    if [[ -f "$ROOT/CHANGELOG.md" ]]; then
+        md2html "$ROOT/CHANGELOG.md" "$OUT/whatsnew.html" "What's new"
     fi
 
     if [[ -f "$OUT/api/index.html" ]]; then
