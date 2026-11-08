@@ -66,8 +66,8 @@ different "current versions" in one project.
 
 Repository hygiene: `dist/` is **65 MB of committed binaries** (a `kode` binary,
 a tarball, a Windows zip, `SHA256SUMS.txt`), and it is stale at 0.3.0. There is
-no `LICENSE` file even though `README.md` says MIT and the GitHub repo declares
-MIT; there is no `SECURITY.md`.
+no `LICENSE` file even though `README.md` says Apache-2.0 and the GitHub repo declares
+Apache-2.0; there is no `SECURITY.md`.
 
 ## 3. Phase status
 
@@ -181,8 +181,8 @@ the code contradicts today.
 8. **`docs/site/build.sh` reads `COPYING.txt`**, which does not exist, so the
    "Project information" page and its sidebar link are dead. The script also
    has a hard-coded `generics.html` sidebar entry.
-9. **No `LICENSE` file**, though `README.md` says "License: MIT" and GitHub
-   records MIT. `docs/releasing.md` also tells readers to run `kode doctor` on
+9. **No `LICENSE` file**, though `README.md` says "License: Apache-2.0" and GitHub
+   records Apache-2.0. `docs/releasing.md` also tells readers to run `kode doctor` on
    an artifact, which is right, but no artifact exists that was produced by CI.
 10. **GitHub repository metadata.** `git ls-remote origin` shows `HEAD` and
     `refs/heads/main` at `336d98f`, identical to local `main` (0 ahead, 0

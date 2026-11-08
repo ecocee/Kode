@@ -6,7 +6,7 @@ members = ["crates/*"]
 version = "0.3.5"
 edition = "2021"
 rust-version = "1.91"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/ecocee/Kode"
 
 # One place for every dependency version. Upgrade Cranelift here only.
