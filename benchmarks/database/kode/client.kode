@@ -1,0 +1,1106 @@
+// PostgreSQL benchmark client for Kode.
+//
+// Reads workloads/cases.json, runs every case of one workload and prints one
+// JSON object per case on stdout, the same record shape as python/client.py.
+//
+//   kode run benchmarks/database/kode/client.kode -- \
+//       --workload insert --cases benchmarks/database/workloads/cases.json \
+//       --host 127.0.0.1 --port 55432 --rows 10000 --ops 200
+//
+// Kode has no connection pool, so the `pool` and `exhaust` connection cases are
+// reported "unsupported" instead of being faked.
+
+// ------------------------------------------------------------------ timing
+fn tick() -> int => now_ns()
+
+fn ms_since(t0: int) -> float => float(now_ns() - t0) / 1000000.0
+
+fn r3(x: float) -> float => math.round(x * 1000.0) / 1000.0
+
+fn first_line(s: string) -> string {
+    parts = s.split("\n")
+    return parts[0]
+}
+
+fn is_deadlock(msg: string) -> bool => msg.starts_with("40P01")
+
+fn rollback_quiet(db: int) {
+    try {
+        pg.exec(db, "ROLLBACK")
+    } catch e {
+        n = 0
+    }
+}
+
+// ------------------------------------------------------------------ process stats
+// cpu_ms: user + system CPU from /proc/self/stat (Linux, 100 ticks per second).
+fn cpu_ms() -> float {
+    result = 0.0
+    try {
+        stat = read_file("/proc/self/stat")
+        parts = stat.split(")")
+        fields = parts.last().split(" ")
+        ticks = fields[12].to_int() + fields[13].to_int()
+        result = float(ticks) * 10.0
+    } catch e {
+        result = 0.0
+    }
+    return result
+}
+
+// peak_rss_kb: VmHWM from /proc/self/status.
+fn peak_rss_kb() -> int {
+    result = 0
+    try {
+        status = read_file("/proc/self/status")
+        for line in status.lines() {
+            if line.starts_with("VmHWM:") {
+                result = line.replace("VmHWM:", "").replace("kB", "").trim().to_int()
+            }
+        }
+    } catch e {
+        result = 0
+    }
+    return result
+}
+
+// ------------------------------------------------------------------ statistics
+fn percentile(sorted: [float], p: float) -> float {
+    n = sorted.len()
+    if n == 0 {
+        return 0.0
+    }
+    pos = float(n - 1) * p
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    if lo == hi {
+        return sorted[lo]
+    }
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - float(lo))
+}
+
+fn summarise(out: {string: Json}, lat: [float], wall_ms: float) {
+    lat.sort()
+    ops = lat.len()
+    throughput = 0.0
+    if wall_ms > 0.0 {
+        throughput = float(ops) / (wall_ms / 1000.0)
+    }
+    out["ops"] = json.int(ops)
+    out["wall_ms"] = json.float(r3(wall_ms))
+    out["throughput"] = json.float(math.round(throughput * 100.0) / 100.0)
+    out["p50_ms"] = json.float(r3(percentile(lat, 0.50)))
+    out["p95_ms"] = json.float(r3(percentile(lat, 0.95)))
+    out["p99_ms"] = json.float(r3(percentile(lat, 0.99)))
+    lo = 0.0
+    hi = 0.0
+    if ops > 0 {
+        lo = lat[0]
+        hi = lat[ops - 1]
+    }
+    out["min_ms"] = json.float(r3(lo))
+    out["max_ms"] = json.float(r3(hi))
+}
+
+// ------------------------------------------------------------------ parameter formulas
+// Duplicated from the other clients; see workloads/README.md.
+fn status_of(i: int) -> string {
+    k = i % 4
+    if k == 0 {
+        return "new"
+    }
+    if k == 1 {
+        return "paid"
+    }
+    if k == 2 {
+        return "shipped"
+    }
+    return "cancelled"
+}
+
+fn category_of(i: int) -> string {
+    k = i % 4
+    if k == 0 {
+        return "books"
+    }
+    if k == 1 {
+        return "games"
+    }
+    if k == 2 {
+        return "tools"
+    }
+    return "music"
+}
+
+fn city_of(i: int) -> string {
+    k = i % 4
+    if k == 0 {
+        return "Bengaluru"
+    }
+    if k == 1 {
+        return "Berlin"
+    }
+    if k == 2 {
+        return "Lisbon"
+    }
+    return "Osaka"
+}
+
+fn gen(name: string, i: int, rows: int, worker: int) -> Json {
+    if name == "id" {
+        return json.int(i + 1)
+    }
+    if name == "k" {
+        return json.int((i * 37) % rows)
+    }
+    if name == "k_hi" {
+        return json.int(((i * 37) % rows) + 25)
+    }
+    if name == "pick_id" {
+        return json.int(((i * 7) % rows) + 1)
+    }
+    if name == "pick_product" {
+        return json.int(((i * 7) % 1000) + 1)
+    }
+    if name == "offset" {
+        return json.int((i * 100) % 1000)
+    }
+    if name == "qty" {
+        return json.int((i % 5) + 1)
+    }
+    if name == "order_id" {
+        return json.int(((i * 997) % 100000) + 1)
+    }
+    if name == "app_product_id" {
+        return json.int(100000 + i)
+    }
+    if name == "app_customer_id" {
+        return json.int(100000 + i)
+    }
+    if name == "app_order_id" {
+        return json.int(1000000 + i)
+    }
+    if name == "worker_id" {
+        return json.int(worker * 1000000 + i + 1)
+    }
+    if name == "payload" {
+        return json.string("payload-${i}")
+    }
+    if name == "payload2" {
+        return json.string("updated-${i}")
+    }
+    if name == "tag" {
+        t = i % 10
+        return json.string("t${t}")
+    }
+    if name == "status" {
+        return json.string(status_of(i))
+    }
+    if name == "price" {
+        return json.string("19.99")
+    }
+    if name == "sku" {
+        return json.string("SKU-NEW-${i}")
+    }
+    if name == "name" {
+        return json.string("name-${i}")
+    }
+    if name == "email" {
+        return json.string("user${i}@example.com")
+    }
+    if name == "city" {
+        return json.string(city_of(i))
+    }
+    if name == "category" {
+        return json.string(category_of(i))
+    }
+    if name == "name_like" {
+        return json.string("name-%")
+    }
+    throw Error(message: "unknown parameter generator: ${name}", code: 500)
+}
+
+fn param_names(c: Json) -> [string] {
+    names: [string] = []
+    if c.has("params") {
+        for p in c["params"].as_list() {
+            names.add(p.as_string())
+        }
+    }
+    return names
+}
+
+fn params_for(names: [string], i: int, rows: int, worker: int) -> [Json] {
+    out: [Json] = []
+    for n in names {
+        out.add(gen(n, i, rows, worker))
+    }
+    return out
+}
+
+// Flattened parameters for `count` rows starting at row `start`.
+fn chunk_params(names: [string], start: int, count: int, rows: int) -> [Json] {
+    out: [Json] = []
+    for i in start..(start + count) {
+        for n in names {
+            out.add(gen(n, i, rows, 0))
+        }
+    }
+    return out
+}
+
+// "($1,$2),($3,$4),..." for `count` rows of `width` columns.
+fn placeholders(count: int, width: int) -> string {
+    sql = ""
+    n = 1
+    for r in 0..count {
+        if r > 0 {
+            sql = sql + ","
+        }
+        sql = sql + "("
+        for k in 0..width {
+            if k > 0 {
+                sql = sql + ","
+            }
+            sql = sql + "$" + "${n}"
+            n = n + 1
+        }
+        sql = sql + ")"
+    }
+    return sql
+}
+
+// "($1::bigint,$2::text),($3::bigint,$4::text),..." for batch updates.
+fn typed_placeholders(count: int) -> string {
+    sql = ""
+    n = 1
+    for r in 0..count {
+        if r > 0 {
+            sql = sql + ","
+        }
+        a = n
+        b = n + 1
+        sql = sql + "($" + "${a}" + "::bigint,$" + "${b}" + "::text)"
+        n = n + 2
+    }
+    return sql
+}
+
+fn row_params(i: int, rows: int) -> [Json] {
+    t = i % 10
+    out: [Json] = [
+        json.int(i + 1),
+        json.int((i * 37) % rows),
+        json.string("payload-${i}"),
+        json.string("t${t}")
+    ]
+    return out
+}
+
+fn insert_sql() -> string => "INSERT INTO bench_writes (id, k, payload, tag) VALUES ($1,$2,$3,$4)"
+
+// ------------------------------------------------------------------ case shapes
+fn run_stmt_loop(db: int, c: Json, rows: int, iterations: int) -> {string: Json} {
+    sql = c["sql"].as_string()
+    names = param_names(c)
+    lat: [float] = []
+    affected = 0
+    errors = 0
+    deadlocks = 0
+    sample = ""
+    start = tick()
+    for i in 0..iterations {
+        t0 = tick()
+        try {
+            res = pg.query(db, sql, params_for(names, i, rows, 0))
+            a = res["affected"].as_int()
+            if a > 0 {
+                affected = affected + a
+            }
+        } catch e {
+            errors = errors + 1
+            if is_deadlock(e.message) {
+                deadlocks = deadlocks + 1
+            }
+            if sample == "" {
+                sample = first_line(e.message)
+            }
+        }
+        lat.add(ms_since(t0))
+    }
+    wall_ms = ms_since(start)
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["rows_affected"] = json.int(affected)
+    out["errors"] = json.int(errors)
+    out["deadlocks"] = json.int(deadlocks)
+    out["error_sample"] = json.string(sample)
+    return out
+}
+
+fn run_query_loop(db: int, c: Json, rows: int, iterations: int) -> {string: Json} {
+    sql = c["sql"].as_string()
+    names = param_names(c)
+    lat: [float] = []
+    fetched = 0
+    errors = 0
+    sample = ""
+    start = tick()
+    for i in 0..iterations {
+        t0 = tick()
+        try {
+            res = pg.query(db, sql, params_for(names, i, rows, 0))
+            fetched = fetched + res["rows"].as_list().len()
+        } catch e {
+            errors = errors + 1
+            if sample == "" {
+                sample = first_line(e.message)
+            }
+        }
+        lat.add(ms_since(t0))
+    }
+    wall_ms = ms_since(start)
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["rows_fetched"] = json.int(fetched)
+    out["errors"] = json.int(errors)
+    out["error_sample"] = json.string(sample)
+    return out
+}
+
+fn run_chunk_insert(db: int, c: Json, rows: int, iterations: int, chunk: int, in_txn: bool) -> {string: Json} {
+    names = param_names(c)
+    width = names.len()
+    base = c["sql"].as_string()
+    lat: [float] = []
+    affected = 0
+    errors = 0
+    sample = ""
+    start = tick()
+    try {
+        if in_txn {
+            pg.exec(db, "BEGIN")
+        }
+        s = 0
+        while s < iterations {
+            n = chunk
+            if iterations - s < n {
+                n = iterations - s
+            }
+            sql = base + placeholders(n, width)
+            t0 = tick()
+            res = pg.query(db, sql, chunk_params(names, s, n, rows))
+            a = res["affected"].as_int()
+            if a > 0 {
+                affected = affected + a
+            }
+            lat.add(ms_since(t0))
+            s = s + chunk
+        }
+        if in_txn {
+            pg.exec(db, "COMMIT")
+        }
+    } catch e {
+        errors = errors + 1
+        sample = first_line(e.message)
+        if in_txn {
+            rollback_quiet(db)
+        }
+    }
+    wall_ms = ms_since(start)
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["rows_affected"] = json.int(affected)
+    out["errors"] = json.int(errors)
+    out["error_sample"] = json.string(sample)
+    out["batches"] = json.int((iterations + chunk - 1) / chunk)
+    return out
+}
+
+fn run_batch_update(db: int, c: Json, rows: int, iterations: int, chunk: int) -> {string: Json} {
+    names = param_names(c)
+    base = c["sql"].as_string()
+    lat: [float] = []
+    affected = 0
+    errors = 0
+    sample = ""
+    start = tick()
+    try {
+        s = 0
+        while s < iterations {
+            n = chunk
+            if iterations - s < n {
+                n = iterations - s
+            }
+            sql = base + typed_placeholders(n) + ") AS v(id, payload) WHERE bench_writes.id = v.id"
+            t0 = tick()
+            res = pg.query(db, sql, chunk_params(names, s, n, rows))
+            a = res["affected"].as_int()
+            if a > 0 {
+                affected = affected + a
+            }
+            lat.add(ms_since(t0))
+            s = s + chunk
+        }
+    } catch e {
+        errors = errors + 1
+        sample = first_line(e.message)
+    }
+    wall_ms = ms_since(start)
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["rows_affected"] = json.int(affected)
+    out["errors"] = json.int(errors)
+    out["error_sample"] = json.string(sample)
+    out["batches"] = json.int((iterations + chunk - 1) / chunk)
+    return out
+}
+
+fn run_batch_delete(db: int, c: Json, iterations: int, chunk: int) -> {string: Json} {
+    sql = c["sql"].as_string()
+    lat: [float] = []
+    affected = 0
+    errors = 0
+    sample = ""
+    start = tick()
+    try {
+        s = 0
+        while s < iterations {
+            n = chunk
+            if iterations - s < n {
+                n = iterations - s
+            }
+            t0 = tick()
+            // $1 is the first id of the batch, $2 the last.
+            bounds: [Json] = [json.int(s + 1), json.int(s + n)]
+            res = pg.query(db, sql, bounds)
+            a = res["affected"].as_int()
+            if a > 0 {
+                affected = affected + a
+            }
+            lat.add(ms_since(t0))
+            s = s + chunk
+        }
+    } catch e {
+        errors = errors + 1
+        sample = first_line(e.message)
+    }
+    wall_ms = ms_since(start)
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["rows_affected"] = json.int(affected)
+    out["errors"] = json.int(errors)
+    out["error_sample"] = json.string(sample)
+    out["batches"] = json.int((iterations + chunk - 1) / chunk)
+    return out
+}
+
+fn run_txn_loop(db: int, c: Json, rows: int, iterations: int) -> {string: Json} {
+    sql = c["sql"].as_string()
+    names = param_names(c)
+    lat: [float] = []
+    affected = 0
+    errors = 0
+    sample = ""
+    start = tick()
+    try {
+        pg.exec(db, "BEGIN")
+        for i in 0..iterations {
+            t0 = tick()
+            res = pg.query(db, sql, params_for(names, i, rows, 0))
+            a = res["affected"].as_int()
+            if a > 0 {
+                affected = affected + a
+            }
+            lat.add(ms_since(t0))
+        }
+        pg.exec(db, "COMMIT")
+    } catch e {
+        errors = errors + 1
+        sample = first_line(e.message)
+        rollback_quiet(db)
+    }
+    wall_ms = ms_since(start)
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["rows_affected"] = json.int(affected)
+    out["errors"] = json.int(errors)
+    out["error_sample"] = json.string(sample)
+    out["transactions"] = json.int(1)
+    return out
+}
+
+fn run_txn_case(db: int, c: Json, rows: int, iterations: int) -> {string: Json} {
+    scenario = c["scenario"].as_string()
+    per_txn = 1
+    if c.has("per_txn") {
+        per_txn = c["per_txn"].as_int()
+    }
+    txns = 0
+    errors = 0
+    affected = 0
+    lat: [float] = []
+    sample = ""
+    start = tick()
+    try {
+        for i in 0..iterations {
+            t0 = tick()
+            pg.exec(db, "BEGIN")
+            finished = false
+            if scenario == "commit" {
+                pg.query(db, insert_sql(), row_params(i, rows))
+            }
+            if scenario == "rollback" {
+                pg.query(db, insert_sql(), row_params(i, rows))
+            }
+            if scenario == "multi" {
+                for j in 0..per_txn {
+                    pg.query(db, insert_sql(), row_params(i * per_txn + j, rows))
+                }
+            }
+            if scenario == "constraint" {
+                pg.query(db, insert_sql(), row_params(i, rows))
+                try {
+                    pg.query(db, insert_sql(), row_params(i, rows))
+                } catch e {
+                    errors = errors + 1
+                    pg.exec(db, "ROLLBACK")
+                    finished = true
+                }
+            }
+            if scenario == "recovery" {
+                pg.query(db, insert_sql(), row_params(i, rows))
+                try {
+                    pg.query(db, insert_sql(), row_params(i, rows))
+                } catch e {
+                    errors = errors + 1
+                    pg.exec(db, "ROLLBACK")
+                    pg.exec(db, "BEGIN")
+                    pg.query(db, insert_sql(), row_params(1000000 + i, rows))
+                    pg.exec(db, "COMMIT")
+                    txns = txns + 1
+                    affected = affected + 1
+                    finished = true
+                }
+            }
+            if finished {
+                lat.add(ms_since(t0))
+            } else {
+                if scenario == "rollback" {
+                    pg.exec(db, "ROLLBACK")
+                } else {
+                    pg.exec(db, "COMMIT")
+                }
+                txns = txns + 1
+                lat.add(ms_since(t0))
+            }
+        }
+    } catch e {
+        errors = errors + 1
+        sample = first_line(e.message)
+        rollback_quiet(db)
+    }
+    wall_ms = ms_since(start)
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["transactions"] = json.int(txns)
+    out["rows_affected"] = json.int(affected)
+    out["errors"] = json.int(errors)
+    out["error_sample"] = json.string(sample)
+    return out
+}
+
+fn run_app_order_txn(db: int, iterations: int) -> {string: Json} {
+    update_sql = "UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $3"
+    order_sql = "INSERT INTO orders (id, customer_id, product_id, qty, unit_price, status) VALUES ($1,$2,$3,$4,$5::numeric,$6)"
+    lat: [float] = []
+    errors = 0
+    committed = 0
+    rolled_back = 0
+    sample = ""
+    start = tick()
+    try {
+        for i in 0..iterations {
+            product = ((i * 7) % 1000) + 1
+            qty = 1
+            t0 = tick()
+            pg.exec(db, "BEGIN")
+            upd: [Json] = [json.int(qty), json.int(product), json.int(qty)]
+            res = pg.query(db, update_sql, upd)
+            if res["affected"].as_int() == 1 {
+                oid = 2000000 + i
+                ins: [Json] = [
+                    json.int(oid),
+                    json.int(product),
+                    json.int(product),
+                    json.int(qty),
+                    json.string("19.99"),
+                    json.string("new")
+                ]
+                pg.query(db, order_sql, ins)
+                pg.exec(db, "COMMIT")
+                committed = committed + 1
+            } else {
+                pg.exec(db, "ROLLBACK")
+                rolled_back = rolled_back + 1
+            }
+            lat.add(ms_since(t0))
+        }
+    } catch e {
+        errors = errors + 1
+        sample = first_line(e.message)
+        rollback_quiet(db)
+    }
+    wall_ms = ms_since(start)
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["transactions"] = json.int(committed + rolled_back)
+    out["rows_affected"] = json.int(committed)
+    out["rolled_back"] = json.int(rolled_back)
+    out["errors"] = json.int(errors)
+    out["error_sample"] = json.string(sample)
+    return out
+}
+
+// ------------------------------------------------------------------ concurrency
+// Each task owns one connection. Every operation sends one int on the channel:
+// latency in microseconds * 4 + code (0 ok, 1 error, 2 deadlock).
+fn conc_worker(db: int, worker: int, ops: int, mode: string, rows: int, out: Channel<int>) {
+    for j in 0..ops {
+        write = false
+        if mode == "write" {
+            write = true
+        }
+        if mode == "mixed" {
+            if j % 10 >= 7 {
+                write = true
+            }
+        }
+        t0 = now_ns()
+        code = 0
+        try {
+            if write {
+                k = 0
+                if rows > 0 {
+                    k = (j * 37) % rows
+                }
+                tag = j % 10
+                p: [Json] = [
+                    json.int(worker * 1000000 + j + 1),
+                    json.int(k),
+                    json.string("payload-w${worker}"),
+                    json.string("t${tag}")
+                ]
+                pg.query(db, insert_sql(), p)
+            } else {
+                id = (((worker * ops + j) * 7) % rows) + 1
+                q: [Json] = [json.int(id)]
+                pg.query(db, "SELECT id, payload FROM bench_events WHERE id = $1", q)
+            }
+        } catch e {
+            code = 1
+            if is_deadlock(e.message) {
+                code = 2
+            }
+        }
+        us = (now_ns() - t0) / 1000
+        send(out, us * 4 + code)
+    }
+    try {
+        pg.close(db)
+    } catch e {
+        n = 0
+    }
+}
+
+fn run_conc(url: string, c: Json, rows: int, ops: int) -> {string: Json} {
+    workers = 10
+    if c.has("workers") {
+        w = c["workers"].as_int()
+        if w > 0 {
+            workers = w
+        }
+    }
+    mode = c["mode"].as_string()
+
+    t_setup = tick()
+    conns: [int] = []
+    for w in 0..workers {
+        conns.add(pg.connect(url))
+    }
+    setup_ms = ms_since(t_setup)
+
+    ch: Channel<int> = channel()
+    start = tick()
+    for w in 0..workers {
+        t = spawn conc_worker(conns[w], w, ops, mode, rows, ch)
+    }
+
+    lat: [float] = []
+    errors = 0
+    deadlocks = 0
+    total = workers * ops
+    for k in 0..total {
+        v = recv(ch)
+        code = v % 4
+        lat.add(float(v / 4) / 1000.0)
+        if code >= 1 {
+            errors = errors + 1
+        }
+        if code == 2 {
+            deadlocks = deadlocks + 1
+        }
+    }
+    wall_ms = ms_since(start)
+
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["errors"] = json.int(errors)
+    out["deadlocks"] = json.int(deadlocks)
+    out["workers"] = json.int(workers)
+    out["connections"] = json.int(workers)
+    out["setup_ms"] = json.float(r3(setup_ms))
+    out["error_sample"] = json.string("")
+    return out
+}
+
+// ------------------------------------------------------------------ connection cases
+fn unsupported(reason: string) -> {string: Json} {
+    out = json_obj()
+    out["status"] = json.string("unsupported")
+    out["error_sample"] = json.string(reason)
+    out["ops"] = json.int(0)
+    out["errors"] = json.int(0)
+    return out
+}
+
+fn run_conn(url: string, c: Json, rows: int, iterations: int) -> {string: Json} {
+    scenario = c["scenario"].as_string()
+    if scenario == "pool" {
+        return unsupported("Kode has no connection pool")
+    }
+    if scenario == "exhaust" {
+        return unsupported("Kode has no connection pool to exhaust")
+    }
+
+    lat: [float] = []
+    errors = 0
+    sample = ""
+    setup_ms = 0.0
+    connections = 0
+
+    if scenario == "connect" {
+        for i in 0..iterations {
+            t0 = tick()
+            try {
+                conn = pg.connect(url)
+                pg.query(conn, "SELECT 1", [])
+                pg.close(conn)
+            } catch e {
+                errors = errors + 1
+                if sample == "" {
+                    sample = first_line(e.message)
+                }
+            }
+            lat.add(ms_since(t0))
+        }
+        connections = 1
+    }
+
+    if scenario == "reuse" {
+        t_setup = tick()
+        conn = pg.connect(url)
+        setup_ms = ms_since(t_setup)
+        for i in 0..iterations {
+            t0 = tick()
+            try {
+                q: [Json] = [json.int(((i * 7) % rows) + 1)]
+                pg.query(conn, "SELECT id, payload FROM bench_events WHERE id = $1", q)
+            } catch e {
+                errors = errors + 1
+                if sample == "" {
+                    sample = first_line(e.message)
+                }
+            }
+            lat.add(ms_since(t0))
+        }
+        pg.close(conn)
+        connections = 1
+    }
+
+    if scenario == "recover" {
+        control = pg.connect(url)
+        for i in 0..iterations {
+            t0 = tick()
+            try {
+                victim = pg.connect(url)
+                got = pg.query(victim, "SELECT pg_backend_pid() AS pid", [])
+                pid = got["rows"].as_list()[0]["pid"].as_int()
+                kill: [Json] = [json.int(pid)]
+                pg.query(control, "SELECT pg_terminate_backend($1)", kill)
+                try {
+                    pg.query(victim, "SELECT 1", [])
+                } catch e {
+                    errors = errors + 1   // expected: the backend was terminated
+                }
+                try {
+                    pg.close(victim)
+                } catch e {
+                    n = 0
+                }
+                pg.query(control, "SELECT count(*) FROM bench_events WHERE id = 1", [])
+            } catch e {
+                errors = errors + 1
+                if sample == "" {
+                    sample = first_line(e.message)
+                }
+            }
+            lat.add(ms_since(t0))
+        }
+        pg.close(control)
+        connections = 2
+    }
+
+    wall_ms = 0.0
+    for l in lat {
+        wall_ms = wall_ms + l
+    }
+    out = json_obj()
+    summarise(out, lat, wall_ms)
+    out["errors"] = json.int(errors)
+    out["error_sample"] = json.string(sample)
+    out["setup_ms"] = json.float(r3(setup_ms))
+    out["connections"] = json.int(connections)
+   
+    recovered = false
+    if scenario == "recover" {
+        if errors == iterations {
+            recovered = true
+        }
+    }
+    out["reconnect_ok"] = json.bool(recovered)
+    return out
+}
+
+// ------------------------------------------------------------------ verification
+fn render(v: Json) -> string {
+    if v.is_null() {
+        return "NULL"
+    }
+    if v.kind == JsonKind.Bool {
+        if v.as_bool() {
+            return "true"
+        }
+        return "false"
+    }
+    if v.kind == JsonKind.Int {
+        n = v.as_int()
+        return "${n}"
+    }
+    if v.kind == JsonKind.Float {
+        f = v.as_float()
+        return "${f}"
+    }
+        if v.kind == JsonKind.Str {
+        return v.as_string()
+    }
+    return "?"
+}
+
+fn run_checks(db: int, c: Json, rows: int) -> [Json] {
+    out: [Json] = []
+    if c.has("checks") {
+        for chk in c["checks"].as_list() {
+            names = param_names(chk)
+            res = pg.query(db, chk["sql"].as_string(), params_for(names, 0, rows, 0))
+            vals: [Json] = []
+            found = res["rows"].as_list()
+            if found.len() > 0 {
+                row = found[0]
+                for col in res["columns"].as_list() {
+                    vals.add(json.string(render(row[col.as_string()])))
+                }
+            }
+            out.add(json_list(vals))
+        }
+    }
+    return out
+}
+
+// ------------------------------------------------------------------ dispatch
+fn run_case(url: string, db: int, c: Json, rows: int, ops: int, chunk: int, iterations: int) -> {string: Json} {
+    shape = c["shape"].as_string()
+    if shape == "stmt_loop" {
+        return run_stmt_loop(db, c, rows, iterations)
+    }
+    if shape == "query_loop" {
+        return run_query_loop(db, c, rows, iterations)
+    }
+    if shape == "chunk_insert" {
+        return run_chunk_insert(db, c, rows, iterations, chunk, false)
+    }
+    if shape == "chunk_insert_txn" {
+        return run_chunk_insert(db, c, rows, iterations, chunk, true)
+    }
+    if shape == "batch_update" {
+        return run_batch_update(db, c, rows, iterations, chunk)
+    }
+    if shape == "batch_delete" {
+        return run_batch_delete(db, c, iterations, chunk)
+    }
+    if shape == "txn_loop" {
+        return run_txn_loop(db, c, rows, iterations)
+    }
+    if shape == "txn_case" {
+        return run_txn_case(db, c, rows, iterations)
+    }
+    if shape == "app_order_txn" {
+        return run_app_order_txn(db, iterations)
+    }
+    if shape == "conc" {
+        return run_conc(url, c, rows, ops)
+    }
+    if shape == "conn" {
+        return run_conn(url, c, rows, iterations)
+    }
+    throw Error(message: "unknown shape: ${shape}", code: 500)
+}
+
+// ------------------------------------------------------------------ arguments
+fn opt(argv: [string], name: string, fallback: string) -> string {
+    i = 0
+    while i < argv.len() - 1 {
+        if argv[i] == name {
+            return argv[i + 1]
+        }
+        i = i + 1
+    }
+    return fallback
+}
+
+// ------------------------------------------------------------------ main
+argv = args()
+workload = opt(argv, "--workload", "")
+cases_path = opt(argv, "--cases", "")
+rows = opt(argv, "--rows", "10000").to_int()
+ops = opt(argv, "--ops", "200").to_int()
+host = opt(argv, "--host", env("PGHOST") ?? "postgres")
+port = opt(argv, "--port", env("PGPORT") ?? "5432")
+user = opt(argv, "--user", env("PGUSER") ?? "bench")
+password = opt(argv, "--password", env("PGPASSWORD") ?? "bench")
+dbname = opt(argv, "--db", env("PGDATABASE") ?? "kode_bench")
+only = opt(argv, "--only", "")
+
+if workload == "" {
+    print("usage: client.kode -- --workload NAME --cases cases.json [--rows N] [--ops N] [--only id,id]")
+    exit(2)
+}
+if cases_path == "" {
+    print("usage: client.kode -- --workload NAME --cases cases.json [--rows N] [--ops N] [--only id,id]")
+    exit(2)
+}
+
+spec = json_parse(read_file(cases_path))
+chunk = 500
+if spec.has("chunk") {
+    chunk = spec["chunk"].as_int()
+}
+
+wanted: [string] = []
+if only != "" {
+    wanted = only.split(",")
+}
+
+selected: [Json] = []
+for cs in spec["cases"].as_list() {
+    if cs["workload"].as_string() == workload {
+        if only == "" {
+            selected.add(cs)
+        } else {
+            if wanted.contains(cs["id"].as_string()) {
+                selected.add(cs)
+            }
+        }
+    }
+}
+
+if selected.len() == 0 {
+    msg = json_obj()
+    msg["language"] = json.string("kode")
+    msg["workload"] = json.string(workload)
+    msg["error"] = json.string("no cases")
+    print(json_map(msg).encode())
+    exit(2)
+}
+
+url = "postgres://${user}:${password}@${host}:${port}/${dbname}?sslmode=disable"
+db = pg.connect(url)
+failed = 0
+
+for c in selected {
+    shape = c["shape"].as_string()
+
+    // Concurrency cases have no iteration count: each worker runs --ops.
+    iterations = rows
+    if shape == "conc" {
+        w = 10
+        if c.has("workers") {
+            w = c["workers"].as_int()
+        }
+        iterations = ops * w
+    } else {
+        if c.has("iterations") {
+            declared = c["iterations"]
+            if declared.kind != JsonKind.Str {
+                iterations = declared.as_int()
+            }
+        }
+    }
+
+    rec = json_obj()
+    rec["language"] = json.string("kode")
+    rec["workload"] = json.string(workload)
+    rec["case"] = c["id"]
+    rec["shape"] = json.string(shape)
+    rec["rows"] = json.int(rows)
+    rec["iterations"] = json.int(iterations)
+    expect_errors = false
+    if c.has("expect_errors") {
+        expect_errors = c["expect_errors"].as_bool()
+    }
+    rec["expect_errors"] = json.bool(expect_errors)
+    rec["setup_ms"] = json.float(0.0)
+    rec["error_sample"] = json.string("")
+    rec["status"] = json.string("ok")
+
+    try {
+        if c.has("setup") {
+            pg.exec(db, c["setup"].as_string().replace("{rows}", "${rows}"))
+        }
+        cpu0 = cpu_ms()
+        t0 = tick()
+        res = run_case(url, db, c, rows, ops, chunk, iterations)
+        case_cpu = cpu_ms() - cpu0
+        elapsed = ms_since(t0)
+
+        for k, v in res {
+            rec[k] = v
+        }
+        rec["checks"] = json_list(run_checks(db, c, rows))
+        rec["cpu_ms"] = json.float(r3(case_cpu))
+        rec["peak_rss_kb"] = json.int(peak_rss_kb())
+        rec["elapsed_ms"] = json.float(r3(elapsed))
+    } catch e {
+        rec["status"] = json.string("error")
+        rec["error_sample"] = json.string(first_line(e.message))
+        rec["checks"] = json_list([])
+        failed = failed + 1
+        rollback_quiet(db)
+    }
+    print(json_map(rec).encode())
+}
+
+pg.close(db)
+if failed > 0 {
+    exit(1)
+}

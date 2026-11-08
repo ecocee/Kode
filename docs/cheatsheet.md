@@ -244,6 +244,29 @@ print(r.code, r.stdout, r.stderr)
 - A program that cannot start throws (catch it); a non-zero exit is `r.code`.
 - `exec` is synchronous; stdin is closed, stdout and stderr are captured safely.
 
+## PostgreSQL
+
+```
+db = pg.connect("postgres://user:pass@127.0.0.1:5432/app?sslmode=disable")
+pg.exec(db, "create table t (id int, name text)")
+
+ins = pg.query(db, "insert into t values ($1, $2)", [json.int(1), json.string("asha")])
+print(ins["command"].as_string(), ins["affected"].as_int())
+
+rows = pg.query(db, "select id, name, note from t where id > $1", [json.int(0)])
+for row in rows["rows"].as_list() {
+    print(row["id"].as_int(), row["note"].is_null())
+}
+pg.close(db)
+```
+
+- A connection is an `int` handle. `pg.exec` is a simple query; `pg.query`
+  binds `$1` parameters (`json.null()`, bool, int, float, string).
+- A result is JSON: `command`, `columns`, `rows` (one object per row) and
+  `affected`.
+- Errors carry the SQLSTATE: `42P01: relation "t" does not exist`.
+- Plain TCP only: add `?sslmode=disable`. No md5, no `COPY`, no notifications.
+
 ## Project layout
 
 ```

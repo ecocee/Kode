@@ -11,7 +11,9 @@
 //! * `router`: the `Router` / `Request` / `Response` web API layer
 //! * `io`: printing; `repr`: the text of a list or map
 
+mod base64;
 mod channel;
+mod clock_time;
 mod error;
 mod http;
 mod http_client;
@@ -23,9 +25,16 @@ mod list;
 mod map;
 mod math;
 mod object;
+mod pg;
+mod pg_message;
+mod pg_scram;
+mod pg_url;
+mod pg_tls;
+mod pg_wire;
 mod process;
 mod repr;
 mod router;
+mod sha256;
 mod std_fns;
 mod string;
 mod task;
@@ -34,13 +43,13 @@ mod task;
 /// symbol name. Rename it (and `RT_ABI` in `kode-codegen/src/link.rs`) whenever the
 /// runtime functions or object layouts change, so an old library is never used by mistake.
 #[no_mangle]
-pub extern "C" fn kode_rt_abi_0003() {}
+pub extern "C" fn kode_rt_abi_0004() {}
 
 /// Called once when the program ends. With `KODE_LEAK_CHECK=1` it reports
 /// objects that were never freed (used by the test suite).
 #[no_mangle]
 pub extern "C" fn kode_rt_finish() {
-    kode_rt_abi_0003();
+    kode_rt_abi_0004();
     io::flush();
     if std::env::var_os("KODE_LEAK_CHECK").is_some() {
         let live = object::live_objects();

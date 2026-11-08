@@ -1,0 +1,133 @@
+# One PostgreSQL instance and one client container per language.
+#
+# Every client talks to the same server on the same Docker network, with the same
+# credentials, isolation level and pool ceiling. The database data directory is a
+# tmpfs inside the PostgreSQL container: Docker Desktop on macOS forwards fsync
+# over a userspace filesystem, which adds tens of milliseconds of variance to
+# every COMMIT and has nothing to do with the language under test. Putting PGDATA
+# in RAM keeps durability settings at their defaults (fsync on) while making the
+# server's own commit path the only cost. This is identical for every client and
+# is noted in results/reports/summary.md.
+#
+# Clients are built from benchmarks/database/Dockerfile (one target per language)
+# and are one-shot: `docker compose run --rm client-go --workload insert ...`.
+
+name: kode-db-bench
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: kode_bench
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - postgres
+      - -c
+      - max_connections=400
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - fsync=on
+      - -c
+      - synchronous_commit=on
+      - -c
+      - "default_transaction_isolation=read committed"
+      - -c
+      - log_min_duration_statement=1000
+      - -c
+      - log_lock_waits=on
+    shm_size: 512mb
+    tmpfs:
+      - /var/lib/postgresql/data:size=3g
+    volumes:
+      - ./schema/init-roles.sql:/docker-entrypoint-initdb.d/00-roles.sql:ro
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kode_bench"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+    restart: "no"
+
+  client-python:
+    profiles: ["bench"]
+    build:
+      context: ../..
+      dockerfile: benchmarks/database/Dockerfile
+      target: python
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  client-node:
+    profiles: ["bench"]
+    build:
+      context: ../..
+      dockerfile: benchmarks/database/Dockerfile
+      target: node
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  client-go:
+    profiles: ["bench"]
+    build:
+      context: ../..
+      dockerfile: benchmarks/database/Dockerfile
+      target: go
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  client-rust:
+    profiles: ["bench"]
+    build:
+      context: ../..
+      dockerfile: benchmarks/database/Dockerfile
+      target: rust
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  client-java:
+    profiles: ["bench"]
+    build:
+      context: ../..
+      dockerfile: benchmarks/database/Dockerfile
+      target: java
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  client-csharp:
+    profiles: ["bench"]
+    build:
+      context: ../..
+      dockerfile: benchmarks/database/Dockerfile
+      target: csharp
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Kode uses the PostgreSQL client built into its own runtime (ADR 0033): plain
+  # TCP, no connection pool, no statement caching.
+  client-kode:
+    profiles: ["bench"]
+    build:
+      context: ../..
+      dockerfile: benchmarks/database/Dockerfile
+      target: kode
+    depends_on:
+      postgres:
+        condition: service_healthy

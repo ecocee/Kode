@@ -1,0 +1,18 @@
+[package]
+name = "kode-db-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+postgres = "0.19.9"
+r2d2 = "0.8.10"
+r2d2_postgres = "0.18.1"
+serde_json = "1"
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

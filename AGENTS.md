@@ -37,6 +37,7 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 | `kode fmt`, `kode explain` | `crates/kode-cli/src/fmt.rs`, `explain.rs` (reads `docs/errors/index.md`) |
 | language server | `kode lsp` in `kode-cli`; editor setup in `docs/editors.md` |
 | `kode doc` and the docs site | `docs/site/build.sh` |
+| PostgreSQL client | `crates/kode-rt/src/pg.rs` (API, handles, JSON results), `pg_wire.rs` (protocol, SCRAM), `sha256.rs` + `base64.rs` (SCRAM hashing) |
 | machine code | `crates/kode-codegen/src/function.rs` |
 | runtime functions | `crates/kode-rt/src/` (object, string, list, map, error, io, and others); register new ones in `kode-mir/src/ir.rs` (`RtFn`) and `kode-codegen/src/runtime.rs` |
 | benchmarks and measurements | `benchmarks/`, `benchmarks/report.md` |

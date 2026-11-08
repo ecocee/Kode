@@ -5,6 +5,19 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ## Unreleased
 
+### Added
+
+- **A PostgreSQL client** (ADR 0033): `pg.connect`, `pg.exec`, `pg.query` and
+  `pg.close` speak the PostgreSQL wire protocol from the runtime, with
+  SCRAM-SHA-256 or cleartext authentication, the extended query protocol with
+  `$1` parameters, and JSON results (`command`, `columns`, `rows`, `affected`)
+  that keep ints, floats, bools and NULLs typed. Server errors carry the
+  SQLSTATE. Plain TCP only: `sslmode=disable` is required until TLS lands, and
+  md5, `COPY` and notifications are not supported. Programs that do not use it
+  link nothing: `examples/hello.kode` is unchanged, and
+  `examples/db/postgres.kode` is 161 KB larger stripped. The runtime ABI marker
+  moves to `kode_rt_abi_0004`.
+
 ### Fixed
 
 - Two diagnostics that sent readers looking in the wrong place now say what is

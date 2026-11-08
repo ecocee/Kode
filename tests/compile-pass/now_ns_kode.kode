@@ -1,0 +1,3 @@
+print(now_ms())
+x = now_ns()
+print(x)

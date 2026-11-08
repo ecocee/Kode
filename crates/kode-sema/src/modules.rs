@@ -79,6 +79,56 @@ pub static ALIASES: &[Alias] = &[
         target: "http_request",
     },
     Alias {
+        module: "pg",
+        name: "connect",
+        target: "pg_connect",
+    },
+    Alias {
+        module: "pg",
+        name: "exec",
+        target: "pg_exec",
+    },
+    Alias {
+        module: "pg",
+        name: "query",
+        target: "pg_query",
+    },
+    Alias {
+        module: "pg",
+        name: "close",
+        target: "pg_close",
+    },
+    Alias {
+        module: "pg",
+        name: "pool",
+        target: "pg_pool",
+    },
+    Alias {
+        module: "pg",
+        name: "pool_close",
+        target: "pg_pool_close",
+    },
+    Alias {
+        module: "pg",
+        name: "pool_connect",
+        target: "pg_pool_connect",
+    },
+    Alias {
+        module: "pg",
+        name: "pool_release",
+        target: "pg_pool_release",
+    },
+    Alias {
+        module: "pg",
+        name: "pool_exec",
+        target: "pg_pool_exec",
+    },
+    Alias {
+        module: "pg",
+        name: "pool_query",
+        target: "pg_pool_query",
+    },
+    Alias {
         module: "fs",
         name: "read",
         target: "read_file",
@@ -97,6 +147,11 @@ pub static ALIASES: &[Alias] = &[
         module: "time",
         name: "sleep",
         target: "sleep",
+    },
+    Alias {
+        module: "time",
+        name: "now_ns",
+        target: "now_ns",
     },
     Alias {
         module: "math",

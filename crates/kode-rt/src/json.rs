@@ -38,6 +38,23 @@ pub(crate) unsafe fn kind_of(p: *mut Header) -> i64 {
     *(field(p, 0) as *const i64)
 }
 
+pub(crate) unsafe fn int_of(p: *mut Header) -> i64 {
+    *(field(p, 1) as *const i64)
+}
+
+pub(crate) unsafe fn bool_of(p: *mut Header) -> bool {
+    *(field(p, 1) as *const i64) != 0
+}
+
+pub(crate) unsafe fn float_of(p: *mut Header) -> f64 {
+    *(field(p, 2) as *const f64)
+}
+
+/// The string of a `Json` value whose kind is `STR`. Borrowed.
+pub(crate) unsafe fn string_of(p: *mut Header) -> *mut Header {
+    *(field(p, 3) as *const *mut Header)
+}
+
 pub(crate) fn kind_name(kind: i64) -> &'static str {
     match kind {
         NULL => "null",

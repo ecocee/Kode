@@ -81,6 +81,7 @@ pub static STD: &[StdFn] = &[
     f!("exit", Free, [T::Int], T::Unit, false, "kode_exit"),
     f!("sleep", Free, [T::Int], T::Unit, false, "kode_sleep"),
     f!("now_ms", Free, [], T::Int, false, "kode_now_ms"),
+    f!("now_ns", Free, [], T::Int, false, "kode_now_ns"),
     f!("chr", Free, [T::Int], T::Str, false, "kode_chr"),
     // processes: run a program directly, without a shell
     f!(
@@ -421,6 +422,81 @@ pub static STD: &[StdFn] = &[
         T::Resp,
         true,
         "kode_http_request"
+    ),
+    // PostgreSQL (plain TCP; TLS is not implemented yet)
+    f!(
+        "pg_connect",
+        Free,
+        [T::Str],
+        T::Int,
+        true,
+        "kode_pg_connect"
+    ),
+    f!(
+        "pg_exec",
+        Free,
+        [T::Int, T::Str],
+        T::Json,
+        true,
+        "kode_pg_exec"
+    ),
+    f!(
+        "pg_query",
+        Free,
+        [T::Int, T::Str, T::ListJson],
+        T::Json,
+        true,
+        "kode_pg_query"
+    ),
+    f!("pg_close", Free, [T::Int], T::Unit, false, "kode_pg_close"),
+    // Connection pooling
+    f!(
+        "pg_pool",
+        Free,
+        [T::Str, T::Int, T::Int, T::Int],
+        T::Int,
+        true,
+        "kode_pg_pool"
+    ),
+    f!(
+        "pg_pool_close",
+        Free,
+        [T::Int],
+        T::Unit,
+        false,
+        "kode_pg_pool_close"
+    ),
+    f!(
+        "pg_pool_connect",
+        Free,
+        [T::Int],
+        T::Int,
+        true,
+        "kode_pg_pool_connect"
+    ),
+    f!(
+        "pg_pool_release",
+        Free,
+        [T::Int],
+        T::Unit,
+        false,
+        "kode_pg_pool_release"
+    ),
+    f!(
+        "pg_pool_exec",
+        Free,
+        [T::Int, T::Str],
+        T::Json,
+        true,
+        "kode_pg_pool_exec"
+    ),
+    f!(
+        "pg_pool_query",
+        Free,
+        [T::Int, T::Str, T::ListJson],
+        T::Json,
+        true,
+        "kode_pg_pool_query"
     ),
     // web API helpers: build JSON objects, build responses, read a request body
     f!("json_obj", Free, [], T::MapJson, false, "kode_json_obj"),

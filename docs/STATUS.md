@@ -32,7 +32,8 @@ general-purpose language. Blockers, in the order they hurt:
    other leak forever (no `weak`).
 4. No byte buffers and only 64-bit `int`; no fixed-width integers, no binary
    protocol work.
-5. No database client.
+5. A PostgreSQL client exists (ADR 0033) but speaks plain TCP only, so TLS and
+   md5 authentication are missing.
 6. Release automation only builds Linux x86-64, while the docs promise macOS,
    Windows and aarch64 artifacts (§4.1). Windows has never been verified by hand.
 
@@ -102,7 +103,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 | 3.1 TLS | **missing** | `docs/spec/13-stdlib.md` "Only plain `http://` is supported"; `https://` raises |
 | 3.2 Raw TCP/UDP sockets | **missing** | no socket API outside the HTTP server |
 | 3.3 Server hardening | **partial** | HTTP/1.1 keep-alive (`http.rs:103`); **no request size limit, no read timeout, no static files, no middleware, no graceful drain** (grep of `http.rs`/`router.rs`) |
-| 3.4 PostgreSQL client | **missing** | no driver |
+| 3.4 PostgreSQL client | **partial** | `pg_wire.rs`/`pg.rs` (ADR 0033): plain TCP, SCRAM-SHA-256, simple + extended protocol, JSON results; **no TLS, no md5, no `COPY`, no pooling** (`sslmode=disable` only) |
 | 3.5 C FFI | **missing** | no `extern fn`; ADR not written |
 
 ### Phase 4 — tooling

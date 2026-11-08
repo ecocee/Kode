@@ -1,0 +1,43 @@
+// A PostgreSQL client from Kode: connect, DDL, inserts, a parameterised query,
+// typed column access, NULL handling, an UPDATE row count and a caught error.
+//
+//   docker compose -f benchmarks/database/docker-compose.yml up -d postgres
+//   ./target/debug/kode run examples/db/postgres.kode
+//
+// The connection string is `postgres://user:password@host:port/database`.
+// `sslmode=disable` is required for now: the client speaks plain TCP only.
+
+url = "postgres://bench:bench@127.0.0.1:55432/kode_bench?sslmode=disable"
+db = pg.connect(url)
+
+pg.exec(db, "drop table if exists kode_demo")
+created = pg.exec(db, "create table kode_demo (id int primary key, name text, score float8, active bool, note text)")
+print("ddl:", created["command"].as_string())
+
+inserted = pg.query(db, "insert into kode_demo (id, name, score, active, note) values ($1, $2, $3, $4, $5)", [json.int(1), json.string("asha"), json.float(9.5), json.bool(true), json.null()])
+print("insert:", inserted["command"].as_string(), inserted["affected"].as_int())
+
+pg.query(db, "insert into kode_demo (id, name, score, active, note) values ($1, $2, $3, $4, $5)", [json.int(2), json.string("ravi"), json.float(7.0), json.bool(false), json.string("hello")])
+
+rows = pg.query(db, "select id, name, score, active, note from kode_demo where id > $1 order by id", [json.int(0)])
+print("columns:", rows["columns"].as_list().len())
+print("count:", rows["rows"].as_list().len())
+for row in rows["rows"].as_list() {
+    print(row["id"].as_int(), row["name"].as_string(), row["score"].as_float(), row["active"].as_bool(), row["note"].is_null())
+}
+
+updated = pg.query(db, "update kode_demo set name = $1 where id = $2", [json.string("meera"), json.int(2)])
+print("update:", updated["command"].as_string(), updated["affected"].as_int())
+
+// A failed statement raises an Error that carries the SQLSTATE, and the
+// connection is still usable afterwards.
+pg.query(db, "select * from kode_missing", []) catch e {
+    print("caught:", e.message)
+    json.parse("{}")
+}
+still = pg.exec(db, "select count(*) as n from kode_demo")
+print("after error:", still["rows"].as_list()[0]["n"].as_int())
+
+pg.exec(db, "drop table kode_demo")
+pg.close(db)
+print("closed")

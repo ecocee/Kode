@@ -32,7 +32,7 @@ arguments; **lists** `[T]` and **maps** `{string: T}`; **classes** with methods 
 qualified access, `pub`-gated module exports); `test` blocks; reference-counted memory with a leak
 checker; errors with codes, hints and JSON output; **interfaces** with `implements` and run-time
 dispatch; **bit operators** `& | ^ ~ << >>` with compound assignment; and **standard-library
-namespaces** like `json.parse`, `math.sqrt` and `http.get`.
+namespaces** like `json.parse`, `math.sqrt`, `http.get` and `pg.query`.
 
 Tools: `kode run | build | check | test | fmt | explain | mir | lsp | doctor`, and packages:
 `kode init | new | add | remove | install` with path dependencies and a checked-in `kode.lock`.
@@ -43,8 +43,12 @@ arguments and sorting are in too. Function values and closures (`fn(int) -> int`
 generic functions, path dependencies and printing lists and maps (`[1, 2]`, `{"name": "Asha"}`)
 work as well.
 
-Next: the M9 production track — TLS, a database client, cycle-safe memory, byte buffers, enum
-payloads; see [docs/PLAN-v1.md](docs/PLAN-v1.md). M8 (budgets, `uses`, typed `ask`/`tool`) is
+There is a **PostgreSQL client** in the runtime (`pg.connect`, `pg.exec`, `pg.query`,
+`pg.close`) with SCRAM-SHA-256 and JSON results; it speaks plain TCP, so TLS is still missing
+(ADR 0033, example: [examples/db/postgres.kode](examples/db/postgres.kode)).
+
+Next: the M9 production track — TLS, cycle-safe memory, byte buffers, enum payloads; see
+[docs/PLAN-v1.md](docs/PLAN-v1.md). M8 (budgets, `uses`, typed `ask`/`tool`) is
 skipped. Measurements and known gaps: [docs/STATUS.md](docs/STATUS.md).
 See [docs/ROADMAP.md](docs/ROADMAP.md) and the one-page [cheat sheet](docs/cheatsheet.md).
 
