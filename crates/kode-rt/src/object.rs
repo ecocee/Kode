@@ -29,6 +29,23 @@ static LIVE: AtomicI64 = AtomicI64::new(0);
 /// Count live objects (only for `KODE_LEAK_CHECK`).
 pub static COUNT_LIVE: AtomicBool = AtomicBool::new(false);
 
+/// Per-thread live count for the tests in this crate. `LIVE` is process-wide, and
+/// `cargo test` runs tests in parallel, so a delta measured on it can include
+/// another test's allocations. The thread-local count is exact for tests that
+/// allocate and free on one thread, without weakening the assertions.
+#[cfg(test)]
+thread_local! {
+    static LOCAL_COUNTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static LOCAL_LIVE: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn local_count(delta: i64) {
+    if LOCAL_COUNTING.with(|on| on.get()) {
+        LOCAL_LIVE.with(|live| live.set(live.get() + delta));
+    }
+}
+
 /// Set when the first task or server thread starts.
 /// From then on reference counts are atomic.
 pub static THREADED: AtomicBool = AtomicBool::new(false);
@@ -57,6 +74,9 @@ pub unsafe fn alloc_object(size: usize, kind: i64) -> *mut Header {
         LIVE.fetch_add(1, Ordering::Relaxed);
     }
 
+    #[cfg(test)]
+    local_count(1);
+
     p
 }
 
@@ -67,6 +87,9 @@ pub unsafe fn free_object(p: *mut Header, size: usize) {
     if COUNT_LIVE.load(Ordering::Relaxed) {
         LIVE.fetch_sub(1, Ordering::Relaxed);
     }
+
+    #[cfg(test)]
+    local_count(-1);
 }
 
 /// Called first thing in `main`.
@@ -232,8 +255,14 @@ mod tests {
         let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
         COUNT_LIVE.store(true, Ordering::Relaxed);
+        LOCAL_COUNTING.with(|on| on.set(true));
 
         guard
+    }
+
+    /// Objects this thread allocated and has not freed yet.
+    fn local_live() -> i64 {
+        LOCAL_LIVE.with(|live| live.get())
     }
 
     fn rc_of(p: *mut Header) -> i64 {
@@ -300,7 +329,7 @@ mod tests {
 
         THREADED.store(true, Ordering::SeqCst);
 
-        let before = live_objects();
+        let before = local_live();
 
         let s = crate::string::from_bytes(b"many owners");
 
@@ -319,14 +348,14 @@ mod tests {
             kode_release(s);
         }
 
-        assert_eq!(live_objects(), before, "the string was freed exactly once");
+        assert_eq!(local_live(), before, "the string was freed exactly once");
     }
 
     #[test]
     fn nested_objects_free_everything() {
         let _g = counting();
 
-        let before = live_objects();
+        let before = local_live();
 
         unsafe {
             let list = crate::list::kode_list_new(1);
@@ -344,14 +373,14 @@ mod tests {
             kode_release(obj);
         }
 
-        assert_eq!(live_objects(), before);
+        assert_eq!(local_live(), before);
     }
 
     #[test]
     fn maps_containing_references_free_everything() {
         let _g = counting();
 
-        let before = live_objects();
+        let before = local_live();
 
         unsafe {
             let map = crate::map::kode_map_new(1);
@@ -374,14 +403,14 @@ mod tests {
             kode_release(map);
         }
 
-        assert_eq!(live_objects(), before);
+        assert_eq!(local_live(), before);
     }
 
     #[test]
     fn replacing_a_pending_error_releases_the_old_one() {
         let _g = counting();
 
-        let before = live_objects();
+        let before = local_live();
 
         crate::error::throw_msg("first");
         crate::error::throw_msg("second");
@@ -394,7 +423,7 @@ mod tests {
             kode_release(e);
         }
 
-        assert_eq!(live_objects(), before);
+        assert_eq!(local_live(), before);
     }
 
     // The closure is required: an extern "C" fn item

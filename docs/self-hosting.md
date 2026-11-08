@@ -14,7 +14,7 @@ Status date: 2026-11-05.
 | `tests/run-pass` | 40 programs, each with a `.out` file |
 | `tests/compile-fail` | 88 programs, each with a `.err` code |
 | Conformance run | `cargo test --workspace`, all green, leak checking on |
-| Runtime ABI marker | `kode_rt_abi_0003` |
+| Runtime ABI marker | `kode_rt_abi_0004` |
 | Native output | Cranelift object file, linked with the system `cc` |
 
 ## Language capabilities

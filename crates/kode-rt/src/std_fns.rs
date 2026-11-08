@@ -1,9 +1,9 @@
 //! Standard library functions called from compiled code (see `kode-sema/src/std_fns.rs`).
 //! Functions that can fail raise a Kode `Error` and return a default value.
 
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use crate::clock_time;
 use crate::error::{fatal, throw_msg};
 use crate::list::{kode_list_new, kode_list_push};
 use crate::object::Header;
@@ -73,11 +73,16 @@ pub extern "C" fn kode_sleep(ms: i64) {
     std::thread::sleep(Duration::from_millis(ms.max(0) as u64));
 }
 
-/// Milliseconds on a steady clock (only differences are meaningful).
+/// Nanoseconds since the first clock call in the program (monotonic).
+#[no_mangle]
+pub extern "C" fn kode_now_ns() -> i64 {
+    clock_time::now_ns()
+}
+
+/// Milliseconds since the same starting point as `kode_now_ns`.
 #[no_mangle]
 pub extern "C" fn kode_now_ms() -> i64 {
-    static START: OnceLock<Instant> = OnceLock::new();
-    START.get_or_init(Instant::now).elapsed().as_millis() as i64
+    clock_time::now_ms()
 }
 
 #[no_mangle]

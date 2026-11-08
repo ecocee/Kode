@@ -90,3 +90,9 @@ Every binary is built for release: `kode build --release`, `cc -O2` and plain
 
 Ratios use the median against C `-O2` where both ran; a dash means the
 tool is not installed on this machine.
+
+## Workspace health
+
+| Check | Result |
+|---|---|
+| `` | TODO |

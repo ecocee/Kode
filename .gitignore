@@ -30,3 +30,5 @@ rust-analyzer/docs/site/out/
 
 # Release artifacts are built by CI, never committed
 dist/
+
+benchmarks/database/results/

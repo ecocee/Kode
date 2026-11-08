@@ -14,8 +14,13 @@ the compiler built (`cargo build --workspace`).
 | `pipeline.kode` | tasks and channels: fan out to three workers, collect and sort the results | `kode run examples/pipeline.kode` |
 | `config.kode` | JSON config, an `env()` override, validation with error codes, `finally` | `kode run examples/config.kode` |
 | `api.kode` | a JSON HTTP API with `Router`, `Request` and `Response` | `kode run examples/api.kode -- 8080` |
+| `db/postgres.kode` | a PostgreSQL client: `pg.connect`, parameters, typed rows, NULLs, transactions, a caught error | needs a server, see the file's header |
 
 `api.kode` keeps running until you stop it (`Ctrl+C`). The others print and exit.
+
+`db/postgres.kode` expects PostgreSQL on `127.0.0.1:55432` (the benchmark suite's
+container: `docker compose -f benchmarks/database/docker-compose.yml up -d postgres`).
+The client speaks plain TCP, so the URL carries `?sslmode=disable`; see ADR 0033.
 
 Notes that save time:
 

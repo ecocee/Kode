@@ -1,0 +1,12 @@
+// A quick, self-contained latency sanity check. The benchmark client and its
+// harness depend on `now_ns()` measuring a true monotonic nanosecond clock.
+sleep_ms(1)
+a = now_ns()
+sleep_ms(1)
+b = now_ns()
+c = now_ms()
+print(a, b, b - a, c)
+
+assert(b - a >= 900000, "now_ns did not advance by ~1ms")
+assert(c > a, "now_ms did not advance")
+print("ok")

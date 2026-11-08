@@ -111,7 +111,7 @@ tests and an ADR where behavior changes; the list is the order, not a schedule.
 | 9.1 | Printing collections (ADR 0031) | you could not look at a list or map without a loop | **done** |
 | 9.2 | Docs that match the compiler | channels, `finally`, generics, LSP nav were documented as missing | **done** |
 | 9.3 | TLS for the HTTP client and server | every real service talks `https://`; today it raises an error | next |
-| 9.4 | Database client (PostgreSQL wire protocol) | no data store means no backends | |
+| 9.4 | Database client (PostgreSQL wire protocol) | no data store means no backends | **v0.1 done** (ADR 0033): plain TCP, SCRAM-SHA-256, simple + extended protocol, JSON results; TLS, md5, `COPY` and pooling remain |
 | 9.5 | `weak` references | two objects pointing at each other leak forever | |
 | 9.6 | Byte buffers and fixed-width ints (`u8`, `i32`, `[]byte`) | binary protocols, files and crypto need bytes, not 64-bit ints | |
 | 9.7 | Enum payloads, `is`, safe downcast | tag-only enums force unsafe casts for real data shapes | |

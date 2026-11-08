@@ -1,0 +1,43 @@
+{
+  "description": "Independent end-of-workload verification, run by the harness through psql after the client exits. Per-case checks are executed by the client through its own driver immediately after each case; these invariants are the second, driver-independent path. They catch silent data loss, duplicate rows, broken foreign keys, negative stock and leaked connections.",
+  "invariants": {
+    "insert": [
+      {"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["rows"]},
+      {"sql": "SELECT count(*)::bigint, count(DISTINCT id)::bigint FROM bench_writes", "expect": ["rows", "rows"]}
+    ],
+    "select": [
+      {"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]},
+      {"sql": "SELECT count(DISTINCT tag)::bigint FROM bench_events", "expect": ["10"]}
+    ],
+    "update": [
+      {"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["rows"]},
+      {"sql": "SELECT payload FROM bench_writes WHERE id = 1", "expect": ["lit:updated-0"]}
+    ],
+    "delete": [
+      {"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["rows-1000"]}
+    ],
+    "join": [
+      {"sql": "SELECT count(*)::bigint FROM orders", "expect": ["100000"]},
+      {"sql": "SELECT sum(qty)::bigint FROM orders", "expect": ["300000"]},
+      {"sql": "SELECT count(*)::bigint FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE p.id IS NULL", "expect": ["0"]}
+    ],
+    "transactions": [
+      {"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["100"]},
+      {"sql": "SELECT count(*)::bigint FROM bench_writes b LEFT JOIN bench_writes c ON c.id = b.id AND c.id <> b.id WHERE c.id IS NOT NULL", "expect": ["0"]}
+    ],
+    "concurrency": [
+      {"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["workers*ops*3/10"]},
+      {"sql": "SELECT count(*)::bigint, count(DISTINCT id)::bigint FROM bench_writes", "expect": ["workers*ops*3/10", "workers*ops*3/10"]}
+    ],
+    "connections": [
+      {"sql": "SELECT count(*)::bigint FROM pg_stat_activity WHERE usename = 'bench'", "expect": ["0"]}
+    ],
+    "application": [
+      {"sql": "SELECT count(*)::bigint FROM products", "expect": ["1000"]},
+      {"sql": "SELECT count(*)::bigint FROM orders", "expect": ["100000"]},
+      {"sql": "SELECT count(*)::bigint FROM products WHERE stock < 0", "expect": ["0"]},
+      {"sql": "SELECT count(*)::bigint FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE p.id IS NULL", "expect": ["0"]},
+      {"sql": "SELECT count(*)::bigint FROM orders o LEFT JOIN customers c ON c.id = o.customer_id WHERE c.id IS NULL", "expect": ["0"]}
+    ]
+  }
+}

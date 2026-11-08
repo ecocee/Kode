@@ -1,0 +1,621 @@
+{
+  "version": 1,
+  "description": "Canonical database benchmark cases. Every language client reads this file, so SQL text, iteration counts, setup and per-case verification are identical across clients by construction. Parameter generators are named here and implemented with the same formula in every client (see README.md).",
+  "chunk": 500,
+  "generators": {
+    "id": "i + 1",
+    "k": "(i * 37) % rows",
+    "k_hi": "((i * 37) % rows) + 25",
+    "pick_id": "((i * 7) % rows) + 1",
+    "pick_product": "((i * 7) % 1000) + 1",
+    "offset": "(i * 100) % 1000",
+    "qty": "(i % 5) + 1",
+    "order_id": "((i * 997) % 100000) + 1",
+    "app_product_id": "100000 + i",
+    "app_customer_id": "100000 + i",
+    "app_order_id": "1000000 + i",
+    "worker_id": "worker * 1000000 + i + 1",
+    "payload": "\"payload-\" + i",
+    "payload2": "\"updated-\" + i",
+    "tag": "\"t\" + (i % 10)",
+    "status": "[\"new\", \"paid\", \"shipped\", \"cancelled\"][i % 4]",
+    "price": "\"19.99\"",
+    "sku": "\"SKU-NEW-\" + i",
+    "name": "\"name-\" + i",
+    "email": "\"user\" + i + \"@example.com\"",
+    "city": "[\"Bengaluru\", \"Berlin\", \"Lisbon\", \"Osaka\"][i % 4]",
+    "category": "[\"books\", \"games\", \"tools\", \"music\"][i % 4]",
+    "name_like": "\"name-%\""
+  },
+  "cases": [
+    {
+      "id": "insert.single_autocommit",
+      "workload": "insert",
+      "shape": "stmt_loop",
+      "note": "One prepared INSERT per row, one implicit transaction per row.",
+      "setup": "SELECT bench_clear_writes()",
+      "sql": "INSERT INTO bench_writes (id, k, payload, tag) VALUES ($1, $2, $3, $4)",
+      "params": ["id", "k", "payload", "tag"],
+      "iterations": "rows",
+      "checks": [
+        {"sql": "SELECT count(*)::bigint, count(DISTINCT id)::bigint FROM bench_writes", "expect": ["rows", "rows"]}
+      ]
+    },
+    {
+      "id": "insert.single_txn",
+      "workload": "insert",
+      "shape": "txn_loop",
+      "note": "One prepared INSERT per row, all rows in a single transaction.",
+      "setup": "SELECT bench_clear_writes()",
+      "sql": "INSERT INTO bench_writes (id, k, payload, tag) VALUES ($1, $2, $3, $4)",
+      "params": ["id", "k", "payload", "tag"],
+      "iterations": "rows",
+      "checks": [
+        {"sql": "SELECT count(*)::bigint, count(DISTINCT id)::bigint FROM bench_writes", "expect": ["rows", "rows"]}
+      ]
+    },
+    {
+      "id": "insert.batch",
+      "workload": "insert",
+      "shape": "chunk_insert",
+      "note": "Multi-row INSERT, 500 rows per statement, autocommit.",
+      "setup": "SELECT bench_clear_writes()",
+      "sql": "INSERT INTO bench_writes (id, k, payload, tag) VALUES ",
+      "params": ["id", "k", "payload", "tag"],
+      "iterations": "rows",
+      "checks": [
+        {"sql": "SELECT count(*)::bigint, count(DISTINCT id)::bigint FROM bench_writes", "expect": ["rows", "rows"]}
+      ]
+    },
+    {
+      "id": "insert.batch_txn",
+      "workload": "insert",
+      "shape": "chunk_insert_txn",
+      "note": "Multi-row INSERT, 500 rows per statement, one transaction.",
+      "setup": "SELECT bench_clear_writes()",
+      "sql": "INSERT INTO bench_writes (id, k, payload, tag) VALUES ",
+      "params": ["id", "k", "payload", "tag"],
+      "iterations": "rows",
+      "checks": [
+        {"sql": "SELECT count(*)::bigint, count(DISTINCT id)::bigint FROM bench_writes", "expect": ["rows", "rows"]}
+      ]
+    },
+
+    {
+      "id": "select.pk",
+      "workload": "select",
+      "shape": "query_loop",
+      "note": "Primary-key lookup of one row.",
+      "sql": "SELECT id, k, payload, tag FROM bench_events WHERE id = $1",
+      "params": ["pick_id"],
+      "iterations": 1000,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]}]
+    },
+    {
+      "id": "select.indexed",
+      "workload": "select",
+      "shape": "query_loop",
+      "note": "Indexed lookup on k, ten rows, ordered by primary key.",
+      "sql": "SELECT id, payload FROM bench_events WHERE k = $1 ORDER BY id LIMIT 10",
+      "params": ["k"],
+      "iterations": 1000,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]}]
+    },
+    {
+      "id": "select.scan",
+      "workload": "select",
+      "shape": "query_loop",
+      "note": "Non-indexed filter on tag: a sequential scan returning rows/10 rows.",
+      "sql": "SELECT id, payload FROM bench_events WHERE tag = $1",
+      "params": ["tag"],
+      "iterations": 20,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]}]
+    },
+    {
+      "id": "select.range",
+      "workload": "select",
+      "shape": "query_loop",
+      "note": "Range query on the indexed column.",
+      "sql": "SELECT id, k FROM bench_events WHERE k BETWEEN $1 AND $2",
+      "params": ["k", "k_hi"],
+      "iterations": 200,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]}]
+    },
+    {
+      "id": "select.multirow",
+      "workload": "select",
+      "shape": "query_loop",
+      "note": "Multiple-row retrieval, 500 rows per query.",
+      "sql": "SELECT id, k, payload, tag FROM bench_events WHERE k >= $1 ORDER BY id LIMIT 500",
+      "params": ["k"],
+      "iterations": 100,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]}]
+    },
+    {
+      "id": "select.pagination",
+      "workload": "select",
+      "shape": "query_loop",
+      "note": "Keyset-free pagination with LIMIT 100 OFFSET n.",
+      "sql": "SELECT id, k, payload, tag FROM bench_events ORDER BY id LIMIT 100 OFFSET $1",
+      "params": ["offset"],
+      "iterations": 200,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]}]
+    },
+    {
+      "id": "select.aggregate",
+      "workload": "select",
+      "shape": "query_loop",
+      "note": "Aggregation over the whole read dataset.",
+      "sql": "SELECT tag, count(*)::bigint AS n, sum(k)::bigint AS total FROM bench_events GROUP BY tag ORDER BY tag",
+      "params": [],
+      "iterations": 20,
+      "checks": [{"sql": "SELECT count(DISTINCT tag)::bigint FROM bench_events", "expect": ["10"]}]
+    },
+
+    {
+      "id": "update.single",
+      "workload": "update",
+      "shape": "stmt_loop",
+      "note": "Single-row update by primary key.",
+      "setup": "SELECT bench_reset_writes({rows})",
+      "sql": "UPDATE bench_writes SET payload = $2 WHERE id = $1",
+      "params": ["id", "payload2"],
+      "iterations": 1000,
+      "checks": [
+        {"sql": "SELECT payload FROM bench_writes WHERE id = 1", "expect": ["lit:updated-0"]},
+        {"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["rows"]}
+      ]
+    },
+    {
+      "id": "update.conditional",
+      "workload": "update",
+      "shape": "stmt_loop",
+      "note": "Conditional update matching rows/10 records, run ten times.",
+      "setup": "SELECT bench_reset_writes({rows})",
+      "sql": "UPDATE bench_writes SET note = 'touched' WHERE tag = 't3'",
+      "params": [],
+      "iterations": 10,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes WHERE note = 'touched'", "expect": ["rows/10"]}]
+    },
+    {
+      "id": "update.indexed",
+      "workload": "update",
+      "shape": "stmt_loop",
+      "note": "Update through the secondary index on k.",
+      "setup": "SELECT bench_reset_writes({rows})",
+      "sql": "UPDATE bench_writes SET payload = $2 WHERE k = $1",
+      "params": ["k", "payload2"],
+      "iterations": 200,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["rows"]}]
+    },
+    {
+      "id": "update.batch",
+      "workload": "update",
+      "shape": "batch_update",
+      "note": "Batch update via UPDATE ... FROM (VALUES ...), 500 rows per statement.",
+      "setup": "SELECT bench_reset_writes({rows})",
+      "sql": "UPDATE bench_writes SET payload = v.payload FROM (VALUES ",
+      "params": ["id", "payload2"],
+      "iterations": "rows",
+      "checks": [
+        {"sql": "SELECT payload FROM bench_writes WHERE id = 1", "expect": ["lit:updated-0"]},
+        {"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["rows"]}
+      ]
+    },
+    {
+      "id": "update.txn",
+      "workload": "update",
+      "shape": "txn_loop",
+      "note": "1,000 single-row updates inside one transaction.",
+      "setup": "SELECT bench_reset_writes({rows})",
+      "sql": "UPDATE bench_writes SET payload = $2 WHERE id = $1",
+      "params": ["id", "payload2"],
+      "iterations": 1000,
+      "checks": [{"sql": "SELECT payload FROM bench_writes WHERE id = 1", "expect": ["lit:updated-0"]}]
+    },
+
+    {
+      "id": "delete.single",
+      "workload": "delete",
+      "shape": "stmt_loop",
+      "note": "Single-row delete by primary key, 1,000 rows.",
+      "setup": "SELECT bench_reset_writes({rows})",
+      "sql": "DELETE FROM bench_writes WHERE id = $1",
+      "params": ["id"],
+      "iterations": 1000,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["rows-1000"]}]
+    },
+    {
+      "id": "delete.conditional",
+      "workload": "delete",
+      "shape": "stmt_loop",
+      "note": "Conditional delete matching rows/10 records, run ten times.",
+      "setup": "SELECT bench_reset_writes({rows})",
+      "sql": "DELETE FROM bench_writes WHERE tag = 't9'",
+      "params": [],
+      "iterations": 10,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["rows-rows/10"]}]
+    },
+    {
+      "id": "delete.batch",
+      "workload": "delete",
+      "shape": "batch_delete",
+      "note": "Batch delete of 500-row id ranges.",
+      "setup": "SELECT bench_reset_writes({rows})",
+      "sql": "DELETE FROM bench_writes WHERE id BETWEEN $1 AND $2",
+      "params": [],
+      "iterations": "rows",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["0"]}]
+    },
+    {
+      "id": "delete.txn",
+      "workload": "delete",
+      "shape": "txn_loop",
+      "note": "1,000 single-row deletes inside one transaction.",
+      "setup": "SELECT bench_reset_writes({rows})",
+      "sql": "DELETE FROM bench_writes WHERE id = $1",
+      "params": ["id"],
+      "iterations": 1000,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["rows-1000"]}]
+    },
+
+    {
+      "id": "join.two",
+      "workload": "join",
+      "shape": "query_loop",
+      "note": "Two-table JOIN, 100 rows per query.",
+      "sql": "SELECT o.id, o.qty, c.name FROM orders o JOIN customers c ON c.id = o.customer_id ORDER BY o.id LIMIT 100",
+      "params": [],
+      "iterations": 100,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM orders", "expect": ["100000"]}]
+    },
+    {
+      "id": "join.three",
+      "workload": "join",
+      "shape": "query_loop",
+      "note": "Three-table JOIN starting at a deterministic order id.",
+      "sql": "SELECT o.id, o.qty, c.name, p.sku FROM orders o JOIN customers c ON c.id = o.customer_id JOIN products p ON p.id = o.product_id WHERE o.id >= $1 ORDER BY o.id LIMIT 100",
+      "params": ["order_id"],
+      "iterations": 100,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM orders", "expect": ["100000"]}]
+    },
+    {
+      "id": "join.inner",
+      "workload": "join",
+      "shape": "query_loop",
+      "note": "INNER JOIN aggregation filtered by order status.",
+      "sql": "SELECT count(*)::bigint FROM orders o JOIN customers c ON c.id = o.customer_id JOIN products p ON p.id = o.product_id WHERE o.status = $1",
+      "params": ["status"],
+      "iterations": 20,
+      "checks": [{"sql": "SELECT sum(qty)::bigint FROM orders", "expect": ["300000"]}]
+    },
+    {
+      "id": "join.left",
+      "workload": "join",
+      "shape": "query_loop",
+      "note": "LEFT JOIN: every customer in the first 100, including those with no order.",
+      "sql": "SELECT c.id, count(o.id)::bigint FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE c.id <= 100 GROUP BY c.id ORDER BY c.id",
+      "params": [],
+      "iterations": 20,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM customers", "expect": ["10000"]}]
+    },
+    {
+      "id": "join.aggregate",
+      "workload": "join",
+      "shape": "query_loop",
+      "note": "Aggregation with JOIN grouped by customer city.",
+      "sql": "SELECT c.city, sum(o.qty)::bigint AS units, count(*)::bigint AS orders FROM orders o JOIN customers c ON c.id = o.customer_id GROUP BY c.city ORDER BY c.city",
+      "params": [],
+      "iterations": 20,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM orders", "expect": ["100000"]}]
+    },
+
+    {
+      "id": "txn.commit",
+      "workload": "transactions",
+      "shape": "txn_case",
+      "scenario": "commit",
+      "note": "BEGIN, one INSERT, COMMIT, repeated 1,000 times.",
+      "setup": "SELECT bench_clear_writes()",
+      "iterations": 1000,
+      "per_txn": 1,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["iters"]}]
+    },
+    {
+      "id": "txn.rollback",
+      "workload": "transactions",
+      "shape": "txn_case",
+      "scenario": "rollback",
+      "note": "BEGIN, one INSERT, ROLLBACK, repeated 1,000 times; nothing may persist.",
+      "setup": "SELECT bench_clear_writes()",
+      "iterations": 1000,
+      "per_txn": 1,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["0"]}]
+    },
+    {
+      "id": "txn.multi",
+      "workload": "transactions",
+      "shape": "txn_case",
+      "scenario": "multi",
+      "note": "Ten statements per transaction, 100 transactions.",
+      "setup": "SELECT bench_clear_writes()",
+      "iterations": 100,
+      "per_txn": 10,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["iters*per_txn"]}]
+    },
+    {
+      "id": "txn.constraint",
+      "workload": "transactions",
+      "shape": "txn_case",
+      "scenario": "constraint",
+      "note": "A duplicate primary key inside the transaction must fail, then ROLLBACK. Expected failures are counted separately.",
+      "setup": "SELECT bench_clear_writes()",
+      "iterations": 100,
+      "per_txn": 1,
+      "expect_errors": true,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["0"]}]
+    },
+    {
+      "id": "txn.recovery",
+      "workload": "transactions",
+      "shape": "txn_case",
+      "scenario": "recovery",
+      "note": "Fail a transaction, ROLLBACK, then complete a clean transaction on the same connection.",
+      "setup": "SELECT bench_clear_writes()",
+      "iterations": 100,
+      "per_txn": 1,
+      "expect_errors": true,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["iters"]}]
+    },
+
+    {
+      "id": "conc.read.10",
+      "workload": "concurrency",
+      "shape": "conc",
+      "mode": "read",
+      "workers": 10,
+      "note": "10 concurrent readers, 200 primary-key lookups each.",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]}]
+    },
+    {
+      "id": "conc.read.50",
+      "workload": "concurrency",
+      "shape": "conc",
+      "mode": "read",
+      "workers": 50,
+      "note": "50 concurrent readers, 200 primary-key lookups each.",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]}]
+    },
+    {
+      "id": "conc.read.100",
+      "workload": "concurrency",
+      "shape": "conc",
+      "mode": "read",
+      "workers": 100,
+      "note": "100 concurrent readers, 200 primary-key lookups each.",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_events", "expect": ["rows"]}]
+    },
+    {
+      "id": "conc.write.10",
+      "workload": "concurrency",
+      "shape": "conc",
+      "mode": "write",
+      "workers": 10,
+      "note": "10 concurrent writers, 200 inserts each, disjoint id ranges.",
+      "setup": "SELECT bench_clear_writes()",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["workers*ops"]}]
+    },
+    {
+      "id": "conc.write.50",
+      "workload": "concurrency",
+      "shape": "conc",
+      "mode": "write",
+      "workers": 50,
+      "note": "50 concurrent writers, 200 inserts each, disjoint id ranges.",
+      "setup": "SELECT bench_clear_writes()",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["workers*ops"]}]
+    },
+    {
+      "id": "conc.write.100",
+      "workload": "concurrency",
+      "shape": "conc",
+      "mode": "write",
+      "workers": 100,
+      "note": "100 concurrent writers, 200 inserts each, disjoint id ranges.",
+      "setup": "SELECT bench_clear_writes()",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["workers*ops"]}]
+    },
+    {
+      "id": "conc.mixed.10",
+      "workload": "concurrency",
+      "shape": "conc",
+      "mode": "mixed",
+      "workers": 10,
+      "note": "10 concurrent workers, 70% reads / 30% writes, 200 operations each.",
+      "setup": "SELECT bench_clear_writes()",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["workers*ops*3/10"]}]
+    },
+    {
+      "id": "conc.mixed.50",
+      "workload": "concurrency",
+      "shape": "conc",
+      "mode": "mixed",
+      "workers": 50,
+      "note": "50 concurrent workers, 70% reads / 30% writes, 200 operations each.",
+      "setup": "SELECT bench_clear_writes()",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["workers*ops*3/10"]}]
+    },
+    {
+      "id": "conc.mixed.100",
+      "workload": "concurrency",
+      "shape": "conc",
+      "mode": "mixed",
+      "workers": 100,
+      "note": "100 concurrent workers, 70% reads / 30% writes, 200 operations each.",
+      "setup": "SELECT bench_clear_writes()",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM bench_writes", "expect": ["workers*ops*3/10"]}]
+    },
+
+    {
+      "id": "conn.connect",
+      "workload": "connections",
+      "shape": "conn",
+      "scenario": "connect",
+      "iterations": 100,
+      "note": "Open and close 100 connections sequentially; setup time only.",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM pg_stat_activity WHERE usename = 'bench' AND pid <> pg_backend_pid()", "expect": ["0"]}]
+    },
+    {
+      "id": "conn.reuse",
+      "workload": "connections",
+      "shape": "conn",
+      "scenario": "reuse",
+      "iterations": 1000,
+      "note": "1,000 primary-key queries on a single established connection.",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM pg_stat_activity WHERE usename = 'bench' AND pid <> pg_backend_pid()", "expect": ["0"]}]
+    },
+    {
+      "id": "conn.pool",
+      "workload": "connections",
+      "shape": "conn",
+      "scenario": "pool",
+      "iterations": 1000,
+      "note": "1,000 primary-key queries through a 10-connection pool.",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM pg_stat_activity WHERE usename = 'bench' AND pid <> pg_backend_pid()", "expect": ["0"]}]
+    },
+    {
+      "id": "conn.exhaust",
+      "workload": "connections",
+      "shape": "conn",
+      "scenario": "exhaust",
+      "iterations": 5,
+      "note": "20 workers share a 4-connection pool: requests must queue, not fail.",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM pg_stat_activity WHERE usename = 'bench' AND pid <> pg_backend_pid()", "expect": ["0"]}]
+    },
+    {
+      "id": "conn.recover",
+      "workload": "connections",
+      "shape": "conn",
+      "scenario": "recover",
+      "iterations": 20,
+      "expect_errors": true,
+      "note": "Terminate the backend underneath a live connection, then reconnect and query again.",
+      "checks": [{"sql": "SELECT count(*)::bigint FROM pg_stat_activity WHERE usename = 'bench' AND pid <> pg_backend_pid()", "expect": ["0"]}]
+    },
+
+    {
+      "id": "app.product_create",
+      "workload": "application",
+      "shape": "stmt_loop",
+      "note": "Create a product.",
+      "setup": "SELECT bench_reset_app()",
+      "sql": "INSERT INTO products (id, sku, name, category, price, stock) VALUES ($1, $2, $3, $4, $5::text::numeric, $6)",
+      "params": ["app_product_id", "sku", "name", "category", "price", "qty"],
+      "iterations": 200,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM products", "expect": ["1200"]}]
+    },
+    {
+      "id": "app.product_get",
+      "workload": "application",
+      "shape": "query_loop",
+      "note": "Retrieve product details by id.",
+      "setup": "SELECT bench_reset_app()",
+      "sql": "SELECT id, sku, name, category, price::text AS price, stock FROM products WHERE id = $1",
+      "params": ["pick_product"],
+      "iterations": 1000,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM products", "expect": ["1000"]}]
+    },
+    {
+      "id": "app.product_search",
+      "workload": "application",
+      "shape": "query_loop",
+      "note": "Search products by category with a name prefix.",
+      "setup": "SELECT bench_reset_app()",
+      "sql": "SELECT id, sku, name FROM products WHERE category = $1 AND name LIKE $2 ORDER BY id LIMIT 20",
+      "params": ["category", "name_like"],
+      "iterations": 200,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM products", "expect": ["1000"]}]
+    },
+    {
+      "id": "app.stock_update",
+      "workload": "application",
+      "shape": "stmt_loop",
+      "note": "Reduce stock quantity with a stock >= qty guard.",
+      "setup": "SELECT bench_reset_app()",
+      "sql": "UPDATE products SET stock = stock - $2 WHERE id = $1 AND stock >= $2",
+      "params": ["pick_product", "qty"],
+      "iterations": 200,
+      "checks": [
+        {"sql": "SELECT count(*)::bigint FROM products WHERE stock < 0", "expect": ["0"]}
+      ]
+    },
+    {
+      "id": "app.customer_create",
+      "workload": "application",
+      "shape": "stmt_loop",
+      "note": "Create a customer.",
+      "setup": "SELECT bench_reset_app()",
+      "sql": "INSERT INTO customers (id, email, name, city) VALUES ($1, $2, $3, $4)",
+      "params": ["app_customer_id", "email", "name", "city"],
+      "iterations": 200,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM customers", "expect": ["10200"]}]
+    },
+    {
+      "id": "app.order_create",
+      "workload": "application",
+      "shape": "stmt_loop",
+      "note": "Create an order against existing products and customers.",
+      "setup": "SELECT bench_reset_app()",
+      "sql": "INSERT INTO orders (id, customer_id, product_id, qty, unit_price, status) VALUES ($1, $2, $3, $4, $5::text::numeric, $6)",
+      "params": ["app_order_id", "pick_product", "pick_product", "qty", "price", "status"],
+      "iterations": 200,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM orders", "expect": ["100200"]}]
+    },
+    {
+      "id": "app.order_txn",
+      "workload": "application",
+      "shape": "app_order_txn",
+      "note": "Create an order and reduce inventory in one transaction; roll back when stock is insufficient.",
+      "setup": "SELECT bench_reset_app()",
+      "iterations": 100,
+      "checks": [
+        {"sql": "SELECT count(*)::bigint FROM products WHERE stock < 0", "expect": ["0"]},
+        {"sql": "SELECT count(*)::bigint FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE p.id IS NULL", "expect": ["0"]},
+        {"sql": "SELECT count(*)::bigint FROM orders WHERE id >= 2000000", "expect": ["iters"]}
+      ]
+    },
+    {
+      "id": "app.order_join",
+      "workload": "application",
+      "shape": "query_loop",
+      "note": "Retrieve order details with a three-table JOIN.",
+      "setup": "SELECT bench_reset_app()",
+      "sql": "SELECT o.id, o.qty, p.sku, c.name FROM orders o JOIN products p ON p.id = o.product_id JOIN customers c ON c.id = o.customer_id WHERE o.id = $1",
+      "params": ["order_id"],
+      "iterations": 500,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM orders", "expect": ["100000"]}]
+    },
+    {
+      "id": "app.sales_totals",
+      "workload": "application",
+      "shape": "query_loop",
+      "note": "Calculate sales totals for a status.",
+      "setup": "SELECT bench_reset_app()",
+      "sql": "SELECT (sum(qty * unit_price))::numeric(14, 2)::text AS total FROM orders WHERE status = $1",
+      "params": ["status"],
+      "iterations": 20,
+      "checks": [{"sql": "SELECT count(*)::bigint FROM orders", "expect": ["100000"]}]
+    },
+    {
+      "id": "app.inventory_report",
+      "workload": "application",
+      "shape": "query_loop",
+      "note": "Generate an inventory report grouped by category.",
+      "setup": "SELECT bench_reset_app()",
+      "sql": "SELECT category, count(*)::bigint AS items, sum(stock)::bigint AS units, (sum(stock * price))::numeric(14, 2)::text AS value FROM products GROUP BY category ORDER BY category",
+      "params": [],
+      "iterations": 20,
+      "checks": [{"sql": "SELECT count(DISTINCT category)::bigint FROM products", "expect": ["4"]}]
+    }
+  ]
+}

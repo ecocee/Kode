@@ -247,7 +247,10 @@ mod epoll {
         }
 
         fn ctl(&self, op: i32, fd: i32, events: u32, token: u64) -> bool {
-            let mut ev = EpollEvent { events, data: token };
+            let mut ev = EpollEvent {
+                events,
+                data: token,
+            };
             unsafe { epoll_ctl(self.0, op, fd, &mut ev) == 0 }
         }
 
@@ -342,7 +345,12 @@ mod epoll {
     where
         F: Fn(&Request) -> (i64, Vec<u8>, Vec<u8>),
     {
-        fn new(listener: Arc<TcpListener>, dispatch: Arc<F>, active: Arc<AtomicUsize>, ep: Epoll) -> Self {
+        fn new(
+            listener: Arc<TcpListener>,
+            dispatch: Arc<F>,
+            active: Arc<AtomicUsize>,
+            ep: Epoll,
+        ) -> Self {
             let fd = listener.as_raw_fd();
             // EPOLLEXCLUSIVE wakes one worker per connection instead of all of them.
             if !ep.ctl(EPOLL_CTL_ADD, fd, EPOLLIN | EPOLLEXCLUSIVE, LISTENER)
@@ -502,7 +510,9 @@ mod epoll {
                 c.out.clear();
                 c.out.extend_from_slice(&self.scratch[off..]);
                 c.out_pos = 0;
-                return self.ep.ctl(EPOLL_CTL_MOD, c.stream.as_raw_fd(), EPOLLOUT, idx as u64);
+                return self
+                    .ep
+                    .ctl(EPOLL_CTL_MOD, c.stream.as_raw_fd(), EPOLLOUT, idx as u64);
             }
             !c.closing
         }
@@ -527,7 +537,8 @@ mod epoll {
             if c.closing {
                 return false;
             }
-            self.ep.ctl(EPOLL_CTL_MOD, c.stream.as_raw_fd(), EPOLLIN, idx as u64)
+            self.ep
+                .ctl(EPOLL_CTL_MOD, c.stream.as_raw_fd(), EPOLLIN, idx as u64)
         }
 
         /// Drop connections that went quiet.
@@ -1442,8 +1453,14 @@ mod epoll_tests {
         let port = start();
         for (raw, code) in [
             (&b"this is not http\r\n\r\n"[..], 400),
-            (&b"POST / HTTP/1.1\r\nContent-Length: 99999999\r\n\r\n"[..], 413),
-            (&b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"[..], 501),
+            (
+                &b"POST / HTTP/1.1\r\nContent-Length: 99999999\r\n\r\n"[..],
+                413,
+            ),
+            (
+                &b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"[..],
+                501,
+            ),
         ] {
             let mut c = connect(port);
             let mut r = BufReader::new(c.try_clone().expect("clone"));
@@ -1513,7 +1530,9 @@ mod epoll_tests {
         // Do not read for a while: the server must park the rest and keep going.
         let mut other = connect(port);
         let mut other_r = BufReader::new(other.try_clone().expect("clone"));
-        other.write_all(b"GET /fast HTTP/1.1\r\n\r\n").expect("write");
+        other
+            .write_all(b"GET /fast HTTP/1.1\r\n\r\n")
+            .expect("write");
         assert_eq!(read_response(&mut other_r).expect("fast").1, b"hi /fast 0");
         std::thread::sleep(Duration::from_millis(300));
         let (status, body) = read_response(&mut r).expect("large");

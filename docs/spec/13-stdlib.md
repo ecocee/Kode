@@ -169,4 +169,86 @@ Responses with `Content-Length` or chunked transfer encoding are supported. The 
 **Only plain `http://` is supported**: there is no TLS library in the runtime yet, so `https://`
 raises a clear error instead of sending an unencrypted request.
 
-Not yet: TLS, redirects, a database client.
+Not yet: TLS, redirects.
+
+## PostgreSQL
+
+```kode
+url = "postgres://bench:bench@127.0.0.1:5432/app?sslmode=disable"
+db = pg.connect(url)
+
+pg.exec(db, "create table t (id int primary key, name text)")
+ins = pg.query(db, "insert into t values ($1, $2)", [json.int(1), json.string("asha")])
+print(ins["command"].as_string(), ins["affected"].as_int())
+
+rows = pg.query(db, "select id, name from t where id > $1", [json.int(0)])
+for row in rows["rows"].as_list() {
+    print(row["id"].as_int(), row["name"].as_string())
+}
+pg.close(db)
+```
+
+### Basic usage
+
+`pg.connect` returns an `int` handle; `pg.exec` runs a simple query (one or more statements, the
+last result is returned); `pg.query` uses the extended protocol with `$1` parameters. A parameter
+is `json.null()`, a bool, an int, a float or a string, sent in PostgreSQL's text format. A result is
+a JSON object with `command` (`"SELECT"`, `"INSERT 0 1"`, ...), `columns` (`[string]`), `rows`
+(one object per row, keyed by column name) and `affected` (the row count from the command tag).
+
+Column values keep their type where JSON has one: `bool`, `int2`/`int4`/`int8`/`oid` and
+`float4`/`float8` arrive as `bool`, `int` and `float`; NULL is `json.null()`; every other type
+(`numeric`, `uuid`, `timestamp`, `bytea`, arrays) arrives as the text PostgreSQL sent, so nothing
+loses precision. Duplicate column names keep the last value. A server error raises an `Error`
+whose message starts with the SQLSTATE, for example `42P01: relation "t" does not exist`, and the
+connection stays usable. `pg.close` closes a handle; calling it twice does nothing.
+
+### Connection pooling
+
+```kode
+// Create a pool with min 2, max 10 connections, 30s idle timeout
+pool = pg.pool(url, 2, 10, 30000)
+
+// Use pool_query - automatically gets a connection, runs query, returns connection
+rows = pg.pool_query(pool, "select * from t where id = $1", [json.int(1)])
+
+// Or use pool_exec for statements without parameters
+pg.pool_exec(pool, "insert into t values (1, 'hello')")
+
+// For explicit control, borrow a connection manually
+conn = pg.pool_connect(pool)
+pg.exec(conn, "complex multi-statement operation")
+pg.pool_release(conn)
+
+// Close the pool when done (closes all connections)
+pg.pool_close(pool)
+```
+
+`pg.pool(url, min_connections, max_connections, idle_timeout_ms)` creates a connection pool.
+`pg.pool_connect(pool)` borrows a connection from the pool; `pg.pool_release(conn)` returns it.
+`pg.pool_query(pool, sql, params)` and `pg.pool_exec(pool, sql)` are convenience functions that
+handle connect/release automatically. `pg.pool_close(pool)` closes all connections in the pool.
+
+### Configuration
+
+The connection string is `postgres://user:password@host:port/database?sslmode=disable`.
+Environment variables `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` can be used
+with `env()` for configuration.
+
+### Supported types
+
+| PostgreSQL type | Kode JSON type |
+|---|---|
+| bool | bool |
+| int2, int4, int8, oid | int |
+| float4, float8 | float |
+| text, varchar, and all other types | string (as text) |
+| NULL | json.null() |
+
+### Limitations
+
+The client speaks **plain TCP only**: there is no TLS in the runtime yet, so `sslmode=prefer` (the
+default) fails when the server offers TLS and `sslmode=require` is rejected. Use
+`?sslmode=disable` on a network you trust. Cleartext and `scram-sha-256` authentication work;
+`md5` is rejected. Not yet: `COPY`, binary format, notifications, cancellation, arrays or composite
+types as parameters. Connection pooling is supported via `pg.pool`.
