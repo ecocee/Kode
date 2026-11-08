@@ -145,4 +145,4 @@ Start with [docs/cheatsheet.md](docs/cheatsheet.md) for the shape of the languag
 
 ## License
 
-MIT
+Apache-2.0
