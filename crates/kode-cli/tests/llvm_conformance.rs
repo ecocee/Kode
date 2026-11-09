@@ -304,3 +304,92 @@ fn a_missing_clang_is_actionable_and_leaves_no_artifact() {
     );
     assert!(!exe.exists(), "a failed build must not leave an output");
 }
+
+/// Build `src` with extra environment variables, without asserting success.
+fn build_env(src: &Path, exe: &Path, envs: &[(&str, &str)]) -> Output {
+    let mut cmd = Command::new(BIN);
+    cmd.arg("build")
+        .arg(src)
+        .arg("-o")
+        .arg(exe)
+        .current_dir(root());
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    cmd.output().expect("run kode")
+}
+
+/// A clang that exists but is not executable is a start failure, not bad IR.
+#[cfg(unix)]
+#[test]
+fn a_clang_that_cannot_be_executed_is_actionable() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("kode-cli-noexec-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let program = dir.join("clang");
+    std::fs::write(&program, "#!/bin/sh\nexit 0\n").expect("write clang");
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o644))
+        .expect("chmod clang");
+    let exe = dir.join("hello");
+    let out = build_env(
+        &root().join("examples/hello.kode"),
+        &exe,
+        &[("KODE_CLANG", &program.display().to_string())],
+    );
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "got:\n{text}");
+    assert!(
+        text.contains("the LLVM backend needs") && text.contains("could not be run"),
+        "expected a start failure, got:\n{text}"
+    );
+    assert!(!exe.exists(), "a failed build must not leave an output");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A missing linker driver is reported as missing, with the install hint.
+#[test]
+fn a_missing_linker_is_actionable() {
+    let exe = std::env::temp_dir().join(format!("kode-cli-nolink-{}.exe", std::process::id()));
+    let missing = "/nonexistent/kode-cli-test-linker";
+    let out = build_env(
+        &root().join("examples/hello.kode"),
+        &exe,
+        &[("KODE_CC", missing)],
+    );
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "got:\n{text}");
+    assert!(
+        text.contains("could not start the linker") && text.contains(missing),
+        "expected a start failure, got:\n{text}"
+    );
+    assert!(!exe.exists(), "a failed build must not leave an output");
+}
+
+/// A linker that runs and fails is reported with its exit status.
+#[cfg(unix)]
+#[test]
+fn a_failing_linker_is_reported() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("kode-cli-badlink-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let linker = dir.join("failing-linker");
+    std::fs::write(&linker, "#!/bin/sh\nexit 7\n").expect("write linker");
+    std::fs::set_permissions(&linker, std::fs::Permissions::from_mode(0o755))
+        .expect("chmod linker");
+    let exe = dir.join("hello");
+    let out = build_env(
+        &root().join("examples/hello.kode"),
+        &exe,
+        &[("KODE_CC", &linker.display().to_string())],
+    );
+    let text = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "got:\n{text}");
+    assert!(
+        text.contains(&format!("the linker `{}` failed with", linker.display())),
+        "expected the linker's exit status, got:\n{text}"
+    );
+    assert!(text.contains("exit status: 7"), "got:\n{text}");
+    assert!(!exe.exists(), "a failed build must not leave an output");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -68,16 +68,9 @@ pub fn compile_ir(ir: &str, object: &Path) -> Result<(), ClangError> {
         .arg(&ll)
         .arg("-o")
         .arg(object);
-    // Force the fork/exec path in `std::process`: its `posix_spawn` fast path can
-    // report success for a child whose `exec` failed (seen on Linux x86-64 under
-    // emulation), which would turn a missing clang into "rejected the IR".
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| Ok(()));
-        }
-    }
+    // A missing or non-executable clang must be reported as such, never as a
+    // child that "ran" and rejected the IR with exit status 127.
+    kode_link::force_fork_exec(&mut cmd);
     let output = cmd.output();
     match output {
         Ok(out) if out.status.success() => {

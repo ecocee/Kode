@@ -25,8 +25,9 @@ const H0: [u32; 8] = [
 
 fn compress(state: &mut [u32; 8], block: &[u8]) {
     let mut w = [0u32; 64];
-    for (i, chunk) in block.chunks_exact(4).enumerate().take(16) {
-        w[i] = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+    // `block` is a 64-byte message block: 16 big-endian words.
+    for (i, chunk) in block.as_chunks::<4>().0.iter().enumerate().take(16) {
+        w[i] = u32::from_be_bytes(*chunk);
     }
     for i in 16..64 {
         let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -67,11 +68,10 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
 
 pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
     let mut state = H0;
-    let mut blocks = data.chunks_exact(64);
-    for block in &mut blocks {
+    let (blocks, rest) = data.as_chunks::<64>();
+    for block in blocks {
         compress(&mut state, block);
     }
-    let rest = blocks.remainder();
 
     let mut tail = [0u8; 128];
     tail[..rest.len()].copy_from_slice(rest);
@@ -79,7 +79,7 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
     let used = if rest.len() < 56 { 64 } else { 128 };
     let bits = (data.len() as u64).wrapping_mul(8);
     tail[used - 8..used].copy_from_slice(&bits.to_be_bytes());
-    for block in tail[..used].chunks_exact(64) {
+    for block in tail[..used].as_chunks::<64>().0 {
         compress(&mut state, block);
     }
 
