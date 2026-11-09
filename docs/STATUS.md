@@ -53,7 +53,7 @@ and a faster memory story for token/AST graphs. The backend question is settled:
 |---|---|
 | Rust source | 27,789 lines across 7 crates (`find crates -name '*.rs' \| xargs wc -l`) |
 | Kode source (tests + examples) | 3,174 lines (`find examples tests -name '*.kode' \| xargs wc -l`) |
-| `tests/run-pass` | 45 programs (`ls tests/run-pass/*.kode \| wc -l`), leak-checked |
+| `tests/run-pass` | 46 programs (`ls tests/run-pass/*.kode \| wc -l`), leak-checked |
 | `tests/compile-fail` | 98 programs (`ls tests/compile-fail/*.kode \| wc -l`) |
 | Rust tests | 108 (`cargo test --workspace`, summing the `test result` lines) |
 | ADRs | 33 files (`docs/adr/0001` … `0034`; numbering has gaps) |

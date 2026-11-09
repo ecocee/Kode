@@ -133,12 +133,14 @@ fn run_pass() -> Vec<PathBuf> {
     files
 }
 
-fn batch(name: &str, batch_index: usize, count: usize) {
+fn batch(name: &str, batch_index: usize) {
     if !have_clang() {
         eprintln!("skipping {name}: no clang on PATH");
         return;
     }
     let files = run_pass();
+    // Three batches that together cover every file, however many there are.
+    let count = files.len().div_ceil(3);
     let start = batch_index * count;
     let end = (start + count).min(files.len());
     assert!(
@@ -154,17 +156,17 @@ fn batch(name: &str, batch_index: usize, count: usize) {
 
 #[test]
 fn run_pass_matches_expected_output_1() {
-    batch("run-pass 1", 0, 15);
+    batch("run-pass 1", 0);
 }
 
 #[test]
 fn run_pass_matches_expected_output_2() {
-    batch("run-pass 2", 1, 15);
+    batch("run-pass 2", 1);
 }
 
 #[test]
 fn run_pass_matches_expected_output_3() {
-    batch("run-pass 3", 2, 15);
+    batch("run-pass 3", 2);
 }
 
 #[test]

@@ -63,12 +63,22 @@ pub fn compile_ir(ir: &str, object: &Path) -> Result<(), ClangError> {
     std::fs::write(&ll, ir)
         .map_err(|e| ClangError::Io(format!("cannot write {}: {e}", ll.display())))?;
     let program = clang_program();
-    let output = Command::new(&program)
-        .args(["-O2", "-fPIC", "-Wno-override-module", "-c"])
+    let mut cmd = Command::new(&program);
+    cmd.args(["-O2", "-fPIC", "-Wno-override-module", "-c"])
         .arg(&ll)
         .arg("-o")
-        .arg(object)
-        .output();
+        .arg(object);
+    // Force the fork/exec path in `std::process`: its `posix_spawn` fast path can
+    // report success for a child whose `exec` failed (seen on Linux x86-64 under
+    // emulation), which would turn a missing clang into "rejected the IR".
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| Ok(()));
+        }
+    }
+    let output = cmd.output();
     match output {
         Ok(out) if out.status.success() => {
             if std::env::var_os("KODE_LLVM_KEEP_IR").is_none() {
