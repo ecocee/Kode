@@ -16,7 +16,7 @@ one commit set, so `git log` reads like the plan.
 | Errors | stable codes, hints, JSON output, `kode explain`, `finally` | suggestions everywhere, better runtime messages, a depth-limit diagnostic |
 | Tools | run/build/check/test/fmt/explain/mir/lsp/doc/doctor, JSON diagnostics | language server, `kode doc`, `kode doctor`, editor integration |
 | Packages | `kode.toml` with one source root, `import ... as`, `pub` | dependencies (path first), `kode.lock`, `kode add/install`, reuse across projects |
-| Performance | Cranelift, inlining, if-conversion, RC strings/objects | measured numbers per release, RSS budget, `--release` tuning |
+| Performance | Cranelift now, LLVM as the production backend (ADR 0035), inlining, if-conversion, RC strings/objects | measured numbers per release, RSS budget, `--release` tuning |
 | Concurrency | `spawn` / `await`, `Task<T>`, atomic RC | channels, task cancellation/timeout |
 | Portability | macOS, Linux (x86-64/arm64) | Windows (MinGW-w64 first), documented cross-compilation, per-platform installers |
 | Docs | spec chapters, ADRs, cheat sheet, editors guide | generated API docs, docs site build, editor setup |
@@ -120,7 +120,7 @@ tests and an ADR where behavior changes; the list is the order, not a schedule.
 | 9.10 | Checked arithmetic on `+ - *` | silent wraparound is a correctness bug in a language people trust | |
 | 9.11 | Package registry and publishing | path-only dependencies do not scale past one machine | |
 | 9.12 | Verified Windows release | the CI job exists; a real Windows run must pass before anyone downloads it | |
-| 9.13 | LLVM `--release` backend (optional) | peak performance, only if the benchmarks justify it | |
+| 9.13 | LLVM backend, replacing Cranelift | the measured 1.6-2.4x gap against C `-O2` is code quality; Cranelift has no loop optimizer to build on | **accepted, in progress** (ADR 0035): textual LLVM IR from MIR, `clang` builds the object, no `llvm-sys`; stages B1-B8 in the ADR, Cranelift removed only after full conformance |
 
 **9.1-9.4 are done.** 9.5 (`weak` references) is the next branch, and needs an ADR
 and leak evidence. TLS was the large one: rustls plus webpki-roots are now a
