@@ -24,10 +24,13 @@ verified from the repository, it says so instead of guessing.
 and small HTTP services on macOS/Linux, but it is not safe to offer as a
 general-purpose language. Blockers, in the order they hurt:
 
-1. No TLS. `https://` raises an error (ADR/spec 13). Every real service needs it.
-2. Every program pays for the PostgreSQL client's TLS stack: hello world is
-   **1,077,600 bytes stripped**, over the 1 MB budget, because optional runtime
-   components are linked wholesale into every binary (§2, §10).
+1. Every program is over the 1 MB binary budget: hello world is **1,077,600
+   bytes stripped**, and a TLS server program is 5,431,968 bytes, because
+   optional runtime components (`rustls`, `webpki-roots`, the PostgreSQL client
+   and the server-side crypto) are linked wholesale into every binary (§2, §10).
+2. TLS servers pay one thread per connection (ADR 0034) and do not use the epoll
+   loop, so 1,024 concurrent TLS connections is the practical ceiling and RSS
+   grows with connections, not with request rate.
 3. Reference-counting cannot break cycles, so two objects pointing at each
    other leak forever (no `weak`).
 4. No byte buffers and only 64-bit `int`; no fixed-width integers, no binary
@@ -49,12 +52,12 @@ is a Rust library) is undecided.
 
 | Item | Value |
 |---|---|
-| Rust source | 27,131 lines across 7 crates (`find crates -name '*.rs' \| xargs wc -l`) |
-| Kode source (tests + examples) | 3,168 lines (`find examples tests -name '*.kode' \| xargs wc -l`) |
+| Rust source | 27,789 lines across 7 crates (`find crates -name '*.rs' \| xargs wc -l`) |
+| Kode source (tests + examples) | 3,174 lines (`find examples tests -name '*.kode' \| xargs wc -l`) |
 | `tests/run-pass` | 45 programs (`ls tests/run-pass/*.kode \| wc -l`), leak-checked |
-| `tests/compile-fail` | 97 programs (`ls tests/compile-fail/*.kode \| wc -l`) |
-| Rust tests | 98 (`cargo test --workspace`, summing the `test result` lines) |
-| ADRs | 32 files (`docs/adr/0001` … `0033`; numbering has gaps) |
+| `tests/compile-fail` | 98 programs (`ls tests/compile-fail/*.kode \| wc -l`) |
+| Rust tests | 108 (`cargo test --workspace`, summing the `test result` lines) |
+| ADRs | 33 files (`docs/adr/0001` … `0034`; numbering has gaps) |
 | Spec chapters | 13 (`docs/spec/01` … `13`, including `07-planned`) |
 | `cargo build --workspace` | passes |
 | `cargo test --workspace` | passes, 98/98, 0 failed, no leaks |
@@ -65,6 +68,8 @@ is a Rust library) is undecided.
 | hello world, debug build | 1,252,288 bytes |
 | hello world, `--release` | 1,233,472 bytes |
 | hello world, `--release` + `strip -x` | **1,077,600 bytes — over the 1 MB budget** |
+| plaintext benchmark server, stripped | 1,484,136 bytes |
+| TLS benchmark server (`serve_tls`), stripped | 5,431,968 bytes |
 | embedded runtime archive | 59,649 KB (`kode doctor`) |
 
 The hello-world measurements above are the reason the 1 MB stripped budget in
@@ -107,10 +112,10 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 
 | Item | State | Evidence |
 |---|---|---|
-| 3.1 TLS | **missing** | `docs/spec/13-stdlib.md` "Only plain `http://` is supported"; `https://` raises |
+| 3.1 TLS | **done, with limits** | ADR 0034: `https://` client verified against webpki roots, `serve_tls` with DER certificates; the TLS server is thread-per-connection, not epoll; costs in `benchmarks/http/tls.md` |
 | 3.2 Raw TCP/UDP sockets | **missing** | no socket API outside the HTTP server |
 | 3.3 Server hardening | **partial** | HTTP/1.1 keep-alive (`http.rs:103`); **no request size limit, no read timeout, no static files, no middleware, no graceful drain** (grep of `http.rs`/`router.rs`) |
-| 3.4 PostgreSQL client | **partial** | `pg_wire.rs`/`pg.rs` (ADR 0033): plain TCP, SCRAM-SHA-256, simple + extended protocol, JSON results; **no TLS, no md5, no `COPY`, no pooling** (`sslmode=disable` only) |
+| 3.4 PostgreSQL client | **partial** | `pg_wire.rs`/`pg.rs` (ADR 0033): opportunistic TLS, SCRAM-SHA-256, simple + extended protocol, JSON results, `pg.pool`; **no md5, no `COPY`, no binary format, no cancellation**, `sslmode=require` still rejected |
 | 3.5 C FFI | **missing** | no `extern fn`; ADR not written |
 
 ### Phase 4 — tooling
@@ -372,6 +377,26 @@ Still open, needs a human or approval:
   branches and tags. Scratch-clone measurement: `.git` 42M before, 11M after
   (filter-branch alone left it at 41M until `refs/original` was deleted, which is
   why filter-repo is the right tool).
+
+### TLS: `feat/tls-transport`, `feat/http-client-https`, `feat/http-server-tls`, `perf/tls-budget`, `docs/tls`
+
+Plan item 9.3, ADR 0034. `https://` works in the HTTP client (webpki roots and
+host-name verification, failures name the host), `serve_tls` serves HTTPS from
+DER certificate and key files with a handler or a `Router`, and one `Transport`
+in `crates/kode-rt/src/tls.rs` is shared with the PostgreSQL client (whose
+per-read `Mutex` is gone).
+
+- Tests: fixture-certificate round trip, a certificate rejected for the wrong
+  host, keep-alive over TLS in Rust, `serve_tls` verified with `curl` for both a
+  handler and a `Router`, a missing-certificate startup error, and the
+  compile-fail case `tests/compile-fail/serve_tls_bad_handler.kode` (E0232).
+- Cost, `benchmarks/http/tls.md` (PRELIMINARY, one laptop): hello 1,077,600
+  bytes stripped; plaintext server 1,484,136; TLS server 5,431,968; idle RSS
+  2,080 KB vs 3,600 KB; keep-alive 140,734 vs 62,346 req/s; handshake ~1 ms.
+- Not done: TLS on the epoll loop, PEM loading, certificate rotation, custom
+  CAs, client certificates, HTTP/2. `sslmode=require` is still rejected for the
+  PostgreSQL client, but the error now says that instead of claiming TLS is
+  unimplemented.
 
 ### `chore/baseline-verify`
 

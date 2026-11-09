@@ -143,9 +143,9 @@ pub(crate) fn parse_url(url: &str) -> Result<Target, String> {
                         "prefer" | "allow" => Ssl::Prefer,
                         "require" | "verify-ca" | "verify-full" => {
                             return Err(
-                                "TLS is not implemented in Kode's PostgreSQL client yet: use \
-                                 sslmode=disable on a connection you trust, or connect through a \
-                                 local proxy that terminates TLS"
+                                "sslmode=require is not supported yet: use sslmode=prefer, which \
+                                 upgrades to TLS when the server offers it, or terminate TLS in a \
+                                 local proxy"
                                     .into(),
                             )
                         }

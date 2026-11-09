@@ -12,9 +12,6 @@ and path dependencies with `kode.lock` (chapter 11).
 
 Still missing, in the order the plan takes them:
 
-- **TLS.** The HTTP client and server speak plain `http://` only; `https://` raises
-  an error instead of sending an unencrypted request.
-- **A database client.** No driver, no connection pool, no query API.
 - **`weak` references.** Reference counting cannot break a cycle, so two objects
   that point at each other leak (see `docs/design/memory-model.md`).
 - **Byte buffers and fixed-width integers.** Only 64-bit `int`; no `u8`/`i32`

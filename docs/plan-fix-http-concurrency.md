@@ -1,5 +1,13 @@
 # Plan: fix/http-concurrency
 
+Status: Stage 1 (timeouts, size limits, connection cap, regression tests) and
+Stage 3 (`RwLock<Vec<Route>>` instead of a mutex on the hot path) landed on
+`bench/http`; Stage 2 (the I/O-model ADR and independent `wrk`/`oha`
+measurements) is still open. TLS arrived afterwards and deliberately uses a
+thread-per-connection path rather than the epoll loop, for the reasons and costs
+recorded in ADR 0034. The checkboxes below are the original plan, kept as
+written.
+
 Branch: `fix/http-concurrency` (open after approval). No code changes until this plan is approved.
 
 ## Goals

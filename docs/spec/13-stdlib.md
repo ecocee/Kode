@@ -266,8 +266,9 @@ with `env()` for configuration.
 
 ### Limitations
 
-The client speaks **plain TCP only**: there is no TLS in the runtime yet, so `sslmode=prefer` (the
-default) fails when the server offers TLS and `sslmode=require` is rejected. Use
-`?sslmode=disable` on a network you trust. Cleartext and `scram-sha-256` authentication work;
-`md5` is rejected. Not yet: `COPY`, binary format, notifications, cancellation, arrays or composite
-types as parameters. Connection pooling is supported via `pg.pool`.
+TLS is **opportunistic**: `sslmode=prefer` (the default) sends an SSLRequest and upgrades when the
+server offers TLS, verified against the webpki roots and the host name; `?sslmode=disable` skips
+it. `sslmode=require` and the `verify-*` modes are rejected for now (the default already upgrades
+when it can, and cannot be forced). Cleartext and `scram-sha-256` authentication work; `md5` is
+rejected. Not yet: `COPY`, binary format, notifications, cancellation, arrays or composite types
+as parameters. Connection pooling is supported via `pg.pool`.

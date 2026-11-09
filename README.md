@@ -47,21 +47,24 @@ Advanced features: **interfaces** with `implements` and run-time dispatch; **bit
 maps (`[1, 2]`, `{"name": "Asha"}`).
 
 Concurrency and I/O: **tasks** (`spawn` / `await`), **channels** (`Channel<T>`,
-`send`/`recv`/`close`), a **web server** (`serve`, or a **Router** with `Request`/`Response`),
-**JSON**, an **HTTP client**, strings, files, command-line arguments and sorting.
+`send`/`recv`/`close`), a **web server** (`serve`/`serve_tls`, or a **Router** with
+`Request`/`Response`), **JSON**, an **HTTP client** (`http://` and `https://`), strings, files,
+command-line arguments and sorting.
 
 Standard-library namespaces include `json.parse`, `math.sqrt`, `http.get` and `pg.query`.
 
 ## PostgreSQL client
 
 There is a **PostgreSQL client** in the runtime (`pg.connect`, `pg.exec`, `pg.query`, `pg.close`)
-with SCRAM-SHA-256 authentication and JSON results. It speaks plain TCP today; TLS support is
-planned and tracked in [ADR 0033](docs/adr/0033-postgres-client.md). A worked example lives at
-[examples/db/postgres.kode](examples/db/postgres.kode).
+with SCRAM-SHA-256 authentication, opportunistic TLS (`sslmode=prefer`) and JSON results; a pool
+is available through `pg.pool`. [ADR 0033](docs/adr/0033-postgres-client.md) describes the
+protocol work. A worked example lives at [examples/db/postgres.kode](examples/db/postgres.kode).
 
 ## Roadmap
 
-Next up is the **M9 production track**: TLS, cycle-safe memory, byte buffers and enum payloads.
+TLS shipped for the HTTP client, the HTTP server (`serve_tls`) and the PostgreSQL client
+([ADR 0034](docs/adr/0034-tls-in-the-runtime.md)). Next up is the rest of the **M9 production
+track**: cycle-safe memory, byte buffers, enum payloads and generic classes.
 See [docs/PLAN-v1.md](docs/PLAN-v1.md). M8 (budgets, `uses` effects, typed `ask`/`tool`) is
 skipped. For current measurements and known gaps, see [docs/STATUS.md](docs/STATUS.md) and
 [docs/ROADMAP.md](docs/ROADMAP.md). A one-page overview is at

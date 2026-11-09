@@ -12,11 +12,19 @@ language: a patch release fixes bugs, a minor release may add syntax.
   SCRAM-SHA-256 or cleartext authentication, the extended query protocol with
   `$1` parameters, and JSON results (`command`, `columns`, `rows`, `affected`)
   that keep ints, floats, bools and NULLs typed. Server errors carry the
-  SQLSTATE. Plain TCP only: `sslmode=disable` is required until TLS lands, and
-  md5, `COPY` and notifications are not supported. Programs that do not use it
-  link nothing: `examples/hello.kode` is unchanged, and
-  `examples/db/postgres.kode` is 161 KB larger stripped. The runtime ABI marker
-  moves to `kode_rt_abi_0004`.
+  SQLSTATE. `sslmode=prefer` (the default) upgrades to TLS when the server
+  offers it; `sslmode=require` is still rejected, as are md5, `COPY`,
+  notifications and the binary format. A pool is available through `pg.pool`.
+  The runtime ABI marker moves to `kode_rt_abi_0004`.
+- **HTTPS** (ADR 0034): the HTTP client speaks `https://`, verifying the
+  certificate against the webpki roots and the host name, and
+  `serve_tls(port, cert, key, handler)` serves HTTPS with DER certificate and
+  key files (a handler or a `Router`, like `serve`). A failed handshake names
+  the host. The TLS server runs one thread per connection instead of the epoll
+  loop; the ADR records why and what it costs.
+- **One TLS transport** for both clients: `kode-rt`'s `tls.rs` owns the rustls
+  configuration, the root store and the handshake, and the PostgreSQL client
+  uses it too. The per-read `Mutex` in the old `pg_tls.rs` is gone.
 
 ### Fixed
 
