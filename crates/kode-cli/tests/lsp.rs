@@ -26,12 +26,12 @@ fn reports_diagnostics_for_an_unsaved_buffer() {
     ];
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_kode"))
-        .arg("lsp")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("start kode lsp");
+    .arg("lsp")
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .expect("start kode lsp");
 
     {
         let stdin = child.stdin.as_mut().expect("stdin");
@@ -43,11 +43,11 @@ fn reports_diagnostics_for_an_unsaved_buffer() {
 
     let mut stdout = String::new();
     child
-        .stdout
-        .as_mut()
-        .expect("stdout")
-        .read_to_string(&mut stdout)
-        .expect("read");
+    .stdout
+    .as_mut()
+    .expect("stdout")
+    .read_to_string(&mut stdout)
+    .expect("read");
     let status = child.wait().expect("wait");
     let _ = std::fs::remove_dir_all(&dir);
 
@@ -76,60 +76,63 @@ fn reports_diagnostics_for_an_unsaved_buffer() {
         assert!(after.len() >= len, "a frame was cut short");
         let body = &after[..len];
         assert!(body.starts_with('{'), "frame is not JSON: {body}");
-        seen += 1;
-        rest = &after[len..];
+            seen += 1;
+            rest = &after[len..];
+        }
+        // We expect at least the initialize reply, diagnostics, and the shutdown
+        // acknowledgement. The server is allowed to send additional acknowledgements
+        // or notifications between these frames, so the meaningful assertions are that
+        // those three things arrive and the server exits 0.
+        assert!(seen >= 3, "expected at least initialize + diagnostics + shutdown: {stdout}");
+        assert!(
+            stdout.contains("textDocument/publishDiagnostics"),
+            "no diagnostics: {stdout}"
+        );
+        assert!(stdout.contains("E0201"), "the unknown variable was not reported: {stdout}");
+        assert!(status.success(), "the server should exit 0 after shutdown");
+        // The codec is a chunker, so the assertion must live inside the decode loop.
+        assert!(rest.is_empty(), "trailing data after the last frame: {rest}");
     }
-    // We expect at least the initialize reply, diagnostics, and the shutdown
-    // acknowledgement. The server is allowed to send additional acknowledgements
-    // or notifications between these frames, so count those three and nothing more.
-    assert!(seen >= 3, "expected at least initialize + diagnostics + shutdown: {stdout}");
-    assert!(
-        stdout.contains("textDocument/publishDiagnostics"),
-        "no diagnostics: {stdout}"
-    );
-    assert!(stdout.contains("E0201"), "the unknown variable was not reported: {stdout}");
-    assert!(status.success(), "the server should exit 0 after shutdown");
-}
 
-#[test]
-fn rejects_unknown_methods_without_dying() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_kode"))
+    #[test]
+    fn rejects_unknown_methods_without_dying() {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_kode"))
         .arg("lsp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
         .expect("start kode lsp");
 
-    {
-        let stdin = child.stdin.as_mut().expect("stdin");
-        stdin
+        {
+            let stdin = child.stdin.as_mut().expect("stdin");
+            stdin
             .write_all(
                 frame(r#"{"jsonrpc":"2.0","id":7,"method":"textDocument/nope","params":{}}"#)
-                    .as_bytes(),
+                .as_bytes(),
             )
             .expect("write");
-        stdin
+            stdin
             .write_all(
                 frame(r#"{"jsonrpc":"2.0","id":8,"method":"shutdown","params":null}"#).as_bytes(),
             )
             .expect("write");
-        stdin
+            stdin
             .write_all(frame(r#"{"jsonrpc":"2.0","method":"exit","params":null}"#).as_bytes())
             .expect("write");
-        stdin.flush().expect("flush");
-    }
+            stdin.flush().expect("flush");
+        }
 
-    let mut stdout = String::new();
-    child
+        let mut stdout = String::new();
+        child
         .stdout
         .as_mut()
         .expect("stdout")
         .read_to_string(&mut stdout)
         .expect("read");
-    child.wait().expect("wait");
-    assert!(
-        stdout.contains("-32601"),
-        "no method-not-found error: {stdout}"
-    );
-    assert!(stdout.contains("\"id\":7"), "{stdout}");
-}
+        child.wait().expect("wait");
+        assert!(
+            stdout.contains("-32601"),
+            "no method-not-found error: {stdout}"
+        );
+        assert!(stdout.contains("\"id\":7"), "{stdout}");
+    }
