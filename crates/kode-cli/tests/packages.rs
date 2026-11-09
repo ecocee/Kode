@@ -180,3 +180,54 @@ fn init_creates_a_runnable_package_and_add_edits_it() {
     assert!(!manifest.contains("utils ="), "{manifest}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn doctor_checks_the_compiler_requirement() {
+    let dir = workspace("doctor-version");
+    let app = dir.join("app");
+    std::fs::create_dir_all(&app).expect("mkdir");
+    let manifest = app.join("kode.toml");
+
+    // Newer than anything that exists: the doctor must say so and exit nonzero.
+    write(
+        &manifest,
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nkode = \"99.0\"\n",
+    );
+    let out = kode(&app, &["doctor"]);
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.status.code(), Some(1), "got:\n{text}");
+    assert!(
+        text.contains("needs kode 99.0 or newer") && text.contains("upgrade the compiler"),
+        "got:\n{text}"
+    );
+
+    // An older requirement is met by this compiler.
+    write(
+        &manifest,
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nkode = \"0.1\"\n",
+    );
+    let out = kode(&app, &["doctor"]);
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(out.status.success(), "got:\n{text}");
+    assert!(!text.contains("needs kode"), "got:\n{text}");
+
+    // A malformed requirement is a manifest error, not a silent pass.
+    write(
+        &manifest,
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nkode = \"latest\"\n",
+    );
+    let out = kode(&app, &["doctor"]);
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.status.code(), Some(1), "got:\n{text}");
+    assert!(text.contains("compiler version"), "got:\n{text}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

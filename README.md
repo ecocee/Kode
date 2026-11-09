@@ -116,7 +116,7 @@ known gaps are in `docs/platforms.md` (Windows setup: `docs/windows.md`).
 | `kode add <name> --path <dir>` | add a path dependency |
 | `kode remove <name>` | remove a dependency |
 | `kode install [--check]` | resolve dependencies and write `kode.lock` |
-| `kode doctor` | print version, target, linker, runtime ABI, package state |
+| `kode doctor` | print version, target, linker, runtime ABI, package state; fails if `kode.toml` needs a newer compiler |
 | `kode doc <folder> [-o out]` | HTML reference for `pub` items |
 | `kode tokens file.kode` | print tokens (debugging) |
 | `kode ast file.kode` | print the syntax tree (debugging) |

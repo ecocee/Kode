@@ -326,6 +326,7 @@ mod tests {
         let m = Manifest {
             name: "pkg".into(),
             version: "0.1.0".into(),
+            kode: None,
             root: dir.join("missing"),
             dir: dir.clone(),
             deps: Vec::new(),

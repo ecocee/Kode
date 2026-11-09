@@ -276,3 +276,7 @@ import "lib/util"            # another file in this package
 import "utils/strings" as u  # a dependency
 kode.lock                    # resolved versions, written by kode install
 ```
+
+`kode.toml` can also pin the compiler: `kode = "0.3"` under `[package]` means
+0.3.0 or newer, like `go 1.24` in `go.mod`. `kode doctor` fails when this
+compiler is older than the requirement.

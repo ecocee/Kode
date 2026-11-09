@@ -52,6 +52,11 @@ pub fn run() -> Result<u8, String> {
         );
         return Ok(1);
     }
+    // Any failed row is a failed check: an unmet compiler requirement or a stale
+    // lockfile must show up in the exit code, not only in the text.
+    if rows.iter().any(|(ok, _, _)| !ok) {
+        return Ok(1);
+    }
     Ok(0)
 }
 
@@ -90,17 +95,40 @@ fn describe_cc(cc: &str) -> (bool, String) {
 
 /// A package is optional, so "no manifest" is a healthy result, not a failure.
 fn package_state() -> (bool, String) {
-    let Some(manifest) = find_up("kode.toml") else {
+    let Some(manifest_path) = find_up("kode.toml") else {
         return (
             true,
             "no kode.toml here (fine for a single file)".to_string(),
         );
     };
-    let lock = manifest.with_file_name("kode.lock");
-    if !lock.exists() {
-        return (true, format!("{} (no kode.lock yet)", manifest.display()));
+    // A manifest this old cannot be read at all, so say why instead of claiming
+    // the package is fine.
+    let manifest = match crate::manifest::read(&manifest_path) {
+        Ok(m) => m,
+        Err(e) => return (false, format!("{}: {}", manifest_path.display(), e.message)),
+    };
+    // A package can state the compiler it needs. Failing here, before a build,
+    // is the point: an older compiler may parse the source and still be wrong.
+    if let Some(required) = manifest.kode.as_deref() {
+        if !crate::manifest::version_meets(required, crate::VERSION) {
+            return (
+                false,
+                format!(
+                    "{}: needs kode {required} or newer, this is {}; upgrade the compiler",
+                    manifest_path.display(),
+                    crate::VERSION
+                ),
+            );
+        }
     }
-    let stale = match (modified(&manifest), modified(&lock)) {
+    let lock = manifest_path.with_file_name("kode.lock");
+    if !lock.exists() {
+        return (
+            true,
+            format!("{} (no kode.lock yet)", manifest_path.display()),
+        );
+    }
+    let stale = match (modified(&manifest_path), modified(&lock)) {
         (Some(m), Some(l)) => m > l,
         _ => false,
     };
@@ -109,13 +137,13 @@ fn package_state() -> (bool, String) {
             false,
             format!(
                 "{}: kode.lock is older than kode.toml, run `kode install`",
-                manifest.display()
+                manifest_path.display()
             ),
         )
     } else {
         (
             true,
-            format!("{} with a current kode.lock", manifest.display()),
+            format!("{} with a current kode.lock", manifest_path.display()),
         )
     }
 }
