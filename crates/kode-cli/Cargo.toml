@@ -11,6 +11,7 @@ kode-syntax = { workspace = true }
 kode-sema = { workspace = true }
 kode-mir = { workspace = true }
 kode-codegen = { workspace = true }
+kode-llvm = { path = "../kode-llvm" }
 
 [[bin]]
 name = "kode"

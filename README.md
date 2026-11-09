@@ -123,6 +123,12 @@ Windows is not a release target yet: the release workflow builds Linux x86-64 an
 | `kode lsp` | language server on stdio: diagnostics, hover, completion, symbols, format |
 | `--format=json` | diagnostics as JSON, for editors and AI agents |
 | `--strict` | warnings count as errors |
+| `--backend=llvm` | code generation through LLVM instead of Cranelift (experimental) |
+
+The LLVM backend is experimental and not the default: it consumes MIR, writes
+textual LLVM IR and asks `clang` (15 or newer, or `KODE_CLANG`) for the object
+file. It passes the run-pass, compile-fail and example suites; Cranelift remains
+the production backend until the plan in ADR 0035 says otherwise.
 
 ## Repository map
 

@@ -17,7 +17,7 @@ mod style;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use args::{Options, HELP};
+use args::{Backend, Options, HELP};
 use kode_mir::Mode;
 use kode_sema::Checked;
 use kode_syntax::ast::{Item, Program};
@@ -119,7 +119,26 @@ fn object_for(opts: &Options, f: &Front, mode: Mode) -> Result<Vec<u8>, String> 
         kode_mir::opt::optimize(&mut mir);
     }
     kode_mir::verify::verify(&mir).map_err(|e| format!("internal compiler error: {e}"))?;
-    kode_codegen::compile_to_object(&mir, !opts.debug)
+    match opts.backend {
+        Backend::Cranelift => kode_codegen::compile_to_object(&mir, !opts.debug),
+        Backend::Llvm => llvm_object(&mir),
+    }
+}
+
+/// Lower MIR to textual LLVM IR, then ask clang for an object file.
+/// A missing clang is an error, never a quiet fallback to Cranelift.
+fn llvm_object(mir: &kode_mir::ir::MirProgram) -> Result<Vec<u8>, String> {
+    let ir = kode_llvm::emit(mir)?;
+    let dir = std::env::temp_dir().join(format!("kode-llvm-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot make a temporary folder: {e}"))?;
+    let object = dir.join("program.o");
+    let result = kode_llvm::compile_ir(&ir, &object)
+        .map_err(|e| e.to_string())
+        .and_then(|_| {
+            std::fs::read(&object).map_err(|e| format!("cannot read the object file: {e}"))
+        });
+    let _ = std::fs::remove_dir_all(&dir);
+    result
 }
 
 /// Write the embedded runtime library to `dir` and return its path.

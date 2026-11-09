@@ -7,6 +7,10 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`--backend=llvm`** (ADR 0035, experimental): code generation can go through
+  textual LLVM IR and `clang` instead of Cranelift. The MIR, the runtime and the
+  linker are shared, so programs, diagnostics, exit codes and leak behaviour are
+  the same; Cranelift is still the default backend and no other flag changes.
 - **A PostgreSQL client** (ADR 0033): `pg.connect`, `pg.exec`, `pg.query` and
   `pg.close` speak the PostgreSQL wire protocol from the runtime, with
   SCRAM-SHA-256 or cleartext authentication, the extended query protocol with
