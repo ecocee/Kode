@@ -197,7 +197,12 @@ impl<'a> Emitter<'a> {
     }
 
     fn declarations(&mut self) {
+        // The same C symbol can be reached through both tables (`kode_exit` is
+        // an `RtFn` and a named standard-library function); LLVM rejects a
+        // repeated declaration, so emit each name once.
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for (_, name, params, ret) in RT {
+            seen.insert(name);
             let ps: Vec<String> = params.iter().map(|p| p.to_string()).collect();
             let r = ret.unwrap_or("void");
             let _ = writeln!(self.out, "declare {r} @{name}({})", ps.join(", "));
@@ -218,6 +223,9 @@ impl<'a> Emitter<'a> {
         }
         let _ = writeln!(self.out, "declare i64 @llvm.fptosi.sat.i64.f64(double)");
         for s in &self.p.std_sigs {
+            if !seen.insert(s.name) {
+                continue;
+            }
             let mut ps: Vec<String> = Vec::new();
             for p in &s.params {
                 ps.push(if *p == Ty::Float { F64 } else { I64 }.to_string());
