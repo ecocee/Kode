@@ -5,6 +5,7 @@
 //! name = "shop"
 //! version = "0.1.0"
 //! root = "src"
+//! kode = "0.3"
 //!
 //! [dependencies]
 //! utils = { path = "../utils" }
@@ -18,6 +19,11 @@
 //!
 //! Dependencies are folders with their own `kode.toml`. There is no registry
 //! yet, so a version is only a compatibility check against that folder.
+//!
+//! `kode = "0.3"` states the compiler a package needs. It is a minimum version,
+//! like `go 1.24` in `go.mod`: the requirement is satisfied by that version and
+//! anything newer. `kode doctor` reports a package whose requirement this
+//! compiler does not meet, so a stale toolchain fails before the build does.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -36,6 +42,8 @@ pub struct Dependency {
 pub struct Manifest {
     pub name: String,
     pub version: String,
+    /// The minimum compiler version the package needs, when it declares one.
+    pub kode: Option<String>,
     pub root: PathBuf,
     /// The folder that holds this manifest.
     pub dir: PathBuf,
@@ -73,6 +81,7 @@ pub fn read(path: &Path) -> Result<Manifest, Diagnostic> {
     let mut name: Option<String> = None;
     let mut version: Option<String> = None;
     let mut root: Option<String> = None;
+    let mut kode: Option<String> = None;
     let mut raw_deps: Vec<(String, Option<String>, Option<String>)> = Vec::new();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -105,6 +114,7 @@ pub fn read(path: &Path) -> Result<Manifest, Diagnostic> {
                     "name" => name = Some(value),
                     "version" => version = Some(value),
                     "root" => root = Some(value),
+                    "kode" => kode = Some(value),
                     _ => {}
                 }
             }
@@ -144,6 +154,16 @@ pub fn read(path: &Path) -> Result<Manifest, Diagnostic> {
             path.display()
         )));
     }
+    let kode = match kode {
+        Some(v) if valid_version(&v) => Some(v),
+        Some(v) => {
+            return Err(at(format!(
+                "{}: `kode = \"{v}\"` must be a compiler version like \"0.3\" or \"0.3.5\"",
+                path.display()
+            )))
+        }
+        None => None,
+    };
     let dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
 
     let mut deps = Vec::new();
@@ -185,6 +205,7 @@ pub fn read(path: &Path) -> Result<Manifest, Diagnostic> {
     Ok(Manifest {
         name,
         version: version.unwrap_or_else(|| "0.1.0".to_string()),
+        kode,
         root: dir.join(rel),
         dir,
         deps,
@@ -223,6 +244,41 @@ fn dep_value(value: &str) -> Result<(Option<String>, Option<String>), String> {
     }
 }
 
+/// A requirement is one to three numbers, nothing else: `0`, `0.3`, `0.3.5`.
+fn valid_version(v: &str) -> bool {
+    let parts: Vec<&str> = v.split('.').collect();
+    (1..=3).contains(&parts.len())
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn version_parts(v: &str) -> (u64, u64, u64) {
+    let mut it = v.split('.').map(|p| p.parse::<u64>().unwrap_or(0));
+    (
+        it.next().unwrap_or(0),
+        it.next().unwrap_or(0),
+        it.next().unwrap_or(0),
+    )
+}
+
+/// Is `current` new enough for a `kode = "..."` requirement?
+///
+/// Requirements are minima, like `go 1.24`: `"0.3"` means 0.3.0 or newer and
+/// `"0.3.5"` means 0.3.5 or newer. There is no upper bound; a language change
+/// that breaks a package is the language version's problem, not a range check.
+pub fn version_meets(required: &str, current: &str) -> bool {
+    version_parts(current) >= version_parts(required)
+}
+
+/// The requirement written into a new package: the current major.minor.
+fn compiler_requirement() -> String {
+    let mut parts = crate::VERSION.split('.');
+    let major = parts.next().unwrap_or("0");
+    let minor = parts.next().unwrap_or("0");
+    format!("{major}.{minor}")
+}
+
 /// Create a package: `kode.toml`, `src/` and a small `src/main.kode`.
 pub fn create(dir: &Path, name: &str) -> Result<PathBuf, String> {
     if !valid_name(name) {
@@ -236,7 +292,10 @@ pub fn create(dir: &Path, name: &str) -> Result<PathBuf, String> {
     }
     let src = dir.join("src");
     std::fs::create_dir_all(&src).map_err(|e| format!("cannot create {}: {e}", src.display()))?;
-    let manifest = format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nroot = \"src\"\n");
+    let manifest = format!(
+        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nroot = \"src\"\nkode = \"{}\"\n",
+        compiler_requirement()
+    );
     std::fs::write(&file, manifest).map_err(|e| format!("cannot write {}: {e}", file.display()))?;
     let main = src.join("main.kode");
     if !main.exists() {
@@ -405,6 +464,47 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_compiler_requirement() {
+        let dir = temp_dir("kode-req");
+        let file = dir.join("kode.toml");
+        std::fs::write(
+            &file,
+            "[package]\nname = \"shop\"\nversion = \"1.2.0\"\nkode = \"0.3\"\n",
+        )
+        .unwrap();
+        let m = read(&file).unwrap();
+        assert_eq!(m.kode.as_deref(), Some("0.3"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rejects_a_malformed_compiler_requirement() {
+        let dir = temp_dir("kode-bad-req");
+        let file = dir.join("kode.toml");
+        for bad in ["0.3.x", "0.3.5.1", "v0.3", ""] {
+            std::fs::write(
+                &file,
+                format!("[package]\nname = \"shop\"\nkode = \"{bad}\"\n"),
+            )
+            .unwrap();
+            let err = read(&file).unwrap_err();
+            assert_eq!(err.code, "E0406", "accepted {bad:?}");
+            assert!(err.message.contains("compiler version"), "got: {}", err.message);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn requirements_are_minimum_versions() {
+        assert!(version_meets("0.3", "0.3.5"));
+        assert!(version_meets("0.3.5", "0.3.5"));
+        assert!(version_meets("0.3.5", "1.0.0"));
+        assert!(!version_meets("0.3.6", "0.3.5"));
+        assert!(!version_meets("0.4", "0.3.9"));
+        assert!(!version_meets("1", "0.99.99"));
+    }
+
+    #[test]
     fn rejects_a_missing_name() {
         let dir = temp_dir("bad");
         let file = dir.join("kode.toml");
@@ -496,6 +596,8 @@ mod tests {
         assert!(pkg.join("src/main.kode").is_file());
         let m = read(&pkg.join("kode.toml")).unwrap();
         assert_eq!(m.name, "notes");
+        // A new package states the compiler it was made for.
+        assert_eq!(m.kode, Some(compiler_requirement()));
         assert_eq!(m.root, pkg.join("src"));
         assert!(create(&pkg, "notes")
             .unwrap_err()

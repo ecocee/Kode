@@ -33,6 +33,10 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Packages can require a compiler version.** `kode = "0.3"` under `[package]`
+  in `kode.toml` states the minimum compiler, like `go 1.24` in `go.mod`;
+  `kode doctor` reports and exits 1 when this compiler is older (ADR 0036).
+  `kode init` writes the current major.minor into new packages.
 - **Three application examples.** `examples/tasks.kode` is a task tracker with a
   JSON store on disk (add/list/done/stats, real exit codes),
   `examples/ledger.kode` turns a CSV ledger into a checked trial balance, and

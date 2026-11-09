@@ -150,6 +150,8 @@ deliberate runtime dependency, measured in `benchmarks/http/tls.md`, and the
 - Bare imports resolve into dependencies: `import "utils/strings"` finds the `utils`
   dependency's source root; `import ... as` still applies.
 - Clear errors: missing dependency (E0412), version mismatch (E0413), name clash (E0414).
+- `kode = "0.3"` in `[package]` declares the minimum compiler; `kode doctor`
+  checks it and exits 1 when the toolchain is too old (ADR 0036).
 - **Done when:** a two-package workspace compiles and runs, the lockfile is stable across
   runs, and a missing dependency has an actionable message.
 
