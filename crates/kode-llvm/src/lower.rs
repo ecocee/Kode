@@ -49,8 +49,18 @@ const RT: &[(RtFn, &str, &[&str], Option<&str>)] = &[
     (RtFn::ListLen, "kode_list_len", &[I64], Some(I64)),
     (RtFn::ListNewPacked, "kode_list_new_packed", &[], Some(I64)),
     (RtFn::ListPush8, "kode_list_push8", &[I64, I64], None),
-    (RtFn::ListGet8, "kode_list_get8", &[I64, I64], Some(I64)),
-    (RtFn::ListSet8, "kode_list_set8", &[I64, I64, I64], None),
+    (
+        RtFn::ListGet8,
+        "kode_list_get8",
+        &[I64, I64, I64],
+        Some(I64),
+    ),
+    (
+        RtFn::ListSet8,
+        "kode_list_set8",
+        &[I64, I64, I64, I64],
+        None,
+    ),
     (
         RtFn::ListSlice,
         "kode_list_slice",
@@ -362,7 +372,11 @@ impl<'a> Emitter<'a> {
                 let (v, t) = self.rvalue(rv)?;
                 self.store_local(*dst, &v, t);
             }
-            Inst::Call { dst, callee, args } => self.call(dst, callee, args)?,
+            Inst::Call { dst, callee, args } => {
+                if !self.try_inline_list(dst, callee, args)? {
+                    self.call(dst, callee, args)?;
+                }
+            }
             Inst::CallIndirect { dst, callee, args } => {
                 let (clo, _) = self.operand(callee);
                 let code = self.tmp();
@@ -439,6 +453,211 @@ impl<'a> Emitter<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Inline `len`, item reads and writes of lists and the push fast path,
+    /// exactly as `kode-codegen`'s `try_inline_list` does. Layout:
+    /// `[rc][kind][len][capacity][data pointer]`, 8 bytes per item and one
+    /// byte per item for packed lists of bools.
+    fn try_inline_list(
+        &mut self,
+        dst: &Option<LocalId>,
+        callee: &Callee,
+        args: &[Operand],
+    ) -> Result<bool, String> {
+        let Callee::Rt(rt) = callee else {
+            return Ok(false);
+        };
+        match rt {
+            RtFn::ListLen => {
+                let (list, _) = self.operand(&args[0]);
+                let p = self.tmp();
+                // Offset 16 inside the object header.
+                let at = self.tmp();
+                let len = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {list} to ptr");
+                let _ = writeln!(self.out, "  {at} = getelementptr i8, ptr {p}, i64 16");
+                let _ = writeln!(self.out, "  {len} = load i64, ptr {at}, align 8");
+                self.store_local(dst.unwrap(), &len, Ty::Int);
+                Ok(true)
+            }
+            RtFn::ListGet | RtFn::ListGet8 => {
+                let packed = *rt == RtFn::ListGet8;
+                let (list, _) = self.operand(&args[0]);
+                let (idx, _) = self.operand(&args[1]);
+                let (line, _) = self.operand(&args[2]);
+                let addr = self.checked_item_addr(&list, &idx, &line, if packed { 0 } else { 3 });
+                let p = self.tmp();
+                let raw = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {addr} to ptr");
+                let value = if packed {
+                    let _ = writeln!(self.out, "  {raw} = load i8, ptr {p}");
+                    let wide = self.tmp();
+                    let _ = writeln!(self.out, "  {wide} = zext i8 {raw} to i64");
+                    wide
+                } else {
+                    let _ = writeln!(self.out, "  {raw} = load i64, ptr {p}, align 8");
+                    raw
+                };
+                self.store_local(dst.unwrap(), &value, Ty::Int);
+                Ok(true)
+            }
+            RtFn::ListSet8 => {
+                let (list, _) = self.operand(&args[0]);
+                let (idx, _) = self.operand(&args[1]);
+                let (raw, raw_ty) = self.operand(&args[2]);
+                let (line, _) = self.operand(&args[3]);
+                let narrow = if raw_ty == Ty::Bool {
+                    raw
+                } else {
+                    let t = self.tmp();
+                    let _ = writeln!(self.out, "  {t} = trunc i64 {raw} to i8");
+                    t
+                };
+                let addr = self.checked_item_addr(&list, &idx, &line, 0);
+                let p = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {addr} to ptr");
+                let _ = writeln!(self.out, "  store i8 {narrow}, ptr {p}");
+                Ok(true)
+            }
+            // Items that are heap values must release the old item: use the
+            // runtime, as Cranelift does.
+            RtFn::ListSet if self.f.operand_ty(&args[2]) != Ty::Ref => {
+                let (list, _) = self.operand(&args[0]);
+                let (idx, _) = self.operand(&args[1]);
+                let (raw, _) = self.operand(&args[2]);
+                let (line, _) = self.operand(&args[3]);
+                let addr = self.checked_item_addr(&list, &idx, &line, 3);
+                let p = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {addr} to ptr");
+                let _ = writeln!(self.out, "  store i64 {raw}, ptr {p}, align 8");
+                Ok(true)
+            }
+            RtFn::ListPush | RtFn::ListPush8 => {
+                let packed = *rt == RtFn::ListPush8;
+                let tag = self.n;
+                let (list, _) = self.operand(&args[0]);
+                let (raw, raw_ty) = self.operand(&args[1]);
+                let wide = if raw_ty == Ty::Bool {
+                    self.zext_bool(&raw)
+                } else {
+                    raw.clone()
+                };
+                let narrow = if raw_ty == Ty::Bool {
+                    raw.clone()
+                } else {
+                    let t = self.tmp();
+                    let _ = writeln!(self.out, "  {t} = trunc i64 {raw} to i8");
+                    t
+                };
+                let head = self.tmp();
+                let len_at = self.tmp();
+                let cap_at = self.tmp();
+                let len = self.tmp();
+                let cap = self.tmp();
+                let _ = writeln!(self.out, "  {head} = inttoptr i64 {list} to ptr");
+                let _ = writeln!(
+                    self.out,
+                    "  {len_at} = getelementptr i8, ptr {head}, i64 16"
+                );
+                let _ = writeln!(
+                    self.out,
+                    "  {cap_at} = getelementptr i8, ptr {head}, i64 24"
+                );
+                let _ = writeln!(self.out, "  {len} = load i64, ptr {len_at}, align 8");
+                let _ = writeln!(self.out, "  {cap} = load i64, ptr {cap_at}, align 8");
+                let full = self.tmp();
+                let _ = writeln!(self.out, "  {full} = icmp uge i64 {len}, {cap}");
+                let _ = writeln!(
+                    self.out,
+                    "  br i1 {full}, label %push{tag}.slow, label %push{tag}.fast"
+                );
+                let _ = writeln!(self.out, "push{tag}.fast:");
+                let data_at = self.tmp();
+                let data = self.tmp();
+                let _ = writeln!(
+                    self.out,
+                    "  {data_at} = getelementptr i8, ptr {head}, i64 32"
+                );
+                let _ = writeln!(self.out, "  {data} = load i64, ptr {data_at}, align 8");
+                let off = if packed {
+                    len.clone()
+                } else {
+                    let o = self.tmp();
+                    let _ = writeln!(self.out, "  {o} = shl i64 {len}, 3");
+                    o
+                };
+                let addr = self.tmp();
+                let slot = self.tmp();
+                let _ = writeln!(self.out, "  {addr} = add i64 {data}, {off}");
+                let _ = writeln!(self.out, "  {slot} = inttoptr i64 {addr} to ptr");
+                if packed {
+                    let _ = writeln!(self.out, "  store i8 {narrow}, ptr {slot}");
+                } else {
+                    let _ = writeln!(self.out, "  store i64 {wide}, ptr {slot}, align 8");
+                }
+                let newlen = self.tmp();
+                let _ = writeln!(self.out, "  {newlen} = add i64 {len}, 1");
+                let _ = writeln!(self.out, "  store i64 {newlen}, ptr {len_at}, align 8");
+                let _ = writeln!(self.out, "  br label %push{tag}.join");
+                let _ = writeln!(self.out, "push{tag}.slow:");
+                let _ = writeln!(
+                    self.out,
+                    "  call void @\"{name}\"(i64 {list}, i64 {wide})",
+                    name = if packed {
+                        "kode_list_push8"
+                    } else {
+                        "kode_list_push"
+                    }
+                );
+                let _ = writeln!(self.out, "  br label %push{tag}.join");
+                let _ = writeln!(self.out, "push{tag}.join:");
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Bounds-check `idx` (an unsigned compare, which also catches negatives)
+    /// with the runtime's message, then return the item address in `i64`.
+    fn checked_item_addr(&mut self, list: &str, idx: &str, line: &str, shift: i64) -> String {
+        let tag = self.n;
+        let head = self.tmp();
+        let len_at = self.tmp();
+        let len = self.tmp();
+        let _ = writeln!(self.out, "  {head} = inttoptr i64 {list} to ptr");
+        let _ = writeln!(
+            self.out,
+            "  {len_at} = getelementptr i8, ptr {head}, i64 16"
+        );
+        let _ = writeln!(self.out, "  {len} = load i64, ptr {len_at}, align 8");
+        let oob = self.tmp();
+        let _ = writeln!(self.out, "  {oob} = icmp uge i64 {idx}, {len}");
+        let _ = writeln!(self.out, "  br i1 {oob}, label %oob{tag}, label %ok{tag}");
+        let _ = writeln!(self.out, "oob{tag}:");
+        let _ = writeln!(
+            self.out,
+            "  call void @\"kode_list_oob\"(i64 {idx}, i64 {len}, i64 {line})"
+        );
+        let _ = writeln!(self.out, "  unreachable");
+        let _ = writeln!(self.out, "ok{tag}:");
+        let data_at = self.tmp();
+        let data = self.tmp();
+        let _ = writeln!(
+            self.out,
+            "  {data_at} = getelementptr i8, ptr {head}, i64 32"
+        );
+        let _ = writeln!(self.out, "  {data} = load i64, ptr {data_at}, align 8");
+        let off = if shift == 0 {
+            idx.to_string()
+        } else {
+            let o = self.tmp();
+            let _ = writeln!(self.out, "  {o} = shl i64 {idx}, {shift}");
+            o
+        };
+        let addr = self.tmp();
+        let _ = writeln!(self.out, "  {addr} = add i64 {data}, {off}");
+        addr
     }
 
     fn call(

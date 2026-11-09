@@ -20,11 +20,7 @@ fn have_clang() -> bool {
 }
 
 fn temp_file(name: &str, src: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "kode-llvm-rt-{}-{}",
-        std::process::id(),
-        name
-    ));
+    let dir = std::env::temp_dir().join(format!("kode-llvm-rt-{}-{}", std::process::id(), name));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let path = dir.join(format!("{name}.kode"));
     std::fs::write(&path, src).expect("write program");

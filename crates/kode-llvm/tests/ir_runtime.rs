@@ -49,7 +49,10 @@ fn static_strings_keep_the_cranelift_layout() {
         text.contains("\\FF\\FF\\FF\\FF\\FF\\FF\\FF\\FF\\01"),
         "refcount -1 then kind 1:\n{text}"
     );
-    assert!(text.contains("\\02\\00\\00\\00\\00\\00\\00\\00\\68\\69"), "length 2 then hi:\n{text}");
+    assert!(
+        text.contains("\\02\\00\\00\\00\\00\\00\\00\\00\\68\\69"),
+        "length 2 then hi:\n{text}"
+    );
 }
 
 #[test]
@@ -85,7 +88,10 @@ fn none_is_a_null_reference_not_undefined_value() {
 s: string? = none
 print(s ?? \"empty\")
 ");
-    assert!(!text.contains("undef"), "none must never become undef:\n{text}");
+    assert!(
+        !text.contains("undef"),
+        "none must never become undef:\n{text}"
+    );
     assert!(text.contains("store i64 0, ptr %l"), "{text}");
 }
 
@@ -121,7 +127,10 @@ print(label(1))
     let releases = text.matches("call void @kode_release(i64").count();
     let returns = text.matches("ret i64").count();
     assert_eq!(returns, 1, "the two returns share one exit block:\n{text}");
-    assert!(releases >= 4, "every temporary on both paths is released:\n{text}");
+    assert!(
+        releases >= 4,
+        "every temporary on both paths is released:\n{text}"
+    );
     let ret = text.find("ret i64").expect("a return");
     let before = &text[ret.saturating_sub(220)..ret];
     assert!(
