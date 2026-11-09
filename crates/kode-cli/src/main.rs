@@ -156,7 +156,7 @@ fn run_object(object: &[u8], tag: &str, prog_args: &[String]) -> Result<u8, Stri
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let exe = dir.join("program");
     let result = runtime_lib(&dir)
-        .and_then(|rt| kode_codegen::link(object, &exe, &rt, false))
+        .and_then(|rt| kode_link::link(object, &exe, &rt, false))
         .and_then(|_| {
             Command::new(&exe)
                 .args(prog_args)
@@ -247,7 +247,7 @@ fn run_command(opts: &Options) -> Result<u8, String> {
         let tmp = std::env::temp_dir().join(format!("kode-build-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         let linked =
-            runtime_lib(&tmp).and_then(|rt| kode_codegen::link(&object, &out, &rt, opts.release));
+            runtime_lib(&tmp).and_then(|rt| kode_link::link(&object, &out, &rt, opts.release));
         let _ = std::fs::remove_dir_all(&tmp);
         linked?;
         let on = style::on_stderr();

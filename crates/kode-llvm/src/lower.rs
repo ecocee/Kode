@@ -26,8 +26,8 @@ fn ty(t: Ty) -> &'static str {
     }
 }
 
-/// Every runtime function this backend knows, copied from
-/// `kode-codegen/src/runtime.rs` so the two agree on the C ABI.
+/// Every runtime function this backend knows, with the symbol names and the C
+/// ABI the runtime declares in `kode-rt`.
 const RT: &[(RtFn, &str, &[&str], Option<&str>)] = &[
     (RtFn::PrintInt, "kode_print_int", &[I64], None),
     (RtFn::PrintFloat, "kode_print_float", &[F64], None),
@@ -456,7 +456,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// Inline `len`, item reads and writes of lists and the push fast path,
-    /// exactly as `kode-codegen`'s `try_inline_list` does. Layout:
+    /// matching the layout the runtime assumes. Layout:
     /// `[rc][kind][len][capacity][data pointer]`, 8 bytes per item and one
     /// byte per item for packed lists of bools.
     fn try_inline_list(

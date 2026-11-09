@@ -103,7 +103,7 @@ fn build(ir: &str, out: &Path, strip: bool) -> Result<(), String> {
         "cannot find libkode_rt.a; run `cargo build --workspace` first or set KODE_RT_LIB"
             .to_string()
     })?;
-    kode_codegen::link(&bytes, out, &rt, strip)
+    kode_link::link(&bytes, out, &rt, strip)
 }
 
 fn workspace_root() -> PathBuf {

@@ -11,7 +11,7 @@ rust-version.workspace = true
 kode-syntax.workspace = true
 kode-sema.workspace = true
 kode-mir.workspace = true
-kode-codegen.workspace = true
+kode-link.workspace = true
 
 [lib]
 name = "kode_llvm"

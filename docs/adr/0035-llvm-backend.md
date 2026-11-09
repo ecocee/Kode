@@ -21,7 +21,7 @@ production backend and as the only backend once it passes conformance.
 ## Decision
 
 1. **A new crate, `crates/kode-llvm`, emits textual LLVM IR** from `MirProgram`
-   and nothing else. Rule 4 still holds: `kode-codegen` may not read the AST,
+   and nothing else. Rule 4 still holds: the backend (`kode-llvm`, the linker is `kode-link`) may not read the AST,
    and the LLVM crate must not either.
 2. **No `llvm-sys`, no `inkwell`, no embedded LLVM.** The compiler writes `.ll`
    text to a temporary directory and invokes `clang -O2 -c` to produce the

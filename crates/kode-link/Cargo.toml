@@ -1,5 +1,5 @@
 [package]
-name = "kode-codegen"
+name = "kode-link"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

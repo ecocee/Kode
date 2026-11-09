@@ -63,7 +63,7 @@ it spends its time in `kode-rt`.
 
 `kode` calls `kode_llvm::emit` and `kode_llvm::compile_ir` from
 `object_for` in `crates/kode-cli/src/main.rs`, then links through
-`kode_codegen::link` with the runtime archive embedded in the CLI. The crate's
+`kode_link::link` with the runtime archive embedded in the CLI. The crate's
 own `front.rs` (single-file parsing) exists for the `kode-llvm` development
 binary and its tests; the CLI always uses its loader, so imports and packages
 work.

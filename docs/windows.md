@@ -12,7 +12,7 @@ start: a C toolchain and linker, no Visual Studio project files.
 | Run the result | works | expected to work; see "What is not tested" |
 | Paths in diagnostics | `/` | `\` and `/` both accepted |
 
-The linker settings live in `crates/kode-codegen/src/link.rs`
+The linker settings live in `crates/kode-link/src/link.rs`
 (`platform_args`), and the driver can be overridden:
 
 ```

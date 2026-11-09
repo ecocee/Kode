@@ -140,7 +140,7 @@ crates/
   kode-syntax/        tokens, lexer, AST, parser
   kode-sema/          names and types
   kode-mir/           mid-level IR, lowering, dump, verifier
-  kode-codegen/       object linking: linker driver and runtime archive
+  kode-link/          object linking: linker driver and runtime archive
   kode-rt/            runtime library linked into every program
   kode-cli/           the `kode` command
 tests/run-pass/       programs that must run (.kode + .out), checked for leaks

@@ -27,7 +27,7 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 | syntax tree | `crates/kode-syntax/src/ast/` |
 | grammar | `crates/kode-syntax/src/parser/` (expr, stmt, item) |
 | type rules, error messages | `crates/kode-sema/src/check/` |
-| built-in and standard-library functions | `kode-sema/src/std_fns.rs` (one row per function; older code used `builtins.rs`), `kode-mir/src/lower/expr.rs`, `kode-codegen/src/runtime.rs`, `kode-rt/src/` |
+| built-in and standard-library functions | `kode-sema/src/std_fns.rs` (one row per function; older code used `builtins.rs`), `kode-mir/src/lower/expr.rs`, `crates/kode-llvm/src/lower.rs` (the `RT` table), `kode-rt/src/` |
 | memory management (retain/release) | `crates/kode-mir/src/lower/mod.rs` (rules), `expr.rs`, `data.rs`, `stmt.rs` |
 | lists, maps, classes, optionals, errors in MIR | `crates/kode-mir/src/lower/data.rs` |
 | generics and monomorphization | see ADR 0030, then `kode-sema` and `kode-mir` |
@@ -38,8 +38,9 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 | language server | `kode lsp` in `kode-cli`; editor setup in `docs/editors.md` |
 | `kode doc` and the docs site | `docs/site/build.sh` |
 | PostgreSQL client | `crates/kode-rt/src/pg.rs` (API, handles, JSON results), `pg_wire.rs` (protocol, SCRAM), `sha256.rs` + `base64.rs` (SCRAM hashing) |
-| machine code | `crates/kode-codegen/src/function.rs` |
-| runtime functions | `crates/kode-rt/src/` (object, string, list, map, error, io, and others); register new ones in `kode-mir/src/ir.rs` (`RtFn`) and `kode-codegen/src/runtime.rs` |
+| LLVM IR and machine code | `crates/kode-llvm/src/lower.rs`, `clang.rs` |
+| linking objects with the runtime | `crates/kode-link/src/link.rs` |
+| runtime functions | `crates/kode-rt/src/` (object, string, list, map, error, io, and others); register new ones in `kode-mir/src/ir.rs` (`RtFn`) and `crates/kode-llvm/src/lower.rs` (`RT`) |
 | benchmarks and measurements | `benchmarks/`, `benchmarks/report.md` |
 
 ## Rules
@@ -47,7 +48,7 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 1. **Tests first.** A new feature starts as a `.kode` file with a `.out` file in `tests/run-pass/`, or a `.kode` file with an `.err` file (the error code) in `tests/compile-fail/`.
 2. **Every error has a stable code** (`E0xxx`, warnings `W0xxx`) and a hint. Add new codes to `docs/errors/index.md`, and make sure `kode explain` works for them.
 3. **Do not change language behavior without an ADR** in `docs/adr/` (context, decision, alternatives, consequences).
-4. **Only MIR reaches the backend.** Do not read the AST in `kode-codegen`.
+4. **Only MIR reaches the backend.** Do not read the AST in `kode-llvm`.
 5. **Strings and objects are reference counted.** Follow the ownership rules at the top of `crates/kode-mir/src/lower/mod.rs`. `cargo test` must still report no leaks. Never loosen, skip or delete a leak check or a failing test to get green.
 6. Keep files under about 500 lines; split by idea.
 7. **Docs never lag the compiler.** When behavior changes, update in the same change: `README.md`, `CHANGELOG.md`, `docs/ROADMAP.md`, `docs/PLAN-v1.md`, `docs/cheatsheet.md` and the relevant `docs/spec/` chapter.

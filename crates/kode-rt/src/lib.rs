@@ -41,7 +41,7 @@ mod task;
 mod tls;
 
 /// ABI marker. The compiler checks that the runtime library it links contains this
-/// symbol name. Rename it (and `RT_ABI` in `kode-codegen/src/link.rs`) whenever the
+/// symbol name. Rename it (and `RT_ABI` in `kode-cli/src/doctor.rs`) whenever the
 /// runtime functions or object layouts change, so an old library is never used by mistake.
 #[no_mangle]
 pub extern "C" fn kode_rt_abi_0004() {}

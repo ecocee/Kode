@@ -15,7 +15,7 @@ kode-diagnostics = { path = "crates/kode-diagnostics" }
 kode-syntax = { path = "crates/kode-syntax" }
 kode-sema = { path = "crates/kode-sema" }
 kode-mir = { path = "crates/kode-mir" }
-kode-codegen = { path = "crates/kode-codegen" }
+kode-link = { path = "crates/kode-link" }
 kode-llvm = { path = "crates/kode-llvm" }
 
 [profile.release]
