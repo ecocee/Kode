@@ -109,6 +109,12 @@ pub(crate) fn client_config() -> Arc<ClientConfig> {
         .clone()
 }
 
+/// A configuration with explicit roots, so a test can trust its own certificate.
+#[cfg(test)]
+pub(crate) fn client_config_with_roots(roots: RootCertStore) -> Arc<ClientConfig> {
+    Arc::new(build_config(roots))
+}
+
 fn build_config(roots: RootCertStore) -> ClientConfig {
     ClientConfig::builder()
         .with_root_certificates(roots)
