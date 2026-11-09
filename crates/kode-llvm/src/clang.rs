@@ -64,10 +64,19 @@ pub fn compile_ir(ir: &str, object: &Path) -> Result<(), ClangError> {
         .map_err(|e| ClangError::Io(format!("cannot write {}: {e}", ll.display())))?;
     let program = clang_program();
     let mut cmd = Command::new(&program);
-    cmd.args(["-O2", "-fPIC", "-Wno-override-module", "-c"])
-        .arg(&ll)
-        .arg("-o")
-        .arg(object);
+    cmd.args(["-O2", "-Wno-override-module", "-c"]);
+    // `-fPIC` is meaningless for Windows objects, and MSVC-target clang rejects
+    // it as an error rather than ignoring it.
+    if !cfg!(windows) {
+        cmd.arg("-fPIC");
+    }
+    if cfg!(windows) {
+        // The linker is MinGW gcc, so ask clang for a MinGW-target object. An
+        // MSVC-target object references `__chkstk` for large stack frames, which
+        // MinGW spells `___chkstk_ms`; the MSVC spelling does not link.
+        cmd.args(["-target", "x86_64-w64-mingw32"]);
+    }
+    cmd.arg(&ll).arg("-o").arg(object);
     // A missing or non-executable clang must be reported as such, never as a
     // child that "ran" and rejected the IR with exit status 127.
     kode_link::force_fork_exec(&mut cmd);

@@ -15,6 +15,11 @@ language: a patch release fixes bugs, a minor release may add syntax.
 - **`exec` failures are reported reliably.** A child that cannot be started
   (missing program, bad interpreter) now raises the documented error instead of
   exiting 127 silently on some platforms.
+- **Windows builds use the right object format and flags.** `-fPIC` is no longer
+  passed there (MSVC-target clang rejects it), clang is asked for
+  `x86_64-w64-mingw32` objects so stack probes match MinGW's `___chkstk_ms`, and
+  the compiler runs on a 64 MB thread so deeply nested source reports E0118
+  instead of overflowing the 1 MB Windows main-thread stack.
 - **Start failures are reported as start failures.** A missing or non-executable
   clang, linker driver or `cc` now prints the install hint and exits 1 instead of
   claiming the IR was rejected with status 127. A failing linker still reports

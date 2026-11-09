@@ -26,7 +26,7 @@ supported: `kode build` produces a binary for the host only.
 | Tool | Requirement | Override |
 |---|---|---|
 | Rust | 1.91 or newer (workspace `rust-version`), stable | — |
-| clang | **15 or newer**, see `clang --version` | `KODE_CLANG`, then `CLANG`, then `clang` on `PATH` |
+| clang | **15 or newer**, see `clang --version`; on Windows it must be able to emit `x86_64-w64-mingw32` objects (the official LLVM build can) | `KODE_CLANG`, then `CLANG`, then `clang` on `PATH` |
 | C compiler / linker driver | `cc` (macOS Command Line Tools, gcc on Linux), MinGW-w64 `gcc` on Windows | `KODE_CC`, then `CC` |
 | `strip` | optional; only `kode build --release` uses it on Unix | — |
 
@@ -105,9 +105,12 @@ arm64 Linux gate has to run on a self-hosted arm64 runner instead.
 
 ## Known limitations
 
-- **Windows** has not been exercised end to end on real hardware. `ci.yml` runs
-  it, but a workflow that has never executed is not evidence. Treat Windows as
-  preview until a green run is recorded.
+- **Windows** failed its first CI run (November 2026) on three issues, all fixed:
+  `-fPIC` was passed to MSVC-target clang, the compiler used the 1 MB Windows
+  main-thread stack and crashed on deeply nested source instead of reporting
+  E0118, and objects were emitted for the MSVC ABI while MinGW links them. Clang
+  now targets `x86_64-w64-mingw32` there, and every command runs on a 64 MB
+  thread. The job has to turn green before Windows leaves preview.
 - **Linux x86-64** was validated under Rosetta emulation only; see above.
 - `exec` and the compiler's own clang/linker calls force the fork/exec path so a
   failed `exec` is reported as an error. On Windows there is no fork; `std`'s
