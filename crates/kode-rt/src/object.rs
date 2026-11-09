@@ -29,10 +29,10 @@ static LIVE: AtomicI64 = AtomicI64::new(0);
 /// Count live objects (only for `KODE_LEAK_CHECK`).
 pub static COUNT_LIVE: AtomicBool = AtomicBool::new(false);
 
-/// Per-thread live count for the tests in this crate. `LIVE` is process-wide, and
-/// `cargo test` runs tests in parallel, so a delta measured on it can include
-/// another test's allocations. The thread-local count is exact for tests that
-/// allocate and free on one thread, without weakening the assertions.
+// Per-thread live count for the tests in this crate. `LIVE` is process-wide, and
+// `cargo test` runs tests in parallel, so a delta measured on it can include
+// another test's allocations. The thread-local count is exact for tests that
+// allocate and free on one thread, without weakening the assertions.
 #[cfg(test)]
 thread_local! {
     static LOCAL_COUNTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };

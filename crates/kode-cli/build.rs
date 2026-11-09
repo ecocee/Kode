@@ -43,10 +43,10 @@ fn main() {
 
     let target_directory = workspace.join("target");
     let candidates = [
-        target_directory.join(&target_triple).join("debug").join(&lib_name),
-        target_directory.join("debug").join(&lib_name),
-        target_directory.join(&target_triple).join("release").join(&lib_name),
-        target_directory.join("release").join(&lib_name),
+        target_directory.join(target_triple.as_str()).join("debug").join(lib_name),
+        target_directory.join("debug").join(lib_name),
+        target_directory.join(target_triple.as_str()).join("release").join(lib_name),
+        target_directory.join("release").join(lib_name),
     ];
 
     let lib_path = candidates
@@ -55,7 +55,7 @@ fn main() {
         .unwrap_or_else(|| panic!("could not find {} under {}", lib_name, target_directory.display()));
 
     fs::create_dir_all(&out_dir).expect("could not create OUT_DIR");
-    fs::copy(&lib_path, out_dir.join(&lib_name)).expect("could not copy libkode_rt.a into OUT_DIR");
+    fs::copy(lib_path, out_dir.join(lib_name)).expect("could not copy libkode_rt.a into OUT_DIR");
 
     println!("cargo:rerun-if-changed={}", workspace.join("kode-rt").join("src").display());
     println!("cargo:rerun-if-changed={}", workspace.join("kode-rt").join("Cargo.toml").display());

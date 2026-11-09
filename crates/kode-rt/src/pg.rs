@@ -204,27 +204,6 @@ fn shared(handle: i64) -> Result<Shared, String> {
         .ok_or_else(|| format!("connection {handle} is not open: it was closed or never opened"))
 }
 
-fn pool_slot(pool_handle: i64, conn_handle: i64) -> Result<(Arc<Mutex<Conn>>, i64), String> {
-    let mut pool_guard = lock(pools());
-    let pool = pool_guard
-        .get_mut(&pool_handle)
-        .ok_or_else(|| format!("pool {pool_handle} is not open: it was closed or never opened"))?;
-
-    let slot = pool
-        .connections
-        .get_mut(&conn_handle)
-        .ok_or_else(|| format!("connection {conn_handle} is not part of pool {pool_handle}"))?;
-
-    let conn = slot.conn.clone();
-    if conn.is_none() {
-        return Err(format!(
-            "connection {conn_handle} in pool {pool_handle} is closed"
-        ));
-    }
-
-    Ok((conn.unwrap(), conn_handle))
-}
-
 /// # Safety
 /// `p` must be a valid string.
 unsafe fn text<'a>(p: *const Header) -> &'a str {

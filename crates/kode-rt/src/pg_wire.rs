@@ -1,9 +1,9 @@
 //! PostgreSQL wire protocol (version 3) over a plain TCP socket.
 //!
-//! Supported: startup, cleartext and SCRAM-SHA-256 authentication, the simple
-//! query protocol and the extended query protocol with text parameters. Not
-//! supported yet: TLS (so `sslmode=require` is an error), md5 authentication,
-//! the binary format, notifications, and `COPY`.
+//! Supported: a TLS upgrade (rustls), startup, cleartext and SCRAM-SHA-256
+//! authentication, the simple query protocol and the extended query protocol
+//! with text parameters. Not supported yet: md5 authentication, the binary
+//! format, notifications, and `COPY`.
 //!
 //! Every message the server sends is length-checked before it is parsed, so a
 //! truncated or hostile server produces an error instead of a panic.
@@ -12,7 +12,6 @@ use std::io::{BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
-use std::net::Shutdown;
 
 use super::pg_tls::TlsStream;
 use rustls::RootCertStore;

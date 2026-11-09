@@ -6,10 +6,9 @@
 //! and link time).
 
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::TcpStream;
 use std::sync::Mutex;
 use std::sync::Arc;
-use std::time::Duration;
 
 use rustls::pki_types::ServerName;
 use rustls::ClientConfig;
@@ -26,27 +25,6 @@ pub(crate) struct TlsStream {
 }
 
 impl TlsStream {
-    /// Open a plaintext TCP connection. Caller performs the PostgreSQL
-    /// SSLRequest exchange and upgrades only if the server offers TLS.
-    pub(crate) fn plaintext(host: &str, port: u16) -> Result<Self, String> {
-        let addr = (host, port)
-            .to_socket_addrs()
-            .map_err(|e| format!("cannot resolve {host}:{port}: {e}"))?
-            .next()
-            .ok_or_else(|| format!("{host}:{port} has no address"))?;
-
-        let inner = TcpStream::connect_timeout(&addr, Duration::from_secs(10))
-            .map_err(|e| format!("cannot connect to {host}:{port}: {e}"))?;
-        let _ = inner.set_nodelay(true);
-        let _ = inner.set_read_timeout(Some(Duration::from_secs(30)));
-        let _ = inner.set_write_timeout(Some(Duration::from_secs(30)));
-
-        Ok(TlsStream {
-            inner: Some(inner),
-            tls: Mutex::new(None),
-        })
-    }
-
     /// Wrap an already-connected plaintext TCP stream (used after taking the
     /// stream back out of a `BufReader` during the SSLRequest exchange).
     pub(crate) fn from_plain_tcp(stream: TcpStream) -> Self {
@@ -91,10 +69,7 @@ impl Read for TlsStream {
         if let Some(ref mut stream) = self.inner {
             return stream.read(buf);
         }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "TlsStream has no active stream",
-        ))
+        Err(std::io::Error::other("TlsStream has no active stream"))
     }
 }
 
@@ -106,10 +81,7 @@ impl Write for TlsStream {
         if let Some(ref mut stream) = self.inner {
             return stream.write(buf);
         }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "TlsStream has no active stream",
-        ))
+        Err(std::io::Error::other("TlsStream has no active stream"))
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -119,10 +91,7 @@ impl Write for TlsStream {
         if let Some(ref mut stream) = self.inner {
             return stream.flush();
         }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "TlsStream has no active stream",
-        ))
+        Err(std::io::Error::other("TlsStream has no active stream"))
     }
 }
 

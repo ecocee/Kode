@@ -1,6 +1,6 @@
 # Status: v0.3 audit (Phase 0)
 
-Last verified: 2026-11-06, commit `336d98f` (branch `main`), macOS 15 / arm64
+Last verified: 2026-11-09, commit `60f491d` (branch `chore/baseline-verify`), macOS 15 / arm64
 (Apple silicon), debug compiler unless stated.
 
 To reproduce the numbers in this file:
@@ -25,17 +25,19 @@ and small HTTP services on macOS/Linux, but it is not safe to offer as a
 general-purpose language. Blockers, in the order they hurt:
 
 1. No TLS. `https://` raises an error (ADR/spec 13). Every real service needs it.
-2. A compiler crash on moderately deep input: **stack overflow (SIGABRT)** at
-   ~300 nested parentheses, a 1,000–2,000 term `+` chain, and 500 nested `if`
-   blocks. A compiler must diagnose, not abort (§7).
+2. Every program pays for the PostgreSQL client's TLS stack: hello world is
+   **1,077,600 bytes stripped**, over the 1 MB budget, because optional runtime
+   components are linked wholesale into every binary (§2, §10).
 3. Reference-counting cannot break cycles, so two objects pointing at each
    other leak forever (no `weak`).
 4. No byte buffers and only 64-bit `int`; no fixed-width integers, no binary
    protocol work.
-5. A PostgreSQL client exists (ADR 0033) but speaks plain TCP only, so TLS and
-   md5 authentication are missing.
-6. Release automation only builds Linux x86-64, while the docs promise macOS,
-   Windows and aarch64 artifacts (§4.1). Windows has never been verified by hand.
+5. A PostgreSQL client exists (ADR 0033) with TLS (rustls) and a connection
+   pool, but no md5, `COPY`, binary format or cancellation. The HTTP client and
+   server still have no TLS at all: `https://` raises an error.
+6. Release automation builds Linux x86-64 and macOS arm64 only; Linux aarch64,
+   macOS Intel and Windows artifacts are promised in the docs but not built, and
+   Windows has never been verified by hand (§4.1).
 
 **Self-hosting-ready: no, and far away.** There is no lexer, parser, checker or
 backend written in Kode (§3, Phase 6). The language also lacks the three things
@@ -47,27 +49,32 @@ is a Rust library) is undecided.
 
 | Item | Value |
 |---|---|
-| Rust source | 20,210 lines across 7 crates (`find crates -name '*.rs' \| xargs wc -l`) |
-| Kode source (tests + examples) | 1,972 lines (`find examples tests -name '*.kode' \| xargs wc -l`) |
-| `tests/run-pass` | 44 programs (`ls tests/run-pass/*.kode \| wc -l`), leak-checked |
-| `tests/compile-fail` | 92 programs (`ls tests/compile-fail/*.kode \| wc -l`) |
-| Rust tests | 49 (`cargo test --workspace`, summing the `test result` lines) |
-| ADRs | 30 files (`docs/adr/0001` … `0031`; numbering has gaps) |
+| Rust source | 27,131 lines across 7 crates (`find crates -name '*.rs' \| xargs wc -l`) |
+| Kode source (tests + examples) | 3,168 lines (`find examples tests -name '*.kode' \| xargs wc -l`) |
+| `tests/run-pass` | 45 programs (`ls tests/run-pass/*.kode \| wc -l`), leak-checked |
+| `tests/compile-fail` | 97 programs (`ls tests/compile-fail/*.kode \| wc -l`) |
+| Rust tests | 98 (`cargo test --workspace`, summing the `test result` lines) |
+| ADRs | 32 files (`docs/adr/0001` … `0033`; numbering has gaps) |
 | Spec chapters | 13 (`docs/spec/01` … `13`, including `07-planned`) |
 | `cargo build --workspace` | passes |
-| `cargo test --workspace` | passes, 49/49, 0 failed |
-| `cargo clippy --workspace` | **fails** (3 deny-by-default errors, 2 warnings), all pre-existing (§7) |
+| `cargo test --workspace` | passes, 98/98, 0 failed, no leaks |
+| `cargo clippy --workspace --all-targets -- -D warnings` | passes |
 | `kode fmt examples tests/run-pass --check` | passes |
-| `kode doctor` | all ok: kode 0.3.0, macos-aarch64, runtime ABI 0003, clang 2100 |
+| `kode check` on every example and run-pass program | passes, 54 files |
+| `kode doctor` | all ok: kode 0.3.5, macos-aarch64, runtime ABI 0004, clang 2100 |
+| hello world, debug build | 1,252,288 bytes |
+| hello world, `--release` | 1,233,472 bytes |
+| hello world, `--release` + `strip -x` | **1,077,600 bytes — over the 1 MB budget** |
+| embedded runtime archive | 59,649 KB (`kode doctor`) |
 
-Version drift: `Cargo.toml` says `0.3.0`; tags reach `v0.3.5`; the public
-releases page shows `v0.3.4-test2`; `dist/` holds `0.3.0` artifacts. Four
-different "current versions" in one project.
+The hello-world measurements above are the reason the 1 MB stripped budget in
+PLAN-v1 §3 is currently **missed**: the PostgreSQL client's `rustls` and
+`webpki-roots` are linked into every program, even one that never opens a socket.
+This was recorded on 2026-11-09 and must be fixed or budgeted before any size
+claim is published (§10).
 
-Repository hygiene: `dist/` is **65 MB of committed binaries** (a `kode` binary,
-a tarball, a Windows zip, `SHA256SUMS.txt`), and it is stale at 0.3.0. There is
-no `LICENSE` file even though `README.md` says Apache-2.0 and the GitHub repo declares
-Apache-2.0; there is no `SECURITY.md`.
+Version history: `Cargo.toml` and the latest tag both say `0.3.5`; `dist/` is no
+longer tracked and is git-ignored; `LICENSE` and `SECURITY.md` exist.
 
 ## 3. Phase status
 
@@ -365,3 +372,22 @@ Still open, needs a human or approval:
   branches and tags. Scratch-clone measurement: `.git` 42M before, 11M after
   (filter-branch alone left it at 41M until `refs/original` was deleted, which is
   why filter-repo is the right tool).
+
+### `chore/baseline-verify`
+
+Re-verified the tree at `60f491d` (the `bench/http` line, 11 commits ahead of
+`main`) before starting TLS work. Every number in §2 is from this pass.
+
+- Cleared the last clippy failures: three `std::io::Error::new(ErrorKind::Other, …)`
+  in `crates/kode-rt/src/pg_tls.rs` now use `std::io::Error::other`; a dead
+  `TlsStream::plaintext`, a dead `pg::pool_slot`, an unused `std::net::Shutdown`
+  import and a doc comment on a `thread_local!` (now a plain comment) are gone.
+  `cargo clippy --workspace --all-targets -- -D warnings` is green.
+- Gate: build, 98 tests with `KODE_LEAK_CHECK=1` (0 leaks), clippy, `kode fmt
+  --check`, and `kode check` on all 54 example and run-pass programs.
+- **Regression recorded, not fixed here:** hello world is 1,077,600 bytes
+  stripped (debug 1,252,288, release 1,233,472). The PostgreSQL client brought
+  `rustls` and `webpki-roots` into `kode-rt`, and they are linked into every
+  program; the embedded runtime archive is 59,649 KB. The 1 MB budget is missed
+  by about 29 KB. Fix with link-on-use (split the archive per subsystem) or
+  change the budget deliberately, before A4 publishes any size claim.
