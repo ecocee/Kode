@@ -132,7 +132,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 | Item | State | Evidence |
 |---|---|---|
 | 5.1 Windows conformance on a real runner | **partial** | `ci.yml` (B9) runs build, clippy, tests, conformance, fmt, release build and a hello-world run on `windows-latest` with MinGW-w64, GNU Rust and Chocolatey LLVM. Two real runs have built, linked and run programs on Windows through the conformance and LSP harnesses (including the three new applications), and they pass with the MinGW-target clang fix except for one now-fixed LSP harness regression on the latest run |
-| 5.2 Installers, signing, reproducibility | **partial** | `release.yml` builds Linux x86-64 (tarball, `.deb`, checksums) and macOS arm64 (tarball, checksums); the release job installs clang (B9) and the smoke test runs the artifact on macOS. No Windows or aarch64 artifact yet, no signing, no reproducibility notes |
+| 5.2 Installers, signing, reproducibility | **partial** | `release.yml` builds Linux x86-64 (tarball, `.deb`, checksums), macOS arm64 (tarball, checksums) and Windows x86_64 (tarball, checksums); the release job installs clang (B9) and smoke-tests the built artifact on macOS. No Windows release artifact has been uploaded yet, and there is no signing or reproducibility record |
 | 5.3 Cross-compilation | **missing** | `docs/windows.md`: runtime archive is host-built, "not wired up yet" |
 | 5.4 LLVM `--release` backend | **done** | LLVM is the only backend since B7; Cranelift removed in B8 |
 | 5.5 Security process | **missing** | no `SECURITY.md`, no `cargo deny`, no supply-chain policy, no runtime-patch procedure |

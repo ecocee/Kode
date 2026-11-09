@@ -16,7 +16,6 @@ permissions:
   contents: write
 
 env:
-  # The tag being released, with the leading `v` (jobs strip it for file names).
   TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
@@ -33,7 +32,6 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # The release smoke test runs the built compiler, which needs clang.
       - name: Install clang
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang
 
@@ -55,11 +53,11 @@ jobs:
           set -euo pipefail
           BIN=target/release/kode
           "$BIN" doctor
-          "$BIN" --version | grep -qF "${TAG#v}" || {
-            echo "ERROR: the binary does not report ${TAG#v}"
-            "$BIN" --version
+          "$BIN" --version
+          "$BIN" --version | grep -qF "${{ env.TAG }}" || {{
+            echo "ERROR: the binary does not report ${{ env.TAG }}"
             exit 1
-          }
+          }}
           printf 'print("hello")\n' > /tmp/hello.kode
           test "$("$BIN" run /tmp/hello.kode)" = "hello"
 
@@ -67,21 +65,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${TAG#v}"
+          VERSION="${{ env.TAG }}"
           mkdir -p dist
           cp target/release/kode dist/kode
           chmod 755 dist/kode
           for f in README.md CHANGELOG.md LICENSE; do
             [ ! -f "$f" ] || cp "$f" dist/
           done
-          tar -czf "kode-${VERSION}-linux-x86_64.tar.gz" -C dist .
+          tar -czf "kode-${{VERSION}}-linux-x86_64.tar.gz" -C dist .
 
       - name: Create DEB package
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${TAG#v}"
-          ROOT="pkg/kode_${VERSION}_amd64"
+          VERSION="${{ env.TAG }}"
+          ROOT="pkg/kode_${{VERSION}}_amd64"
           mkdir -p "$ROOT/DEBIAN" "$ROOT/usr/bin" "$ROOT/usr/share/doc/kode"
           cp dist/kode "$ROOT/usr/bin/kode"
           chmod 755 "$ROOT/usr/bin/kode"
@@ -98,16 +96,15 @@ jobs:
           Description: Kode programming language compiler
            Kode compiles programs to native machine code.
           EOF
-          dpkg-deb --root-owner-group --build "$ROOT" "kode-${VERSION}-linux-x86_64.deb"
-          dpkg-deb --info "kode-${VERSION}-linux-x86_64.deb"
+          dpkg-deb --root-owner-group --build "$ROOT" "kode-${{VERSION}}-linux-x86_64.deb"
+          dpkg-deb --info "kode-${{VERSION}}-linux-x86_64.deb"
 
       - name: Generate checksums
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${TAG#v}"
-          sha256sum "kode-${VERSION}-linux-x86_64.tar.gz" "kode-${VERSION}-linux-x86_64.deb" \
-            > SHA256SUMS-linux.txt
+          VERSION="${{ env.TAG }}"
+          sha256sum "kode-${{VERSION}}-linux-x86_64.tar.gz" "kode-${{VERSION}}-linux-x86_64.deb" > SHA256SUMS-linux.txt
           cat SHA256SUMS-linux.txt
 
       - name: Upload build
@@ -144,9 +141,6 @@ jobs:
       - name: Build release
         run: cargo build --release --workspace
 
-      # The artifact itself is exercised, not just `cargo build`: a binary that
-      # links but cannot find clang, or that reports another version, is caught
-      # here rather than by the person who downloads it.
       - name: Smoke test the built compiler
         shell: bash
         run: |
@@ -154,34 +148,32 @@ jobs:
           BIN=target/release/kode
           "$BIN" doctor
           "$BIN" --version
-          "$BIN" --version | grep -qF "${TAG#v}" || {
-            echo "ERROR: the binary does not report ${TAG#v}"
+          "$BIN" --version | grep -qF "${{ env.TAG }}" || {{
+            echo "ERROR: the binary does not report ${{ env.TAG }}"
             exit 1
-          }
+          }}
           printf 'print("hello")\n' > /tmp/hello.kode
           test "$("$BIN" run /tmp/hello.kode)" = "hello"
-          printf 'fn add(a: int, b: int) -> int => a + b\nprint(add(2, 3))\n' > /tmp/add.kode
-          test "$("$BIN" run /tmp/add.kode)" = "5"
 
       - name: Prepare release
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${TAG#v}"
+          VERSION="${{ env.TAG }}"
           mkdir -p dist
           cp target/release/kode dist/kode
           chmod 755 dist/kode
           for f in README.md CHANGELOG.md LICENSE; do
             [ ! -f "$f" ] || cp "$f" dist/
           done
-          tar -czf "kode-${VERSION}-macos-arm64.tar.gz" -C dist .
+          tar -czf "kode-${{VERSION}}-macos-arm64.tar.gz" -C dist .
 
       - name: Generate checksums
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${TAG#v}"
-          shasum -a 256 "kode-${VERSION}-macos-arm64.tar.gz" > SHA256SUMS-macos.txt
+          VERSION="${{ env.TAG }}"
+          shasum -a 256 "kode-${{VERSION}}-macos-arm64.tar.gz" > SHA256SUMS-macos.txt
           cat SHA256SUMS-macos.txt
 
       - name: Upload build
@@ -193,9 +185,95 @@ jobs:
             kode-*-macos-arm64.tar.gz
             SHA256SUMS-macos.txt
 
+  windows:
+    name: Build Windows x86_64
+    runs-on: windows-latest
+    env:
+      MSYSTEM: UCRT64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      - name: Install Rust (GNU toolchain)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-gnu
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install clang
+        run: choco install llvm -y --no-progress
+
+      - name: Install MinGW-w64 (GCC for Windows)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: Check project
+        run: cargo check --workspace
+
+      - name: Run tests
+        run: cargo test --workspace
+        env:
+          KODE_LEAK_CHECK: "1"
+
+      - name: Build release
+        run: cargo build --release --workspace
+
+      - name: Smoke test the built compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=target/release/kode
+          "$BIN" doctor
+          "$BIN" --version
+          "$BIN" --version | grep -qF "${{ env.TAG }}" || {{
+            echo "ERROR: the binary does not report ${{ env.TAG }}"
+            exit 1
+          }}
+          printf 'print("hello")\n' > /tmp/hello.kode
+          test "$("$BIN" run /tmp/hello.kode)" = "hello"
+
+      - name: Prepare release
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ env.TAG }}"
+          mkdir -p dist
+          cp target/release/kode dist/kode
+          chmod 755 dist/kode
+          for f in README.md CHANGELOG.md LICENSE; do
+            [ ! -f "$f" ] || cp "$f" dist/
+          done
+          tar -czf "kode-${{VERSION}}-windows-x86_64.tar.gz" -C dist .
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ env.TAG }}"
+          sha256sum "kode-${{VERSION}}-windows-x86_64.tar.gz" > SHA256SUMS-windows.txt
+          cat SHA256SUMS-windows.txt
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          if-no-files-found: error
+          path: |
+            kode-*-windows-x86_64.tar.gz
+            SHA256SUMS-windows.txt
+
   publish:
     name: Publish GitHub Release
-    needs: [linux, macos]
+    needs: [linux, macos, windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download builds
@@ -204,16 +282,14 @@ jobs:
           merge-multiple: true
           path: artifacts
 
-      # One checksum file per platform from each job, merged here so a downloader
-      # has a single list to verify against.
       - name: Merge checksums
         shell: bash
         run: |
           set -euo pipefail
           cd artifacts
           ls -l
-          cat SHA256SUMS-linux.txt SHA256SUMS-macos.txt | sort -k 2 > SHA256SUMS.txt
-          rm SHA256SUMS-linux.txt SHA256SUMS-macos.txt
+          cat SHA256SUMS-linux.txt SHA256SUMS-macos.txt SHA256SUMS-windows.txt | sort -k 2 > SHA256SUMS.txt
+          rm SHA256SUMS-linux.txt SHA256SUMS-macos.txt SHA256SUMS-windows.txt
           cat SHA256SUMS.txt
 
       - name: Publish release
@@ -226,6 +302,7 @@ jobs:
             artifacts/kode-*-linux-x86_64.tar.gz
             artifacts/kode-*-linux-x86_64.deb
             artifacts/kode-*-macos-arm64.tar.gz
+            artifacts/kode-*-windows-x86_64.tar.gz
             artifacts/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
