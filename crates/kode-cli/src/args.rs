@@ -25,7 +25,7 @@ OPTIONS:
     --strict          treat warnings as errors
     --release         strip symbols from the built binary
     --debug           do not optimize the generated code (faster to compile)
-    --backend=<name>  code generator: `cranelift` (default) or `llvm` (experimental)
+    --backend=<name>  code generator: `llvm` (default) or `cranelift` (transitional)
     --check           with `fmt`: do not write, exit 1 if a file would change
                       with `install`: do not write kode.lock, exit 1 if it is stale
     --path <folder>   with `add`: the dependency's folder
@@ -37,8 +37,8 @@ OPTIONS:
 /// Which code generator turns MIR into machine code.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum Backend {
-    #[default]
     Cranelift,
+    #[default]
     Llvm,
 }
 

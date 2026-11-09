@@ -1,6 +1,8 @@
 # ADR 0035: LLVM as the production backend
 
-Status: accepted (2026-11-09). Supersedes the "Cranelift only" assumption in
+Status: accepted (2026-11-09); implemented in B7 — LLVM is the default backend
+since then, with `--backend=cranelift` transitional until B8. Supersedes the
+"Cranelift only" assumption in
 ADR 0002; Cranelift is kept as a transitional backend until every gate below is
 green, then removed.
 

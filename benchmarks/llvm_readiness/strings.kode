@@ -1,0 +1,8 @@
+total = 0
+i = 0
+while i < 200000 {
+    s = "row ${i}: ${i * 2}"
+    total += len(s)
+    i += 1
+}
+print(total)

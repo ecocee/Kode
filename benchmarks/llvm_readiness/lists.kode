@@ -1,0 +1,11 @@
+xs: [int] = []
+i = 0
+while i < 1000000 {
+    xs.add(i)
+    i += 1
+}
+total = 0
+for x in xs {
+    total += x
+}
+print(total)

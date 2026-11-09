@@ -1,0 +1,13 @@
+flags: [bool] = []
+i = 0
+while i < 1000000 {
+    flags.add(i % 3 == 0)
+    i += 1
+}
+n = 0
+for f in flags {
+    if f {
+        n += 1
+    }
+}
+print(n)

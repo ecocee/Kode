@@ -120,7 +120,7 @@ tests and an ADR where behavior changes; the list is the order, not a schedule.
 | 9.10 | Checked arithmetic on `+ - *` | silent wraparound is a correctness bug in a language people trust | |
 | 9.11 | Package registry and publishing | path-only dependencies do not scale past one machine | |
 | 9.12 | Verified Windows release | the CI job exists; a real Windows run must pass before anyone downloads it | |
-| 9.13 | LLVM backend, replacing Cranelift | the measured 1.6-2.4x gap against C `-O2` is code quality; Cranelift has no loop optimizer to build on | **accepted, in progress** (ADR 0035): textual LLVM IR from MIR, `clang` builds the object, no `llvm-sys`; stages B1-B8 in the ADR, Cranelift removed only after full conformance |
+| 9.13 | LLVM backend, replacing Cranelift | the measured 1.6-2.4x gap against C `-O2` is code quality; Cranelift has no loop optimizer to build on | **done** (ADR 0035, B7): textual LLVM IR from MIR, `clang` builds the object, no `llvm-sys`; LLVM is the default backend since B7, `--backend=cranelift` stays selectable during the transition, and removal is B8 |
 
 **9.1-9.4 are done.** 9.5 (`weak` references) is the next branch, and needs an ADR
 and leak evidence. TLS was the large one: rustls plus webpki-roots are now a

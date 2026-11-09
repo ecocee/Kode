@@ -5,12 +5,18 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ## Unreleased
 
+### Changed
+
+- **LLVM is the default backend** (ADR 0035). Code generation goes through
+  textual LLVM IR and `clang` (15 or newer, or `KODE_CLANG`); a missing clang is
+  a clear error, never a silent fallback. The MIR, runtime and linker are shared,
+  so programs, diagnostics, exit codes and leak behaviour match the old backend.
+  `--backend=cranelift` still selects Cranelift during the transition.
+
 ### Added
 
-- **`--backend=llvm`** (ADR 0035, experimental): code generation can go through
-  textual LLVM IR and `clang` instead of Cranelift. The MIR, the runtime and the
-  linker are shared, so programs, diagnostics, exit codes and leak behaviour are
-  the same; Cranelift is still the default backend and no other flag changes.
+- **`--backend=llvm`** (ADR 0035): the flag that introduced the backend in B6 and
+  is now also the default.
 - **A PostgreSQL client** (ADR 0033): `pg.connect`, `pg.exec`, `pg.query` and
   `pg.close` speak the PostgreSQL wire protocol from the runtime, with
   SCRAM-SHA-256 or cleartext authentication, the extended query protocol with
