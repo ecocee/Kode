@@ -5,20 +5,63 @@ on:
     branches: [main]
   pull_request:
 
+# Every supported platform runs the same gates in the same order. Nothing here
+# relies on a tool that happens to be on the image: clang and the C linker are
+# installed or verified explicitly, and each job asserts the architecture it
+# claims to test before building anything.
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
 jobs:
   test:
-    name: test (${{ matrix.os }})
+    name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            arch: x86_64
+          # Native arm64 runner. Public repositories only; see docs/platforms.md.
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            arch: aarch64
+          - name: macos-aarch64
+            os: macos-14
+            arch: arm64
+          - name: windows-x86_64
+            os: windows-latest
+            arch: x86_64
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
+      # Linux: clang is the LLVM backend and `cc` drives the linker.
+      - name: Install clang and a C linker (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang gcc libc6-dev
+
+      # macOS: the system clang from the Command Line Tools is the supported
+      # toolchain. The tools cannot be installed non-interactively, so the job
+      # verifies they are present and recent instead of assuming it.
+      - name: Verify the system clang (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode-select -p
+          sw_vers
+          clang --version
+          cc --version
 
       # Windows links through MinGW-w64 (`gcc`), which the runner does not ship.
       - uses: msys2/setup-msys2@v2
@@ -29,33 +72,74 @@ jobs:
           install: mingw-w64-ucrt-x86_64-gcc
           path-type: inherit
 
+      - name: Install clang (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          choco install llvm --yes --no-progress
+          echo 'C:\Program Files\LLVM\bin' >> "$GITHUB_PATH"
+
       # Build with the GNU toolchain, the one `kode` links through. An MSVC
       # toolchain would embed a runtime MinGW cannot link (`__chkstk`,
       # `__CxxFrameHandler3`).
-      - name: Use MinGW-w64 as the Rust toolchain on Windows
+      - name: Use MinGW-w64 as the Rust toolchain (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
-          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          set -euo pipefail
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal --component clippy
           rustup default stable-x86_64-pc-windows-gnu
+
+      - name: Report the toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -m
+          rustc --version
+          cargo --version
+          clang --version
+          cc --version
+
+      - name: Assert the runner architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          case "${{ matrix.arch }}" in
+            x86_64)  test "$arch" = "x86_64" ;;
+            aarch64) test "$arch" = "aarch64" || test "$arch" = "arm64" ;;
+            arm64)   test "$arch" = "arm64" ;;
+            *) echo "unknown arch ${{ matrix.arch }}"; exit 1 ;;
+          esac
 
       - name: Build
         run: cargo build --workspace
+
+      - name: Lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test (with leak checks)
         run: cargo test --workspace
         env:
           KODE_LEAK_CHECK: "1"
 
-      - name: Conformance smoke test
-        shell: bash
-        run: |
-          ./target/debug/kode check tests/run-pass/finally.kode
-          ./target/debug/kode run tests/run-pass/bool_lists.kode > /tmp/out.txt
-          diff tests/run-pass/bool_lists.out /tmp/out.txt
+      # run-pass output and compile-fail error codes are compared by this test.
+      - name: Conformance (run-pass and compile-fail)
+        run: cargo test -p kode-cli --test llvm_conformance
 
       - name: Formatting is a no-op
         shell: bash
         run: ./target/debug/kode fmt tests/run-pass examples --check
 
-      - name: Lints
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Release build
+        run: cargo build --release -p kode-cli
+
+      - name: Hello world from the release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(mktemp -d)"
+          ./target/release/kode build examples/hello.kode -o "$out/hello" --release
+          test "$("$out/hello")" = "hello world"
+          ./target/release/kode doctor
