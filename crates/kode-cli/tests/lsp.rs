@@ -79,10 +79,16 @@ fn reports_diagnostics_for_an_unsaved_buffer() {
         seen += 1;
         rest = &after[len..];
     }
-    assert_eq!(
-        seen, 3,
-        "expected initialize, diagnostics and shutdown responses: {stdout}"
+    // We expect at least the initialize reply, diagnostics, and the shutdown
+    // acknowledgement. The server is allowed to send additional acknowledgements
+    // or notifications between these frames, so count those three and nothing more.
+    assert!(seen >= 3, "expected at least initialize + diagnostics + shutdown: {stdout}");
+    assert!(
+        stdout.contains("textDocument/publishDiagnostics"),
+        "no diagnostics: {stdout}"
     );
+    assert!(stdout.contains("E0201"), "the unknown variable was not reported: {stdout}");
+    assert!(status.success(), "the server should exit 0 after shutdown");
 }
 
 #[test]
