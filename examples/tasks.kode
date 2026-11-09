@@ -1,0 +1,144 @@
+// A task tracker that keeps its data on disk: add, list, finish, stats.
+//
+//   kode run examples/tasks.kode -- /tmp/tasks.json add "write the B9 report"
+//   kode run examples/tasks.kode -- /tmp/tasks.json list
+//
+// The store is a JSON array, so the file is readable and editable by hand. Every
+// command loads the whole file, changes it and writes it back: fine for the
+// hundreds of tasks a personal tracker holds, and it keeps the code honest about
+// where the data lives.
+
+class Task {
+    id: int
+    title: string
+    done: bool = false
+}
+
+fn load(path: string) -> [Task] {
+    // A missing store is a new tracker, not an error; a corrupt one is an error,
+    // because silently starting over would destroy the user's tasks.
+    text = read_file(path) catch e {
+        return []
+    }
+    doc = json_parse(text) catch e {
+        throw Error(message: "${path} is not valid JSON: ${e.message}", code: 2)
+    }
+    if doc.kind != JsonKind.List {
+        throw Error(message: "${path} must hold a JSON array", code: 2)
+    }
+    tasks: [Task] = []
+    for item in doc.as_list() {
+        tasks.add(Task(
+                id: item["id"].as_int(),
+                title: item["title"].as_string(),
+                done: item["done"].as_bool()
+        ))
+    }
+    return tasks
+}
+
+fn save(path: string, tasks: [Task]) {
+    rows: [Json] = []
+    for task in tasks {
+        rows.add(json_map({
+                    "id": json_int(task.id),
+                    "title": json_string(task.title),
+                    "done": json_bool(task.done)
+        }))
+    }
+    write_file(path, json_list(rows).encode() + "\n")
+}
+
+fn summary(tasks: [Task]) -> string {
+    open = 0
+    for task in tasks {
+        if not task.done {
+            open += 1
+        }
+    }
+    done = tasks.len() - open
+    return "${tasks.len()} tasks: ${open} open, ${done} done"
+}
+
+fn find(tasks: [Task], id: int) -> Task {
+    for task in tasks {
+        if task.id == id {
+            return task
+        }
+    }
+    throw Error(message: "no task #${id}", code: 3)
+}
+
+fn usage() {
+    print("usage: tasks <store.json> <command>")
+    print("  add <title>   list   done <id>   stats")
+}
+
+argv = args()
+if argv.len() < 2 {
+    usage()
+    exit(2)
+}
+
+store = argv[0]
+command = argv[1]
+
+try {
+    tasks = load(store)
+
+    if command == "add" {
+        if argv.len() < 3 {
+            print("add needs a title")
+            exit(2)
+        }
+        title = argv[2..].join(" ")
+        next_id = 1
+        for task in tasks {
+            if task.id >= next_id {
+                next_id = task.id + 1
+            }
+        }
+        task = Task(id: next_id, title: title)
+        tasks.add(task)
+        save(store, tasks)
+        print("added #${task.id}: ${task.title}")
+    } else if command == "list" {
+        for task in tasks {
+            mark = " "
+            if task.done {
+                mark = "x"
+            }
+            print("${task.id} [${mark}] ${task.title}")
+        }
+        print(summary(tasks))
+    } else if command == "done" {
+        if argv.len() < 3 {
+            print("done needs a task id")
+            exit(2)
+        }
+        id = argv[2].to_int() catch e {
+            print("not a task id: ${argv[2]}")
+            exit(2)
+            0
+        }
+        task = find(tasks, id)
+        if task.done {
+            print("already done: #${task.id} ${task.title}")
+        } else {
+            task.done = true
+            save(store, tasks)
+            print("done #${task.id}: ${task.title}")
+        }
+    } else if command == "stats" {
+        print(summary(tasks))
+    } else {
+        print("unknown command: ${command}")
+        usage()
+        exit(2)
+    }
+} catch e {
+    // Data errors are the user's to fix: say what is wrong and exit nonzero
+    // instead of printing a stack of nothing.
+    print("tasks: ${e.message}")
+    exit(1)
+}

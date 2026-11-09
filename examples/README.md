@@ -13,10 +13,17 @@ the compiler built (`cargo build --workspace`).
 | `wordcount.kode` | a command-line tool: `args()`, `read_file`, error handling with `exit` | `kode run examples/wordcount.kode -- README.md` |
 | `pipeline.kode` | tasks and channels: fan out to three workers, collect and sort the results | `kode run examples/pipeline.kode` |
 | `config.kode` | JSON config, an `env()` override, validation with error codes, `finally` | `kode run examples/config.kode` |
+| `tasks.kode` | a real CLI application: a JSON store on disk, `add`/`list`/`done`/`stats`, exit codes | `kode run examples/tasks.kode -- /tmp/tasks.json add "buy milk"` |
+| `ledger.kode` | double-entry bookkeeping from CSV: validation, a trial balance in cents, exits 1 when it does not balance | `kode run examples/ledger.kode -- examples/data/ledger.csv` |
+| `worker.kode` | a job queue: bounded workers, retries, per-job failure reporting, deterministic summary | `kode run examples/worker.kode` |
 | `api.kode` | a JSON HTTP API with `Router`, `Request` and `Response` | `kode run examples/api.kode -- 8080` |
 | `db/postgres.kode` | a PostgreSQL client: `pg.connect`, parameters, typed rows, NULLs, transactions, a caught error | needs a server, see the file's header |
 
 `api.kode` keeps running until you stop it (`Ctrl+C`). The others print and exit.
+`tasks.kode`, `ledger.kode` and `worker.kode` are applications rather than
+snippets, and the conformance suite runs them on every platform: it drives the
+task tracker through add/list/done against a temporary store and compares the
+ledger and worker output line for line.
 
 `db/postgres.kode` expects PostgreSQL on `127.0.0.1:55432` (the benchmark suite's
 container: `docker compose -f benchmarks/database/docker-compose.yml up -d postgres`).

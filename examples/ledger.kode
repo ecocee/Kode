@@ -1,0 +1,121 @@
+// Double-entry bookkeeping from a CSV file: a trial balance, in cents.
+//
+//   kode run examples/ledger.kode -- examples/data/ledger.csv
+//
+// Each line is `date,account,debit,credit` with exactly one side set. The tool
+// rejects a line that has both sides or neither, then checks the one rule that
+// matters: the debits and the credits must add up. It exits 1 when they do not,
+// so a script can gate on it.
+
+fn money(cents: int) -> string {
+    sign = ""
+    n = cents
+    if n < 0 {
+        sign = "-"
+        n = -n
+    }
+    frac = n % 100
+    zero = ""
+    if frac < 10 {
+        zero = "0"
+    }
+    return "${sign}${n / 100}.${zero}${frac}"
+}
+
+fn row(label: string, cents: int) -> string {
+    line = "  ${label}"
+    // Right-align the amount in a fixed column. Pads are computed, never
+    // hard-coded, so a long account name still lines up instead of crashing.
+    pad = 18 - line.len()
+    if pad > 0 {
+        line += " ".repeat(pad)
+    } else {
+        line += " "
+    }
+    return line + money(cents)
+}
+
+if args().len() == 0 {
+    print("usage: kode run examples/ledger.kode -- <ledger.csv>")
+    exit(2)
+}
+
+path = args()[0]
+text = read_file(path) catch e {
+    print("cannot read ${path}: ${e.message}")
+    exit(1)
+    ""
+}
+
+nets: {string: int} = {}
+debits = 0
+credits = 0
+entries = 0
+flagged = 0
+skipped = 0
+line_no = 0
+
+for raw in text.lines() {
+    line_no += 1
+    line = raw.trim()
+    if line.is_empty() or line.starts_with("#") {
+        continue
+    }
+    parts = line.split(",")
+    if parts.len() != 4 {
+        print("line ${line_no}: expected 4 columns, skipped")
+        skipped += 1
+        continue
+    }
+    account = parts[1].trim()
+    debit = parts[2].trim().to_int() catch e {
+        print("line ${line_no}: debit is not a number, skipped")
+        skipped += 1
+        continue
+        0
+    }
+    credit = parts[3].trim().to_int() catch e {
+        print("line ${line_no}: credit is not a number, skipped")
+        skipped += 1
+        continue
+        0
+    }
+    if account.is_empty() or debit < 0 or credit < 0 {
+        print("line ${line_no}: bad account or negative amount, skipped")
+        skipped += 1
+        continue
+    }
+    // Exactly one side. Both or neither means the entry does not balance, which
+    // is a bookkeeping error rather than a parsing one: count it and go on.
+    if (debit == 0) == (credit == 0) {
+        print("line ${line_no}: needs exactly one of debit and credit")
+        flagged += 1
+        continue
+    }
+    if not nets.has(account) {
+        nets[account] = 0
+    }
+    nets[account] = nets[account] + debit - credit
+    debits += debit
+    credits += credit
+    entries += 1
+}
+
+accounts = nets.keys()
+accounts.sort()
+
+print("entries: ${entries}")
+print("flagged: ${flagged}")
+print("skipped: ${skipped}")
+print("trial balance:")
+for account in accounts {
+    print(row(account, nets[account]))
+}
+
+print("debits ${money(debits)} / credits ${money(credits)}")
+if debits == credits {
+    print("balanced")
+} else {
+    print("out of balance by ${money(debits - credits)}")
+    exit(1)
+}

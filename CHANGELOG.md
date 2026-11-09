@@ -28,6 +28,11 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Three application examples.** `examples/tasks.kode` is a task tracker with a
+  JSON store on disk (add/list/done/stats, real exit codes),
+  `examples/ledger.kode` turns a CSV ledger into a checked trial balance, and
+  `examples/worker.kode` runs a job queue with bounded workers and retries. All
+  three are compared line by line by the conformance suite.
 - **CI on four platforms.** `.github/workflows/ci.yml` builds, lints, tests,
   format-checks, release-builds and runs a hello world on native Linux x86-64,
   Linux arm64, macOS arm64 and Windows x86-64, installing clang and the linker
