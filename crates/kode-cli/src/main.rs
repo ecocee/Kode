@@ -29,6 +29,15 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The runtime library, built by `build.rs` and embedded in this binary.
 static RUNTIME: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libkode_rt.a"));
 
+/// Stack for the compiler thread.
+///
+/// Parsing, checking and lowering recurse over nested source, and the guard that
+/// reports E0118 is reached deep enough that the 1 MB main thread Windows gives a
+/// process is not enough: there, a 400-deep `if` chain crashed the compiler
+/// instead of producing the diagnostic. Running every command on one predictable
+/// stack means a program either compiles or gets the same error code everywhere.
+const COMPILER_STACK: usize = 64 * 1024 * 1024;
+
 fn main() -> ExitCode {
     let opts = match args::parse() {
         Ok(o) => o,
@@ -37,6 +46,20 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    match std::thread::Builder::new()
+        .name("kode".into())
+        .stack_size(COMPILER_STACK)
+        .spawn(move || dispatch(opts))
+    {
+        Ok(handle) => handle.join().unwrap_or_else(|_| ExitCode::from(101)),
+        Err(e) => {
+            eprintln!("kode: cannot start the compiler thread: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn dispatch(opts: Options) -> ExitCode {
     match opts.command.as_str() {
         "" | "help" => {
             print!("{HELP}");

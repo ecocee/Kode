@@ -1,0 +1,86 @@
+// A small job runner: two workers, one queue, bounded retries.
+//
+//   kode run examples/worker.kode
+//
+// The pattern is the one a background worker needs in production: the queue is
+// the only shared state, each job is retried a fixed number of times, a job that
+// keeps failing is reported instead of killing the worker, and the summary is
+// sorted by job id so the output does not depend on which worker ran what.
+
+const MAX_ATTEMPTS = 3
+const WORKERS = 2
+
+class Job {
+    id: int
+    name: string
+    // Scripted flakiness: the first `failures` attempts are rejected.
+    failures: int
+}
+
+fn run(job: Job, attempt: int) {
+    if attempt <= job.failures {
+        throw Error(message: "attempt ${attempt} was rejected", code: 503)
+    }
+}
+
+fn worker(jobs: Channel<Job>, results: Channel<string>, count: int) {
+    for i in 0..count {
+        job = recv(jobs)
+        ok_at = 0
+        last = ""
+        attempt = 1
+        while attempt <= MAX_ATTEMPTS {
+            try {
+                run(job, attempt)
+                ok_at = attempt
+                break
+            } catch e {
+                last = e.message
+            }
+            attempt += 1
+        }
+
+        if ok_at > 0 {
+            send(results, "#${job.id} ${job.name}: ok on attempt ${ok_at}")
+        } else {
+            send(results, "#${job.id} ${job.name}: gave up after ${MAX_ATTEMPTS} attempts (${last})")
+        }
+    }
+}
+
+jobs: Channel<Job> = channel()
+results: Channel<string> = channel()
+
+all = [
+    Job(id: 1, name: "build", failures: 0),
+    Job(id: 2, name: "test", failures: 1),
+    Job(id: 3, name: "package", failures: 2),
+    Job(id: 4, name: "deploy", failures: 9)
+]
+
+w1 = spawn worker(jobs, results, all.len() / WORKERS)
+w2 = spawn worker(jobs, results, all.len() / WORKERS)
+
+for job in all {
+    send(jobs, job)
+}
+
+lines: [string] = []
+for i in 0..all.len() {
+    lines.add(recv(results))
+}
+lines.sort()
+
+await w1
+await w2
+close(jobs)
+close(results)
+
+finished = 0
+for line in lines {
+    print(line)
+    if line.contains(": ok on attempt") {
+        finished += 1
+    }
+}
+print("${all.len()} jobs: ${finished} finished, ${all.len() - finished} gave up")

@@ -175,25 +175,113 @@ fn examples_run() {
         eprintln!("skipping examples: no clang on PATH");
         return;
     }
-    let examples = [
-        "bank",
-        "config",
-        "fib",
-        "hello",
-        "pipeline",
-        "report",
-        "tour",
-        "wordcount",
+    // Examples that are complete enough to have a checked-in expectation.
+    let expected: &[(&str, &[&str], Option<&str>)] = &[
+        (
+            "ledger",
+            &["examples/data/ledger.csv"],
+            Some(
+                "entries: 8
+flagged: 0
+skipped: 0
+trial balance:
+  cash            1380.00
+  hosting         270.00
+  sales           -1650.00
+debits 1920.00 / credits 1920.00
+balanced",
+            ),
+        ),
+        (
+            "worker",
+            &[],
+            Some(
+                "#1 build: ok on attempt 1
+#2 test: ok on attempt 2
+#3 package: ok on attempt 3
+#4 deploy: gave up after 3 attempts (attempt 3 was rejected)
+4 jobs: 3 finished, 1 gave up",
+            ),
+        ),
     ];
-    for name in examples {
-        // wordcount reads the file named in its first argument.
-        let args: Vec<String> = if name == "wordcount" {
-            vec!["README.md".to_string()]
-        } else {
-            Vec::new()
-        };
-        compare(&root().join(format!("examples/{name}.kode")), None, &args);
+
+    let plain = ["bank", "config", "fib", "hello", "pipeline", "report", "tour"];
+    for name in plain {
+        compare(&root().join(format!("examples/{name}.kode")), None, &[]);
     }
+
+    for (name, args, want) in expected {
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        compare(&root().join(format!("examples/{name}.kode")), *want, &args);
+    }
+
+    // wordcount reads the file named in its first argument.
+    compare(
+        &root().join("examples/wordcount.kode"),
+        None,
+        &["README.md".to_string()],
+    );
+}
+
+/// The task tracker writes a JSON store, reads it back, finishes a task and
+/// rejects an unknown id with a nonzero exit: the whole application, not a toy.
+#[test]
+fn example_tasks_persists_and_reports() {
+    if !have_clang() {
+        eprintln!("skipping tasks: no clang on PATH");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("kode-cli-tasks-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let store = dir.join("tasks.json").display().to_string();
+    let exe = dir.join("tasks");
+    build(&root().join("examples/tasks.kode"), &exe, &[], "tasks");
+
+    let run = |args: &[&str]| {
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        run_with_timeout(&exe, &args, &root())
+    };
+
+    let mut out = String::new();
+    for args in [
+        vec![store.as_str(), "add", "write the B9 report"],
+        vec![store.as_str(), "add", "ship the release notes"],
+        vec![store.as_str(), "list"],
+        vec![store.as_str(), "done", "1"],
+        vec![store.as_str(), "list"],
+    ] {
+        let r = run(&args);
+        assert_eq!(r.code, Some(0), "{args:?} failed: {}", r.stderr);
+        assert!(r.stderr.trim().is_empty(), "{args:?}: {}", r.stderr);
+        out.push_str(&r.stdout);
+    }
+    assert_eq!(
+        out.trim_end(),
+        "added #1: write the B9 report
+added #2: ship the release notes
+1 [ ] write the B9 report
+2 [ ] ship the release notes
+2 tasks: 2 open, 0 done
+done #1: write the B9 report
+1 [x] write the B9 report
+2 [ ] ship the release notes
+2 tasks: 1 open, 1 done"
+    );
+
+    // The store is a plain JSON array, not an internal format: a person or
+    // another tool can read it, and a second run of the program did.
+    let stored = std::fs::read_to_string(&store).expect("store");
+    assert!(stored.trim_start().starts_with('['), "got: {stored}");
+    assert!(stored.contains("\"write the B9 report\""), "got: {stored}");
+    assert!(stored.contains("\"done\":true"), "got: {stored}");
+
+    // An unknown id is an error, not a panic or a silent no-op.
+    let r = run(&[store.as_str(), "done", "99"]);
+    assert_eq!(r.code, Some(1), "got: {}", r.stdout);
+    assert!(r.stdout.contains("no task #99"), "got: {}", r.stdout);
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
