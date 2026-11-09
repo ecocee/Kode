@@ -121,6 +121,28 @@ fn compare(src: &Path, expected: Option<&str>, args: &[String]) {
     }
 }
 
+/// A test that only runs on one family of systems says so on its first line:
+/// `// skip-os: windows` or `// skip-os: unix`. This is the same marker the older
+/// conformance harness uses, and it matters here because these programs are built
+/// and run through the real compiler on every platform.
+fn skipped_on_this_os(path: &Path) -> bool {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Some(os) = source
+        .lines()
+        .next()
+        .and_then(|l| l.strip_prefix("// skip-os: "))
+    else {
+        return false;
+    };
+    match os.trim() {
+        "windows" => cfg!(windows),
+        "unix" => !cfg!(windows),
+        _ => false,
+    }
+}
+
 fn run_pass() -> Vec<PathBuf> {
     let dir = root().join("tests/run-pass");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -128,6 +150,7 @@ fn run_pass() -> Vec<PathBuf> {
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|x| x == "kode"))
         .filter(|p| p.with_extension("out").is_file())
+        .filter(|p| !skipped_on_this_os(p))
         .collect();
     files.sort();
     files
