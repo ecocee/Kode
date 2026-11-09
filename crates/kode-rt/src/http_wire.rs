@@ -3,10 +3,15 @@
 //! Limits, strict request parsing and response writing live here so both servers
 //! behave the same. Unsupported features (chunked request bodies, `Expect`) are
 //! rejected explicitly instead of being half-handled.
+//!
+//! Plaintext uses the epoll event loop on Linux (one fd per connection). TLS uses
+//! a thread per connection instead: a rustls session is a state machine, so it
+//! cannot share the fd-level readiness loop without a per-connection rewrite; see
+//! ADR 0034.
 
 #[cfg(test)]
 use std::collections::VecDeque;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -14,6 +19,8 @@ use std::sync::Arc;
 use std::sync::{Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
+
+use rustls::{ServerConfig, ServerConnection, StreamOwned};
 
 use crate::error::fatal;
 
@@ -669,6 +676,128 @@ where
             || !keep
         {
             return;
+        }
+    }
+}
+
+/// One framed request: either a complete request and how many bytes it used, a
+/// rejection to answer with, or a closed stream.
+enum Framed {
+    Ready(Request, usize),
+    Reject(u16, &'static str),
+    Closed,
+}
+
+/// Parse a complete request out of `buf`, reading more bytes until it is whole.
+///
+/// `read_request` needs a `BufRead`; a cursor over the buffer reports "closed"
+/// when the request is merely incomplete, which is why the read loop retries.
+fn next_request<S: Read>(stream: &mut S, buf: &mut Vec<u8>) -> Framed {
+    loop {
+        if !buf.is_empty() {
+            let mut cursor = Cursor::new(&buf[..]);
+            match read_request(&mut cursor) {
+                Ok(req) => return Framed::Ready(req, cursor.position() as usize),
+                Err(ReadError::Reject(code, msg)) => return Framed::Reject(code, msg),
+                Err(ReadError::Closed) => {}
+            }
+            if buf.len() > MAX_HEADER_BYTES + MAX_BODY {
+                return Framed::Reject(413, "the request is too large");
+            }
+        }
+        let mut chunk = [0u8; 8 * 1024];
+        match stream.read(&mut chunk) {
+            Ok(0) => return Framed::Closed,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(_) => return Framed::Closed,
+        }
+    }
+}
+
+/// Serve HTTP on an established blocking stream. Read and write share one
+/// object, so requests are framed into a private buffer first.
+pub(crate) fn serve_stream<S, F>(mut stream: S, mut dispatch: F)
+where
+    S: Read + Write,
+    F: FnMut(&Request) -> (i64, Vec<u8>, Vec<u8>),
+{
+    let mut buf = Vec::new();
+    for served in 1..=MAX_REQUESTS_PER_CONNECTION {
+        match next_request(&mut stream, &mut buf) {
+            Framed::Ready(req, used) => {
+                buf.drain(..used);
+                let keep = req.keep_alive && served < MAX_REQUESTS_PER_CONNECTION;
+                let (status, body, ctype) = dispatch(&req);
+                if write_response(&mut stream, status, &ctype, &body, keep, req.method == "HEAD")
+                    .is_err()
+                    || !keep
+                {
+                    return;
+                }
+            }
+            Framed::Reject(code, msg) => {
+                let _ = write_response(
+                    &mut stream,
+                    i64::from(code),
+                    b"text/plain; charset=utf-8",
+                    msg.as_bytes(),
+                    false,
+                    false,
+                );
+                return;
+            }
+            Framed::Closed => return,
+        }
+    }
+}
+
+/// Accept TLS connections forever, one thread per connection.
+///
+/// The handshake runs on the connection's own thread, with a timeout, before any
+/// HTTP bytes are parsed. Slow handshakes therefore cannot stall other clients.
+pub(crate) fn tls_event_loop<F>(listener: TcpListener, config: Arc<ServerConfig>, dispatch: F)
+where
+    F: Fn(&Request) -> (i64, Vec<u8>, Vec<u8>) + Send + Sync + 'static,
+{
+    const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+    raise_backlog(&listener);
+    let active = Arc::new(AtomicUsize::new(0));
+    let dispatch = Arc::new(dispatch);
+
+    loop {
+        match listener.accept() {
+            Ok((socket, _)) => {
+                if active.fetch_add(1, Ordering::AcqRel) >= MAX_ACTIVE_CONNECTIONS {
+                    active.fetch_sub(1, Ordering::AcqRel);
+                    let _ = socket.shutdown(std::net::Shutdown::Both);
+                    continue;
+                }
+                let config = Arc::clone(&config);
+                let d = Arc::clone(&dispatch);
+                let guard = ActiveGuard(Arc::clone(&active));
+                let spawned = thread::Builder::new().spawn(move || {
+                    let _guard = guard;
+                    let _ = socket.set_nodelay(true);
+                    let _ = socket.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
+                    let _ = socket.set_write_timeout(Some(HANDSHAKE_TIMEOUT));
+                    let Ok(session) = ServerConnection::new(config) else {
+                        return;
+                    };
+                    let mut tls = StreamOwned::new(session, socket);
+                    while tls.conn.is_handshaking() {
+                        if tls.conn.complete_io(&mut tls.sock).is_err() {
+                            return;
+                        }
+                    }
+                    let _ = tls.sock.set_read_timeout(Some(IDLE_TIMEOUT));
+                    let _ = tls.sock.set_write_timeout(Some(WRITE_TIMEOUT));
+                    serve_stream(tls, |req| d(req));
+                });
+                if spawned.is_err() {
+                    thread::sleep(Duration::from_millis(50));
+                }
+            }
+            Err(_) => thread::sleep(Duration::from_millis(50)),
         }
     }
 }
@@ -1563,6 +1692,100 @@ mod epoll_tests {
             .collect();
         for h in handles {
             h.join().expect("client thread");
+        }
+    }
+
+}
+
+#[cfg(test)]
+mod tls_server_tests {
+    use super::*;
+
+    const CERT: &[u8] = include_bytes!("../tests/fixtures/localhost.der");
+    const KEY: &[u8] = include_bytes!("../tests/fixtures/localhost-key.der");
+
+    fn tls_server_config() -> Arc<ServerConfig> {
+        Arc::new(
+            ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![rustls::pki_types::CertificateDer::from(CERT.to_vec())],
+                    rustls::pki_types::PrivateKeyDer::Pkcs8(
+                        rustls::pki_types::PrivatePkcs8KeyDer::from(KEY.to_vec()),
+                    ),
+                )
+                .expect("the fixture certificate"),
+        )
+    }
+
+    fn read_tls_response<R: Read>(stream: &mut R) -> (u16, String) {
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).expect("response head");
+            head.push(byte[0]);
+        }
+        let text = String::from_utf8_lossy(&head).to_string();
+        let status: u16 = text
+            .split_whitespace()
+            .nth(1)
+            .expect("status")
+            .parse()
+            .expect("status code");
+        let len: usize = text
+            .lines()
+            .find_map(|line| line.strip_prefix("Content-Length: "))
+            .expect("Content-Length")
+            .trim()
+            .parse()
+            .expect("length");
+        let mut body = vec![0u8; len];
+        stream.read_exact(&mut body).expect("response body");
+        (status, String::from_utf8_lossy(&body).to_string())
+    }
+
+    /// The TLS path frames requests itself; keep-alive must work like plaintext.
+    #[test]
+    fn tls_serves_two_requests_on_one_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            let (socket, _) = listener.accept().expect("accept");
+            let session = ServerConnection::new(tls_server_config()).expect("session");
+            let mut tls = StreamOwned::new(session, socket);
+            while tls.conn.is_handshaking() {
+                if tls.conn.complete_io(&mut tls.sock).is_err() {
+                    return;
+                }
+            }
+            let _ = tls.sock.set_read_timeout(Some(Duration::from_secs(5)));
+            serve_stream(tls, |req| {
+                (
+                    200,
+                    format!("tls {}", req.target).into_bytes(),
+                    b"text/plain".to_vec(),
+                )
+            });
+        });
+
+        let mut roots = rustls::RootCertStore::empty();
+        roots
+            .add(rustls::pki_types::CertificateDer::from(CERT.to_vec()))
+            .expect("the fixture root");
+        let config = crate::tls::client_config_with_roots(roots);
+        let socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        let _ = socket.set_read_timeout(Some(Duration::from_secs(5)));
+        let mut tls = crate::tls::Transport::plain(socket)
+            .upgrade_with("localhost", config)
+            .expect("handshake");
+
+        for target in ["/one", "/two"] {
+            let request = format!("GET {target} HTTP/1.1\r\nHost: localhost\r\n\r\n");
+            tls.write_all(request.as_bytes()).expect("write");
+            tls.flush().expect("flush");
+            let (status, body) = read_tls_response(&mut tls);
+            assert_eq!(status, 200, "request {target}");
+            assert_eq!(body, format!("tls {target}"), "request {target}");
         }
     }
 }

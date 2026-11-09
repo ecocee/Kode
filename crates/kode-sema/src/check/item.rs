@@ -488,6 +488,7 @@ impl Checker {
                     if builtins::lookup(&f.name).is_some()
                         || crate::std_fns::find_free(&f.name).is_some()
                         || f.name == "serve"
+                        || f.name == "serve_tls"
                     {
                         self.errors.push(
                             Diagnostic::error(
@@ -571,6 +572,7 @@ impl Checker {
         if builtins::lookup(&f.name).is_some()
             || crate::std_fns::find_free(&f.name).is_some()
             || f.name == "serve"
+            || f.name == "serve_tls"
         {
             self.errors.push(
                 Diagnostic::error(

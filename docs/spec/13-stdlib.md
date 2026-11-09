@@ -116,6 +116,25 @@ with `*name`; captured values are in `req.params`. `Request` has `method`, `path
 `query`, `headers` (names lowercased) and `body`, plus `req.json()`, which parses the body and
 raises a catchable error when it is not JSON.
 
+### TLS
+
+```kode
+serve_tls(8443, "server.der", "server-key.der", routes)
+```
+
+`serve_tls(port, certificate, private_key, handler)` is `serve` over HTTPS; the last argument is
+a handler function or a `Router`, exactly as above. Both files are **DER, not PEM**:
+
+```
+openssl x509 -in server.crt -outform der -out server.der
+openssl pkcs8 -topk8 -nocrypt -in server.key -outform der -out server-key.der
+```
+
+The server uses rustls, like the client. A TLS server runs one thread per connection (the
+handshake runs there, with a 5-second timeout) instead of the epoll loop that plaintext `serve`
+uses, so memory grows with open connections. Certificates are read once at startup, so rotating
+one means restarting the server. See ADR 0034.
+
 `Response` has `status`, `body` and `content_type`. Build one with `Response.json(value)`,
 `Response.text(text)`, `response(status, body, content_type)` or
 `Response(status: ..., body: ..., content_type: ...)`; an empty content type is inferred from
@@ -166,10 +185,10 @@ r = http_request("DELETE", "http://localhost:8080/users/1", {}, "")
 `HttpResponse` has `status: int`, `body: string` and `headers: {string: string}` (names lowercased).
 Responses with `Content-Length` or chunked transfer encoding are supported. The client sends
 `Connection: close`, waits up to 30 seconds, limits a body to 64 MiB, and does not follow redirects.
-**Only plain `http://` is supported**: there is no TLS library in the runtime yet, so `https://`
-raises a clear error instead of sending an unencrypted request.
+`https://` is supported: the certificate is verified against the webpki root store and the host
+name, and a failed handshake raises an error naming the host.
 
-Not yet: TLS, redirects.
+Not yet: redirects, custom CAs and client certificates.
 
 ## PostgreSQL
 

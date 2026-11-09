@@ -317,6 +317,28 @@ fn dispatch(
     (status, body, ctype)
 }
 
+/// Run a router with TLS until the program is stopped.
+///
+/// # Safety
+/// `cert` and `key` must be string paths to DER files, and `router` must be a
+/// valid `Router` object.
+#[no_mangle]
+pub unsafe extern "C" fn kode_http_serve_tls_router(
+    port: i64,
+    cert: *mut Header,
+    key: *mut Header,
+    router: *mut Header,
+) {
+    let cert = crate::http::tls_path(cert, "certificate");
+    let key = crate::http::tls_path(key, "private key");
+    let id = *((router as *const i64).add(3));
+    THREADED.store(true, Ordering::SeqCst);
+    let (listener, config) = crate::http::tls_listener(port, &cert, &key);
+    crate::http_wire::tls_event_loop(listener, config, move |req| {
+        dispatch(id, &req.method, &req.target, &req.headers, &req.body)
+    });
+}
+
 /// Run a router until the program is stopped.
 ///
 /// # Safety

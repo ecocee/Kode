@@ -1,0 +1,6 @@
+fn wrong(port: int) -> string {
+    return "not a handler"
+}
+
+// The last argument must be a router or `fn(method: string, path: string, body: string) -> string`.
+serve_tls(8443, "cert.der", "key.der", wrong)

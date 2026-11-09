@@ -651,6 +651,9 @@ impl<'a> Lowerer<'a> {
         if callee == "serve" {
             return self.serve(args);
         }
+        if callee == "serve_tls" {
+            return self.serve_tls(args);
+        }
         if callee == "Router" {
             return self.router_new();
         }
@@ -839,6 +842,42 @@ impl<'a> Lowerer<'a> {
             dst: None,
             callee: Callee::Std(sig),
             args: vec![port.op, Operand::FuncAddr(idx)],
+        });
+        V::unit()
+    }
+
+    /// `serve_tls(port, cert, key, handler)`: the certificate and key are DER files.
+    fn serve_tls(&mut self, args: &[Arg]) -> V {
+        let port = self.expr(&args[0].value);
+        let cert = self.expr(&args[1].value);
+        let key = self.expr(&args[2].value);
+        if matches!(self.expr_type(&args[3].value), Type::Class(n) if n == "Router") {
+            let router = self.expr(&args[3].value);
+            let sig = self.std_sig(
+                "kode_http_serve_tls_router",
+                vec![Ty::Int, Ty::Ref, Ty::Ref, Ty::Ref],
+                Ty::Unit,
+            );
+            self.emit(Inst::Call {
+                dst: None,
+                callee: Callee::Std(sig),
+                args: vec![port.op, cert.op, key.op, router.op],
+            });
+            return V::unit();
+        }
+        let ExprKind::Ident(name) = &args[3].value.kind else {
+            unreachable!("checked")
+        };
+        let idx = self.checked.fn_index[name];
+        let sig = self.std_sig(
+            "kode_http_serve_tls",
+            vec![Ty::Int, Ty::Ref, Ty::Ref, Ty::Int],
+            Ty::Unit,
+        );
+        self.emit(Inst::Call {
+            dst: None,
+            callee: Callee::Std(sig),
+            args: vec![port.op, cert.op, key.op, Operand::FuncAddr(idx)],
         });
         V::unit()
     }
