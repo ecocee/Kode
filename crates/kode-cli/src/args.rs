@@ -25,6 +25,7 @@ OPTIONS:
     --strict          treat warnings as errors
     --release         strip symbols from the built binary
     --debug           do not optimize the generated code (faster to compile)
+    --backend=llvm    accepted for compatibility; LLVM is the only backend
     --check           with `fmt`: do not write, exit 1 if a file would change
                       with `install`: do not write kode.lock, exit 1 if it is stale
     --path <folder>   with `add`: the dependency's folder
@@ -74,6 +75,18 @@ pub fn parse() -> Result<Options, String> {
             "--stdio" => {}
             "-o" => opts.output = Some(args.next().ok_or("`-o` needs a file name")?),
             "--path" => opts.path = Some(args.next().ok_or("`--path` needs a folder")?),
+            other if other.starts_with("--backend=") => {
+                let name = &other["--backend=".len()..];
+                match name {
+                    "llvm" => {}
+                    "cranelift" => {
+                        return Err(
+                            "the Cranelift backend was removed; LLVM is the only backend".into()
+                        )
+                    }
+                    _ => return Err(format!("unknown backend `{name}`; LLVM is the only backend")),
+                }
+            }
             other if other.starts_with('-') => return Err(format!("unknown option `{other}`")),
             other => {
                 if opts.command.is_empty() {

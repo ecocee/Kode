@@ -1055,10 +1055,38 @@ impl Checker {
         }
         let pt = self.expr(&args[0].value);
         self.coerce(&args[0].value, pt, &Type::Int, "the port", "E0208");
-        let is_fn =
-            matches!(&args[1].value.kind, ExprKind::Ident(n) if self.fn_index.contains_key(n));
+        self.serve_handler(&args[1].value, "serve")
+    }
+
+    /// `serve_tls(port, cert, key, handler)`; the certificate and the private key
+    /// are DER files.
+    fn serve_tls_call(&mut self, args: &[Arg], span: Span) -> Option<Type> {
+        if args.len() != 4 {
+            self.errors.push(Diagnostic::error(
+                "E0207",
+                format!("`serve_tls` takes 4 arguments, found {}", args.len()),
+                span,
+            ));
+            return Some(Type::Unit);
+        }
+        let pt = self.expr(&args[0].value);
+        self.coerce(&args[0].value, pt, &Type::Int, "the port", "E0208");
+        for (arg, what) in [
+            (&args[1].value, "the certificate path"),
+            (&args[2].value, "the private key path"),
+        ] {
+            let ty = self.expr(arg);
+            self.coerce(arg, ty, &Type::Str, what, "E0208");
+        }
+        self.serve_handler(&args[3].value, "serve_tls")
+    }
+
+    /// The handler of `serve`/`serve_tls`: a router object or a function
+    /// `(method, path, body) -> string`.
+    fn serve_handler(&mut self, arg: &Expr, call: &str) -> Option<Type> {
+        let is_fn = matches!(&arg.kind, ExprKind::Ident(n) if self.fn_index.contains_key(n));
         if is_fn {
-            let ExprKind::Ident(n) = &args[1].value.kind else {
+            let ExprKind::Ident(n) = &arg.kind else {
                 unreachable!()
             };
             let ok = self.fn_index.get(n).map(|&i| {
@@ -1069,16 +1097,16 @@ impl Checker {
             });
             if ok != Some(true) {
                 self.errors.push(
-                    Diagnostic::error("E0232", "the handler must be the name of a function `fn name(method: string, path: string, body: string) -> string`", args[1].value.span)
+                    Diagnostic::error("E0232", format!("the `{call}` handler must be the name of a function `fn name(method: string, path: string, body: string) -> string`"), arg.span)
                         .with_help("it receives the HTTP method, the path and the body, and returns the response text"),
                 );
             }
             return Some(Type::Unit);
         }
-        let ht = self.expr(&args[1].value);
+        let ht = self.expr(arg);
         if !matches!(ht, Some(Type::Class(ref n)) if n == "Router") {
             self.errors.push(
-                Diagnostic::error("E0232", "`serve` needs a `Router` or a handler function", args[1].value.span)
+                Diagnostic::error("E0232", format!("`{call}` needs a `Router` or a handler function"), arg.span)
                     .with_help("build one with `routes = Router()` and `routes.get(path, handler)`, or pass `fn name(method: string, path: string, body: string) -> string`"),
             );
         }
@@ -1633,6 +1661,9 @@ impl Checker {
     ) -> Option<Type> {
         if callee == "serve" {
             return self.serve_call(args, span);
+        }
+        if callee == "serve_tls" {
+            return self.serve_tls_call(args, span);
         }
         let mut tys: Vec<Option<Type>> = Vec::new();
         for a in args {

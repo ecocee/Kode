@@ -1,13 +1,17 @@
 //! A small HTTP/1.1 client for `http_get`, `http_post` and `http_request`.
 //!
-//! Plain `http://` only: the runtime has no TLS library yet, so `https://` fails
-//! with a clear message instead of sending an unencrypted request. Responses are
-//! read with `Content-Length`, chunked transfer encoding, or up to end of stream.
+//! `http://` and `https://` both work; TLS goes through `rustls` and is verified
+//! against the webpki roots and the host name. Responses are read with
+//! `Content-Length`, chunked transfer encoding, or up to end of stream.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::Arc;
 use std::time::Duration;
 
+use rustls::ClientConfig;
+
+use crate::tls::{self, Transport};
 use crate::error::throw_msg;
 use crate::map::{entries, kode_map_new, kode_map_set};
 use crate::object::{kode_obj_new, kode_release, Header};
@@ -20,11 +24,13 @@ const MAX_HEADERS: usize = 200;
 const TIMEOUT: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+#[derive(Debug)]
 struct Target {
     host: String,
     port: u16,
     path: String,
     host_header: String,
+    tls: bool,
 }
 
 fn parse_port(text: &str) -> Result<u16, String> {
@@ -41,16 +47,18 @@ fn parse_url(url: &str) -> Result<Target, String> {
     if url.chars().any(|c| c.is_control() || c == ' ') {
         return Err("the URL contains a space or control character".into());
     }
-    let scheme_end = url.find("://").ok_or("the URL must start with http://")?;
+    let scheme_end = url
+        .find("://")
+        .ok_or("the URL must start with http:// or https://")?;
     let scheme = &url[..scheme_end];
-    if scheme.eq_ignore_ascii_case("https") {
-        return Err(
-            "https is not supported yet: the Kode HTTP client speaks plain http:// only".into(),
-        );
-    }
-    if !scheme.eq_ignore_ascii_case("http") {
+    let tls = if scheme.eq_ignore_ascii_case("https") {
+        true
+    } else if scheme.eq_ignore_ascii_case("http") {
+        false
+    } else {
         return Err(format!("unsupported URL scheme `{scheme}`"));
-    }
+    };
+    let default_port = if tls { 443 } else { 80 };
     let rest = &url[scheme_end + 3..];
     let split = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..split];
@@ -67,7 +75,7 @@ fn parse_url(url: &str) -> Result<Target, String> {
         let host = &after[..end];
         let tail = &after[end + 1..];
         let port = if tail.is_empty() {
-            80
+            default_port
         } else if let Some(p) = tail.strip_prefix(':') {
             parse_port(p)?
         } else {
@@ -80,7 +88,7 @@ fn parse_url(url: &str) -> Result<Target, String> {
         }
         match authority.rsplit_once(':') {
             Some((h, p)) => (h.to_string(), parse_port(p)?, false),
-            None => (authority.to_string(), 80, false),
+            None => (authority.to_string(), default_port, false),
         }
     };
     if host.is_empty() {
@@ -95,12 +103,12 @@ fn parse_url(url: &str) -> Result<Target, String> {
         raw.to_string()
     };
     let host_header = if bracketed {
-        if port == 80 {
+        if port == default_port {
             format!("[{host}]")
         } else {
             format!("[{host}]:{port}")
         }
-    } else if port == 80 {
+    } else if port == default_port {
         host.clone()
     } else {
         format!("{host}:{port}")
@@ -110,22 +118,38 @@ fn parse_url(url: &str) -> Result<Target, String> {
         port,
         path,
         host_header,
+        tls,
     })
 }
 
-/// Connect with a timeout, trying every address the name resolves to.
-fn connect(host: &str, port: u16) -> Result<TcpStream, String> {
-    let addrs = (host, port)
+/// Connect with a timeout, trying every address the name resolves to, then
+/// upgrade to TLS when the URL asked for `https://`.
+fn connect(target: &Target, config: Arc<ClientConfig>) -> Result<Transport, String> {
+    let host = target.host.as_str();
+    let addrs = (host, target.port)
         .to_socket_addrs()
         .map_err(|e| format!("cannot resolve {host}: {e}"))?;
     let mut last = String::from("no address found");
     for addr in addrs {
         match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
-            Ok(s) => return Ok(s),
+            Ok(socket) => {
+                let _ = socket.set_nodelay(true);
+                let _ = socket.set_read_timeout(Some(TIMEOUT));
+                let _ = socket.set_write_timeout(Some(TIMEOUT));
+                let transport = Transport::plain(socket);
+                return if target.tls {
+                    transport.upgrade_with(host, config)
+                } else {
+                    Ok(transport)
+                };
+            }
             Err(e) => last = e.to_string(),
         }
     }
-    Err(format!("cannot connect to {host}:{port}: {last}"))
+    Err(format!(
+        "cannot connect to {host}:{}: {last}",
+        target.port
+    ))
 }
 
 fn valid_method(method: &str) -> bool {
@@ -220,12 +244,19 @@ unsafe fn response(status: i64, body: &[u8], headers: *mut Header) -> *mut Heade
     p
 }
 
-unsafe fn request_inner(
+struct Fetched {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+fn fetch(
     method: &str,
     url: &str,
     extra: &[(String, String)],
     body: &[u8],
-) -> Result<*mut Header, String> {
+    config: Arc<ClientConfig>,
+) -> Result<Fetched, String> {
     if !valid_method(method) {
         return Err(format!("`{method}` is not a valid HTTP method"));
     }
@@ -258,9 +289,7 @@ unsafe fn request_inner(
     }
     head.push_str("\r\n");
 
-    let mut stream = connect(&target.host, target.port)?;
-    let _ = stream.set_read_timeout(Some(TIMEOUT));
-    let _ = stream.set_write_timeout(Some(TIMEOUT));
+    let mut stream = connect(&target, config)?;
     stream
         .write_all(head.as_bytes())
         .and_then(|_| stream.write_all(body))
@@ -345,13 +374,27 @@ unsafe fn request_inner(
         }
     }
 
+    Ok(Fetched {
+        status,
+        headers,
+        body: body_out,
+    })
+}
+
+unsafe fn request_inner(
+    method: &str,
+    url: &str,
+    extra: &[(String, String)],
+    body: &[u8],
+) -> Result<*mut Header, String> {
+    let fetched = fetch(method, url, extra, body, tls::client_config())?;
     let map = kode_map_new(1);
-    for (name, value) in &headers {
+    for (name, value) in &fetched.headers {
         let key = from_bytes(name.as_bytes());
         kode_map_set(map, key, from_external(value.as_bytes()) as i64);
         kode_release(key);
     }
-    Ok(response(status as i64, &body_out, map))
+    Ok(response(fetched.status as i64, &fetched.body, map))
 }
 
 unsafe fn finish(
@@ -412,4 +455,146 @@ pub unsafe extern "C" fn kode_http_request(
     }
     let method = std::str::from_utf8_unchecked(bytes(method));
     finish(method, url, &extra, bytes(body))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+    use rustls::{RootCertStore, ServerConfig};
+    use std::net::{SocketAddr, TcpListener};
+
+    /// A self-signed certificate for `localhost`; see `tests/fixtures/README.md`.
+    const CERT: &[u8] = include_bytes!("../tests/fixtures/localhost.der");
+    const KEY: &[u8] = include_bytes!("../tests/fixtures/localhost-key.der");
+
+    fn roots() -> RootCertStore {
+        let mut roots = RootCertStore::empty();
+        roots
+            .add(CertificateDer::from(CERT.to_vec()))
+            .expect("the fixture certificate");
+        roots
+    }
+
+    fn responder(reply: &'static [u8], tls: bool) -> (SocketAddr, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let config = Arc::new(
+            ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![CertificateDer::from(CERT.to_vec())],
+                    PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(KEY.to_vec())),
+                )
+                .expect("a valid test certificate"),
+        );
+
+        let handle = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            if !tls {
+                let mut socket = socket;
+                let _ = read_request(&mut socket);
+                let _ = socket.write_all(reply);
+                return;
+            }
+            let session = rustls::ServerConnection::new(config).unwrap();
+            let mut stream = rustls::StreamOwned::new(session, socket);
+            if read_request(&mut stream).is_ok() {
+                let _ = stream.write_all(reply);
+                let _ = stream.flush();
+            }
+        });
+        (addr, handle)
+    }
+
+    /// Read until the request head ends. A failed handshake is not an error for
+    /// the test: several tests expect the client to give up.
+    fn read_request(stream: &mut impl Read) -> Result<(), std::io::Error> {
+        let mut seen = Vec::new();
+        let mut buf = [0u8; 1024];
+        while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+            let n = stream.read(&mut buf)?;
+            if n == 0 {
+                return Ok(());
+            }
+            seen.extend_from_slice(&buf[..n]);
+        }
+        Ok(())
+    }
+
+    const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+
+    #[test]
+    fn https_get_round_trip() {
+        let (addr, server) = responder(OK, true);
+        let config = tls::client_config_with_roots(roots());
+        let url = format!("https://localhost:{}/hello", addr.port());
+
+        let fetched = fetch("GET", &url, &[], &[], config).expect("an https request");
+        assert_eq!(fetched.status, 200);
+        assert_eq!(fetched.body, b"hello");
+        assert_eq!(
+            fetched
+                .headers
+                .iter()
+                .find(|(name, _)| name == "content-length")
+                .map(|(_, value)| value.as_str()),
+            Some("5")
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn https_rejects_a_certificate_for_another_host() {
+        let (addr, server) = responder(OK, true);
+        let config = tls::client_config_with_roots(roots());
+        let url = format!("https://127.0.0.1:{}/", addr.port());
+
+        let message = match fetch("GET", &url, &[], &[], config) {
+            Ok(_) => panic!("a certificate for localhost must not verify 127.0.0.1"),
+            Err(message) => message,
+        };
+        assert!(
+            message.contains("TLS handshake with 127.0.0.1 failed"),
+            "unexpected message: {message}"
+        );
+        server.join().unwrap();
+    }
+
+    /// Plain http:// still goes through the same connect/send/read path.
+    #[test]
+    fn plaintext_get_still_works() {
+        let (addr, server) = responder(OK, false);
+        let url = format!("http://127.0.0.1:{}/", addr.port());
+
+        let fetched = fetch("GET", &url, &[], &[], tls::client_config()).expect("an http request");
+        assert_eq!(fetched.status, 200);
+        assert_eq!(fetched.body, b"hello");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn https_urls_use_port_443_and_the_right_host_header() {
+        let plain = parse_url("https://example.com/x").expect("a valid https URL");
+        assert_eq!(plain.port, 443);
+        assert_eq!(plain.host_header, "example.com");
+        assert!(plain.tls);
+
+        let custom = parse_url("https://example.com:8443/x?y=1").expect("a port");
+        assert_eq!(custom.port, 8443);
+        assert_eq!(custom.host_header, "example.com:8443");
+
+        let explicit = parse_url("http://example.com:80/").expect("an explicit default port");
+        assert_eq!(explicit.host_header, "example.com");
+        assert!(!explicit.tls);
+    }
+
+    #[test]
+    fn bad_schemes_are_explained() {
+        let missing = parse_url("example.com/x").expect_err("no scheme");
+        assert!(missing.contains("http:// or https://"), "{missing}");
+
+        let ftp = parse_url("ftp://example.com/x").expect_err("unsupported scheme");
+        assert!(ftp.contains("unsupported URL scheme"), "{ftp}");
+    }
 }

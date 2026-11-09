@@ -15,7 +15,7 @@ Status date: 2026-11-05.
 | `tests/compile-fail` | 88 programs, each with a `.err` code |
 | Conformance run | `cargo test --workspace`, all green, leak checking on |
 | Runtime ABI marker | `kode_rt_abi_0004` |
-| Native output | Cranelift object file, linked with the system `cc` |
+| Native output | LLVM object file from `clang`, linked with the system `cc` |
 
 ## Language capabilities
 
@@ -79,7 +79,7 @@ Status date: 2026-11-05.
    comparing diagnostics and program output, then object/binary bytes where the
    build is deterministic.
 
-Detailed backend note: the existing Cranelift path stays as Stage 0. A
+Detailed backend note: the LLVM path is the only one and is Stage 0. A
 Kode-written backend should emit textual assembly and call `cc` through `exec`
 (ADR 0029), rather than attempting to emit object files by hand. That is the
 smallest path to a working Stage 1 backend and needs no FFI.

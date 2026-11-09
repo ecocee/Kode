@@ -1,5 +1,8 @@
 # Windows
 
+> Platform support summary, including which claims are native and which are
+> emulated: [`platforms.md`](platforms.md). Windows is a preview target.
+
 Kode builds Windows executables through **MinGW-w64**, the same way Go and Zig
 start: a C toolchain and linker, no Visual Studio project files.
 
@@ -7,12 +10,12 @@ start: a C toolchain and linker, no Visual Studio project files.
 
 | Step | macOS / Linux | Windows |
 |---|---|---|
-| Compile to an object | works | works (same Cranelift backend) |
+| Compile to an object | works | works (same LLVM backend) |
 | Link | `cc` | `gcc` from MinGW-w64, with `-static` and the Windows system libraries |
 | Run the result | works | expected to work; see "What is not tested" |
 | Paths in diagnostics | `/` | `\` and `/` both accepted |
 
-The linker settings live in `crates/kode-codegen/src/link.rs`
+The linker settings live in `crates/kode-link/src/link.rs`
 (`platform_args`), and the driver can be overridden:
 
 ```

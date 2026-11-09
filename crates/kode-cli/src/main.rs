@@ -119,7 +119,23 @@ fn object_for(opts: &Options, f: &Front, mode: Mode) -> Result<Vec<u8>, String> 
         kode_mir::opt::optimize(&mut mir);
     }
     kode_mir::verify::verify(&mir).map_err(|e| format!("internal compiler error: {e}"))?;
-    kode_codegen::compile_to_object(&mir, !opts.debug)
+    llvm_object(&mir)
+}
+
+/// Lower MIR to textual LLVM IR, then ask clang for an object file.
+/// A missing clang is an error, never a quiet fallback to another code path.
+fn llvm_object(mir: &kode_mir::ir::MirProgram) -> Result<Vec<u8>, String> {
+    let ir = kode_llvm::emit(mir)?;
+    let dir = std::env::temp_dir().join(format!("kode-llvm-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot make a temporary folder: {e}"))?;
+    let object = dir.join("program.o");
+    let result = kode_llvm::compile_ir(&ir, &object)
+        .map_err(|e| e.to_string())
+        .and_then(|_| {
+            std::fs::read(&object).map_err(|e| format!("cannot read the object file: {e}"))
+        });
+    let _ = std::fs::remove_dir_all(&dir);
+    result
 }
 
 /// Write the embedded runtime library to `dir` and return its path.
@@ -140,7 +156,7 @@ fn run_object(object: &[u8], tag: &str, prog_args: &[String]) -> Result<u8, Stri
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let exe = dir.join("program");
     let result = runtime_lib(&dir)
-        .and_then(|rt| kode_codegen::link(object, &exe, &rt, false))
+        .and_then(|rt| kode_link::link(object, &exe, &rt, false))
         .and_then(|_| {
             Command::new(&exe)
                 .args(prog_args)
@@ -231,7 +247,7 @@ fn run_command(opts: &Options) -> Result<u8, String> {
         let tmp = std::env::temp_dir().join(format!("kode-build-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         let linked =
-            runtime_lib(&tmp).and_then(|rt| kode_codegen::link(&object, &out, &rt, opts.release));
+            runtime_lib(&tmp).and_then(|rt| kode_link::link(&object, &out, &rt, opts.release));
         let _ = std::fs::remove_dir_all(&tmp);
         linked?;
         let on = style::on_stderr();

@@ -56,6 +56,23 @@ pub unsafe extern "C" fn kode_proc_exec(
     if !dir.is_empty() {
         cmd.current_dir(&dir);
     }
+    // Force the fork/exec path in `std::process`. Its `posix_spawn` fast path can
+    // report success for a child whose `exec` failed (observed on Linux x86-64
+    // under emulation, where a missing program became a silent exit 127); fork
+    // reports the exec errno through a pipe, so "cannot run" really raises.
+    //
+    // This is duplicated from `kode_link::force_fork_exec` because `kode-rt` is a
+    // dependency-free static library: it cannot depend on the linker crate.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: the closure runs in the forked child, before exec, where only
+        // async-signal-safe work is allowed. It does nothing and reports success,
+        // so it allocates nothing, takes no locks and calls no libc function.
+        unsafe {
+            cmd.pre_exec(|| Ok(()));
+        }
+    }
     match cmd.output() {
         Ok(out) => result(
             out.status.code().map(|c| c as i64).unwrap_or(-1),

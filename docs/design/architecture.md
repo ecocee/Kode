@@ -3,8 +3,8 @@
 ```
           kode-diagnostics  (Span, Diagnostic: shared by all stages)
                  |
-source -> kode-syntax -> kode-sema -> kode-mir -> kode-codegen -> object file -> cc -> binary
-          lex, parse     types        CFG          Cranelift                      + kode-rt
+source -> kode-syntax -> kode-sema -> kode-mir -> kode-llvm -> clang -> object file -> kode-link -> binary
+          lex, parse     types        CFG          LLVM IR -> clang               + kode-rt
                                                                      
 kode-cli drives the pipeline (and loads imported files into one program, formats code, runs tests,
 explains errors).   kode-rt is the runtime library every binary links against.
@@ -15,13 +15,14 @@ explains errors).   kode-rt is the runtime library every binary links against.
 | `kode-syntax` | text | `Program` (AST) |
 | `kode-sema` | AST | `Checked`: type of every expression, function signatures, constants, warnings |
 | `kode-mir` | AST + `Checked` | `MirProgram` |
-| `kode-codegen` | `MirProgram` | native object file, then an executable |
+| `kode-llvm` | `MirProgram` | LLVM IR, then a native object file |
+| `kode-link` | object file | executable |
 | `kode-rt` | | static library with print, strings, runtime errors |
 
 Rules:
 
 1. Each crate depends only on the ones before it. Replacing the backend never touches the parser.
-2. `kode-codegen` reads only MIR.
+2. `kode-llvm` reads only MIR.
 3. Errors are data (`Diagnostic` with a code), never panics.
 4. Generated names: user function `f` becomes `kode_fn_f`, so it can never clash with a C library symbol.
 

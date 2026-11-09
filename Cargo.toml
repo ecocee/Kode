@@ -9,18 +9,14 @@ rust-version = "1.91"
 license = "Apache-2.0"
 repository = "https://github.com/ecocee/Kode"
 
-# One place for every dependency version. Upgrade Cranelift here only.
+# One place for every dependency version.
 [workspace.dependencies]
-cranelift-codegen = "0.130"
-cranelift-frontend = "0.130"
-cranelift-module = "0.130"
-cranelift-object = "0.130"
-cranelift-native = "0.130"
 kode-diagnostics = { path = "crates/kode-diagnostics" }
 kode-syntax = { path = "crates/kode-syntax" }
 kode-sema = { path = "crates/kode-sema" }
 kode-mir = { path = "crates/kode-mir" }
-kode-codegen = { path = "crates/kode-codegen" }
+kode-link = { path = "crates/kode-link" }
+kode-llvm = { path = "crates/kode-llvm" }
 
 [profile.release]
 opt-level = 3

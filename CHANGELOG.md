@@ -5,18 +5,53 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ## Unreleased
 
+### Changed
+
+- **LLVM is the only backend** (ADR 0035). Code generation goes through textual
+  LLVM IR and `clang` (15 or newer, or `KODE_CLANG`); a missing clang is a clear
+  error, never a silent fallback. The Cranelift backend, its crates and the
+  `--backend=cranelift` option are removed; `--backend=llvm` is still accepted as
+  a no-op, and `cargo build` no longer compiles a second code generator.
+- **`exec` failures are reported reliably.** A child that cannot be started
+  (missing program, bad interpreter) now raises the documented error instead of
+  exiting 127 silently on some platforms.
+- **Start failures are reported as start failures.** A missing or non-executable
+  clang, linker driver or `cc` now prints the install hint and exits 1 instead of
+  claiming the IR was rejected with status 127. A failing linker still reports
+  its own exit status, and a failed build leaves no output file.
+- **`kode-codegen` is now `kode-link`**, which is all it does: hand an object
+  file and the runtime archive to the platform linker.
+- **`cargo build --release` works from a clean tree.** The embedded runtime was
+  looked up only in `target/debug`/`target/release`, but a `staticlib` built as a
+  build dependency lands in `deps/libkode_rt-<hash>.a`. The build script now
+  searches the matching profile's `deps/` folder and honours `CARGO_TARGET_DIR`.
+
 ### Added
 
+- **CI on four platforms.** `.github/workflows/ci.yml` builds, lints, tests,
+  format-checks, release-builds and runs a hello world on native Linux x86-64,
+  Linux arm64, macOS arm64 and Windows x86-64, installing clang and the linker
+  explicitly and asserting each runner's architecture. See `docs/platforms.md`.
+- **`--backend=llvm`** (ADR 0035): the flag that introduced the backend in B6 and
+  is now also the default.
 - **A PostgreSQL client** (ADR 0033): `pg.connect`, `pg.exec`, `pg.query` and
   `pg.close` speak the PostgreSQL wire protocol from the runtime, with
   SCRAM-SHA-256 or cleartext authentication, the extended query protocol with
   `$1` parameters, and JSON results (`command`, `columns`, `rows`, `affected`)
   that keep ints, floats, bools and NULLs typed. Server errors carry the
-  SQLSTATE. Plain TCP only: `sslmode=disable` is required until TLS lands, and
-  md5, `COPY` and notifications are not supported. Programs that do not use it
-  link nothing: `examples/hello.kode` is unchanged, and
-  `examples/db/postgres.kode` is 161 KB larger stripped. The runtime ABI marker
-  moves to `kode_rt_abi_0004`.
+  SQLSTATE. `sslmode=prefer` (the default) upgrades to TLS when the server
+  offers it; `sslmode=require` is still rejected, as are md5, `COPY`,
+  notifications and the binary format. A pool is available through `pg.pool`.
+  The runtime ABI marker moves to `kode_rt_abi_0004`.
+- **HTTPS** (ADR 0034): the HTTP client speaks `https://`, verifying the
+  certificate against the webpki roots and the host name, and
+  `serve_tls(port, cert, key, handler)` serves HTTPS with DER certificate and
+  key files (a handler or a `Router`, like `serve`). A failed handshake names
+  the host. The TLS server runs one thread per connection instead of the epoll
+  loop; the ADR records why and what it costs.
+- **One TLS transport** for both clients: `kode-rt`'s `tls.rs` owns the rustls
+  configuration, the root store and the handshake, and the PostgreSQL client
+  uses it too. The per-read `Mutex` in the old `pg_tls.rs` is gone.
 
 ### Fixed
 

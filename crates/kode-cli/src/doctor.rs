@@ -63,7 +63,11 @@ fn cc_program() -> String {
 }
 
 fn describe_cc(cc: &str) -> (bool, String) {
-    match Command::new(cc).arg("--version").output() {
+    let mut cmd = Command::new(cc);
+    cmd.arg("--version");
+    // Report a missing linker driver as "did not run", not as exit status 127.
+    kode_link::force_fork_exec(&mut cmd);
+    match cmd.output() {
         Ok(out) if out.status.success() => {
             let text = String::from_utf8_lossy(&out.stdout);
             let first = text.lines().next().unwrap_or("").trim().to_string();

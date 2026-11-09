@@ -20,7 +20,7 @@ print("${name}: fib(30) =", fib(30))
 Kode is written in Rust. The compiler turns source into a native program:
 
 ```text
-source -> lexer -> parser -> AST -> type check -> MIR -> Cranelift -> object file -> linker -> binary
+source -> lexer -> parser -> AST -> type check -> MIR -> LLVM IR -> clang -> object file -> linker -> binary
 ```
 
 ## Status
@@ -47,21 +47,24 @@ Advanced features: **interfaces** with `implements` and run-time dispatch; **bit
 maps (`[1, 2]`, `{"name": "Asha"}`).
 
 Concurrency and I/O: **tasks** (`spawn` / `await`), **channels** (`Channel<T>`,
-`send`/`recv`/`close`), a **web server** (`serve`, or a **Router** with `Request`/`Response`),
-**JSON**, an **HTTP client**, strings, files, command-line arguments and sorting.
+`send`/`recv`/`close`), a **web server** (`serve`/`serve_tls`, or a **Router** with
+`Request`/`Response`), **JSON**, an **HTTP client** (`http://` and `https://`), strings, files,
+command-line arguments and sorting.
 
 Standard-library namespaces include `json.parse`, `math.sqrt`, `http.get` and `pg.query`.
 
 ## PostgreSQL client
 
 There is a **PostgreSQL client** in the runtime (`pg.connect`, `pg.exec`, `pg.query`, `pg.close`)
-with SCRAM-SHA-256 authentication and JSON results. It speaks plain TCP today; TLS support is
-planned and tracked in [ADR 0033](docs/adr/0033-postgres-client.md). A worked example lives at
-[examples/db/postgres.kode](examples/db/postgres.kode).
+with SCRAM-SHA-256 authentication, opportunistic TLS (`sslmode=prefer`) and JSON results; a pool
+is available through `pg.pool`. [ADR 0033](docs/adr/0033-postgres-client.md) describes the
+protocol work. A worked example lives at [examples/db/postgres.kode](examples/db/postgres.kode).
 
 ## Roadmap
 
-Next up is the **M9 production track**: TLS, cycle-safe memory, byte buffers and enum payloads.
+TLS shipped for the HTTP client, the HTTP server (`serve_tls`) and the PostgreSQL client
+([ADR 0034](docs/adr/0034-tls-in-the-runtime.md)). Next up is the rest of the **M9 production
+track**: cycle-safe memory, byte buffers, enum payloads and generic classes.
 See [docs/PLAN-v1.md](docs/PLAN-v1.md). M8 (budgets, `uses` effects, typed `ask`/`tool`) is
 skipped. For current measurements and known gaps, see [docs/STATUS.md](docs/STATUS.md) and
 [docs/ROADMAP.md](docs/ROADMAP.md). A one-page overview is at
@@ -94,8 +97,9 @@ export PATH="$PWD/target/debug:$PATH"
 kode run examples/tour.kode
 ```
 
-On Windows, build the compiler with the GNU Rust toolchain and MinGW-w64 (see `docs/windows.md`).
-Windows is not a release target yet: the release workflow builds Linux x86-64 and macOS arm64 only.
+macOS arm64, Linux arm64 and Linux x86-64 are validated; Windows is a preview
+target. Requirements per platform, the required clang version, CI runners and
+known gaps are in `docs/platforms.md` (Windows setup: `docs/windows.md`).
 
 ## Commands
 
@@ -120,6 +124,14 @@ Windows is not a release target yet: the release workflow builds Linux x86-64 an
 | `kode lsp` | language server on stdio: diagnostics, hover, completion, symbols, format |
 | `--format=json` | diagnostics as JSON, for editors and AI agents |
 | `--strict` | warnings count as errors |
+| `--backend=llvm` | accepted for compatibility; LLVM is the only backend |
+
+LLVM is the only backend (ADR 0035): it consumes MIR, writes textual LLVM IR
+and asks `clang` (15 or newer, or `KODE_CLANG`) for the object file, then links
+with the runtime archive. Without clang the build stops with a message naming the
+missing program; there is no fallback of any kind. `--backend=llvm` is accepted
+as a no-op for scripts written while the flag was being introduced, and
+`--backend=cranelift` reports that the Cranelift backend was removed.
 
 ## Repository map
 
@@ -129,7 +141,7 @@ crates/
   kode-syntax/        tokens, lexer, AST, parser
   kode-sema/          names and types
   kode-mir/           mid-level IR, lowering, dump, verifier
-  kode-codegen/       MIR -> Cranelift -> object file -> linker
+  kode-link/          object linking: linker driver and runtime archive
   kode-rt/            runtime library linked into every program
   kode-cli/           the `kode` command
 tests/run-pass/       programs that must run (.kode + .out), checked for leaks

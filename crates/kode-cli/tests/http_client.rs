@@ -88,13 +88,9 @@ print(p.status, p.body)
 
 c = http_get(base + "/chunked")
 print(c.status, c.body)
-
-tls = http_get("https://example.com") catch err {
-    print("https rejected:", err.message.contains("http://"))
-    r
-}
-print(tls.status)
 "#;
+    // `https://` is covered in `kode-rt` (`http_client::tests`), which runs a real
+    // TLS server with a fixture certificate instead of reaching the network.
     let path = std::env::temp_dir().join(format!("kode-http-client-{}.kode", std::process::id()));
     std::fs::write(&path, program).expect("write the Kode program");
     let output = Command::new(env!("CARGO_BIN_EXE_kode"))
@@ -116,6 +112,6 @@ print(tls.status)
     );
     assert_eq!(
         stdout,
-        "200\napplication/json\nhi 2\n200 {\"x\":1}\n200 hello world\nhttps rejected: true\n200\n"
+        "200\napplication/json\nhi 2\n200 {\"x\":1}\n200 hello world\n"
     );
 }

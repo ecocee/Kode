@@ -25,6 +25,9 @@ pub fn link(object: &[u8], output: &Path, runtime_lib: &Path, strip: bool) -> Re
         .arg(&obj_path)
         .arg(runtime_lib)
         .args(platform_args(strip));
+    // A missing or non-executable linker must be reported as such, never as a
+    // child that "ran" and exited 127.
+    crate::force_fork_exec(&mut cmd);
     let status = cmd.status();
     let _ = std::fs::remove_file(&obj_path);
     match status {

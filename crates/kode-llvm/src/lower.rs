@@ -1,0 +1,1024 @@
+//! MIR -> textual LLVM IR.
+//!
+//! The shapes here mirror the reference lowering exactly, because
+//! the two backends have to produce the same observable behaviour: `i64` for
+//! ints and references, `double` for floats, `i8` for bools, a checked
+//! division helper, and shifts that give 0 instead of wrapping when the count
+//! reaches 64.
+//!
+//! Locals are allocas in the entry block and every read is a `load`; clang's
+//! `mem2reg` turns them into SSA registers at `-O2`, which keeps this file
+//! small and obviously correct at B1.
+
+use std::fmt::Write;
+
+use kode_mir::*;
+
+const I64: &str = "i64";
+const F64: &str = "double";
+const I8: &str = "i8";
+
+fn ty(t: Ty) -> &'static str {
+    match t {
+        Ty::Int | Ty::Ref | Ty::Unit => I64,
+        Ty::Float => F64,
+        Ty::Bool => I8,
+    }
+}
+
+/// Every runtime function this backend knows, with the symbol names and the C
+/// ABI the runtime declares in `kode-rt`.
+const RT: &[(RtFn, &str, &[&str], Option<&str>)] = &[
+    (RtFn::PrintInt, "kode_print_int", &[I64], None),
+    (RtFn::PrintFloat, "kode_print_float", &[F64], None),
+    (RtFn::PrintBool, "kode_print_bool", &[I64], None),
+    (RtFn::PrintStr, "kode_print_str", &[I64], None),
+    (RtFn::PrintSep, "kode_print_sep", &[], None),
+    (RtFn::PrintNl, "kode_print_nl", &[], None),
+    (RtFn::StrConcat, "kode_str_concat", &[I64, I64], Some(I64)),
+    (RtFn::StrEq, "kode_str_eq", &[I64, I64], Some(I64)),
+    (RtFn::IntToStr, "kode_int_to_str", &[I64], Some(I64)),
+    (RtFn::FloatToStr, "kode_float_to_str", &[F64], Some(I64)),
+    (RtFn::BoolToStr, "kode_bool_to_str", &[I64], Some(I64)),
+    (RtFn::Repr, "kode_repr", &[I64, I64], Some(I64)),
+    (RtFn::StrLen, "kode_str_len", &[I64], Some(I64)),
+    (RtFn::ListNew, "kode_list_new", &[I64], Some(I64)),
+    (RtFn::ListPush, "kode_list_push", &[I64, I64], None),
+    (RtFn::ListGet, "kode_list_get", &[I64, I64, I64], Some(I64)),
+    (RtFn::ListSet, "kode_list_set", &[I64, I64, I64, I64], None),
+    (RtFn::ListLen, "kode_list_len", &[I64], Some(I64)),
+    (RtFn::ListNewPacked, "kode_list_new_packed", &[], Some(I64)),
+    (RtFn::ListPush8, "kode_list_push8", &[I64, I64], None),
+    (
+        RtFn::ListGet8,
+        "kode_list_get8",
+        &[I64, I64, I64],
+        Some(I64),
+    ),
+    (
+        RtFn::ListSet8,
+        "kode_list_set8",
+        &[I64, I64, I64, I64],
+        None,
+    ),
+    (
+        RtFn::ListSlice,
+        "kode_list_slice",
+        &[I64, I64, I64],
+        Some(I64),
+    ),
+    (
+        RtFn::ListSlice8,
+        "kode_list_slice8",
+        &[I64, I64, I64],
+        Some(I64),
+    ),
+    (RtFn::MapNew, "kode_map_new", &[I64], Some(I64)),
+    (RtFn::MapSet, "kode_map_set", &[I64, I64, I64], None),
+    (RtFn::MapGet, "kode_map_get", &[I64, I64, I64], Some(I64)),
+    (RtFn::MapHas, "kode_map_has", &[I64, I64], Some(I64)),
+    (RtFn::MapLen, "kode_map_len", &[I64], Some(I64)),
+    (RtFn::MapKeyAt, "kode_map_key_at", &[I64, I64], Some(I64)),
+    (RtFn::MapValAt, "kode_map_val_at", &[I64, I64], Some(I64)),
+    (RtFn::MapKeys, "kode_map_keys", &[I64], Some(I64)),
+    (RtFn::ObjNew, "kode_obj_new", &[I64, I64], Some(I64)),
+    (
+        RtFn::ObjNewClass,
+        "kode_obj_new_class",
+        &[I64, I64, I64],
+        Some(I64),
+    ),
+    (RtFn::ErrThrow, "kode_err_throw", &[I64], None),
+    (RtFn::ErrPending, "kode_err_pending", &[], Some(I64)),
+    (RtFn::ErrTake, "kode_err_take", &[], Some(I64)),
+    (RtFn::Uncaught, "kode_uncaught", &[], None),
+    (RtFn::UnwrapFail, "kode_unwrap_fail", &[I64], None),
+    (RtFn::Exit, "kode_exit", &[I64], None),
+    (RtFn::ListOob, "kode_list_oob", &[I64, I64, I64], None),
+    (RtFn::ChanNew, "kode_chan_new", &[], Some(I64)),
+    (RtFn::ChanSend, "kode_chan_send", &[I64, I64, I64], None),
+    (RtFn::ChanRecv, "kode_chan_recv", &[I64], Some(I64)),
+    (RtFn::ChanClose, "kode_chan_close", &[I64], None),
+];
+
+fn rt_entry(f: RtFn) -> (&'static str, &'static [&'static str], Option<&'static str>) {
+    RT.iter()
+        .find(|(k, _, _, _)| *k == f)
+        .map(|(_, n, p, r)| (*n, *p, *r))
+        .expect("every RtFn has an entry")
+}
+
+/// Runtime functions that return 0 or 1 as an i64 for a bool result.
+fn returns_bool(f: RtFn) -> bool {
+    matches!(f, RtFn::StrEq | RtFn::MapHas | RtFn::ErrPending)
+}
+
+pub fn emit(program: &MirProgram) -> Result<String, String> {
+    if program.funcs.is_empty() {
+        return Err("the program has no functions to compile".into());
+    }
+    let mut e = Emitter {
+        p: program,
+        out: String::new(),
+        n: 0,
+        f: &program.funcs[0],
+    };
+    e.module()?;
+    Ok(e.out)
+}
+
+struct Emitter<'a> {
+    p: &'a MirProgram,
+    out: String,
+    n: usize,
+    f: &'a MirFunc,
+}
+
+impl<'a> Emitter<'a> {
+    fn tmp(&mut self) -> String {
+        self.n += 1;
+        format!("%t{}", self.n)
+    }
+
+    fn module(&mut self) -> Result<(), String> {
+        let _ = writeln!(self.out, "; generated by kode-llvm (B1, ADR 0035)");
+        let _ = writeln!(self.out, "target datalayout = \"e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n");
+
+        self.strings();
+        self.declarations();
+
+        for (i, f) in self.p.funcs.iter().enumerate() {
+            let name = self.sym_func(i);
+            self.func(f, &name)?;
+        }
+        let nthunks = self.p.thunks.len();
+        for i in 0..nthunks {
+            let f = &self.p.thunks[i];
+            let name = format!("kode_thunk_{i}");
+            self.func(f, &name)?;
+        }
+        let nclosures = self.p.closures.len();
+        for i in 0..nclosures {
+            let f = &self.p.closures[i];
+            let name = format!("kode_closure_{i}");
+            self.func(f, &name)?;
+        }
+        let nfnvals = self.p.fnvals.len();
+        for i in 0..nfnvals {
+            let f = &self.p.fnvals[i];
+            let name = format!("kode_fnval_{i}");
+            self.func(f, &name)?;
+        }
+
+        let entry = self.sym_func(self.p.entry);
+        let _ = writeln!(self.out, "define i32 @main() {{");
+        let _ = writeln!(self.out, "entry:");
+        let _ = writeln!(self.out, "  call void @kode_rt_init()");
+        let _ = writeln!(self.out, "  call void @{}()", entry);
+        let _ = writeln!(self.out, "  call void @kode_rt_finish()");
+        let _ = writeln!(self.out, "  ret i32 0");
+        let _ = writeln!(self.out, "}}");
+        Ok(())
+    }
+
+    /// Static string literals: `[refcount = -1][kind = string][length][bytes]`,
+    /// the same layout the runtime defines.
+    fn strings(&mut self) {
+        for (i, s) in self.p.strings.iter().enumerate() {
+            let mut bytes = Vec::with_capacity(24 + s.len());
+            bytes.extend_from_slice(&(-1i64).to_le_bytes());
+            bytes.extend_from_slice(&1i64.to_le_bytes());
+            bytes.extend_from_slice(&(s.len() as i64).to_le_bytes());
+            bytes.extend_from_slice(s.as_bytes());
+            let mut escaped = String::new();
+            for b in &bytes {
+                let _ = write!(escaped, "\\{b:02X}");
+            }
+            let _ = writeln!(
+                self.out,
+                "@kode_str_{i} = private unnamed_addr constant [{} x i8] c\"{}\", align 8",
+                bytes.len(),
+                escaped
+            );
+        }
+        if !self.p.strings.is_empty() {
+            let _ = writeln!(self.out);
+        }
+    }
+
+    fn declarations(&mut self) {
+        // The same C symbol can be reached through both tables (`kode_exit` is
+        // an `RtFn` and a named standard-library function); LLVM rejects a
+        // repeated declaration, so emit each name once.
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for (_, name, params, ret) in RT {
+            seen.insert(name);
+            let ps: Vec<String> = params.iter().map(|p| p.to_string()).collect();
+            let r = ret.unwrap_or("void");
+            let _ = writeln!(self.out, "declare {r} @{name}({})", ps.join(", "));
+        }
+        for (name, ret) in [
+            ("kode_retain", "void"),
+            ("kode_release", "void"),
+            ("kode_div_zero", "void"),
+            ("kode_rt_init", "void"),
+            ("kode_rt_finish", "void"),
+        ] {
+            let args = if name.starts_with("kode_retain") || name.starts_with("kode_release") {
+                I64
+            } else {
+                ""
+            };
+            let _ = writeln!(self.out, "declare {ret} @{name}({args})");
+        }
+        let _ = writeln!(self.out, "declare i64 @llvm.fptosi.sat.i64.f64(double)");
+        for s in &self.p.std_sigs {
+            if !seen.insert(s.name) {
+                continue;
+            }
+            let mut ps: Vec<String> = Vec::new();
+            for p in &s.params {
+                ps.push(if *p == Ty::Float { F64 } else { I64 }.to_string());
+            }
+            let r = match s.ret {
+                Ty::Unit => "void".to_string(),
+                Ty::Float => F64.to_string(),
+                _ => I64.to_string(),
+            };
+            let _ = writeln!(self.out, "declare {r} @{}({})", s.name, ps.join(", "));
+        }
+        let _ = writeln!(self.out);
+    }
+
+    fn sym_func(&self, i: usize) -> String {
+        if i == self.p.entry {
+            "kode_script_main".to_string()
+        } else {
+            format!("kode_fn_{}", self.p.funcs[i].name)
+        }
+    }
+
+    fn func(&mut self, f: &'a MirFunc, sym: &str) -> Result<(), String> {
+        self.f = f;
+        let params: Vec<String> = f
+            .param_tys()
+            .iter()
+            .enumerate()
+            .map(|(i, t)| format!("{} %p{i}", ty(*t)))
+            .collect();
+        let ret = if f.ret == Ty::Unit {
+            "void".to_string()
+        } else {
+            ty(f.ret).to_string()
+        };
+        let _ = writeln!(
+            self.out,
+            "define {ret} @\"{sym}\"({}) {{",
+            params.join(", ")
+        );
+        let _ = writeln!(self.out, "entry:");
+        for (i, l) in f.locals.iter().enumerate() {
+            let slot = if l.ty == Ty::Unit { I64 } else { ty(l.ty) };
+            let _ = writeln!(self.out, "  %l{i} = alloca {slot}, align 8");
+        }
+        for i in 0..f.param_count {
+            let _ = writeln!(self.out, "  store {} %p{i}, ptr %l{i}", ty(f.locals[i].ty));
+        }
+        let _ = writeln!(self.out, "  br label %bb0");
+
+        for (bi, block) in f.blocks.iter().enumerate() {
+            let _ = writeln!(self.out, "bb{bi}:");
+            for inst in &block.insts {
+                self.inst(inst)?;
+            }
+            self.term(&block.term);
+        }
+        let _ = writeln!(self.out, "}}\n");
+        let _ = writeln!(self.out);
+        Ok(())
+    }
+
+    fn operand(&mut self, op: &Operand) -> (String, Ty) {
+        match op {
+            Operand::Local(i) => {
+                let t = self.f.locals[*i].ty;
+                let v = self.tmp();
+                let _ = writeln!(self.out, "  {v} = load {}, ptr %l{i}", ty(t));
+                (v, t)
+            }
+            Operand::Int(v) => {
+                let text = if *v == i64::MIN {
+                    "-9223372036854775808".to_string()
+                } else {
+                    v.to_string()
+                };
+                (text, Ty::Int)
+            }
+            Operand::Float(v) => (format!("0x{:016X}", v.to_bits()), Ty::Float),
+            Operand::Bool(v) => ((*v as u8).to_string(), Ty::Bool),
+            Operand::Str(i) => {
+                let v = self.tmp();
+                let _ = writeln!(self.out, "  {v} = ptrtoint ptr @kode_str_{i} to i64");
+                (v, Ty::Ref)
+            }
+            Operand::NullRef => ("0".to_string(), Ty::Ref),
+            Operand::Thunk(i) => (format!("ptrtoint (ptr @kode_thunk_{i} to i64)"), Ty::Int),
+            Operand::FuncAddr(i) => {
+                let s = self.sym_func(*i);
+                (format!("ptrtoint (ptr @\"{s}\" to i64)"), Ty::Int)
+            }
+            Operand::ClosureFn(i) => (format!("ptrtoint (ptr @kode_closure_{i} to i64)"), Ty::Int),
+            Operand::FnVal(i) => (format!("ptrtoint (ptr @kode_fnval_{i} to i64)"), Ty::Int),
+        }
+    }
+
+    fn store_local(&mut self, dst: LocalId, v: &str, t: Ty) {
+        let slot = self.f.locals[dst].ty;
+        let t = if slot == Ty::Unit { t } else { slot };
+        // A bool slot and an i64 value (or the reverse) meet in optional and
+        // collection code; widen the narrow side instead of storing a
+        // mismatched type.
+        let v = match (slot, t) {
+            (Ty::Int | Ty::Ref, Ty::Bool) => self.zext_bool(v),
+            (Ty::Bool, Ty::Int | Ty::Ref) => {
+                let out = self.tmp();
+                let wide = self.widen(v, Ty::Int);
+                let _ = writeln!(self.out, "  {out} = trunc i64 {wide} to i8");
+                out
+            }
+            _ => self.widen(v, t),
+        };
+        let _ = writeln!(self.out, "  store {} {}, ptr %l{dst}", ty(t), v);
+    }
+
+    /// Values are emitted already typed: a register name, or an LLVM constant
+    /// that is valid wherever a value of that type is expected. Kept as a
+    /// named hook so every use site reads the same and future stages (immediate
+    /// folding, register promotion) have one place to change.
+    fn widen(&mut self, v: &str, _t: Ty) -> String {
+        v.to_string()
+    }
+
+    fn zext_bool(&mut self, v: &str) -> String {
+        let out = self.tmp();
+        let wide = self.widen(v, Ty::Bool);
+        let _ = writeln!(self.out, "  {out} = zext i8 {wide} to i64");
+        out
+    }
+
+    fn inst(&mut self, inst: &Inst) -> Result<(), String> {
+        match inst {
+            Inst::Assign { dst, rv } => {
+                let (v, t) = self.rvalue(rv)?;
+                self.store_local(*dst, &v, t);
+            }
+            Inst::Call { dst, callee, args } => {
+                if !self.try_inline_list(dst, callee, args)? {
+                    self.call(dst, callee, args)?;
+                }
+            }
+            Inst::CallIndirect { dst, callee, args } => {
+                let (clo, _) = self.operand(callee);
+                let code = self.tmp();
+                let ptr = self.tmp();
+                let field = self.tmp();
+                let fnptr = self.tmp();
+                let _ = writeln!(self.out, "  {ptr} = inttoptr i64 {clo} to ptr");
+                let _ = writeln!(self.out, "  {field} = getelementptr i8, ptr {ptr}, i64 24");
+                let _ = writeln!(self.out, "  {code} = load i64, ptr {field}, align 8");
+                let _ = writeln!(self.out, "  {fnptr} = inttoptr i64 {code} to ptr");
+                let mut vals = vec![clo.clone()];
+                let mut tys = vec![I64.to_string()];
+                for a in args {
+                    let (v, t) = self.operand(a);
+                    vals.push(self.widen(&v, t));
+                    tys.push(ty(t).to_string());
+                }
+                let ret = dst.map(|d| self.f.locals[d].ty).unwrap_or(Ty::Unit);
+                let r = if ret == Ty::Unit {
+                    "void".to_string()
+                } else {
+                    ty(ret).to_string()
+                };
+                let mut sig = vec![I64.to_string()];
+                sig.extend(tys.iter().skip(1).cloned());
+                let call = self.tmp();
+                let _ = writeln!(
+                    self.out,
+                    "  {call} = call {r} {fnptr}({})",
+                    zip_args(&sig, &vals)
+                );
+                if let Some(d) = dst {
+                    self.store_local(*d, &call, ret);
+                }
+            }
+            Inst::Load {
+                dst,
+                base,
+                offset,
+                ty: t,
+            } => {
+                let (b, _) = self.operand(base);
+                let p = self.tmp();
+                let a = self.tmp();
+                let v = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {b} to ptr");
+                let _ = writeln!(self.out, "  {a} = getelementptr i8, ptr {p}, i64 {offset}");
+                let _ = writeln!(self.out, "  {v} = load {}, ptr {a}, align 8", ty(*t));
+                self.store_local(*dst, &v, *t);
+            }
+            Inst::Store {
+                base,
+                offset,
+                value,
+            } => {
+                let (b, _) = self.operand(base);
+                let (v, t) = self.operand(value);
+                let p = self.tmp();
+                let a = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {b} to ptr");
+                let _ = writeln!(self.out, "  {a} = getelementptr i8, ptr {p}, i64 {offset}");
+                let wide = self.widen(&v, t);
+                let _ = writeln!(self.out, "  store {} {wide}, ptr {a}", ty(t));
+            }
+            Inst::Retain(op) => {
+                let (v, _) = self.operand(op);
+                let wide = self.widen(&v, Ty::Int);
+                let _ = writeln!(self.out, "  call void @kode_retain(i64 {wide})");
+            }
+            Inst::Release(op) => {
+                let (v, _) = self.operand(op);
+                let wide = self.widen(&v, Ty::Int);
+                let _ = writeln!(self.out, "  call void @kode_release(i64 {wide})");
+            }
+        }
+        Ok(())
+    }
+
+    /// Inline `len`, item reads and writes of lists and the push fast path,
+    /// matching the layout the runtime assumes. Layout:
+    /// `[rc][kind][len][capacity][data pointer]`, 8 bytes per item and one
+    /// byte per item for packed lists of bools.
+    fn try_inline_list(
+        &mut self,
+        dst: &Option<LocalId>,
+        callee: &Callee,
+        args: &[Operand],
+    ) -> Result<bool, String> {
+        let Callee::Rt(rt) = callee else {
+            return Ok(false);
+        };
+        match rt {
+            RtFn::ListLen => {
+                let (list, _) = self.operand(&args[0]);
+                let p = self.tmp();
+                // Offset 16 inside the object header.
+                let at = self.tmp();
+                let len = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {list} to ptr");
+                let _ = writeln!(self.out, "  {at} = getelementptr i8, ptr {p}, i64 16");
+                let _ = writeln!(self.out, "  {len} = load i64, ptr {at}, align 8");
+                self.store_local(dst.unwrap(), &len, Ty::Int);
+                Ok(true)
+            }
+            RtFn::ListGet | RtFn::ListGet8 => {
+                let packed = *rt == RtFn::ListGet8;
+                let (list, _) = self.operand(&args[0]);
+                let (idx, _) = self.operand(&args[1]);
+                let (line, _) = self.operand(&args[2]);
+                let addr = self.checked_item_addr(&list, &idx, &line, if packed { 0 } else { 3 });
+                let p = self.tmp();
+                let raw = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {addr} to ptr");
+                let value = if packed {
+                    let _ = writeln!(self.out, "  {raw} = load i8, ptr {p}");
+                    let wide = self.tmp();
+                    let _ = writeln!(self.out, "  {wide} = zext i8 {raw} to i64");
+                    wide
+                } else {
+                    let _ = writeln!(self.out, "  {raw} = load i64, ptr {p}, align 8");
+                    raw
+                };
+                self.store_local(dst.unwrap(), &value, Ty::Int);
+                Ok(true)
+            }
+            RtFn::ListSet8 => {
+                let (list, _) = self.operand(&args[0]);
+                let (idx, _) = self.operand(&args[1]);
+                let (raw, raw_ty) = self.operand(&args[2]);
+                let (line, _) = self.operand(&args[3]);
+                let narrow = if raw_ty == Ty::Bool {
+                    raw
+                } else {
+                    let t = self.tmp();
+                    let _ = writeln!(self.out, "  {t} = trunc i64 {raw} to i8");
+                    t
+                };
+                let addr = self.checked_item_addr(&list, &idx, &line, 0);
+                let p = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {addr} to ptr");
+                let _ = writeln!(self.out, "  store i8 {narrow}, ptr {p}");
+                Ok(true)
+            }
+            // Items that are heap values must release the old item: use the
+            // runtime, as the reference lowering does.
+            RtFn::ListSet if self.f.operand_ty(&args[2]) != Ty::Ref => {
+                let (list, _) = self.operand(&args[0]);
+                let (idx, _) = self.operand(&args[1]);
+                let (raw, _) = self.operand(&args[2]);
+                let (line, _) = self.operand(&args[3]);
+                let addr = self.checked_item_addr(&list, &idx, &line, 3);
+                let p = self.tmp();
+                let _ = writeln!(self.out, "  {p} = inttoptr i64 {addr} to ptr");
+                let _ = writeln!(self.out, "  store i64 {raw}, ptr {p}, align 8");
+                Ok(true)
+            }
+            RtFn::ListPush | RtFn::ListPush8 => {
+                let packed = *rt == RtFn::ListPush8;
+                let tag = self.n;
+                let (list, _) = self.operand(&args[0]);
+                let (raw, raw_ty) = self.operand(&args[1]);
+                let wide = if raw_ty == Ty::Bool {
+                    self.zext_bool(&raw)
+                } else {
+                    raw.clone()
+                };
+                let narrow = if raw_ty == Ty::Bool {
+                    raw.clone()
+                } else {
+                    let t = self.tmp();
+                    let _ = writeln!(self.out, "  {t} = trunc i64 {raw} to i8");
+                    t
+                };
+                let head = self.tmp();
+                let len_at = self.tmp();
+                let cap_at = self.tmp();
+                let len = self.tmp();
+                let cap = self.tmp();
+                let _ = writeln!(self.out, "  {head} = inttoptr i64 {list} to ptr");
+                let _ = writeln!(
+                    self.out,
+                    "  {len_at} = getelementptr i8, ptr {head}, i64 16"
+                );
+                let _ = writeln!(
+                    self.out,
+                    "  {cap_at} = getelementptr i8, ptr {head}, i64 24"
+                );
+                let _ = writeln!(self.out, "  {len} = load i64, ptr {len_at}, align 8");
+                let _ = writeln!(self.out, "  {cap} = load i64, ptr {cap_at}, align 8");
+                let full = self.tmp();
+                let _ = writeln!(self.out, "  {full} = icmp uge i64 {len}, {cap}");
+                let _ = writeln!(
+                    self.out,
+                    "  br i1 {full}, label %push{tag}.slow, label %push{tag}.fast"
+                );
+                let _ = writeln!(self.out, "push{tag}.fast:");
+                let data_at = self.tmp();
+                let data = self.tmp();
+                let _ = writeln!(
+                    self.out,
+                    "  {data_at} = getelementptr i8, ptr {head}, i64 32"
+                );
+                let _ = writeln!(self.out, "  {data} = load i64, ptr {data_at}, align 8");
+                let off = if packed {
+                    len.clone()
+                } else {
+                    let o = self.tmp();
+                    let _ = writeln!(self.out, "  {o} = shl i64 {len}, 3");
+                    o
+                };
+                let addr = self.tmp();
+                let slot = self.tmp();
+                let _ = writeln!(self.out, "  {addr} = add i64 {data}, {off}");
+                let _ = writeln!(self.out, "  {slot} = inttoptr i64 {addr} to ptr");
+                if packed {
+                    let _ = writeln!(self.out, "  store i8 {narrow}, ptr {slot}");
+                } else {
+                    let _ = writeln!(self.out, "  store i64 {wide}, ptr {slot}, align 8");
+                }
+                let newlen = self.tmp();
+                let _ = writeln!(self.out, "  {newlen} = add i64 {len}, 1");
+                let _ = writeln!(self.out, "  store i64 {newlen}, ptr {len_at}, align 8");
+                let _ = writeln!(self.out, "  br label %push{tag}.join");
+                let _ = writeln!(self.out, "push{tag}.slow:");
+                let _ = writeln!(
+                    self.out,
+                    "  call void @\"{name}\"(i64 {list}, i64 {wide})",
+                    name = if packed {
+                        "kode_list_push8"
+                    } else {
+                        "kode_list_push"
+                    }
+                );
+                let _ = writeln!(self.out, "  br label %push{tag}.join");
+                let _ = writeln!(self.out, "push{tag}.join:");
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Bounds-check `idx` (an unsigned compare, which also catches negatives)
+    /// with the runtime's message, then return the item address in `i64`.
+    fn checked_item_addr(&mut self, list: &str, idx: &str, line: &str, shift: i64) -> String {
+        let tag = self.n;
+        let head = self.tmp();
+        let len_at = self.tmp();
+        let len = self.tmp();
+        let _ = writeln!(self.out, "  {head} = inttoptr i64 {list} to ptr");
+        let _ = writeln!(
+            self.out,
+            "  {len_at} = getelementptr i8, ptr {head}, i64 16"
+        );
+        let _ = writeln!(self.out, "  {len} = load i64, ptr {len_at}, align 8");
+        let oob = self.tmp();
+        let _ = writeln!(self.out, "  {oob} = icmp uge i64 {idx}, {len}");
+        let _ = writeln!(self.out, "  br i1 {oob}, label %oob{tag}, label %ok{tag}");
+        let _ = writeln!(self.out, "oob{tag}:");
+        let _ = writeln!(
+            self.out,
+            "  call void @\"kode_list_oob\"(i64 {idx}, i64 {len}, i64 {line})"
+        );
+        let _ = writeln!(self.out, "  unreachable");
+        let _ = writeln!(self.out, "ok{tag}:");
+        let data_at = self.tmp();
+        let data = self.tmp();
+        let _ = writeln!(
+            self.out,
+            "  {data_at} = getelementptr i8, ptr {head}, i64 32"
+        );
+        let _ = writeln!(self.out, "  {data} = load i64, ptr {data_at}, align 8");
+        let off = if shift == 0 {
+            idx.to_string()
+        } else {
+            let o = self.tmp();
+            let _ = writeln!(self.out, "  {o} = shl i64 {idx}, {shift}");
+            o
+        };
+        let addr = self.tmp();
+        let _ = writeln!(self.out, "  {addr} = add i64 {data}, {off}");
+        addr
+    }
+
+    fn call(
+        &mut self,
+        dst: &Option<LocalId>,
+        callee: &Callee,
+        args: &[Operand],
+    ) -> Result<(), String> {
+        let (name, ret) = match callee {
+            Callee::User(i) => (
+                format!("kode_fn_{}", self.p.funcs[*i].name),
+                self.p.funcs[*i].ret,
+            ),
+            Callee::Rt(r) => (rt_entry(*r).0.to_string(), ret_ty(*r)),
+            Callee::Std(i) => (
+                self.p.std_sigs[*i].name.to_string(),
+                self.p.std_sigs[*i].ret,
+            ),
+        };
+        let mut vals: Vec<(String, Ty)> = Vec::new();
+        for a in args {
+            let (v, t) = self.operand(a);
+            let wants_i64_bool = match callee {
+                Callee::Std(_) => t == Ty::Bool,
+                Callee::Rt(r) => t == Ty::Bool && matches!(r, RtFn::PrintBool | RtFn::BoolToStr),
+                Callee::User(_) => false,
+            };
+            if wants_i64_bool {
+                let wide = self.zext_bool(&v);
+                vals.push((wide, Ty::Int));
+            } else {
+                let wide = self.widen(&v, t);
+                vals.push((wide, t));
+            }
+        }
+        let rendered: Vec<String> = vals
+            .iter()
+            .map(|(v, t)| format!("{} {v}", ty(*t)))
+            .collect();
+        // Runtime library functions return 0 or 1 as an i64, never an i8.
+        let rty = match (callee, ret) {
+            (_, Ty::Unit) => "void".to_string(),
+            (Callee::Std(_), Ty::Bool) => I64.to_string(),
+            _ => ty(ret).to_string(),
+        };
+        let call = self.tmp();
+        if ret == Ty::Unit {
+            let _ = writeln!(self.out, "  call void @\"{name}\"({})", rendered.join(", "));
+        } else {
+            let _ = writeln!(
+                self.out,
+                "  {call} = call {rty} @\"{name}\"({})",
+                rendered.join(", ")
+            );
+        }
+        let dst = if ret == Ty::Unit { None } else { *dst };
+        if let Some(d) = dst {
+            let to_bool = match callee {
+                Callee::Rt(r) => returns_bool(*r),
+                Callee::Std(i) => self.p.std_sigs[*i].ret == Ty::Bool,
+                Callee::User(_) => false,
+            };
+            if to_bool {
+                let cmp = self.tmp();
+                let _ = writeln!(self.out, "  {cmp} = icmp ne i64 {call}, 0");
+                let z = self.tmp();
+                let _ = writeln!(self.out, "  {z} = zext i1 {cmp} to i8");
+                self.store_local(d, &z, Ty::Bool);
+            } else {
+                self.store_local(d, &call, ret);
+            }
+        }
+        Ok(())
+    }
+
+    fn rvalue(&mut self, rv: &Rvalue) -> Result<(String, Ty), String> {
+        Ok(match rv {
+            Rvalue::Use(a) => self.operand(a),
+            Rvalue::Unary(op, a) => {
+                let (v, t) = self.operand(a);
+                let v = self.widen(&v, t);
+                let out = self.tmp();
+                match (op, t) {
+                    (UnOp::Neg, Ty::Int) => {
+                        let _ = writeln!(self.out, "  {out} = sub i64 0, {v}");
+                        (out, Ty::Int)
+                    }
+                    (UnOp::Neg, Ty::Float) => {
+                        let _ = writeln!(self.out, "  {out} = fneg double {v}");
+                        (out, Ty::Float)
+                    }
+                    (UnOp::Not, Ty::Bool) => {
+                        let c = self.tmp();
+                        let _ = writeln!(self.out, "  {c} = icmp eq i8 {v}, 0");
+                        let _ = writeln!(self.out, "  {out} = zext i1 {c} to i8");
+                        (out, Ty::Bool)
+                    }
+                    (UnOp::BitNot, Ty::Int) => {
+                        let _ = writeln!(self.out, "  {out} = xor i64 {v}, -1");
+                        (out, Ty::Int)
+                    }
+                    _ => return Err(format!("bad unary operation on {t:?}")),
+                }
+            }
+            Rvalue::Cast(kind, a) => {
+                let (v, t) = self.operand(a);
+                let v = self.widen(&v, t);
+                let out = self.tmp();
+                match kind {
+                    CastKind::IntToFloat => {
+                        let _ = writeln!(self.out, "  {out} = sitofp i64 {v} to double");
+                        (out, Ty::Float)
+                    }
+                    CastKind::FloatToInt => {
+                        let _ = writeln!(
+                            self.out,
+                            "  {out} = call i64 @llvm.fptosi.sat.i64.f64(double {v})"
+                        );
+                        (out, Ty::Int)
+                    }
+                    CastKind::BoolToInt => {
+                        let _ = writeln!(self.out, "  {out} = zext i8 {v} to i64");
+                        (out, Ty::Int)
+                    }
+                    CastKind::IntToBool => {
+                        let c = self.tmp();
+                        let _ = writeln!(self.out, "  {c} = icmp ne i64 {v}, 0");
+                        let _ = writeln!(self.out, "  {out} = zext i1 {c} to i8");
+                        (out, Ty::Bool)
+                    }
+                    CastKind::FloatToBits => {
+                        let _ = writeln!(self.out, "  {out} = bitcast double {v} to i64");
+                        (out, Ty::Int)
+                    }
+                    CastKind::BitsToFloat => {
+                        let _ = writeln!(self.out, "  {out} = bitcast i64 {v} to double");
+                        (out, Ty::Float)
+                    }
+                }
+            }
+            Rvalue::Select(c, a, b) => {
+                let (cv, _) = self.operand(c);
+                let (av, at) = self.operand(a);
+                let (bv, _) = self.operand(b);
+                let cond = self.tmp();
+                let cwide = self.widen(&cv, Ty::Bool);
+                let _ = writeln!(self.out, "  {cond} = trunc i8 {cwide} to i1");
+                let out = self.tmp();
+                let ab = self.widen(&av, at);
+                let bb = self.widen(&bv, at);
+                let _ = writeln!(
+                    self.out,
+                    "  {out} = select i1 {cond}, {} {ab}, {} {bb}",
+                    ty(at),
+                    ty(at)
+                );
+                (out, at)
+            }
+            Rvalue::Binary(op, x, y) => self.binary(*op, x, y)?,
+        })
+    }
+
+    fn binary(&mut self, op: BinOp, x: &Operand, y: &Operand) -> Result<(String, Ty), String> {
+        let t = self.f.operand_ty(x);
+        let (a, _) = self.operand(x);
+        let (b, _) = self.operand(y);
+        let a = self.widen(&a, t);
+        let b = self.widen(&b, t);
+        match t {
+            Ty::Int | Ty::Ref => Ok(self.int_binary(op, &a, &b, y)),
+            Ty::Float => self.float_binary(op, &a, &b),
+            Ty::Bool => match op {
+                BinOp::Eq | BinOp::Ne => {
+                    let c = self.tmp();
+                    let cc = if op == BinOp::Eq { "eq" } else { "ne" };
+                    let _ = writeln!(self.out, "  {c} = icmp {cc} i8 {a}, {b}");
+                    let out = self.tmp();
+                    let _ = writeln!(self.out, "  {out} = zext i1 {c} to i8");
+                    Ok((out, Ty::Bool))
+                }
+                _ => Err("bad operation on bools".into()),
+            },
+            _ => Err(format!("bad binary operation on {t:?}")),
+        }
+    }
+
+    fn int_binary(&mut self, op: BinOp, a: &str, b: &str, y: &Operand) -> (String, Ty) {
+        let out = self.tmp();
+        match op {
+            BinOp::Add => {
+                let _ = writeln!(self.out, "  {out} = add i64 {a}, {b}");
+                (out, Ty::Int)
+            }
+            BinOp::Sub => {
+                let _ = writeln!(self.out, "  {out} = sub i64 {a}, {b}");
+                (out, Ty::Int)
+            }
+            BinOp::Mul => {
+                let _ = writeln!(self.out, "  {out} = mul i64 {a}, {b}");
+                (out, Ty::Int)
+            }
+            BinOp::Div | BinOp::Rem => (self.divide(op == BinOp::Rem, a, b), Ty::Int),
+            BinOp::BitAnd => {
+                let _ = writeln!(self.out, "  {out} = and i64 {a}, {b}");
+                (out, Ty::Int)
+            }
+            BinOp::BitOr => {
+                let _ = writeln!(self.out, "  {out} = or i64 {a}, {b}");
+                (out, Ty::Int)
+            }
+            BinOp::BitXor => {
+                let _ = writeln!(self.out, "  {out} = xor i64 {a}, {b}");
+                (out, Ty::Int)
+            }
+            BinOp::Shl | BinOp::Shr => {
+                // A constant count, like the reference fast path.
+                if let Operand::Int(n) = y {
+                    if !(0..64).contains(n) {
+                        let _ = writeln!(self.out, "  {out} = add i64 0, 0");
+                        return (out, Ty::Int);
+                    }
+                }
+                let big = self.tmp();
+                let _ = writeln!(self.out, "  {big} = icmp uge i64 {b}, 64");
+                let shifted = self.tmp();
+                let ins = if op == BinOp::Shl { "shl" } else { "ashr" };
+                let _ = writeln!(self.out, "  {shifted} = {ins} i64 {a}, {b}");
+                let _ = writeln!(self.out, "  {out} = select i1 {big}, i64 0, i64 {shifted}");
+                (out, Ty::Int)
+            }
+            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                let cc = match op {
+                    BinOp::Eq => "eq",
+                    BinOp::Ne => "ne",
+                    BinOp::Lt => "slt",
+                    BinOp::Le => "sle",
+                    BinOp::Gt => "sgt",
+                    _ => "sge",
+                };
+                let c = self.tmp();
+                let _ = writeln!(self.out, "  {c} = icmp {cc} i64 {a}, {b}");
+                let _ = writeln!(self.out, "  {out} = zext i1 {c} to i8");
+                (out, Ty::Bool)
+            }
+        }
+    }
+
+    fn float_binary(&mut self, op: BinOp, a: &str, b: &str) -> Result<(String, Ty), String> {
+        let out = self.tmp();
+        let ins = match op {
+            BinOp::Add => "fadd",
+            BinOp::Sub => "fsub",
+            BinOp::Mul => "fmul",
+            BinOp::Div => "fdiv",
+            _ => "",
+        };
+        if !ins.is_empty() {
+            let _ = writeln!(self.out, "  {out} = {ins} double {a}, {b}");
+            return Ok((out, Ty::Float));
+        }
+        let cc = match op {
+            BinOp::Eq => "oeq",
+            BinOp::Ne => "une",
+            BinOp::Lt => "olt",
+            BinOp::Le => "ole",
+            BinOp::Gt => "ogt",
+            BinOp::Ge => "oge",
+            _ => return Err("this operator is not supported on floats".into()),
+        };
+        let c = self.tmp();
+        let _ = writeln!(self.out, "  {c} = fcmp {cc} double {a}, {b}");
+        let _ = writeln!(self.out, "  {out} = zext i1 {c} to i8");
+        Ok((out, Ty::Bool))
+    }
+
+    /// Signed division that never crashes: a zero divisor stops with the
+    /// runtime's message, and `MIN / -1` wraps like the reference lowering.
+    fn divide(&mut self, remainder: bool, a: &str, b: &str) -> String {
+        let tag = self.n;
+        let is_zero = self.tmp();
+        let _ = writeln!(self.out, "  {is_zero} = icmp eq i64 {b}, 0");
+        let _ = writeln!(
+            self.out,
+            "  br i1 {is_zero}, label %div{t}.trap, label %div{t}.ok",
+            t = tag
+        );
+        let _ = writeln!(self.out, "div{tag}.trap:");
+        let _ = writeln!(self.out, "  call void @kode_div_zero()");
+        let _ = writeln!(self.out, "  unreachable");
+        let _ = writeln!(self.out, "div{tag}.ok:");
+        let is_m1 = self.tmp();
+        let _ = writeln!(self.out, "  {is_m1} = icmp eq i64 {b}, -1");
+        let safe = self.tmp();
+        let _ = writeln!(self.out, "  {safe} = select i1 {is_m1}, i64 1, i64 {b}");
+        let out = self.tmp();
+        if remainder {
+            let r = self.tmp();
+            let _ = writeln!(self.out, "  {r} = srem i64 {a}, {safe}");
+            let _ = writeln!(self.out, "  {out} = select i1 {is_m1}, i64 0, i64 {r}");
+        } else {
+            let q = self.tmp();
+            let _ = writeln!(self.out, "  {q} = sdiv i64 {a}, {safe}");
+            let neg = self.tmp();
+            let _ = writeln!(self.out, "  {neg} = sub i64 0, {a}");
+            let _ = writeln!(self.out, "  {out} = select i1 {is_m1}, i64 {neg}, i64 {q}");
+        }
+        out
+    }
+
+    fn term(&mut self, t: &Terminator) {
+        match t {
+            Terminator::Goto(bb) => {
+                let _ = writeln!(self.out, "  br label %bb{bb}");
+            }
+            Terminator::Branch {
+                cond,
+                then_bb,
+                else_bb,
+            } => {
+                let (c, _) = self.operand(cond);
+                let c = self.widen(&c, Ty::Bool);
+                let bit = self.tmp();
+                let _ = writeln!(self.out, "  {bit} = trunc i8 {c} to i1");
+                let _ = writeln!(
+                    self.out,
+                    "  br i1 {bit}, label %bb{then_bb}, label %bb{else_bb}"
+                );
+            }
+            Terminator::Return(None) => {
+                let _ = writeln!(self.out, "  ret void");
+            }
+            Terminator::Return(Some(op)) if self.f.ret == Ty::Unit => {
+                let _ = self.operand(op);
+                let _ = writeln!(self.out, "  ret void");
+            }
+            Terminator::Return(Some(op)) => {
+                let (v, _) = self.operand(op);
+                let t = self.f.ret;
+                let wide = self.widen(&v, t);
+                let _ = writeln!(self.out, "  ret {} {wide}", ty(t));
+            }
+            Terminator::Unreachable => {
+                let _ = writeln!(self.out, "  unreachable");
+            }
+        }
+    }
+}
+
+fn zip_args(tys: &[String], vals: &[String]) -> String {
+    tys.iter()
+        .zip(vals)
+        .map(|(t, v)| format!("{t} {v}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The MIR type of a runtime function's result (`None` means unit).
+fn ret_ty(f: RtFn) -> Ty {
+    match rt_entry(f).2 {
+        None => Ty::Unit,
+        Some(F64) => Ty::Float,
+        Some(_) => Ty::Int,
+    }
+}

@@ -1,0 +1,11 @@
+m: {string: int} = {}
+i = 0
+while i < 100000 {
+    m["k${i % 1000}"] = i
+    i += 1
+}
+total = 0
+for j in 0..1000 {
+    total += m["k${j}"]
+}
+print(total)

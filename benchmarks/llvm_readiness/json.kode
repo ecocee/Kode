@@ -1,0 +1,9 @@
+payload = "{\"a\":1,\"tags\":[\"x\",\"y\",\"z\"],\"ok\":true}"
+sum = 0
+i = 0
+while i < 20000 {
+    d = json_parse(payload)
+    sum += d["a"].as_int() + d["tags"].len()
+    i += 1
+}
+print(sum)

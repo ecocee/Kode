@@ -1,0 +1,6 @@
+[package]
+name = "kode-link"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Kode object linking (the linker driver and runtime archive)"

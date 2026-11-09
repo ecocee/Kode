@@ -33,6 +33,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # The release smoke test runs the built compiler, which needs clang.
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 

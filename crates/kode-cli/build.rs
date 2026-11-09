@@ -41,22 +41,64 @@ fn main() {
         }
     });
 
-    let target_directory = workspace.join("target");
-    let candidates = [
-        target_directory.join(&target_triple).join("debug").join(&lib_name),
-        target_directory.join("debug").join(&lib_name),
-        target_directory.join(&target_triple).join("release").join(&lib_name),
-        target_directory.join("release").join(&lib_name),
-    ];
+    // `CARGO_TARGET_DIR` overrides the workspace `target` folder, and the build
+    // profile decides where the archive actually lands.
+    let target_directory = env::var("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| workspace.join("target"));
+    let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
 
-    let lib_path = candidates
-        .iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| panic!("could not find {} under {}", lib_name, target_directory.display()));
+    let mut candidates = vec![
+        target_directory
+            .join(target_triple.as_str())
+            .join(&profile)
+            .join(lib_name),
+        target_directory.join(&profile).join(lib_name),
+    ];
+    // A `staticlib` compiled as a build dependency is not uplifted out of
+    // `deps/`, so `cargo build --release` on its own leaves only
+    // `target/release/deps/libkode_rt-<hash>.a`. Look there too, newest first,
+    // because a stale archive from an earlier hash must not win.
+    for deps in [
+        target_directory
+            .join(target_triple.as_str())
+            .join(&profile)
+            .join("deps"),
+        target_directory.join(&profile).join("deps"),
+    ] {
+        let mut found: Vec<PathBuf> = fs::read_dir(&deps)
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok().map(|e| e.path()))
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.starts_with("libkode_rt") && n.ends_with(".a"))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        found.sort_by_key(|p| std::cmp::Reverse(fs::metadata(p).and_then(|m| m.modified()).ok()));
+        candidates.extend(found);
+    }
+
+    let lib_path = candidates.iter().find(|p| p.exists()).unwrap_or_else(|| {
+        panic!(
+            "could not find {} under {}",
+            lib_name,
+            target_directory.display()
+        )
+    });
 
     fs::create_dir_all(&out_dir).expect("could not create OUT_DIR");
-    fs::copy(&lib_path, out_dir.join(&lib_name)).expect("could not copy libkode_rt.a into OUT_DIR");
+    fs::copy(lib_path, out_dir.join(lib_name)).expect("could not copy libkode_rt.a into OUT_DIR");
 
-    println!("cargo:rerun-if-changed={}", workspace.join("kode-rt").join("src").display());
-    println!("cargo:rerun-if-changed={}", workspace.join("kode-rt").join("Cargo.toml").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        workspace.join("kode-rt").join("src").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        workspace.join("kode-rt").join("Cargo.toml").display()
+    );
 }

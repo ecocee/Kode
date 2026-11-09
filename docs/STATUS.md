@@ -1,6 +1,6 @@
 # Status: v0.3 audit (Phase 0)
 
-Last verified: 2026-11-06, commit `336d98f` (branch `main`), macOS 15 / arm64
+Last verified: 2026-11-09, commit `60f491d` (branch `chore/baseline-verify`), macOS 15 / arm64
 (Apple silicon), debug compiler unless stated.
 
 To reproduce the numbers in this file:
@@ -24,50 +24,61 @@ verified from the repository, it says so instead of guessing.
 and small HTTP services on macOS/Linux, but it is not safe to offer as a
 general-purpose language. Blockers, in the order they hurt:
 
-1. No TLS. `https://` raises an error (ADR/spec 13). Every real service needs it.
-2. A compiler crash on moderately deep input: **stack overflow (SIGABRT)** at
-   ~300 nested parentheses, a 1,000–2,000 term `+` chain, and 500 nested `if`
-   blocks. A compiler must diagnose, not abort (§7).
+1. Every program is over the 1 MB binary budget: hello world is **1,077,600
+   bytes stripped**, and a TLS server program is 5,431,968 bytes, because
+   optional runtime components (`rustls`, `webpki-roots`, the PostgreSQL client
+   and the server-side crypto) are linked wholesale into every binary (§2, §10).
+2. TLS servers pay one thread per connection (ADR 0034) and do not use the epoll
+   loop, so 1,024 concurrent TLS connections is the practical ceiling and RSS
+   grows with connections, not with request rate.
 3. Reference-counting cannot break cycles, so two objects pointing at each
    other leak forever (no `weak`).
 4. No byte buffers and only 64-bit `int`; no fixed-width integers, no binary
    protocol work.
-5. A PostgreSQL client exists (ADR 0033) but speaks plain TCP only, so TLS and
-   md5 authentication are missing.
-6. Release automation only builds Linux x86-64, while the docs promise macOS,
-   Windows and aarch64 artifacts (§4.1). Windows has never been verified by hand.
+5. A PostgreSQL client exists (ADR 0033) with TLS (rustls) and a connection
+   pool, but no md5, `COPY`, binary format or cancellation. The HTTP client and
+   server still have no TLS at all: `https://` raises an error.
+6. Release automation builds Linux x86-64 and macOS arm64 only; Linux aarch64,
+   macOS Intel and Windows artifacts are promised in the docs but not built, and
+   Windows has never been verified by hand (§4.1).
 
 **Self-hosting-ready: no, and far away.** There is no lexer, parser, checker or
 backend written in Kode (§3, Phase 6). The language also lacks the three things
 a compiler needs first: enum payloads with pattern matching, generic classes,
-and a faster memory story for token/AST graphs. The backend question (Cranelift
-is a Rust library) is undecided.
+and a faster memory story for token/AST graphs. The backend question is settled: LLVM, which needs `clang` at build time.
 
 ## 2. Baseline
 
 | Item | Value |
 |---|---|
-| Rust source | 20,210 lines across 7 crates (`find crates -name '*.rs' \| xargs wc -l`) |
-| Kode source (tests + examples) | 1,972 lines (`find examples tests -name '*.kode' \| xargs wc -l`) |
-| `tests/run-pass` | 44 programs (`ls tests/run-pass/*.kode \| wc -l`), leak-checked |
-| `tests/compile-fail` | 92 programs (`ls tests/compile-fail/*.kode \| wc -l`) |
-| Rust tests | 49 (`cargo test --workspace`, summing the `test result` lines) |
-| ADRs | 30 files (`docs/adr/0001` … `0031`; numbering has gaps) |
+| Rust source | 27,789 lines across 7 crates (`find crates -name '*.rs' \| xargs wc -l`) |
+| Kode source (tests + examples) | 3,174 lines (`find examples tests -name '*.kode' \| xargs wc -l`) |
+| `tests/run-pass` | 46 programs (`ls tests/run-pass/*.kode \| wc -l`), leak-checked |
+| `tests/compile-fail` | 98 programs (`ls tests/compile-fail/*.kode \| wc -l`) |
+| Rust tests | 108 (`cargo test --workspace`, summing the `test result` lines) |
+| ADRs | 33 files (`docs/adr/0001` … `0034`; numbering has gaps) |
 | Spec chapters | 13 (`docs/spec/01` … `13`, including `07-planned`) |
 | `cargo build --workspace` | passes |
-| `cargo test --workspace` | passes, 49/49, 0 failed |
-| `cargo clippy --workspace` | **fails** (3 deny-by-default errors, 2 warnings), all pre-existing (§7) |
+| `cargo test --workspace` | passes, 98/98, 0 failed, no leaks |
+| `cargo clippy --workspace --all-targets -- -D warnings` | passes |
 | `kode fmt examples tests/run-pass --check` | passes |
-| `kode doctor` | all ok: kode 0.3.0, macos-aarch64, runtime ABI 0003, clang 2100 |
+| `kode check` on every example and run-pass program | passes, 54 files |
+| `kode doctor` | all ok: kode 0.3.5, macos-aarch64, runtime ABI 0004, clang 2100 |
+| hello world, debug build | 1,252,288 bytes |
+| hello world, `--release` | 1,233,472 bytes |
+| hello world, `--release` + `strip -x` | **1,077,600 bytes — over the 1 MB budget** |
+| plaintext benchmark server, stripped | 1,484,136 bytes |
+| TLS benchmark server (`serve_tls`), stripped | 5,431,968 bytes |
+| embedded runtime archive | 59,649 KB (`kode doctor`) |
 
-Version drift: `Cargo.toml` says `0.3.0`; tags reach `v0.3.5`; the public
-releases page shows `v0.3.4-test2`; `dist/` holds `0.3.0` artifacts. Four
-different "current versions" in one project.
+The hello-world measurements above are the reason the 1 MB stripped budget in
+PLAN-v1 §3 is currently **missed**: the PostgreSQL client's `rustls` and
+`webpki-roots` are linked into every program, even one that never opens a socket.
+This was recorded on 2026-11-09 and must be fixed or budgeted before any size
+claim is published (§10).
 
-Repository hygiene: `dist/` is **65 MB of committed binaries** (a `kode` binary,
-a tarball, a Windows zip, `SHA256SUMS.txt`), and it is stale at 0.3.0. There is
-no `LICENSE` file even though `README.md` says Apache-2.0 and the GitHub repo declares
-Apache-2.0; there is no `SECURITY.md`.
+Version history: `Cargo.toml` and the latest tag both say `0.3.5`; `dist/` is no
+longer tracked and is git-ignored; `LICENSE` and `SECURITY.md` exist.
 
 ## 3. Phase status
 
@@ -100,10 +111,10 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 
 | Item | State | Evidence |
 |---|---|---|
-| 3.1 TLS | **missing** | `docs/spec/13-stdlib.md` "Only plain `http://` is supported"; `https://` raises |
+| 3.1 TLS | **done, with limits** | ADR 0034: `https://` client verified against webpki roots, `serve_tls` with DER certificates; the TLS server is thread-per-connection, not epoll; costs in `benchmarks/http/tls.md` |
 | 3.2 Raw TCP/UDP sockets | **missing** | no socket API outside the HTTP server |
 | 3.3 Server hardening | **partial** | HTTP/1.1 keep-alive (`http.rs:103`); **no request size limit, no read timeout, no static files, no middleware, no graceful drain** (grep of `http.rs`/`router.rs`) |
-| 3.4 PostgreSQL client | **partial** | `pg_wire.rs`/`pg.rs` (ADR 0033): plain TCP, SCRAM-SHA-256, simple + extended protocol, JSON results; **no TLS, no md5, no `COPY`, no pooling** (`sslmode=disable` only) |
+| 3.4 PostgreSQL client | **partial** | `pg_wire.rs`/`pg.rs` (ADR 0033): opportunistic TLS, SCRAM-SHA-256, simple + extended protocol, JSON results, `pg.pool`; **no md5, no `COPY`, no binary format, no cancellation**, `sslmode=require` still rejected |
 | 3.5 C FFI | **missing** | no `extern fn`; ADR not written |
 
 ### Phase 4 — tooling
@@ -120,10 +131,10 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 
 | Item | State | Evidence |
 |---|---|---|
-| 5.1 Windows conformance on a real runner | **partial** | `ci.yml` has a `windows-latest` job with MinGW-w64 + GNU toolchain; **no confirmation it is green** (no `gh`, no CI access from here), and `docs/windows.md` says linked binaries are "mostly not run on Windows by hand" |
-| 5.2 Installers, signing, reproducibility | **partial** | `release.yml` builds **Linux x86-64 only** (tarball + `.deb` + checksums). No macOS, no Windows, no aarch64 in CI despite docs; no signing; no reproducibility notes |
+| 5.1 Windows conformance on a real runner | **partial** | `ci.yml` (B9) runs build, clippy, tests, conformance, fmt, release build and a hello-world run on `windows-latest` with MinGW-w64, GNU Rust and Chocolatey LLVM. **Still not verified green**: no CI run has been inspected from here. `docs/platforms.md` states the native/emulated split |
+| 5.2 Installers, signing, reproducibility | **partial** | `release.yml` builds Linux x86-64 (tarball, `.deb`, checksums) and macOS arm64 (tarball, checksums); the release job installs clang (B9). No Windows or aarch64 artifact, no signing, no reproducibility notes |
 | 5.3 Cross-compilation | **missing** | `docs/windows.md`: runtime archive is host-built, "not wired up yet" |
-| 5.4 LLVM `--release` backend | **missing** | Cranelift only |
+| 5.4 LLVM `--release` backend | **done** | LLVM is the only backend since B7; Cranelift removed in B8 |
 | 5.5 Security process | **missing** | no `SECURITY.md`, no `cargo deny`, no supply-chain policy, no runtime-patch procedure |
 
 ### Phase 6 — self-hosting
@@ -176,8 +187,6 @@ the code contradicts today.
    `weak` fields" as gaps. Channels shipped (ADR 0026, `channel_heap.kode`),
    `int?` works as a local (ADR 0024). `finally` is also listed as a gap in
    §1 while §4 records it as done.
-7. **`README.md` names the wrong CI file**: "CI (test.yml) and release
-   (release.yml)"; the workflow is `ci.yml`.
 8. **`docs/site/build.sh` reads `COPYING.txt`**, which does not exist, so the
    "Project information" page and its sidebar link are dead. The script also
    has a hard-coded `generics.html` sidebar entry.
@@ -192,7 +201,7 @@ the code contradicts today.
     `v0.3.3`, `v0.3.3-development`, and tags `v0.2.0-alpha` through
     `v0.3.4-test2`. The repository description still says "concurrency-first"
     and the topics still include `golang` and `interpreter`, which contradict a
-    Rust/Cranelift native compiler; those are live metadata and should be
+    Rust/LLVM native compiler; those are live metadata and should be
     corrected.
 11. **Version drift** (§2): Cargo 0.3.0, tags to v0.3.5, releases page
     v0.3.4-test2, `dist/` 0.3.0.
@@ -231,22 +240,27 @@ Not measured, and why:
   minutes with `curl` per request and a keep-alive client is the right tool.
 - **`fib(35)` in a `--release` build of the *program*** is included, but the
   harness uses the debug `kode` compiler (the compiler's own build profile does
-  not change Cranelift's optimisation, but the report should say so explicitly).
+  not change the backend's optimisation, but the report should say so explicitly).
 
 ## 6. CI status
 
-- `ci.yml`: matrix `ubuntu-latest`, `macos-latest`, `windows-latest`; build,
-  `cargo test --workspace` with `KODE_LEAK_CHECK=1`, a conformance smoke test,
-  and `kode fmt tests/run-pass --check`. Windows installs MSYS2 UCRT64 gcc and
-  switches rustup to `stable-x86_64-pc-windows-gnu`.
+- `ci.yml` (B9): one matrix, four native runners — `ubuntu-latest` (x86-64),
+  `ubuntu-24.04-arm` (arm64), `macos-14` (arm64), `windows-latest` (x86-64).
+  Each asserts `uname -m`, installs clang explicitly (apt, Chocolatey LLVM, or
+  the verified system Command Line Tools) and runs: `cargo build --workspace`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace` with `KODE_LEAK_CHECK=1`,
+  `cargo test -p kode-cli --test llvm_conformance`,
+  `kode fmt tests/run-pass examples --check`, `cargo build --release -p kode-cli`,
+  then builds and runs `examples/hello.kode` with the release binary.
+  No skip list, no `continue-on-error`. Details: `docs/platforms.md`.
 - **Not verified green**: `gh` is not installed here and the GitHub Actions API
-  was not queried. Treat Ubuntu/Windows as unproven until a run is inspected.
-  The previous known run (before these fixes) failed on Ubuntu
-  (`list_map_filter`, `generics_nested`) and on Windows (CRLF and `-lc`), which
-  is what the current changes address.
-- **Gaps in CI**: no `cargo clippy`, no `kode fmt` check for `examples/`, no
-  docs-site build, no benchmark regression check, no release-artifact smoke test
-  for macOS/Windows.
+  was not queried, so the workflows have never executed. The same command
+  sequence was run by hand on macOS arm64, and in native Linux arm64 and
+  emulated Linux x86-64 containers (see `crates/kode-llvm/B9.md`).
+- **Gaps in CI**: no docs-site build, no benchmark regression check, no Windows
+  release artifact, no Microsoft-hosted arm64 runner for private repositories
+  (`ubuntu-24.04-arm` is public-repository only).
 
 ## 7. Crashes and robustness
 
@@ -365,3 +379,42 @@ Still open, needs a human or approval:
   branches and tags. Scratch-clone measurement: `.git` 42M before, 11M after
   (filter-branch alone left it at 41M until `refs/original` was deleted, which is
   why filter-repo is the right tool).
+
+### TLS: `feat/tls-transport`, `feat/http-client-https`, `feat/http-server-tls`, `perf/tls-budget`, `docs/tls`
+
+Plan item 9.3, ADR 0034. `https://` works in the HTTP client (webpki roots and
+host-name verification, failures name the host), `serve_tls` serves HTTPS from
+DER certificate and key files with a handler or a `Router`, and one `Transport`
+in `crates/kode-rt/src/tls.rs` is shared with the PostgreSQL client (whose
+per-read `Mutex` is gone).
+
+- Tests: fixture-certificate round trip, a certificate rejected for the wrong
+  host, keep-alive over TLS in Rust, `serve_tls` verified with `curl` for both a
+  handler and a `Router`, a missing-certificate startup error, and the
+  compile-fail case `tests/compile-fail/serve_tls_bad_handler.kode` (E0232).
+- Cost, `benchmarks/http/tls.md` (PRELIMINARY, one laptop): hello 1,077,600
+  bytes stripped; plaintext server 1,484,136; TLS server 5,431,968; idle RSS
+  2,080 KB vs 3,600 KB; keep-alive 140,734 vs 62,346 req/s; handshake ~1 ms.
+- Not done: TLS on the epoll loop, PEM loading, certificate rotation, custom
+  CAs, client certificates, HTTP/2. `sslmode=require` is still rejected for the
+  PostgreSQL client, but the error now says that instead of claiming TLS is
+  unimplemented.
+
+### `chore/baseline-verify`
+
+Re-verified the tree at `60f491d` (the `bench/http` line, 11 commits ahead of
+`main`) before starting TLS work. Every number in §2 is from this pass.
+
+- Cleared the last clippy failures: three `std::io::Error::new(ErrorKind::Other, …)`
+  in `crates/kode-rt/src/pg_tls.rs` now use `std::io::Error::other`; a dead
+  `TlsStream::plaintext`, a dead `pg::pool_slot`, an unused `std::net::Shutdown`
+  import and a doc comment on a `thread_local!` (now a plain comment) are gone.
+  `cargo clippy --workspace --all-targets -- -D warnings` is green.
+- Gate: build, 98 tests with `KODE_LEAK_CHECK=1` (0 leaks), clippy, `kode fmt
+  --check`, and `kode check` on all 54 example and run-pass programs.
+- **Regression recorded, not fixed here:** hello world is 1,077,600 bytes
+  stripped (debug 1,252,288, release 1,233,472). The PostgreSQL client brought
+  `rustls` and `webpki-roots` into `kode-rt`, and they are linked into every
+  program; the embedded runtime archive is 59,649 KB. The 1 MB budget is missed
+  by about 29 KB. Fix with link-on-use (split the archive per subsystem) or
+  change the budget deliberately, before A4 publishes any size claim.

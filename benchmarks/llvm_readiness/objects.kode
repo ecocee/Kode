@@ -1,0 +1,13 @@
+class Point {
+    x: int
+    y: int
+    fn sum() -> int => x + y
+}
+total = 0
+i = 0
+while i < 1000000 {
+    p = Point(x: i, y: i * 2)
+    total += p.sum()
+    i += 1
+}
+print(total)

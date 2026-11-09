@@ -1,0 +1,44 @@
+// skip-os: windows
+// A program that cannot be started must raise every time, and launches must keep
+// working afterwards (the runtime waits for every child it starts).
+missing = 0
+i = 0
+while i < 300 {
+    try {
+        exec("kode-no-such-program-8c1d", [], "")
+    } catch e {
+        if e.message.contains("cannot run") {
+            missing += 1
+        }
+    }
+    i += 1
+}
+print(missing)
+
+bad = false
+try {
+    exec("/definitely/not/here", [], "")
+} catch e {
+    bad = e.message.contains("cannot run")
+}
+print(bad)
+
+// A bad working directory is a launch failure too.
+nodir = false
+try {
+    exec("/bin/sh", ["-c", "true"], "/definitely/not/here")
+} catch e {
+    nodir = true
+}
+print(nodir)
+
+clean = 0
+i = 0
+while i < 50 {
+    r = exec("/bin/sh", ["-c", "printf x"], "")
+    if r.code == 0 and r.stdout == "x" {
+        clean += 1
+    }
+    i += 1
+}
+print(clean)

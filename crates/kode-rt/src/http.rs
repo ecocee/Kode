@@ -6,9 +6,10 @@
 
 use std::net::TcpListener;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use crate::error::{fatal, take_err};
-use crate::http_wire::{checked_port, event_loop, Request};
+use crate::http_wire::{checked_port, event_loop, tls_event_loop, Request};
 use crate::object::{kode_release, Header, THREADED};
 use crate::string::{bytes, from_bytes, from_external};
 
@@ -80,6 +81,80 @@ pub unsafe extern "C" fn kode_http_serve(port: i64, handler: Handler) {
     eprintln!("kode: listening on http://localhost:{port}");
     let h = handler as usize;
     event_loop(listener, move |req| {
+        let handler: Handler = unsafe { std::mem::transmute::<usize, Handler>(h) };
+        call_handler(handler, req)
+    });
+}
+
+/// Read a TLS file path passed to `serve_tls` from a Kode string.
+pub(crate) unsafe fn tls_path(path: *mut Header, what: &str) -> String {
+    match std::str::from_utf8(bytes(path)) {
+        Ok(text) => text.to_string(),
+        Err(_) => fatal(&format!("the {what} path is not valid UTF-8")),
+    }
+}
+
+/// Build the TLS server configuration from DER files.
+///
+/// DER rather than PEM keeps the runtime free of a PEM parser; the error says how
+/// to convert. See ADR 0034.
+pub(crate) fn server_config(cert_path: &str, key_path: &str) -> Arc<rustls::ServerConfig> {
+    let read = |path: &str, what: &str| {
+        std::fs::read(path)
+            .unwrap_or_else(|e| fatal(&format!("cannot read the {what} `{path}`: {e}")))
+    };
+    let certs = vec![rustls::pki_types::CertificateDer::from(read(
+        cert_path,
+        "certificate",
+    ))];
+    let key = rustls::pki_types::PrivateKeyDer::Pkcs8(
+        rustls::pki_types::PrivatePkcs8KeyDer::from(read(key_path, "private key")),
+    );
+    let config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .unwrap_or_else(|e| {
+            fatal(&format!(
+                "`{cert_path}` is not a usable DER certificate for the key `{key_path}`: {e}; \
+                 convert PEM with `openssl x509 -outform der` and \
+                 `openssl pkcs8 -topk8 -nocrypt -outform der`"
+            ))
+        });
+    Arc::new(config)
+}
+
+/// Bind a TLS listener and print the scheme it serves.
+pub(crate) fn tls_listener(
+    port: i64,
+    cert_path: &str,
+    key_path: &str,
+) -> (TcpListener, Arc<rustls::ServerConfig>) {
+    let port = checked_port(port);
+    let config = server_config(cert_path, key_path);
+    let listener = TcpListener::bind(("0.0.0.0", port))
+        .unwrap_or_else(|e| fatal(&format!("cannot listen on port {port}: {e}")));
+    eprintln!("kode: listening on https://localhost:{port}");
+    (listener, config)
+}
+
+/// Run an HTTPS server with a plain handler function.
+///
+/// # Safety
+/// `cert` and `key` must be string paths to DER files, and `handler` must be a
+/// compiled Kode function with the handler signature.
+#[no_mangle]
+pub unsafe extern "C" fn kode_http_serve_tls(
+    port: i64,
+    cert: *mut Header,
+    key: *mut Header,
+    handler: Handler,
+) {
+    let cert = tls_path(cert, "certificate");
+    let key = tls_path(key, "private key");
+    THREADED.store(true, Ordering::SeqCst);
+    let (listener, config) = tls_listener(port, &cert, &key);
+    let h = handler as usize;
+    tls_event_loop(listener, config, move |req| {
         let handler: Handler = unsafe { std::mem::transmute::<usize, Handler>(h) };
         call_handler(handler, req)
     });
