@@ -9,6 +9,7 @@
 //! * `json`: dynamic JSON values and their parser; `std_fns`: strings, files, sorting, ...
 //! * `process`: `exec`, so a Kode program can run a compiler or a linker
 //! * `router`: the `Router` / `Request` / `Response` web API layer
+//! * `tls`: client TLS (rustls), shared by the PostgreSQL and HTTP clients
 //! * `io`: printing; `repr`: the text of a list or map
 
 mod base64;
@@ -29,7 +30,6 @@ mod pg;
 mod pg_message;
 mod pg_scram;
 mod pg_url;
-mod pg_tls;
 mod pg_wire;
 mod process;
 mod repr;
@@ -38,6 +38,7 @@ mod sha256;
 mod std_fns;
 mod string;
 mod task;
+mod tls;
 
 /// ABI marker. The compiler checks that the runtime library it links contains this
 /// symbol name. Rename it (and `RT_ABI` in `kode-codegen/src/link.rs`) whenever the

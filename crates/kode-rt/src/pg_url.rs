@@ -3,7 +3,8 @@
 //! Follows libpq where it matters: the database defaults to the user name, the
 //! port defaults to 5432, an empty host means `127.0.0.1`, and percent escapes
 //! are decoded in the user name, password and database. Options that this client
-//! cannot honour (TLS, unknown keys) are errors rather than silently ignored.
+//! cannot honour (a required TLS handshake, unknown keys) are errors rather than
+//! silently ignored.
 
 use std::net::{SocketAddr, ToSocketAddrs};
 
@@ -11,7 +12,7 @@ const MAX_STARTUP_PARAM: usize = 64 << 10;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Ssl {
-    /// Try an SSLRequest; if the server offers TLS, fail with a clear message.
+    /// Send an SSLRequest and upgrade to TLS when the server offers it.
     Prefer,
     /// Never ask for TLS (the server still has to allow plaintext).
     Disable,

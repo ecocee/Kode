@@ -10,11 +10,9 @@
 
 use std::io::{BufReader, Read, Write};
 use std::net::TcpStream;
-use std::sync::Arc;
 use std::time::Duration;
 
-use super::pg_tls::TlsStream;
-use rustls::RootCertStore;
+use super::tls::Transport;
 
 use crate::pg_message::{
     cstr, frame, i32_at, parse_data_row, parse_row_description, printable, server_error,
@@ -31,12 +29,12 @@ const IO_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_MESSAGE: usize = 256 << 20;
 
 pub(crate) struct Conn {
-    reader: Option<BufReader<TlsStream>>,
+    reader: Option<BufReader<Transport>>,
     target: Target,
 }
 
 impl Conn {
-    fn reader_mut(&mut self) -> &mut BufReader<TlsStream> {
+    fn reader_mut(&mut self) -> &mut BufReader<Transport> {
         self.reader.as_mut().unwrap()
     }
 
@@ -48,9 +46,9 @@ impl Conn {
         let _ = stream.set_nodelay(true);
         let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
         let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-        let tls = TlsStream::from_plain_tcp(stream);
+        let transport = Transport::plain(stream);
         let mut conn = Conn {
-            reader: Some(BufReader::new(tls)),
+            reader: Some(BufReader::new(transport)),
             target,
         };
         conn.login()?;
@@ -77,11 +75,10 @@ impl Conn {
             match reply[0] {
                 b'N' => {}
                 b'S' => {
-                    let roots = Arc::new(RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.to_vec()));
-                    let mut tls = self.reader.take().unwrap().into_inner();
-                    tls = tls.upgrade(&self.target.host, roots)
-                        .map_err(|e| format!("TLS handshake failed: {e}"))?;
-                    self.reader = Some(BufReader::new(tls));
+                    let transport = self.reader.take().unwrap().into_inner();
+                    // `upgrade` names the host and the failure; do not wrap it again.
+                    let transport = transport.upgrade(&self.target.host)?;
+                    self.reader = Some(BufReader::new(transport));
                 }
                 other => return Err(format!("unexpected reply to the TLS request: {other:#x}")),
             }
