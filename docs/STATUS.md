@@ -131,8 +131,8 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 
 | Item | State | Evidence |
 |---|---|---|
-| 5.1 Windows conformance on a real runner | **partial** | `ci.yml` has a `windows-latest` job with MinGW-w64 + GNU toolchain; **no confirmation it is green** (no `gh`, no CI access from here), and `docs/windows.md` says linked binaries are "mostly not run on Windows by hand" |
-| 5.2 Installers, signing, reproducibility | **partial** | `release.yml` builds **Linux x86-64 only** (tarball + `.deb` + checksums). No macOS, no Windows, no aarch64 in CI despite docs; no signing; no reproducibility notes |
+| 5.1 Windows conformance on a real runner | **partial** | `ci.yml` (B9) runs build, clippy, tests, conformance, fmt, release build and a hello-world run on `windows-latest` with MinGW-w64, GNU Rust and Chocolatey LLVM. **Still not verified green**: no CI run has been inspected from here. `docs/platforms.md` states the native/emulated split |
+| 5.2 Installers, signing, reproducibility | **partial** | `release.yml` builds Linux x86-64 (tarball, `.deb`, checksums) and macOS arm64 (tarball, checksums); the release job installs clang (B9). No Windows or aarch64 artifact, no signing, no reproducibility notes |
 | 5.3 Cross-compilation | **missing** | `docs/windows.md`: runtime archive is host-built, "not wired up yet" |
 | 5.4 LLVM `--release` backend | **done** | LLVM is the only backend since B7; Cranelift removed in B8 |
 | 5.5 Security process | **missing** | no `SECURITY.md`, no `cargo deny`, no supply-chain policy, no runtime-patch procedure |
@@ -187,8 +187,6 @@ the code contradicts today.
    `weak` fields" as gaps. Channels shipped (ADR 0026, `channel_heap.kode`),
    `int?` works as a local (ADR 0024). `finally` is also listed as a gap in
    §1 while §4 records it as done.
-7. **`README.md` names the wrong CI file**: "CI (test.yml) and release
-   (release.yml)"; the workflow is `ci.yml`.
 8. **`docs/site/build.sh` reads `COPYING.txt`**, which does not exist, so the
    "Project information" page and its sidebar link are dead. The script also
    has a hard-coded `generics.html` sidebar entry.
@@ -246,18 +244,23 @@ Not measured, and why:
 
 ## 6. CI status
 
-- `ci.yml`: matrix `ubuntu-latest`, `macos-latest`, `windows-latest`; build,
-  `cargo test --workspace` with `KODE_LEAK_CHECK=1`, a conformance smoke test,
-  and `kode fmt tests/run-pass --check`. Windows installs MSYS2 UCRT64 gcc and
-  switches rustup to `stable-x86_64-pc-windows-gnu`.
+- `ci.yml` (B9): one matrix, four native runners — `ubuntu-latest` (x86-64),
+  `ubuntu-24.04-arm` (arm64), `macos-14` (arm64), `windows-latest` (x86-64).
+  Each asserts `uname -m`, installs clang explicitly (apt, Chocolatey LLVM, or
+  the verified system Command Line Tools) and runs: `cargo build --workspace`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace` with `KODE_LEAK_CHECK=1`,
+  `cargo test -p kode-cli --test llvm_conformance`,
+  `kode fmt tests/run-pass examples --check`, `cargo build --release -p kode-cli`,
+  then builds and runs `examples/hello.kode` with the release binary.
+  No skip list, no `continue-on-error`. Details: `docs/platforms.md`.
 - **Not verified green**: `gh` is not installed here and the GitHub Actions API
-  was not queried. Treat Ubuntu/Windows as unproven until a run is inspected.
-  The previous known run (before these fixes) failed on Ubuntu
-  (`list_map_filter`, `generics_nested`) and on Windows (CRLF and `-lc`), which
-  is what the current changes address.
-- **Gaps in CI**: no `cargo clippy`, no `kode fmt` check for `examples/`, no
-  docs-site build, no benchmark regression check, no release-artifact smoke test
-  for macOS/Windows.
+  was not queried, so the workflows have never executed. The same command
+  sequence was run by hand on macOS arm64, and in native Linux arm64 and
+  emulated Linux x86-64 containers (see `crates/kode-llvm/B9.md`).
+- **Gaps in CI**: no docs-site build, no benchmark regression check, no Windows
+  release artifact, no Microsoft-hosted arm64 runner for private repositories
+  (`ubuntu-24.04-arm` is public-repository only).
 
 ## 7. Crashes and robustness
 

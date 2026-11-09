@@ -1,5 +1,8 @@
 # Windows
 
+> Platform support summary, including which claims are native and which are
+> emulated: [`platforms.md`](platforms.md). Windows is a preview target.
+
 Kode builds Windows executables through **MinGW-w64**, the same way Go and Zig
 start: a C toolchain and linker, no Visual Studio project files.
 

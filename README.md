@@ -97,8 +97,9 @@ export PATH="$PWD/target/debug:$PATH"
 kode run examples/tour.kode
 ```
 
-On Windows, build the compiler with the GNU Rust toolchain and MinGW-w64 (see `docs/windows.md`).
-Windows is not a release target yet: the release workflow builds Linux x86-64 and macOS arm64 only.
+macOS arm64, Linux arm64 and Linux x86-64 are validated; Windows is a preview
+target. Requirements per platform, the required clang version, CI runners and
+known gaps are in `docs/platforms.md` (Windows setup: `docs/windows.md`).
 
 ## Commands
 

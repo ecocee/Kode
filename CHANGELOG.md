@@ -15,9 +15,23 @@ language: a patch release fixes bugs, a minor release may add syntax.
 - **`exec` failures are reported reliably.** A child that cannot be started
   (missing program, bad interpreter) now raises the documented error instead of
   exiting 127 silently on some platforms.
+- **Start failures are reported as start failures.** A missing or non-executable
+  clang, linker driver or `cc` now prints the install hint and exits 1 instead of
+  claiming the IR was rejected with status 127. A failing linker still reports
+  its own exit status, and a failed build leaves no output file.
+- **`kode-codegen` is now `kode-link`**, which is all it does: hand an object
+  file and the runtime archive to the platform linker.
+- **`cargo build --release` works from a clean tree.** The embedded runtime was
+  looked up only in `target/debug`/`target/release`, but a `staticlib` built as a
+  build dependency lands in `deps/libkode_rt-<hash>.a`. The build script now
+  searches the matching profile's `deps/` folder and honours `CARGO_TARGET_DIR`.
 
 ### Added
 
+- **CI on four platforms.** `.github/workflows/ci.yml` builds, lints, tests,
+  format-checks, release-builds and runs a hello world on native Linux x86-64,
+  Linux arm64, macOS arm64 and Windows x86-64, installing clang and the linker
+  explicitly and asserting each runner's architecture. See `docs/platforms.md`.
 - **`--backend=llvm`** (ADR 0035): the flag that introduced the backend in B6 and
   is now also the default.
 - **A PostgreSQL client** (ADR 0033): `pg.connect`, `pg.exec`, `pg.query` and

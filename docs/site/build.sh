@@ -1146,6 +1146,13 @@ HTML
         "Configure your development environment for Kode."
 
     add_single_document \
+        "$ROOT/docs/platforms.md" \
+        "platforms.html" \
+        "Platform support" \
+        "Developer guides" \
+        "Supported systems, toolchain requirements and CI coverage."
+
+    add_single_document \
         "$ROOT/docs/site/content/generics.md" \
         "generics.html" \
         "Generics" \
