@@ -1,0 +1,22 @@
+[package]
+name = "kode-llvm"
+description = "Kode MIR -> textual LLVM IR (experimental backend)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kode-syntax.workspace = true
+kode-sema.workspace = true
+kode-mir.workspace = true
+kode-codegen.workspace = true
+
+[lib]
+name = "kode_llvm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kode-llvm"
+path = "src/bin/kode_llvm.rs"
