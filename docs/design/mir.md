@@ -37,4 +37,4 @@ A value of type `ref` is any reference-counted heap value.
 `kode_mir::verify` checks the graph after lowering; a failure is a compiler bug.
 
 Why a MIR: memory management, control flow and (later) optimizations are far easier on
-simple blocks than on a tree, and any backend (Cranelift, LLVM, WebAssembly) can read it.
+simple blocks than on a tree, and any backend (LLVM today, WebAssembly later) can read it.

@@ -1,4 +1,4 @@
-//! B3 shape checks: collection operations that Cranelift inlines must be
+//! B3 shape checks: collection operations that the reference lowering inlines must be
 //! inlined here too, with the same bounds check and the same slow paths.
 
 use kode_llvm::{emit, program_from_source};

@@ -140,3 +140,34 @@ Reading these:
   (1.12x); the method-call-only loop was faster with LLVM (3.1 vs 1.3 ms).
 - **No case is more than ~1.4x slower**, and no universal "LLVM is faster" claim
   is supported: sieve is 11% slower than Cranelift and 2.64x behind C.
+
+## LLVM alone (B8, 2026-11-09)
+
+Cranelift was removed in B8, so this table has no Cranelift column. Produced by
+`python3 benchmarks/llvm_readiness/run.py --runs 25 --c` on the same machine;
+hyperfine median of 25 runs after 2 warmups, `kode build --release`, C `-O2`.
+
+| case | LLVM ms | C ms | LLVM/C |
+| --- | ---: | ---: | ---: |
+| fib (38) | 3.5 | 57.5 | 0.06 |
+| loop_mod | 11.5 | 11.1 | 1.03 |
+| mandel | 12.6 | 10.9 | 1.15 |
+| sieve | 29.6 | 11.7 | 2.52 |
+| collatz | 196.8 | 147.2 | 1.34 |
+| lists (1M ints) | 3.9 | — | — |
+| packed bools (1M) | 3.3 | — | — |
+| maps (100k writes) | 42.2 | — | — |
+| json (20k parses) | 89.7 | — | — |
+| strings (200k interpolations) | 87.9 | — | — |
+| objects (1M allocations) | 44.5 | — | — |
+| tasks and channels | 126.6 | — | — |
+| wordcount app (3 MB) | 648.3 | — | — |
+
+Compared with the B7 LLVM column, every case is the same or faster (fib 3.9→3.5,
+collatz 209→197, sieve 38.9→29.6, objects 70.0→44.5, tasks 196→127, wordcount
+855→648 ms). The objects case confirms that B7's 1.39x was measurement noise, not
+a regression: this run measures 44.5 ms, the same as the repeated B7 re-runs.
+
+fib is still dominated by clang's recursion rewriting (B7 disassembly): the
+benchmark does not measure the naive call tree, so its LLVM/C ratio is not a
+general speed claim.

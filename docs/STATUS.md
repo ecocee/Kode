@@ -45,8 +45,7 @@ general-purpose language. Blockers, in the order they hurt:
 **Self-hosting-ready: no, and far away.** There is no lexer, parser, checker or
 backend written in Kode (§3, Phase 6). The language also lacks the three things
 a compiler needs first: enum payloads with pattern matching, generic classes,
-and a faster memory story for token/AST graphs. The backend question (Cranelift
-is a Rust library) is undecided.
+and a faster memory story for token/AST graphs. The backend question is settled: LLVM, which needs `clang` at build time.
 
 ## 2. Baseline
 
@@ -135,7 +134,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 | 5.1 Windows conformance on a real runner | **partial** | `ci.yml` has a `windows-latest` job with MinGW-w64 + GNU toolchain; **no confirmation it is green** (no `gh`, no CI access from here), and `docs/windows.md` says linked binaries are "mostly not run on Windows by hand" |
 | 5.2 Installers, signing, reproducibility | **partial** | `release.yml` builds **Linux x86-64 only** (tarball + `.deb` + checksums). No macOS, no Windows, no aarch64 in CI despite docs; no signing; no reproducibility notes |
 | 5.3 Cross-compilation | **missing** | `docs/windows.md`: runtime archive is host-built, "not wired up yet" |
-| 5.4 LLVM `--release` backend | **missing** | Cranelift only |
+| 5.4 LLVM `--release` backend | **done** | LLVM is the only backend since B7; Cranelift removed in B8 |
 | 5.5 Security process | **missing** | no `SECURITY.md`, no `cargo deny`, no supply-chain policy, no runtime-patch procedure |
 
 ### Phase 6 — self-hosting
@@ -204,7 +203,7 @@ the code contradicts today.
     `v0.3.3`, `v0.3.3-development`, and tags `v0.2.0-alpha` through
     `v0.3.4-test2`. The repository description still says "concurrency-first"
     and the topics still include `golang` and `interpreter`, which contradict a
-    Rust/Cranelift native compiler; those are live metadata and should be
+    Rust/LLVM native compiler; those are live metadata and should be
     corrected.
 11. **Version drift** (§2): Cargo 0.3.0, tags to v0.3.5, releases page
     v0.3.4-test2, `dist/` 0.3.0.
@@ -243,7 +242,7 @@ Not measured, and why:
   minutes with `curl` per request and a keep-alive client is the right tool.
 - **`fib(35)` in a `--release` build of the *program*** is included, but the
   harness uses the debug `kode` compiler (the compiler's own build profile does
-  not change Cranelift's optimisation, but the report should say so explicitly).
+  not change the backend's optimisation, but the report should say so explicitly).
 
 ## 6. CI status
 

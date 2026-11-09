@@ -1,7 +1,7 @@
 //! B3: lists, maps and JSON through the LLVM backend.
 //!
 //! Each program is built and run with `KODE_LEAK_CHECK=1`; the expected output
-//! is what the Cranelift backend prints for the same source. The inline fast
+//! is the expected runtime output for the same source. The inline fast
 //! paths (len/get/set/push) carry the ownership rules of the runtime calls they
 //! replace, so a bad retain/release or a missing bounds check fails here.
 
@@ -181,7 +181,7 @@ for k in keys {
 }
 
 #[test]
-fn nested_collections_print_like_cranelift() {
+fn nested_collections_print_expected() {
     let src = "\
 rows = [[1, 2], [3]]
 print(rows)

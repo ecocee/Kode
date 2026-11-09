@@ -17,7 +17,7 @@ mod style;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use args::{Backend, Options, HELP};
+use args::{Options, HELP};
 use kode_mir::Mode;
 use kode_sema::Checked;
 use kode_syntax::ast::{Item, Program};
@@ -119,14 +119,11 @@ fn object_for(opts: &Options, f: &Front, mode: Mode) -> Result<Vec<u8>, String> 
         kode_mir::opt::optimize(&mut mir);
     }
     kode_mir::verify::verify(&mir).map_err(|e| format!("internal compiler error: {e}"))?;
-    match opts.backend {
-        Backend::Cranelift => kode_codegen::compile_to_object(&mir, !opts.debug),
-        Backend::Llvm => llvm_object(&mir),
-    }
+    llvm_object(&mir)
 }
 
 /// Lower MIR to textual LLVM IR, then ask clang for an object file.
-/// A missing clang is an error, never a quiet fallback to Cranelift.
+/// A missing clang is an error, never a quiet fallback to another code path.
 fn llvm_object(mir: &kode_mir::ir::MirProgram) -> Result<Vec<u8>, String> {
     let ir = kode_llvm::emit(mir)?;
     let dir = std::env::temp_dir().join(format!("kode-llvm-{}", std::process::id()));

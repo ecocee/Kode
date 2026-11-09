@@ -1,7 +1,7 @@
 //! B4: classes, fields, methods, interfaces, generics and optional objects.
 //!
 //! Every program is built and run with `KODE_LEAK_CHECK=1`. The expected
-//! strings are the output of the Cranelift backend for the same source, so a
+//! strings are the recorded output for the same source, so a
 //! layout, offset, retain/release or dispatch mistake shows up as a diff (or a
 //! leak report) rather than a silent change.
 

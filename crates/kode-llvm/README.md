@@ -1,9 +1,9 @@
-# kode-llvm (stage B1, experimental)
+# kode-llvm
 
 MIR in, textual LLVM IR out, `clang` builds the object, the existing linker and
-runtime produce the binary. This crate is a prototype for ADR 0035: it is not
-wired into `kode`, it does not change the production backend, and Cranelift is
-untouched.
+runtime produce the binary. This is the compiler's only backend (ADR 0035): `kode`
+calls `emit` + `compile_ir` for every build. The `kode-llvm` binary below is a
+development tool for looking at one file's IR without the CLI.
 
 ```text
 kode-llvm emit  file.kode [-o file.ll]   # the IR, for reading
@@ -15,7 +15,7 @@ kode-llvm run   file.kode [-- args]      # build in a temp dir and run
 archive (default: newest `libkode_rt.a` under `target/`), and
 `KODE_LLVM_KEEP_IR=1` keeps the `.ll` next to the object.
 
-## What B1 covers
+## What the lowering covers
 
 | MIR | LLVM |
 |---|---|
@@ -24,7 +24,7 @@ archive (default: newest `libkode_rt.a` under `target/`), and
 | `Bool` | `i8` |
 | functions, params, returns | `define`, allocas for locals (mem2reg at `-O2`) |
 | `Add`/`Sub`/`Mul`, bitwise, shifts | `add`/`sub`/`mul`/`and`/`or`/`xor`, `shl`/`ashr` behind an `icmp uge 64` guard |
-| `Div`/`Rem` | `kode_div_zero()` on a zero divisor, `MIN / -1` wraps via `select`, like Cranelift |
+| `Div`/`Rem` | `kode_div_zero()` on a zero divisor, `MIN / -1` wraps via `select` |
 | comparisons | `icmp`/`fcmp` + `zext` to `i8` |
 | `Cast` | `sitofp`, **saturating** `llvm.fptosi.sat`, `bitcast`, `zext`, `icmp` |
 | `Select` | `select` |
@@ -33,7 +33,7 @@ archive (default: newest `libkode_rt.a` under `target/`), and
 | `CallIndirect` | code pointer at offset 24, `inttoptr`, indirect call |
 | `Retain`/`Release` | `kode_retain`/`kode_release` |
 | `Load`/`Store` | `getelementptr` + `load`/`store` |
-| string literals | `[rc=-1][kind=1][len][bytes]` globals, same layout as Cranelift |
+| string literals | `[rc=-1][kind=1][len][bytes]` globals, the runtime's layout |
 
 Errors: `clang` missing prints what is missing and how to point at it
 (`KODE_CLANG`); rejected IR prints clang's own diagnostic and the offending
@@ -41,64 +41,35 @@ line. There is no fallback to another backend, by design.
 
 ## Tests
 
-`cargo test -p kode-llvm` runs 12 tests: six IR-shape tests (no clang needed) and
-six end-to-end tests that build and run programs through the real binary.
+`cargo test -p kode-llvm` covers IR shape (no clang needed) and end-to-end
+programs built and run with `KODE_LEAK_CHECK=1`: primitives, strings and
+reference counting, collections, objects and dispatch, errors, tasks and
+channels. The CLI's conformance test (`crates/kode-cli/tests/llvm_conformance.rs`)
+runs every `tests/run-pass` program, the examples and every compile-fail program
+through `kode`.
 
-As an out-of-tree check, all 45 `tests/run-pass` programs were built with this
-backend and run: **44 print byte-identical output**. The exception is
-`modules_alias.kode`, which needs `kode-cli`'s import/package loader; the
-prototype parses a single file. List, map, class, closure, error and channel
-programs already work because the runtime calls are generic, not because those
-stages are done.
+The stage documents B2.md-B8.md record how each part was verified; B6 and B7
+mention Cranelift because it was the reference backend until B8 removed it.
 
 ## Measurements
 
-macOS, arm64, 10-core laptop; best of three runs; programs built by each backend
-and run without arguments.
+See `benchmarks/report.md` for the current table and
+`benchmarks/llvm_readiness/run.py` to reproduce it. The short version: loop-heavy
+code is faster than the removed Cranelift backend and within about 1.3x of C
+`-O2`; runtime-bound code (maps, JSON, strings, tasks, I/O) is at parity because
+it spends its time in `kode-rt`.
 
-| Program | Cranelift | LLVM (`-O2`) | C `-O2` | binary (Cranelift / LLVM) |
-|---|---:|---:|---:|---:|
-| fib(38) | 0.095 s | **0.059 s** | 0.058 s | 1,236,392 / 1,234,184 |
-| loop_mod | 0.031 s | **0.016 s** | 0.012 s | 1,236,392 / 1,234,144 |
-| mandel | 0.015 s | 0.017 s | 0.012 s | 1,236,392 / 1,234,136 |
-| sieve | 0.028 s | **0.303 s** | 0.013 s | 1,371,208 / 1,368,360 |
+## Integration
 
-Correctness: all four print the same value as Cranelift, C and
-`benchmarks/*/expected.txt` (39088169, 24975000000, 6292386, 664579).
+`kode` calls `kode_llvm::emit` and `kode_llvm::compile_ir` from
+`object_for` in `crates/kode-cli/src/main.rs`, then links through
+`kode_codegen::link` with the runtime archive embedded in the CLI. The crate's
+own `front.rs` (single-file parsing) exists for the `kode-llvm` development
+binary and its tests; the CLI always uses its loader, so imports and packages
+work.
 
-Compile time for `fib` is 0.051 s for both backends on this machine (the
-prototype's simpler front end pays for the `clang` invocation).
+## Known limits
 
-`KODE_LEAK_CHECK=1` reports no leaks for `fib` or `sieve` built by this backend.
-
-## Why `sieve` is slow here
-
-Cranelift inlines `list.len`, item reads/writes and the push fast path
-(`try_inline_list` in `kode-codegen/src/function.rs`). B1 calls the runtime for
-every one of them, and sieve performs about 30 million of those calls. This is
-stage B3 work, not a code-generation defect: `fib` and `loop_mod`, which have no
-collections, now match C.
-
-## Integration changes required (not made)
-
-No existing file had to change for this prototype, and none was changed. To put
-it behind `kode`:
-
-1. `crates/kode-cli/src/main.rs`: accept `--backend=llvm` and, in `object_for`,
-   call `kode_llvm::emit(&mir)` + `kode_llvm::compile_ir(...)` instead of
-   `kode_codegen::compile_to_object`. The linker call and the embedded runtime
-   archive are reused unchanged.
-2. `crates/kode-cli/src/main.rs` (front end): pass the MIR the CLI already
-   builds; the prototype's `front.rs` then becomes test-only. Imports and
-   packages keep working because the CLI keeps loading them.
-3. Later stages (B6/B7): flip the default and remove Cranelift, per ADR 0035.
-
-Nothing else: the workspace's `members = ["crates/*"]` already builds this
-crate, and `kode-codegen::link` is public.
-
-## Known limits at B1
-
-- Single-file programs only; no `import`, no `kode.toml`.
-- No inlined collection fast paths (see sieve), no `Repr` specialisation.
 - Debug info, `-g`, LTO and cross-compilation are not attempted.
 - The IR is unoptimised before clang; `-O2` does the work.
+- A missing clang is an error with no fallback; the compiler needs LLVM 15+.

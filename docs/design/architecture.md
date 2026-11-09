@@ -4,7 +4,7 @@
           kode-diagnostics  (Span, Diagnostic: shared by all stages)
                  |
 source -> kode-syntax -> kode-sema -> kode-mir -> kode-codegen -> object file -> cc -> binary
-          lex, parse     types        CFG          Cranelift                      + kode-rt
+          lex, parse     types        CFG          LLVM IR -> clang               + kode-rt
                                                                      
 kode-cli drives the pipeline (and loads imported files into one program, formats code, runs tests,
 explains errors).   kode-rt is the runtime library every binary links against.

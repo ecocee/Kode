@@ -1,12 +1,12 @@
 //! B5: error handling and concurrency.
 //!
 //! Errors are a pending-value protocol (`kode_err_throw` / `_pending` / `_take`)
-//! plus ordinary control flow, so the B1 lowering should reproduce Cranelift
-//! exactly. Tasks and channels are runtime calls with a function-pointer thunk;
+//! plus ordinary control flow, so the lowering should reproduce
+//! the documented behaviour exactly. Tasks and channels are runtime calls with a
 //! they are concurrency, so every program runs under a wall-clock timeout and a
 //! deadlock fails fast instead of hanging the suite.
 //!
-//! Expected strings and exit codes are what Cranelift prints for the same
+//! Expected strings and exit codes are the recorded behaviour for the same
 //! source under `KODE_LEAK_CHECK=1`.
 
 use std::path::{Path, PathBuf};

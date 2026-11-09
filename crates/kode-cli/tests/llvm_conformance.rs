@@ -1,13 +1,11 @@
-//! B6: the LLVM backend must reproduce the Cranelift backend exactly.
+//! Conformance of the shipped compiler (LLVM is the only backend).
 //!
-//! Every program is built twice through the real `kode` binary — once with
-//! `--backend=cranelift` (the default) and once with `--backend=llvm` — then run
-//! with `KODE_LEAK_CHECK=1` under a timeout. Exit status, stdout and stderr must
-//! match, and the LLVM run must match the checked-in `.out` file.
-//!
-//! These tests are integration tests of the CLI on purpose: they exercise the
-//! same import/package loading path users get, which is how `modules_alias.kode`
-//! is covered.
+//! Every program is built through the real `kode` binary and run with
+//! `KODE_LEAK_CHECK=1` under a timeout: run-pass programs must match their
+//! checked-in `.out`, examples must run, and compile-fail programs must report
+//! the code in their `.err` file. The backend flag is covered too: `--backend=llvm`
+//! is an accepted no-op and `--backend=cranelift` fails with a clear message
+//! rather than silently choosing something else.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -71,82 +69,53 @@ fn run_with_timeout(exe: &Path, args: &[String], cwd: &Path) -> Ran {
     }
 }
 
-fn build(backend: &str, src: &Path, exe: &Path, tag: &str) -> Result<(), String> {
-    let out = Command::new(BIN)
-        .args([
-            "build",
-            &src.display().to_string(),
-            "-o",
-            &exe.display().to_string(),
-            &format!("--backend={backend}"),
-        ])
-        .current_dir(root())
-        .output()
-        .expect("run kode");
-    if out.status.success() {
-        return Ok(());
-    }
-    Err(format!(
-        "{tag}: `{backend}` build failed:\n{}",
+fn build(src: &Path, exe: &Path, extra: &[&str], tag: &str) -> Output {
+    let mut cmd = Command::new(BIN);
+    cmd.arg("build")
+        .arg(src)
+        .arg("-o")
+        .arg(exe)
+        .args(extra)
+        .current_dir(root());
+    let out = cmd.output().expect("run kode");
+    assert!(
+        out.status.success(),
+        "{tag}: build failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
-    ))
+    );
+    out
 }
 
-/// Build and run `src` on both backends; return the two runs for comparison.
-fn both(src: &Path, name: &str) -> (Ran, Ran) {
+fn compare(src: &Path, expected: Option<&str>, args: &[String]) {
+    let name = src.file_stem().unwrap().to_string_lossy().replace('.', "_");
     let dir = std::env::temp_dir().join(format!(
         "kode-cli-conformance-{}-{name}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let cr = dir.join("cranelift");
-    let ll = dir.join("llvm");
-    if let Err(e) = build("cranelift", src, &cr, name) {
-        panic!("{e}");
-    }
-    if let Err(e) = build("llvm", src, &ll, name) {
-        panic!("{e}");
-    }
-    let a = run_with_timeout(&cr, &[], &root());
-    let b = run_with_timeout(&ll, &[], &root());
+    let exe = dir.join("program");
+    build(src, &exe, &[], &name);
+    let r = run_with_timeout(&exe, args, &root());
     let _ = std::fs::remove_dir_all(&dir);
-    (a, b)
-}
-
-fn compare(src: &Path, expected: Option<&str>) {
-    let name = src.file_stem().unwrap().to_string_lossy().replace('.', "_");
-    let (cr, ll) = both(src, &name);
-    assert_eq!(
-        ll.code,
-        cr.code,
-        "{}: exit status differs (cranelift {:?}, llvm {:?})\nllvm stderr:\n{}",
+    assert!(
+        r.code == Some(0),
+        "{}: exit {:?}, stderr:\n{}",
         src.display(),
-        cr.code,
-        ll.code,
-        ll.stderr
+        r.code,
+        r.stderr
     );
-    assert_eq!(
-        ll.stdout,
-        cr.stdout,
-        "{}: stdout differs\n--- cranelift ---\n{}\n--- llvm ---\n{}",
+    assert!(
+        r.stderr.trim().is_empty(),
+        "{}: leaked or reported a runtime problem:\n{}",
         src.display(),
-        cr.stdout,
-        ll.stdout
-    );
-    assert_eq!(
-        ll.stderr,
-        cr.stderr,
-        "{}: stderr differs\n--- cranelift ---\n{}\n--- llvm ---\n{}",
-        src.display(),
-        cr.stderr,
-        ll.stderr
+        r.stderr
     );
     if let Some(want) = expected {
         assert_eq!(
-            ll.stdout.trim_end(),
+            r.stdout.trim_end(),
             want.trim_end(),
-            "{}: LLVM output does not match the checked-in .out file",
+            "{}: output does not match the checked-in .out file",
             src.display()
         );
     }
@@ -179,27 +148,27 @@ fn batch(name: &str, batch_index: usize, count: usize) {
     );
     for src in &files[start..end] {
         let expected = std::fs::read_to_string(src.with_extension("out")).expect(".out file");
-        compare(src, Some(&expected));
+        compare(src, Some(&expected), &[]);
     }
 }
 
 #[test]
-fn run_pass_matches_cranelift_1() {
+fn run_pass_matches_expected_output_1() {
     batch("run-pass 1", 0, 15);
 }
 
 #[test]
-fn run_pass_matches_cranelift_2() {
+fn run_pass_matches_expected_output_2() {
     batch("run-pass 2", 1, 15);
 }
 
 #[test]
-fn run_pass_matches_cranelift_3() {
+fn run_pass_matches_expected_output_3() {
     batch("run-pass 3", 2, 15);
 }
 
 #[test]
-fn examples_match_cranelift() {
+fn examples_run() {
     if !have_clang() {
         eprintln!("skipping examples: no clang on PATH");
         return;
@@ -215,27 +184,20 @@ fn examples_match_cranelift() {
         "wordcount",
     ];
     for name in examples {
-        let src = root().join(format!("examples/{name}.kode"));
-        let (cr, ll) = both(&src, &format!("example_{name}"));
-        assert_eq!(ll.code, cr.code, "examples/{name}.kode: exit status");
-        assert_eq!(
-            ll.stdout, cr.stdout,
-            "examples/{name}.kode: stdout\n--- llvm ---\n{}",
-            ll.stdout
-        );
-        assert_eq!(
-            ll.stderr, cr.stderr,
-            "examples/{name}.kode: stderr\n--- llvm ---\n{}",
-            ll.stderr
-        );
+        // wordcount reads the file named in its first argument.
+        let args: Vec<String> = if name == "wordcount" {
+            vec!["README.md".to_string()]
+        } else {
+            Vec::new()
+        };
+        compare(&root().join(format!("examples/{name}.kode")), None, &args);
     }
 }
 
 #[test]
-fn compile_fail_diagnostics_are_identical() {
+fn compile_fail_diagnostics_match_the_checked_in_codes() {
     // Mirrors `crates/kode-cli/tests/conformance.rs`: `check --strict` so that
-    // warning-only fixtures (W codes) are rejected too, and the expected code
-    // comes from the checked-in `.err` file.
+    // warning-only fixtures (W codes) are rejected too.
     let dir = root().join("tests/compile-fail");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .expect("tests/compile-fail")
@@ -249,69 +211,77 @@ fn compile_fail_diagnostics_are_identical() {
             .unwrap_or_else(|_| panic!("{}: missing .err file", src.display()))
             .trim()
             .to_string();
-        let mut outs = Vec::new();
-        for backend in ["cranelift", "llvm"] {
-            let out = Command::new(BIN)
-                .args([
-                    "check",
-                    "--strict",
-                    "--format=json",
-                    &src.display().to_string(),
-                    &format!("--backend={backend}"),
-                ])
-                .current_dir(root())
-                .output()
-                .expect("run kode");
-            outs.push(out);
-        }
-        let (cr, ll) = (&outs[0], &outs[1]);
-        let cr_out = String::from_utf8_lossy(&cr.stdout).to_string();
-        let ll_out = String::from_utf8_lossy(&ll.stdout).to_string();
-        assert_eq!(
-            ll.status.code(),
-            cr.status.code(),
-            "{}: exit status differs between backends",
-            src.display()
-        );
+        let out = Command::new(BIN)
+            .args([
+                "check",
+                "--strict",
+                "--format=json",
+                &src.display().to_string(),
+            ])
+            .current_dir(root())
+            .output()
+            .expect("run kode");
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         assert!(
-            !cr.status.success(),
+            !out.status.success(),
             "{}: expected {expected} but it compiled",
             src.display()
         );
         assert!(
-            cr_out.contains(&format!("\"code\":\"{expected}\"")),
-            "{}: expected {expected}, got:\n{cr_out}",
-            src.display()
-        );
-        assert_eq!(
-            ll_out,
-            cr_out,
-            "{}: diagnostics differ between backends",
+            stdout.contains(&format!("\"code\":\"{expected}\"")),
+            "{}: expected {expected}, got:\n{stdout}",
             src.display()
         );
     }
 }
 
 #[test]
-fn an_unknown_backend_is_rejected() {
+fn the_only_backend_is_llvm() {
+    let exe = std::env::temp_dir().join(format!("kode-cli-backend-{}.exe", std::process::id()));
+    // `--backend=llvm` is an accepted compatibility alias.
+    build(
+        &root().join("examples/hello.kode"),
+        &exe,
+        &["--backend=llvm"],
+        "llvm alias",
+    );
+    let out = Command::new(&exe)
+        .env("KODE_LEAK_CHECK", "1")
+        .output()
+        .expect("run hello");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hello world");
+    let _ = std::fs::remove_file(&exe);
+
+    // The removed backend is a clear error, not a fallback.
     let out = Command::new(BIN)
-        .args(["build", "examples/hello.kode", "--backend=wat"])
+        .args(["build", "examples/hello.kode", "--backend=cranelift"])
         .current_dir(root())
         .output()
         .expect("run kode");
     assert_eq!(out.status.code(), Some(2));
     let text = String::from_utf8_lossy(&out.stderr);
     assert!(
-        text.contains("unknown backend `wat`"),
-        "expected a clear message, got:\n{text}"
+        text.contains("the Cranelift backend was removed"),
+        "expected a clear removal message, got:\n{text}"
+    );
+
+    let out = Command::new(BIN)
+        .args(["build", "examples/hello.kode", "--backend=wat"])
+        .current_dir(root())
+        .output()
+        .expect("run kode");
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("LLVM is the only backend"),
+        "expected the unknown-backend message"
     );
 }
 
-/// The default is LLVM, proven by behaviour: with clang unreachable, a default
-/// build fails with the LLVM message, while `--backend=cranelift` still builds.
+/// Without clang the compiler must stop with an actionable message, leave no
+/// output behind, and still say which program is missing.
 #[test]
-fn the_default_backend_is_llvm_and_cranelift_is_the_escape_hatch() {
-    let exe = std::env::temp_dir().join(format!("kode-cli-default-{}.exe", std::process::id()));
+fn a_missing_clang_is_actionable_and_leaves_no_artifact() {
+    let exe = std::env::temp_dir().join(format!("kode-cli-clang-{}.exe", std::process::id()));
     let missing = "/nonexistent/kode-cli-test-clang";
     let out = Command::new(BIN)
         .args([
@@ -324,32 +294,11 @@ fn the_default_backend_is_llvm_and_cranelift_is_the_escape_hatch() {
         .current_dir(root())
         .output()
         .expect("run kode");
-    assert_eq!(out.status.code(), Some(1), "default build with no clang");
+    assert_eq!(out.status.code(), Some(1));
     let text = String::from_utf8_lossy(&out.stderr);
     assert!(
         text.contains("the LLVM backend needs") && text.contains(missing),
-        "the default must be LLVM and say what is missing, got:\n{text}"
+        "got:\n{text}"
     );
-    assert!(
-        !exe.exists(),
-        "a failed LLVM build must not leave an output behind"
-    );
-    let out = Command::new(BIN)
-        .args([
-            "build",
-            "examples/hello.kode",
-            "-o",
-            &exe.display().to_string(),
-            "--backend=cranelift",
-        ])
-        .env("KODE_CLANG", missing)
-        .current_dir(root())
-        .output()
-        .expect("run kode");
-    assert!(
-        out.status.success(),
-        "explicit cranelift must not need clang:\n{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let _ = std::fs::remove_file(&exe);
+    assert!(!exe.exists(), "a failed build must not leave an output");
 }

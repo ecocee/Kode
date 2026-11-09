@@ -7,11 +7,14 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Changed
 
-- **LLVM is the default backend** (ADR 0035). Code generation goes through
-  textual LLVM IR and `clang` (15 or newer, or `KODE_CLANG`); a missing clang is
-  a clear error, never a silent fallback. The MIR, runtime and linker are shared,
-  so programs, diagnostics, exit codes and leak behaviour match the old backend.
-  `--backend=cranelift` still selects Cranelift during the transition.
+- **LLVM is the only backend** (ADR 0035). Code generation goes through textual
+  LLVM IR and `clang` (15 or newer, or `KODE_CLANG`); a missing clang is a clear
+  error, never a silent fallback. The Cranelift backend, its crates and the
+  `--backend=cranelift` option are removed; `--backend=llvm` is still accepted as
+  a no-op, and `cargo build` no longer compiles a second code generator.
+- **`exec` failures are reported reliably.** A child that cannot be started
+  (missing program, bad interpreter) now raises the documented error instead of
+  exiting 127 silently on some platforms.
 
 ### Added
 

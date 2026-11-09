@@ -38,7 +38,7 @@ print(c)
 }
 
 #[test]
-fn static_strings_keep_the_cranelift_layout() {
+fn static_strings_keep_the_runtime_layout() {
     let text = ir("print(\"hi\")\n");
     // [refcount = -1][kind = 1][length = 2][h][i], every byte escaped.
     assert!(

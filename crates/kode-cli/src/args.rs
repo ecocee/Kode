@@ -25,7 +25,7 @@ OPTIONS:
     --strict          treat warnings as errors
     --release         strip symbols from the built binary
     --debug           do not optimize the generated code (faster to compile)
-    --backend=<name>  code generator: `llvm` (default) or `cranelift` (transitional)
+    --backend=llvm    accepted for compatibility; LLVM is the only backend
     --check           with `fmt`: do not write, exit 1 if a file would change
                       with `install`: do not write kode.lock, exit 1 if it is stale
     --path <folder>   with `add`: the dependency's folder
@@ -33,14 +33,6 @@ OPTIONS:
     -h, --help        show this help
     -V, --version     show the version
 ";
-
-/// Which code generator turns MIR into machine code.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
-pub enum Backend {
-    Cranelift,
-    #[default]
-    Llvm,
-}
 
 #[derive(Default)]
 pub struct Options {
@@ -51,7 +43,6 @@ pub struct Options {
     pub strict: bool,
     pub release: bool,
     pub debug: bool,
-    pub backend: Backend,
     pub check: bool,
     pub simple: bool,
     pub path: Option<String>,
@@ -86,15 +77,15 @@ pub fn parse() -> Result<Options, String> {
             "--path" => opts.path = Some(args.next().ok_or("`--path` needs a folder")?),
             other if other.starts_with("--backend=") => {
                 let name = &other["--backend=".len()..];
-                opts.backend = match name {
-                    "cranelift" => Backend::Cranelift,
-                    "llvm" => Backend::Llvm,
-                    _ => {
-                        return Err(format!(
-                            "unknown backend `{name}`; use `cranelift` or `llvm`"
-                        ))
+                match name {
+                    "llvm" => {}
+                    "cranelift" => {
+                        return Err(
+                            "the Cranelift backend was removed; LLVM is the only backend".into()
+                        )
                     }
-                };
+                    _ => return Err(format!("unknown backend `{name}`; LLVM is the only backend")),
+                }
             }
             other if other.starts_with('-') => return Err(format!("unknown option `{other}`")),
             other => {

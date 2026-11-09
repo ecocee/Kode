@@ -1,10 +1,9 @@
 # ADR 0035: LLVM as the production backend
 
-Status: accepted (2026-11-09); implemented in B7 — LLVM is the default backend
-since then, with `--backend=cranelift` transitional until B8. Supersedes the
-"Cranelift only" assumption in
-ADR 0002; Cranelift is kept as a transitional backend until every gate below is
-green, then removed.
+Status: implemented (2026-11-09). LLVM became the default in B7 and the only
+backend in B8; Cranelift, its crates and the backend-selection flag are gone.
+`--backend=llvm` is still accepted as a no-op. Supersedes the "Cranelift only"
+assumption in ADR 0002.
 
 ## Context
 
@@ -31,18 +30,18 @@ production backend and as the only backend once it passes conformance.
    tool, never a Rust dependency.
 3. **A missing `clang` is a clear error**, not a fallback: `E0900` (toolchain)
    "the LLVM backend needs `clang` on PATH", with the exact command that failed.
-   During migration only, an explicit `--backend=cranelift` selects the old
-   backend; there is no silent switch in either direction.
+   There is no fallback in either direction; after B8 `--backend=cranelift`
+   reports that the backend was removed.
 4. **LLVM becomes the default** when and only when all of these pass on LLVM:
    the full `tests/run-pass` suite with `KODE_LEAK_CHECK=1`, the full
    `tests/compile-fail` suite, `examples/*.kode` under `kode check`, the fmt
    round-trip, the HTTP/TLS runtime tests, and the benchmark report showing no
    correctness or memory regression. While any of them fails, `main` keeps
    Cranelift as default and the LLVM work stays on its branch.
-5. **Cranelift is removed** in one commit after LLVM has been the default for
-   the full gate, together with its dependencies, the `--backend` flag and the
-   `cranelift` module names. The runtime archive and `RtFn` table are the
-   contract both backends share and do not change.
+5. **Cranelift is removed** after LLVM has been the default for the full gate,
+   together with its dependencies, the backend-selection machinery and the
+   `cranelift` module names (done in B8). The runtime archive and `RtFn` table
+   stay the contract between MIR and the runtime.
 
 ## Staged migration
 
@@ -88,9 +87,10 @@ program:
 - The IR is text: readable in `kode mir --backend=llvm` output and debuggable
   with `clang -S`, but larger than a bitcode path would be. Temporary files go
   under the existing build directory and are cleaned up.
-- Two backends must stay behaviourally identical for the duration of the
-  migration; every conformance test therefore runs on both, and a divergence is
-  a bug in the new backend, never a reason to skip the test.
-- Binary size may change; the 1 MB budget is already missed (STATUS), so the
-  gate compares against the Cranelift build and records the delta rather than
-  pretending the budget is met.
+- During the migration two backends had to stay behaviourally identical and
+  every conformance test ran on both. Since B8 there is one backend, so the
+  suite now compares against the checked-in expectations and the runtime
+  contract instead of a second implementation.
+- Binary size may change; the 1 MB budget is already missed (STATUS), so the B7
+  gate compared against the Cranelift build and recorded the delta rather than
+  pretending the budget was met.

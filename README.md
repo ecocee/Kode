@@ -20,7 +20,7 @@ print("${name}: fib(30) =", fib(30))
 Kode is written in Rust. The compiler turns source into a native program:
 
 ```text
-source -> lexer -> parser -> AST -> type check -> MIR -> Cranelift -> object file -> linker -> binary
+source -> lexer -> parser -> AST -> type check -> MIR -> LLVM IR -> clang -> object file -> linker -> binary
 ```
 
 ## Status
@@ -123,14 +123,14 @@ Windows is not a release target yet: the release workflow builds Linux x86-64 an
 | `kode lsp` | language server on stdio: diagnostics, hover, completion, symbols, format |
 | `--format=json` | diagnostics as JSON, for editors and AI agents |
 | `--strict` | warnings count as errors |
-| `--backend=cranelift` | code generation through Cranelift instead of LLVM (transitional) |
+| `--backend=llvm` | accepted for compatibility; LLVM is the only backend |
 
-LLVM is the default backend (ADR 0035): it consumes MIR, writes textual LLVM IR
+LLVM is the only backend (ADR 0035): it consumes MIR, writes textual LLVM IR
 and asks `clang` (15 or newer, or `KODE_CLANG`) for the object file, then links
-with the same runtime archive as before. Without clang the build stops with a
-message naming the missing program; there is no silent fallback.
-`--backend=cranelift` keeps the old backend available during the transition, so
-a program whose LLVM output ever disagrees can still be built the old way.
+with the runtime archive. Without clang the build stops with a message naming the
+missing program; there is no fallback of any kind. `--backend=llvm` is accepted
+as a no-op for scripts written while the flag was being introduced, and
+`--backend=cranelift` reports that the Cranelift backend was removed.
 
 ## Repository map
 
@@ -140,7 +140,7 @@ crates/
   kode-syntax/        tokens, lexer, AST, parser
   kode-sema/          names and types
   kode-mir/           mid-level IR, lowering, dump, verifier
-  kode-codegen/       MIR -> Cranelift -> object file -> linker
+  kode-codegen/       object linking: linker driver and runtime archive
   kode-rt/            runtime library linked into every program
   kode-cli/           the `kode` command
 tests/run-pass/       programs that must run (.kode + .out), checked for leaks

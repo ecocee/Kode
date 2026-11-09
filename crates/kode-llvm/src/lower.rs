@@ -1,6 +1,6 @@
 //! MIR -> textual LLVM IR.
 //!
-//! The shapes here mirror `kode-codegen`'s Cranelift lowering exactly, because
+//! The shapes here mirror the reference lowering exactly, because
 //! the two backends have to produce the same observable behaviour: `i64` for
 //! ints and references, `double` for floats, `i8` for bools, a checked
 //! division helper, and shifts that give 0 instead of wrapping when the count
@@ -182,7 +182,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// Static string literals: `[refcount = -1][kind = string][length][bytes]`,
-    /// the same layout the Cranelift backend defines.
+    /// the same layout the runtime defines.
     fn strings(&mut self) {
         for (i, s) in self.p.strings.iter().enumerate() {
             let mut bytes = Vec::with_capacity(24 + s.len());
@@ -521,7 +521,7 @@ impl<'a> Emitter<'a> {
                 Ok(true)
             }
             // Items that are heap values must release the old item: use the
-            // runtime, as Cranelift does.
+            // runtime, as the reference lowering does.
             RtFn::ListSet if self.f.operand_ty(&args[2]) != Ty::Ref => {
                 let (list, _) = self.operand(&args[0]);
                 let (idx, _) = self.operand(&args[1]);
@@ -873,7 +873,7 @@ impl<'a> Emitter<'a> {
                 (out, Ty::Int)
             }
             BinOp::Shl | BinOp::Shr => {
-                // A constant count, like Cranelift's fast path.
+                // A constant count, like the reference fast path.
                 if let Operand::Int(n) = y {
                     if !(0..64).contains(n) {
                         let _ = writeln!(self.out, "  {out} = add i64 0, 0");
@@ -934,7 +934,7 @@ impl<'a> Emitter<'a> {
     }
 
     /// Signed division that never crashes: a zero divisor stops with the
-    /// runtime's message, and `MIN / -1` wraps like Cranelift's lowering.
+    /// runtime's message, and `MIN / -1` wraps like the reference lowering.
     fn divide(&mut self, remainder: bool, a: &str, b: &str) -> String {
         let tag = self.n;
         let is_zero = self.tmp();

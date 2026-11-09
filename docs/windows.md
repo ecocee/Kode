@@ -7,7 +7,7 @@ start: a C toolchain and linker, no Visual Studio project files.
 
 | Step | macOS / Linux | Windows |
 |---|---|---|
-| Compile to an object | works | works (same Cranelift backend) |
+| Compile to an object | works | works (same LLVM backend) |
 | Link | `cc` | `gcc` from MinGW-w64, with `-static` and the Windows system libraries |
 | Run the result | works | expected to work; see "What is not tested" |
 | Paths in diagnostics | `/` | `\` and `/` both accepted |

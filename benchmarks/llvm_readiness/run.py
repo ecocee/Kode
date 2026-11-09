@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Compare the Cranelift and LLVM backends on the readiness benchmark set.
+"""Measure the LLVM backend on the readiness benchmark set.
 
-Builds every case with `kode build --release --backend=...`, checks that both
-backends print the same thing, then measures wall clock with hyperfine (median
-of 20 runs after 2 warmups) and reports the LLVM/Cranelift ratio.
+Builds every case with `kode build --release`, checks that it runs cleanly under
+`KODE_LEAK_CHECK=1`, then measures wall clock with hyperfine (median of 20 runs
+after 2 warmups). C is built with `cc -O2` where a `main.c` exists.
+
+The Cranelift column that B3-B7 reported is gone: B8 removed that backend, so
+the recorded numbers in `benchmarks/report.md` are historical.
 
 Usage: python3 benchmarks/llvm_readiness/run.py [--runs N] [--c]
-Writes target/b7-bench.json and prints a Markdown table.
+Writes target/b8-bench.json and prints a Markdown table.
 """
 
 import json
@@ -17,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 KODE = ROOT / "target/debug/kode"
-OUT = Path("target/b7-bench")
+OUT = Path("target/b8-bench")
 HERE = Path(__file__).resolve().parent
 
 CASES = [
@@ -50,12 +53,15 @@ def corpus() -> None:
     path.write_text(text * (3_000_000 // max(1, len(text)) + 1))
 
 
-def build(name: str, src: Path, backend: str) -> Path:
-    exe = OUT / f"{name}-{backend}"
-    args = [str(KODE), "build", str(src), "-o", str(exe), "--release", f"--backend={backend}"]
-    r = subprocess.run(args, capture_output=True, text=True)
+def build(name: str, src: Path) -> Path:
+    exe = OUT / name
+    r = subprocess.run(
+        [str(KODE), "build", str(src), "-o", str(exe), "--release"],
+        capture_output=True,
+        text=True,
+    )
     if r.returncode != 0:
-        sys.exit(f"{name}: {backend} build failed:\n{r.stderr}")
+        sys.exit(f"{name}: build failed:\n{r.stderr}")
     return exe
 
 
@@ -105,12 +111,8 @@ def main() -> None:
 
     rows = []
     for name, src, args, has_c in CASES:
-        cr = build(name, src, "cranelift")
-        ll = build(name, src, "llvm")
-        a = run(cr, args)
-        b = run(ll, args)
-        if a != b:
-            sys.exit(f"{name}: backends disagree\ncranelift:\n{a}\nllvm:\n{b}")
+        exe = build(name, src)
+        out = run(exe, args)
         c_ms = None
         if want_c and has_c:
             c_exe = OUT / f"{name}-c"
@@ -120,33 +122,27 @@ def main() -> None:
                 text=True,
             )
             if cc.returncode == 0:
-                if run(c_exe, []) != a:
+                if run(c_exe, []) != out:
                     sys.exit(f"{name}: C output differs")
                 c_ms = measure(c_exe, [], runs)
         rows.append(
             {
                 "case": name,
-                "cranelift_ms": measure(cr, args, runs),
-                "llvm_ms": measure(ll, args, runs),
+                "llvm_ms": measure(exe, args, runs),
                 "c_ms": c_ms,
-                "output": a.strip().splitlines()[-1] if a.strip() else "",
+                "output": out.strip().splitlines()[-1] if out.strip() else "",
             }
         )
         print(f"{name}: done", flush=True)
 
-    (ROOT / "target/b7-bench.json").write_text(json.dumps(rows, indent=2))
+    (ROOT / "target/b8-bench.json").write_text(json.dumps(rows, indent=2))
     print()
-    print("| case | Cranelift ms | LLVM ms | LLVM/Cranelift | C ms | LLVM/C |")
-    print("| --- | ---: | ---: | ---: | ---: | ---: |")
+    print("| case | LLVM ms | C ms | LLVM/C |")
+    print("| --- | ---: | ---: | ---: |")
     for r in rows:
         c = f"{r['c_ms']:.1f}" if r["c_ms"] is not None else "—"
-        ratio_c = (
-            f"{r['llvm_ms'] / r['c_ms']:.2f}" if r["c_ms"] and r["c_ms"] > 0 else "—"
-        )
-        print(
-            f"| {r['case']} | {r['cranelift_ms']:.1f} | {r['llvm_ms']:.1f} | "
-            f"{r['llvm_ms'] / r['cranelift_ms']:.2f} | {c} | {ratio_c} |"
-        )
+        ratio = f"{r['llvm_ms'] / r['c_ms']:.2f}" if r["c_ms"] and r["c_ms"] > 0 else "—"
+        print(f"| {r['case']} | {r['llvm_ms']:.1f} | {c} | {ratio} |")
 
 
 if __name__ == "__main__":

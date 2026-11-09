@@ -18,7 +18,7 @@ working, tested compiler.
 
 | Milestone | Content | Status |
 |---|---|---|
-| **M1 Core** | int, float, bool, string; variables, const; operators; if, while, for ranges; functions and recursion; reference-counted strings; MIR; Cranelift; diagnostics with codes and JSON; conformance suite | **Done** |
+| **M1 Core** | int, float, bool, string; variables, const; operators; if, while, for ranges; functions and recursion; reference-counted strings; MIR; LLVM; diagnostics with codes and JSON; conformance suite | **Done** |
 | **M2 Collections** | `[T]` lists and `{string: T}` maps, indexing, `for x in list`, `.add`, `.len()`, `in`, `.keys()`, `sort`, `map` and `filter` | **Done** |
 | **M3 Classes** | `class` with fields and methods, named constructors, reference counting for objects, enums, `match` (`weak` fields still to come) | **Done** |
 | **M4 Errors and optionals** | `throw` / `catch` / `try`, `T?` for heap types, `none`, `?.`, `??`, `!` (`finally`, `int?` and narrowing still to come) | **Done** |

@@ -3,7 +3,7 @@
 //! Every program here runs with `KODE_LEAK_CHECK=1` and must leave the runtime
 //! with nothing to report: a leak, a double free or a use-after-free in the
 //! generated retain/release placement would show up on stderr. Outputs are the
-//! values the Cranelift backend produces for the same source (checked against
+//! values the reference backend produced for the same source (checked against
 //! `kode run` while writing these tests; the run-pass sweep covers the rest).
 
 use std::path::PathBuf;
