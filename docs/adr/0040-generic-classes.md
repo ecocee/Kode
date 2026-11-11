@@ -1,11 +1,14 @@
 # ADR 0040: Generic classes
 
-Status: **proposed** — design, with slice 1a landed. `class Box<T>` and
-`Box<int>` now parse, appear in `kode ast` and count towards the nesting limit
-(`crates/kode-syntax`: `ClassDecl::type_params`, `TypeAnnKind::Generic`), and the
-checker refuses them with the temporary `E0424` rather than an accidental "unknown
-type `T`". Instantiation (slice 1b) is the next step and needs the maintainer's
-approval, because it changes what the checker compiles.
+Status: **accepted in part** — slices 1a and 1b landed. `class Box<T>` and
+`Box<int>` parse, appear in `kode ast` and count towards the nesting limit, and
+instances are real: the constructor infers the type arguments from the field
+annotations, one class is created per distinct tuple (`Box.int`, mangled by
+`instance_name`), fields are substituted, and each method is instantiated as an
+ordinary function with `this` first. `E0421` (arity), `E0422` (cannot infer) and
+`E0423` (bare `Box`) cover the failure modes. Still missing, by design: generic
+methods, constraints, explicit type arguments, generic interfaces, and checking
+`implements` per instance.
 Date: 2026-11-11.
 Plan item: `docs/PLAN-v1.md` 9.9, `docs/STATUS.md` 1.2. Blocks S2 of
 `docs/PLAN-self-hosting.md`.

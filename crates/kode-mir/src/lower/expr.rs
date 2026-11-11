@@ -699,6 +699,11 @@ impl<'a> Lowerer<'a> {
             let vals = self.call_vals(e.id, args, None, n);
             return self.emit_call(idx, vals);
         }
+        // A constructor of a generic class instance: the source name is not a
+        // class, so the checker records which instance this call built (ADR 0040).
+        if let Some(&ci) = checked.class_ctor_calls.get(&e.id) {
+            return self.construct(e, ci, args);
+        }
         if let Some(&ci) = checked.class_index.get(callee) {
             return self.construct(e, ci, args);
         }

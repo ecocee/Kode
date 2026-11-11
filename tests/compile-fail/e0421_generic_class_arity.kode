@@ -1,0 +1,7 @@
+// `Box` takes one type argument.
+class Box<T> {
+    value: T
+}
+
+b: Box<int, int> = none
+print(b)

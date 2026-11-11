@@ -29,6 +29,16 @@ impl Checker {
             TypeAnnKind::Name(n) => {
                 if let Some(t) = Type::from_name(n) {
                     Some(t)
+                } else if self.generic_class_index.contains_key(n) {
+                    self.errors.push(
+                        Diagnostic::error(
+                            "E0423",
+                            format!("`{n}` is a generic class, so it needs type arguments"),
+                            ann.span,
+                        )
+                        .with_help(format!("write `{n}<int>`, not `{n}`")),
+                    );
+                    None
                 } else if self.class_index.contains_key(n) {
                     Some(Type::Class(n.clone()))
                 } else if self.interface_index.contains_key(n) {
@@ -51,18 +61,14 @@ impl Checker {
                     None
                 }
             }
-            // Generic classes parse (ADR 0040) but are not instantiated yet, so
-            // this is a precise refusal rather than "unknown type".
-            TypeAnnKind::Generic(n, _) => {
-                self.errors.push(
-                    Diagnostic::error(
-                        "E0424",
-                        format!("`{n}<...>`: generic classes are not implemented yet"),
-                        ann.span,
-                    )
-                    .with_help("the design and slices are in docs/adr/0040-generic-classes.md"),
-                );
-                None
+            // `Box<int>`: one class per set of type arguments (ADR 0040).
+            TypeAnnKind::Generic(n, args) => {
+                let mut types = Vec::new();
+                for a in args {
+                    types.push(self.resolve_type(a)?);
+                }
+                let name = self.instantiate_class(n, &types, ann.span)?;
+                Some(Type::Class(name))
             }
             TypeAnnKind::List(inner) => {
                 let t = self.resolve_type(inner)?;
@@ -142,23 +148,14 @@ impl Checker {
                             format!("the class `{}` {what}", c.name),
                             c.name_span,
                         ));
+                    } else if !c.type_params.is_empty() {
+                        // A generic class is a template: it has no class entry of
+                        // its own, only one per set of type arguments (ADR 0040).
+                        self.generic_class_index
+                            .insert(c.name.clone(), self.generic_classes.len());
+                        self.generic_classes.push(c.clone());
                     } else {
                         self.class_index.insert(c.name.clone(), self.classes.len());
-                        if !c.type_params.is_empty() {
-                            self.errors.push(
-                                Diagnostic::error(
-                                    "E0424",
-                                    format!(
-                                        "`{}<...>`: generic classes are not implemented yet",
-                                        c.name
-                                    ),
-                                    c.name_span,
-                                )
-                                .with_help(
-                                    "the design and slices are in docs/adr/0040-generic-classes.md",
-                                ),
-                            );
-                        }
                         self.classes.push(ClassInfo {
                             name: c.name.clone(),
                             fields: Vec::new(),
@@ -356,6 +353,11 @@ impl Checker {
     fn check_implements(&mut self, program: &Program) {
         for item in &program.items {
             let Item::Class(c) = item else { continue };
+            // A generic class is checked per instantiation, where its type
+            // parameters are concrete (ADR 0040).
+            if !c.type_params.is_empty() {
+                continue;
+            }
             let Some(&ci) = self.class_index.get(&c.name) else {
                 continue;
             };
@@ -704,6 +706,11 @@ impl Checker {
     pub(crate) fn check_field_defaults(&mut self, program: &Program) {
         for item in &program.items {
             let Item::Class(c) = item else { continue };
+            // A generic class is checked per instantiation, where its type
+            // parameters are concrete (ADR 0040).
+            if !c.type_params.is_empty() {
+                continue;
+            }
             let Some(&ci) = self.class_index.get(&c.name) else {
                 continue;
             };

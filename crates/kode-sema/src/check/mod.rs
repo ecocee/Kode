@@ -118,6 +118,8 @@ pub struct Checked {
     pub bodies: Vec<FnDecl>,
     /// For a generic call: the instantiated function it resolved to.
     pub generic_calls: HashMap<ExprId, usize>,
+    /// For a constructor call on a generic class: the instance it built.
+    pub class_ctor_calls: HashMap<ExprId, usize>,
     pub warnings: Vec<Diagnostic>,
 }
 
@@ -151,6 +153,14 @@ pub(crate) struct Checker {
     /// How many entries of `bodies` have been checked so far.
     pub checked_bodies: usize,
     pub generic_calls: HashMap<ExprId, usize>,
+    /// Constructor calls that resolved to a generic class instance, and which
+    /// class instance each one is (ADR 0040).
+    pub class_ctor_calls: HashMap<ExprId, usize>,
+    /// Generic class declarations, by name. They are never instantiated
+    /// themselves and never lowered; the source name is not a class in
+    /// `class_index`, which is what makes a bare `Box` an E0423.
+    pub generic_class_index: HashMap<String, usize>,
+    pub generic_classes: Vec<ClassDecl>,
     /// Bodies of `fns`, in the same order.
     pub bodies: Vec<FnDecl>,
     pub direct_throw: Vec<bool>,
@@ -420,6 +430,9 @@ impl Checker {
             in_closure: false,
             generic_index: HashMap::new(),
             generic_decls: Vec::new(),
+            class_ctor_calls: HashMap::new(),
+            generic_class_index: HashMap::new(),
+            generic_classes: Vec::new(),
             instances: Vec::new(),
             next_expr_id: program.expr_count + 1,
             bodies: Vec::new(),
@@ -560,6 +573,7 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         closures: c.closures,
         bodies: c.bodies,
         generic_calls: c.generic_calls,
+        class_ctor_calls: c.class_ctor_calls,
         throws,
         warnings: c.warnings,
     })

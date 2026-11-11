@@ -1722,6 +1722,11 @@ impl Checker {
             return Some(sig.ret);
         }
 
+        // `Box(value: 1)`: infer the type arguments, then build the instance.
+        if self.generic_class_index.contains_key(callee) {
+            return self.generic_class_call(id, callee, args, &tys, span, callee_span);
+        }
+
         if let Some(&ci) = self.class_index.get(callee) {
             let fields = self.classes[ci].fields.clone();
             let params: Vec<(String, Type)> = fields
