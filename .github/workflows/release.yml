@@ -26,26 +26,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
+          fetch-depth: 0
 
-      - name: Compare Cargo.toml with the tag
+      - name: Compare the tag's Cargo.toml with the tag
         shell: bash
         run: |
           set -euo pipefail
+          if ! git rev-parse -q --verify "refs/tags/${TAG}^{commit}" >/dev/null; then
+            echo "ERROR: there is no tag ${TAG} in this repository."
+            echo "Recent tags:"
+            git tag --list 'v*' --sort=-v:refname | head -n 10 | sed 's/^/  /'
+            exit 1
+          fi
           want="${TAG#v}"
-          have="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
-          if [ -z "$have" ]; then
-            echo "ERROR: no version line in Cargo.toml"
+          have="$(git show "${TAG}:Cargo.toml" | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n 1)"
+          if [ -z "${have}" ]; then
+            echo "ERROR: ${TAG}:Cargo.toml has no version line"
             exit 1
           fi
-          if [ "$want" != "$have" ]; then
-            echo "ERROR: tag $TAG points at a commit whose Cargo.toml says $have."
-            echo "Release the commit that carries the version:"
-            echo "  git tag -f $TAG <commit> && git push --force origin $TAG"
-            echo "or bump the version and tag that instead."
-            exit 1
-          fi
-          echo "tag $TAG matches Cargo.toml $have"
+          # A tag may carry a suffix of its own (v0.3.4-test), so the version in
+          # the tree has to be the tag's version or its leading part.
+          case "${want}" in
+            "${have}"|"${have}"-*)
+              echo "tag ${TAG} matches Cargo.toml ${have}"
+              ;;
+            *)
+              echo "ERROR: tag ${TAG} points at a commit whose Cargo.toml says ${have}."
+              echo "Release the commit that carries the version:"
+              echo "  git tag -f ${TAG} <commit> && git push --force origin ${TAG}"
+              echo "or bump the version and tag that instead."
+              exit 1
+              ;;
+          esac
 
   linux:
     needs: verify
