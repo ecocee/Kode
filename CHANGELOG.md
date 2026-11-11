@@ -72,6 +72,14 @@ check the tag it is building, and Windows joins CI.
 
 ### Fixed
 
+- **`cargo test --workspace` works from a clean tree.** `kode-llvm`'s
+  development binary looked for the runtime archive only in
+  `target/<profile>/libkode_rt.a`, but a `staticlib` built as a build
+  dependency lands in `deps/libkode_rt-<hash>.a` and is never uplifted, so on a
+  fresh checkout every test that compiled a program failed with "cannot find
+  libkode_rt.a"; locally a previous `cargo build` hid it. It now searches the
+  matching `deps/` folder and takes the newest archive, the same fallback
+  `kode-cli`'s build script already had.
 - Two diagnostics that sent readers looking in the wrong place now say what is
   actually missing. `Shape.Circle(1)` reports `E0253` "enum payloads are not
   supported yet" with a class-based example instead of "unknown variable
