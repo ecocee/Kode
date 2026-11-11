@@ -85,6 +85,12 @@ check the tag it is building, and Windows joins CI.
   tag, `kode-v0.3.6-...`, so `sha256sum` failed after packaging and the release
   job stopped. Artifact names now follow the tag; only the version recorded
   inside the package drops the `v`, because dpkg requires a leading digit.
+- **macOS builds would not start.** The macOS 14 runner images were retired
+  on 2 November 2026, so the release's macOS job failed before its first step
+  with `The configuration 'macos-14-arm64-us-default' is not supported`, which
+  skipped `Publish GitHub Release` while Linux and Windows had already produced
+  artifacts. The release job and the `ci.yml` macOS entry now use `macos-15`,
+  which is still arm64.
 - Two diagnostics that sent readers looking in the wrong place now say what is
   actually missing. `Shape.Circle(1)` reports `E0253` "enum payloads are not
   supported yet" with a class-based example instead of "unknown variable

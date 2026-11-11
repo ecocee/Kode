@@ -255,7 +255,7 @@ Not measured, and why:
 ## 6. CI status
 
 - `ci.yml` (B9): one matrix, four native runners — `ubuntu-latest` (x86-64),
-  `ubuntu-24.04-arm` (arm64), `macos-14` (arm64), `windows-latest` (x86-64).
+  `ubuntu-24.04-arm` (arm64), `macos-15` (arm64), `windows-latest` (x86-64).
   Each asserts `uname -m`, installs clang explicitly (apt, Chocolatey LLVM, or
   the verified system Command Line Tools) and runs: `cargo build --workspace`,
   `cargo clippy --workspace --all-targets -- -D warnings`,
@@ -354,8 +354,9 @@ verified by running the site build), 4.9 (`LICENSE` added), 4.11 (`Cargo.toml` i
 ### `ci/release-macos`
 
 `release.yml` is now three jobs: Linux x86-64 (as before), macOS arm64
-(`macos-14`), and a publish job that merges both `SHA256SUMS-<platform>.txt`
-files into one `SHA256SUMS.txt`. Each machine smoke-tests the artifact it built
+(`macos-15`, after the macOS 14 runner images were retired in November 2026),
+and a publish job that merges the per-platform `SHA256SUMS-<platform>.txt` files
+into one `SHA256SUMS.txt`. Each machine smoke-tests the artifact it built
 (`kode doctor`, a `--version` that matches the tag, and `kode run` on hello
 world) before packaging. The macOS steps were run by hand on this machine
 (macOS 15 arm64): tarball 6.9 MB, checksummed, extracted binary runs. Releasing,

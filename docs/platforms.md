@@ -82,7 +82,7 @@ MSVC-built archive references symbols MinGW cannot resolve (`__chkstk`,
 |---|---|---|
 | `test (linux-x86_64)` | `ubuntu-latest` | x86-64, native |
 | `test (linux-aarch64)` | `ubuntu-24.04-arm` | arm64, native |
-| `test (macos-aarch64)` | `macos-14` | arm64, native |
+| `test (macos-aarch64)` | `macos-15` | arm64, native |
 | `test (windows-x86_64)` | `windows-latest` | x86-64, native |
 
 Each job asserts `uname -m` matches the architecture it claims before building,
