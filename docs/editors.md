@@ -25,19 +25,11 @@ method's parameters.
 
 ## Visual Studio Code
 
-A generic LSP client is the easiest route: install the `vscode-languageclient`,
-point it at `kode lsp`, and register `kode` for the `source.kode` language.
+There is no packaged extension yet; item 4.2 in `STATUS.md` tracks it as the
+remaining work. A generic LSP client is the easiest route meanwhile: install
+`vscode-languageclient` and register `kode` for the `source.kode` language.
 
-Alternatively, a small client lives in the `kode-vscode-exection` folder in this
-repo: a syntax highlighter and a boss battle between the two extension modes.
-
-Run it:
-
-## VS Code
-
-1. Install a generic LSP client, or use the existing `kode-vscode-exection` folder for
-   syntax highlighting.
-2. Add to `settings.json`:
+Server settings, in `settings.json`:
 
 ```json
 {
@@ -46,16 +38,18 @@ Run it:
 }
 ```
 
-With the built-in client extension:
+Starting the server from an extension:
 
-```json
-{
-  "languageServerExample": {
-    "command": "kode",
-    "args": ["lsp"],
-    "filetypes": ["kode"]
-  }
-}
+```ts
+import { LanguageClient } from "vscode-languageclient/node";
+
+const client = new LanguageClient(
+  "kode",
+  "Kode",
+  { command: "kode", args: ["lsp"] },
+  { documentSelector: [{ scheme: "file", language: "kode" }] },
+);
+client.start();
 ```
 
 If `kode` is not on `PATH`, point the command at the absolute path, for example
