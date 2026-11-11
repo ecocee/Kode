@@ -34,6 +34,12 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   functions, inferred at each call site; every distinct type combination becomes
   its own native function. Tests:
   `tests/run-pass/{generics,generics_nested}.kode`.
+- **Bootstrap harness and its oracles** — S0. `kode tokens` and `kode ast` print
+  a stable dump (text, and `--format=json`) of token text, byte spans,
+  line/column and tree shape; `scripts/selfhost.sh stage0|stage1|stage2|compare`
+  dumps the whole corpus through them, checks Stage 0 against itself first, and
+  records wall clock and peak RSS. `stage1` needs `selfhost/main.kode`, which
+  arrives with the port. Format: `crates/kode-syntax/src/dump.rs`.
 
 ### NOT IMPLEMENTED
 
@@ -50,8 +56,6 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   arenas, no regions.
 - **A compiler written in Kode.** No lexer, parser, checker, MIR builder,
   evaluator or native backend exists in Kode.
-- **Bootstrap automation.** No stage scripts, no stage comparison, no
-  reproducibility check.
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
   timeouts, no sorting with a comparator, no growable string builder.
 

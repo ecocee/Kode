@@ -35,6 +35,8 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 | `kode test` runner | `crates/kode-mir/src/lower/tests.rs`, `crates/kode-cli/src/main.rs` |
 | imports, packages, `kode.toml`, `kode.lock` | `crates/kode-cli/src/driver.rs`, `source.rs` |
 | `kode fmt`, `kode explain` | `crates/kode-cli/src/fmt.rs`, `explain.rs` (reads `docs/errors/index.md`) |
+| `kode tokens` / `kode ast` dumps (the self-hosting oracles) | `crates/kode-syntax/src/dump.rs`, `dump/ast.rs` |
+| the bootstrap harness | `scripts/selfhost.sh` (plan: `docs/PLAN-self-hosting.md`) |
 | language server | `kode lsp` in `kode-cli`; editor setup in `docs/editors.md` |
 | `kode doc` and the docs site | `docs/site/build.sh` |
 | PostgreSQL client | `crates/kode-rt/src/pg.rs` (API, handles, JSON results), `pg_wire.rs` (protocol, SCRAM), `sha256.rs` + `base64.rs` (SCRAM hashing) |

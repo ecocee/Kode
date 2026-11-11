@@ -209,9 +209,14 @@ fn run_command(opts: &Options) -> Result<u8, String> {
         if opts.command == "tokens" {
             return match kode_syntax::lexer::lex(&src) {
                 Ok(tokens) => {
-                    for t in tokens {
-                        println!("{:?}  [{}..{}]", t.kind, t.span.start, t.span.end);
-                    }
+                    print!(
+                        "{}",
+                        if opts.json {
+                            kode_syntax::dump::tokens_json(&src, &tokens)
+                        } else {
+                            kode_syntax::dump::tokens_text(&src, &tokens)
+                        }
+                    );
                     Ok(0)
                 }
                 Err(errs) => {
@@ -222,7 +227,14 @@ fn run_command(opts: &Options) -> Result<u8, String> {
         }
         return match kode_syntax::parse_source(&src) {
             Ok(p) => {
-                println!("{p:#?}");
+                print!(
+                    "{}",
+                    if opts.json {
+                        kode_syntax::dump::ast_json(&p)
+                    } else {
+                        kode_syntax::dump::ast_text(&p)
+                    }
+                );
                 Ok(0)
             }
             Err(errs) => {

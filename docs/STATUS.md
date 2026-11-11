@@ -148,9 +148,10 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 
 | Item | State | Evidence |
 |---|---|---|
+| 6.1 Bootstrap harness (S0) | **done** | `scripts/selfhost.sh` and the `kode tokens` / `kode ast` dumps (`crates/kode-syntax/src/dump.rs`); `stage0` green on a clean checkout, `stage1`/`compare` refuse without a Stage 1. Branch `selfhost/s0-harness` |
 | 6.1 Backend decision | **missing** | not decided |
 | 6.2–6.5 Lexer, parser, checker, codegen in Kode | **missing** | `docs/self-hosting.md`: "No lexer, parser, checker, MIR builder, evaluator or native backend exists in Kode" |
-| 6.6 Bootstrap proof in CI | **missing** | no bootstrap scripts, no stage comparison |
+| 6.6 Bootstrap proof in CI | **partial** | the harness exists (S0) but nothing runs it in CI yet; it needs a port to compare against |
 
 Prerequisites that are absent: enum payloads (1.1), generic classes (1.2), and
 a memory strategy for AST/token graphs that does not leak on cycles (1.3).

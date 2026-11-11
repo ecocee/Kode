@@ -194,6 +194,8 @@ kode test                    # run the test blocks
 kode fmt app.kode            # format
 kode doc src -o docs/api     # HTML reference for pub items
 kode explain E0220           # what a code means
+kode tokens app.kode         # tokens: span, line:column, kind, text (self-hosting oracle)
+kode ast app.kode            # syntax tree with spans (same; both take --format=json)
 kode lsp                     # language server on stdio
 kode doctor                  # version, target, linker, runtime ABI
 kode init [name]             # make the current folder a package

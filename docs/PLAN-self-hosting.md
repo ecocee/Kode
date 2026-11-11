@@ -77,6 +77,11 @@ are the long poles; 9.9 is the one that blocks the most code.
 
 ### S0 — bootstrap harness (branch `selfhost/s0-harness`)
 
+Status: **done**. `kode tokens` and `kode ast` print the stable dump below
+(`crates/kode-syntax/src/dump.rs`), `scripts/selfhost.sh stage0` is green on a
+clean checkout, and `stage1`/`stage2`/`compare` refuse to report success when
+the program or the dump they would compare against does not exist yet.
+
 Deliverable: `scripts/selfhost.sh`, plus the two debug dumps the later stages
 compare against.
 

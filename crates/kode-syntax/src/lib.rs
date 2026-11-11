@@ -2,6 +2,7 @@
 
 pub mod ast;
 mod depth;
+pub mod dump;
 pub mod lexer;
 pub mod parser;
 pub mod token;

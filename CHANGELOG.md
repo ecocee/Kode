@@ -36,6 +36,13 @@ check the tag it is building, and Windows joins CI.
 
 ### Added
 
+- **The self-hosting harness and its oracles** (S0 of
+  `docs/PLAN-self-hosting.md`). `kode tokens` and `kode ast` now print a stable,
+  diffable dump — token kind, text, byte span, line and column, or the tree with
+  its spans — in text or with `--format=json`, and `scripts/selfhost.sh
+  stage0|stage1|stage2|compare` dumps the whole corpus through them, checks
+  Stage 0 against itself first, records wall clock and peak RSS, and refuses to
+  compare against a Stage 1 that does not exist yet.
 - **Packages can require a compiler version.** `kode = "0.3"` under `[package]`
   in `kode.toml` states the minimum compiler, like `go 1.24` in `go.mod`;
   `kode doctor` reports and exits 1 when this compiler is older (ADR 0036).
