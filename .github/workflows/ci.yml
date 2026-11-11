@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lets a branch be validated on all four platforms before it is merged or
+  # opened as a pull request, which is how the Windows-only failures were found.
+  workflow_dispatch:
 
 # Every supported platform runs the same gates in the same order. Nothing here
 # relies on a tool that happens to be on the image: clang and the C linker are
