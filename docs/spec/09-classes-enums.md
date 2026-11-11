@@ -27,6 +27,9 @@ other = acct                         # the same object, not a copy
   A parameter may not have the same name as a field (E0228).
 - Named arguments work for functions, methods and constructors. Positional ones come first (E0215).
 - No inheritance (ADR 0006). Use composition: a class holds other classes.
+- A class may declare type parameters, `class Box<T>`, and an annotation may
+  pass them, `Box<int>` (ADR 0040). Both parse today; instantiating one is still
+  `E0424`, so there is no generic class at run time yet.
 - Equality `==` on class values compares identity.
 - Built-in class `Error` has `message: string` and `code: int = 0`.
 

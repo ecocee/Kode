@@ -31,6 +31,11 @@ fn item(item: &Item) -> Node {
             .text("name", &c.name)
             .span("name_span", c.name_span)
             .flag("pub", c.is_pub)
+            .kids(c.type_params.iter().map(|(name, span)| {
+                Node::new("TypeParam")
+                    .text("name", name)
+                    .span("span", *span)
+            }))
             .kids(c.implements.iter().map(|(name, span)| {
                 Node::new("Implements")
                     .text("name", name)
@@ -124,6 +129,9 @@ fn field(f: &FieldDecl) -> Node {
 fn type_ann(t: &TypeAnn) -> Node {
     let n = match &t.kind {
         TypeAnnKind::Name(name) => Node::new("TypeName").text("name", name),
+        TypeAnnKind::Generic(name, args) => Node::new("TypeGeneric")
+            .text("name", name)
+            .kids(args.iter().map(type_ann)),
         TypeAnnKind::List(inner) => Node::new("TypeList").child(type_ann(inner)),
         TypeAnnKind::Map(value) => Node::new("TypeMap").child(type_ann(value)),
         TypeAnnKind::Opt(inner) => Node::new("TypeOpt").child(type_ann(inner)),

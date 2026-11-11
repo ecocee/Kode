@@ -1,0 +1,8 @@
+// `class Box<T>` parses (ADR 0040) and the AST dump carries it, but instantiation
+// is the next slice: until it lands the checker says so instead of limping on.
+class Box<T> {
+    value: T
+}
+
+b: Box<int> = none
+print(b)

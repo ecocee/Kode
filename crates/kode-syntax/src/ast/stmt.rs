@@ -14,6 +14,9 @@ pub struct TypeAnn {
 #[derive(Debug, Clone)]
 pub enum TypeAnnKind {
     Name(String),
+    /// `Box<int>`: a class with type arguments (ADR 0040). The checker still
+    /// refuses generic classes; the parser and dump carry the shape S2 needs.
+    Generic(String, Vec<TypeAnn>),
     List(Box<TypeAnn>),
     /// `{string: T}`: the key is always a string, this is the value type.
     Map(Box<TypeAnn>),

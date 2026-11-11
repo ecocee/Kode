@@ -136,6 +136,8 @@ pub fn ann_type(ann: &kode_syntax::ast::TypeAnn, checked: &crate::Checked) -> Op
                     .map(|_| Type::Interface(n.clone()))
             })
             .or_else(|| checked.enum_index.get(n).map(|_| Type::Enum(n.clone()))),
+        // `Box<int>` is syntax only until instantiation lands (ADR 0040).
+        TypeAnnKind::Generic(_, _) => None,
         TypeAnnKind::List(i) => Some(Type::List(Box::new(ann_type(i, checked)?))),
         TypeAnnKind::Map(i) => Some(Type::Map(Box::new(ann_type(i, checked)?))),
         TypeAnnKind::Opt(i) => Some(Type::Opt(Box::new(ann_type(i, checked)?))),

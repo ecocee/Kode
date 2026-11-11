@@ -51,6 +51,19 @@ impl Checker {
                     None
                 }
             }
+            // Generic classes parse (ADR 0040) but are not instantiated yet, so
+            // this is a precise refusal rather than "unknown type".
+            TypeAnnKind::Generic(n, _) => {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0424",
+                        format!("`{n}<...>`: generic classes are not implemented yet"),
+                        ann.span,
+                    )
+                    .with_help("the design and slices are in docs/adr/0040-generic-classes.md"),
+                );
+                None
+            }
             TypeAnnKind::List(inner) => {
                 let t = self.resolve_type(inner)?;
                 if crate::types::is_opt_scalar(&t).is_some() {
@@ -131,6 +144,21 @@ impl Checker {
                         ));
                     } else {
                         self.class_index.insert(c.name.clone(), self.classes.len());
+                        if !c.type_params.is_empty() {
+                            self.errors.push(
+                                Diagnostic::error(
+                                    "E0424",
+                                    format!(
+                                        "`{}<...>`: generic classes are not implemented yet",
+                                        c.name
+                                    ),
+                                    c.name_span,
+                                )
+                                .with_help(
+                                    "the design and slices are in docs/adr/0040-generic-classes.md",
+                                ),
+                            );
+                        }
                         self.classes.push(ClassInfo {
                             name: c.name.clone(),
                             fields: Vec::new(),
@@ -222,7 +250,9 @@ impl Checker {
         let mut done = HashSet::new();
         for item in &program.items {
             let Item::Class(c) = item else { continue };
-            if !done.insert(c.name.clone()) || c.name == "Error" {
+            // A generic class has no instance yet: its fields and methods are
+            // collected per instantiation, which is the next slice of ADR 0040.
+            if !done.insert(c.name.clone()) || c.name == "Error" || !c.type_params.is_empty() {
                 continue;
             }
             let ci = self.class_index[&c.name];
@@ -427,6 +457,12 @@ impl Checker {
 
     fn collect_fns(&mut self, program: &Program) {
         for (cls, f) in program.fn_decls() {
+            // Methods of a generic class arrive with their instance.
+            if let Some(c) = cls {
+                if !c.type_params.is_empty() {
+                    continue;
+                }
+            }
             if !f.type_params.is_empty() {
                 self.collect_generic(cls, f);
                 continue;

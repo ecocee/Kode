@@ -181,6 +181,9 @@ fn unify(
                 true
             }
         },
+        // A generic class annotation is not instantiated yet (ADR 0040), so no
+        // generic function parameter can unify against one.
+        TypeAnnKind::Generic(_, _) => false,
         TypeAnnKind::Name(n) => match actual {
             Type::Class(c) | Type::Interface(c) | Type::Enum(c) => c == n,
             _ => Type::from_name(n).as_ref() == Some(actual),
@@ -229,6 +232,11 @@ fn substitute_ann(ann: &mut TypeAnn, subst: &HashMap<String, Type>) {
         | TypeAnnKind::Opt(i)
         | TypeAnnKind::Task(i)
         | TypeAnnKind::Channel(i) => substitute_ann(i, subst),
+        TypeAnnKind::Generic(_, args) => {
+            for a in args {
+                substitute_ann(a, subst);
+            }
+        }
         TypeAnnKind::Fn(ps, ret) => {
             for p in ps {
                 substitute_ann(p, subst);
@@ -264,6 +272,10 @@ fn ann_for(t: &Type, span: Span) -> TypeAnn {
 fn render(ann: &TypeAnn, subst: &HashMap<String, Type>) -> String {
     match &ann.kind {
         TypeAnnKind::Name(n) => subst.get(n).map(|t| t.name()).unwrap_or_else(|| n.clone()),
+        TypeAnnKind::Generic(n, args) => {
+            let args: Vec<String> = args.iter().map(|a| render(a, subst)).collect();
+            format!("{n}<{}>", args.join(", "))
+        }
         TypeAnnKind::List(i) => format!("[{}]", render(i, subst)),
         TypeAnnKind::Map(i) => format!("{{string: {}}}", render(i, subst)),
         TypeAnnKind::Opt(i) => format!("{}?", render(i, subst)),

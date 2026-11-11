@@ -1,8 +1,11 @@
 # ADR 0040: Generic classes
 
-Status: **proposed** — design only. No compiler change has been made; the three
-slices in §9 are separate, test-first changes and need the maintainer's approval,
-because this adds syntax (AGENTS.md "Ask the maintainer first").
+Status: **proposed** — design, with slice 1a landed. `class Box<T>` and
+`Box<int>` now parse, appear in `kode ast` and count towards the nesting limit
+(`crates/kode-syntax`: `ClassDecl::type_params`, `TypeAnnKind::Generic`), and the
+checker refuses them with the temporary `E0424` rather than an accidental "unknown
+type `T`". Instantiation (slice 1b) is the next step and needs the maintainer's
+approval, because it changes what the checker compiles.
 Date: 2026-11-11.
 Plan item: `docs/PLAN-v1.md` 9.9, `docs/STATUS.md` 1.2. Blocks S2 of
 `docs/PLAN-self-hosting.md`.

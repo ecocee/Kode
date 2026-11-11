@@ -72,6 +72,20 @@ fn the_tree_keeps_shape_and_spans() {
 }
 
 #[test]
+fn generic_class_syntax_is_in_the_tree() {
+    let file = write_temp(
+        "generic-class",
+        "class Box<T> {\n    value: T\n}\n\nb: Box<int> = none\n",
+    );
+    let (code, out) = run(&["ast", file.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("TypeParam name=\"T\""), "{out}");
+    assert!(out.contains("TypeGeneric name=\"Box\""), "{out}");
+    assert!(out.contains("TypeName name=\"int\""), "{out}");
+    let _ = std::fs::remove_file(&file);
+}
+
+#[test]
 fn payload_variants_are_in_the_tree() {
     let file = write_temp(
         "enum-payload",

@@ -71,6 +71,8 @@ pub struct ClassDecl {
     pub name: String,
     pub name_span: Span,
     pub is_pub: bool,
+    /// `class Box<T>`: the type parameters, in declaration order (ADR 0040).
+    pub type_params: Vec<(String, Span)>,
     pub implements: Vec<(String, Span)>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FnDecl>,

@@ -7,6 +7,9 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Generic class syntax parses.** `class Box<T>` and `Box<int>` in annotations
+  are in the AST and in `kode ast` (ADR 0040, slice 1a); the checker reports the
+  temporary `E0424` until instantiation lands.
 - **The self-hosting harness runs in CI.** A `selfhost` job records the Stage 0
   oracle, builds the Kode lexer with it and compares 184 token dumps on every
   push and pull request, uploading both measurement files (`.github/workflows/ci.yml`).

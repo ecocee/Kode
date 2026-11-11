@@ -118,6 +118,7 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0412 | a dependency is not a package (no `kode.toml`) |
 | E0413 | dependency version mismatch, or a version without a path |
 | E0414 | two packages share a name, or a package depends on itself |
+| E0424 | generic classes are not implemented yet (temporary; ADR 0040) |
 
 ## Warnings
 

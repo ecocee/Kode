@@ -98,7 +98,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 | Item | State | Evidence |
 |---|---|---|
 | 1.1 Enum payloads, `match` destructuring, `is`, safe downcast | **partial** (ADR 0039) | slice 1a: `Circle(radius: float)` parses and appears in `kode ast` (`EnumVariant`, dump test, depth limit). Constructing one is still `E0253` (`tests/compile-fail/e0253_enum_payload`); representation, `match` and `is` are pending, codes `E0417`-`E0420` reserved |
-| 1.2 Generic classes, generic methods, constraints, explicit type args | **designed** (ADR 0040) | no code: `class Box<T>` is a parse error and a method with type parameters is E0252; monomorphization reuses ADR 0030, three slices and reserved codes `E0421`-`E0423` in `docs/adr/0040-generic-classes.md` |
+| 1.2 Generic classes, generic methods, constraints, explicit type args | **partial** (ADR 0040) | slice 1a: `class Box<T>` and `Box<int>` parse and appear in `kode ast` (`TypeParam`, `TypeGeneric`, dump test); the checker refuses them with the temporary `E0424` (`tests/compile-fail/e0424_generic_class`). Instantiation, monomorphization and codes `E0421`-`E0423` are pending |
 | 1.3 `weak` references / cycle safety | **designed, not implemented** | ADR 0038 (`docs/adr/0038-weak-references.md`) with measured leak evidence in `benchmarks/leaks/report.md`; no `weak` token in the lexer yet |
 | 1.4 Fixed-width ints, byte buffers, binary encode/decode | **missing** | probed: `x: u8 = 1` → `E0303 unknown type u8`; only `int` (64-bit) |
 | 1.5 Checked arithmetic plus `wrapping_*` / `saturating_*` | **missing** | probed: `9223372036854775807 + 1` prints `-9223372036854775808` (silent wrap); ADR 0009 |

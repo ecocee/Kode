@@ -241,6 +241,11 @@ pub(crate) fn too_deep(program: &Program) -> Option<Span> {
             }
             Node::Ty(t, _) => match &t.kind {
                 TypeAnnKind::Name(_) => {}
+                TypeAnnKind::Generic(_, args) => {
+                    for a in args {
+                        stack.push(Node::Ty(a, 1));
+                    }
+                }
                 TypeAnnKind::List(x)
                 | TypeAnnKind::Map(x)
                 | TypeAnnKind::Opt(x)

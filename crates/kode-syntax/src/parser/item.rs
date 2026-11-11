@@ -147,6 +147,20 @@ impl Parser {
     fn parse_class(&mut self) -> Result<ClassDecl, Diagnostic> {
         self.bump(); // class
         let (name, name_span) = self.ident("a class name")?;
+        // `class Box<T>`: the type parameters (ADR 0040).
+        let mut type_params = Vec::new();
+        if matches!(self.peek(), TokenKind::Lt) {
+            self.bump();
+            loop {
+                type_params.push(self.ident("a type parameter")?);
+                if matches!(self.peek(), TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+            self.expect(TokenKind::Gt, "`>`")?;
+        }
         let mut implements = Vec::new();
         if matches!(self.peek(), TokenKind::Implements) {
             self.bump();
@@ -213,6 +227,7 @@ impl Parser {
             name,
             name_span,
             is_pub: false,
+            type_params,
             implements,
             fields,
             methods,
