@@ -105,12 +105,15 @@ arm64 Linux gate has to run on a self-hosted arm64 runner instead.
 
 ## Known limitations
 
-- **Windows** failed its first CI run (November 2026) on three issues, all fixed:
+- **Windows** failed its first CI runs (November 2026) on four issues, all fixed:
   `-fPIC` was passed to MSVC-target clang, the compiler used the 1 MB Windows
   main-thread stack and crashed on deeply nested source instead of reporting
-  E0118, and objects were emitted for the MSVC ABI while MinGW links them. Clang
-  now targets `x86_64-w64-mingw32` there, and every command runs on a 64 MB
-  thread. The job has to turn green before Windows leaves preview.
+  E0118, objects were emitted for the MSVC ABI while MinGW links them, and the
+  LSP end-to-end test interpolated a `C:\...` path into hand-built JSON, so the
+  `didOpen` request was unparseable and the server (correctly) published no
+  diagnostics. Clang now targets `x86_64-w64-mingw32`, every command runs on a
+  64 MB thread, and the harness sends a `/`-separated URI. The job has to turn
+  green before Windows leaves preview.
 - **Linux x86-64** was validated under Rosetta emulation only; see above.
 - `exec` and the compiler's own clang/linker calls force the fork/exec path so a
   failed `exec` is reported as an error. On Windows there is no fork; `std`'s
