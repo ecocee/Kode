@@ -1,12 +1,17 @@
 # Plan: fix/http-concurrency
 
-Status: Stage 1 (timeouts, size limits, connection cap, regression tests) and
-Stage 3 (`RwLock<Vec<Route>>` instead of a mutex on the hot path) landed on
-`bench/http`; Stage 2 (the I/O-model ADR and independent `wrk`/`oha`
-measurements) is still open. TLS arrived afterwards and deliberately uses a
+Status: Stage 1 (timeouts, size limits, connection cap, regression tests),
+Stage 2 (I/O-model ADR plus independent `oha`/`wrk` measurements) and Stage 3
+(`RwLock<Vec<Route>>` instead of a mutex on the hot path) are done.
+Stage 2 produced **ADR 0037** and the "Stage 2 — I/O model" section of
+`benchmarks/http/report.md`; it decided to keep the epoll loop on Linux and the
+capped thread-per-connection fallback elsewhere, and left one code item open:
+answering `503` above the connection cap instead of a bare close (ADR 0037
+decision 4). TLS arrived afterwards and deliberately uses a
 thread-per-connection path rather than the epoll loop, for the reasons and costs
-recorded in ADR 0034. The checkboxes below are the original plan, kept as
-written.
+recorded in ADR 0034. The checkboxes below are the original plan; Stage 2 is
+answered by ADR 0037 rather than by ticking a box, and the Stage 1/3 boxes are
+left as the plan wrote them.
 
 Branch: `fix/http-concurrency` (open after approval). No code changes until this plan is approved.
 
@@ -20,7 +25,7 @@ Stop the outage (starvation, unbounded blocking, no limits), make concurrency mo
 - [ ] **Regression tests** (deterministic worker count via `KODE_HTTP_WORKERS`): N workers, open N idle keep-alive conns → fresh request succeeds within bounded time (idle timeout or cap must release). Slowloris-style (headers one byte at a time). Timeouts/limits exercised.
 - [ ] **Docs**: update behavior notes.
 
-## Stage 2 (ADR + measurements, no commitment)
+## Stage 2 (ADR + measurements, no commitment) — **done**, see ADR 0037
 Compare on 1 vCPU / 1 GB server container, load gen in separate container:
 
 | Option | I/O | Handler execution | Notes |
@@ -29,14 +34,20 @@ Compare on 1 vCPU / 1 GB server container, load gen in separate container:
 | 2a | Event loop (epoll/Linux, kqueue/macOS) + worker pool for handlers | Blocking handler won't stall I/O | Scalable; need to handle blocking handlers correctly. |
 | 2b | 2a with vetted crate `mio` vs direct libc | same | Crate needs explicit approval + size impact. |
 
-Measure for each:
+Measured (ADR 0037, `benchmarks/http/report.md`), with `oha` 1.16.0 and
+`wrk` 4.2.0 replacing the in-repo client:
 - RSS and peak RSS at 100, 1000, 10000 live idle keep-alive connections
 - RPS, p50/p99/p99.9 at c=100, c=1000 (wrk or oha)
 - CPU time per request (user+sys)
 - Binary size delta
 - LOC, Windows story (epoll/kqueue no Windows equiv; propose solution)
 
-Recommend one with rationale. If adding `mio`, present as question with size impact. ADR required.
+Recommendation recorded in ADR 0037: keep the hand-written epoll loop on Linux,
+keep the capped thread-per-connection fallback on macOS/Windows for v1.0, and do
+not add `mio` (measured at +122,952 bytes in a `staticlib`, upper bound). The
+paper exercise (`mio` size, Windows equivalent, LOC) is complete; the decision
+needs the maintainer's approval, and the open `503`-above-the-cap change is
+filed as the next code item rather than done here.
 
 ## Stage 3 (contention)
 - [ ] Replace global ROUTES lock on hot path with immutable snapshot (built at startup) or `RwLock`. Measure before/after.

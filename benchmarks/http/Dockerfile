@@ -19,15 +19,71 @@ RUN apk add --no-cache curl
 COPY --from=load-build /out/load /bench/bin/load
 CMD ["tail", "-f", "/dev/null"]
 
+# ------------------------------------------------ idle (keep-alive holders)
+# Opens N connections, one request each, then holds them idle and reports how
+# many the server kept. Built from the same Go toolchain stage as `load`.
+FROM golang:1.24-bookworm AS idle-build
+WORKDIR /src
+COPY benchmarks/http/idle.go .
+RUN CGO_ENABLED=0 go build -o /out/idle idle.go
+
+FROM alpine:3.20 AS idle
+RUN apk add --no-cache curl
+COPY --from=idle-build /out/idle /bench/bin/idle
+CMD ["tail", "-f", "/dev/null"]
+
+# ------------------------------------------------------- oha (independent)
+# The second, independent load generator Stage 2 asks for (the first is `wrk`).
+# Pinned: a benchmark number is only comparable with the tool that produced it.
+FROM alpine:3.20 AS oha
+ARG OHA_VERSION=1.16.0
+ARG ARCH=arm64
+RUN apk add --no-cache curl \
+ && mkdir -p /bench/bin \
+ && curl -fsSL -o /bench/bin/oha \
+      "https://github.com/hatoo/oha/releases/download/v${OHA_VERSION}/oha-linux-${ARCH}" \
+ && chmod +x /bench/bin/oha
+CMD ["tail", "-f", "/dev/null"]
+
+# --------------------------------------------------------------- wrk (second)
+# Built from source because there is no arm64 image for a prebuilt wrk.
+FROM debian:bookworm-slim AS wrk
+ARG WRK_VERSION=4.2.0
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential libssl-dev ca-certificates git unzip \
+ && git clone --depth 1 --branch "${WRK_VERSION}" https://github.com/wg/wrk /tmp/wrk \
+ && make -C /tmp/wrk -j"$(nproc)" \
+ && install -D /tmp/wrk/wrk /bench/bin/wrk \
+ && rm -rf /tmp/wrk /var/lib/apt/lists/*
+CMD ["tail", "-f", "/dev/null"]
+
+# ------------------------------------------------------- tools (load side)
+# One container with every load generator, so a Stage 2 run uses the same
+# network and the same image for oha, wrk and idle.
+# Debian, not Alpine: `wrk` is linked against glibc and would fail to exec on musl.
+FROM debian:bookworm-slim AS tools
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=oha /bench/bin/oha /bench/bin/oha
+COPY --from=wrk /bench/bin/wrk /bench/bin/wrk
+COPY --from=idle /bench/bin/idle /bench/bin/idle
+ENV PATH="/bench/bin:${PATH}"
+CMD ["tail", "-f", "/dev/null"]
+
 # ---------------------------------------------------------------- kode
-FROM rust:1-bookworm AS kode-build
+FROM rust:1-trixie AS kode-build
+# `kode build` shells out to clang for the LLVM object; the Rust image has none.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends clang \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . /src
 RUN cargo build --release --bin kode \
  && mkdir -p /out \
  && /src/target/release/kode build /src/benchmarks/http/server.kode --release -o /out/kode_server
 
-FROM debian:bookworm-slim AS kode
+FROM debian:trixie-slim AS kode
 COPY --from=kode-build /out/kode_server /bench/bin/kode_server
 ENTRYPOINT ["/bench/bin/kode_server"]
 CMD ["8080"]
