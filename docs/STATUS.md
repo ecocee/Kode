@@ -49,7 +49,8 @@ general-purpose language. Blockers, in the order they hurt:
 oracles and gates, are in [PLAN-self-hosting.md](PLAN-self-hosting.md). There is no lexer, parser, checker or
 backend written in Kode (§3, Phase 6). The language also lacks the three things
 a compiler needs first: enum payloads with pattern matching, generic classes,
-and a faster memory story for token/AST graphs. The backend question is settled: LLVM, which needs `clang` at build time.
+and a faster memory story for token/AST graphs. The first two now have designs
+(ADR 0039, ADR 0040); neither has a line of code. The backend question is settled: LLVM, which needs `clang` at build time.
 
 ## 2. Baseline
 
@@ -96,8 +97,8 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 
 | Item | State | Evidence |
 |---|---|---|
-| 1.1 Enum payloads, `match` destructuring, `is`, safe downcast | **missing** | probed: `Shape.Circle(1)` is rejected (with a poor message — `E0201 unknown variable Shape`); `docs/spec/07-planned.md`, `docs/self-hosting.md` ("Enums are tags only"); no test |
-| 1.2 Generic classes, generic methods, constraints, explicit type args | **missing** | ADR 0030 "Limits"; E0251/E0252; only free functions |
+| 1.1 Enum payloads, `match` destructuring, `is`, safe downcast | **designed** (ADR 0039) | no code: `Shape.Circle(1)` is `E0253` ("enum payloads are not supported yet"); representation rule, four slices and reserved codes `E0417`-`E0420` in `docs/adr/0039-enum-payloads.md` |
+| 1.2 Generic classes, generic methods, constraints, explicit type args | **designed** (ADR 0040) | no code: `class Box<T>` is a parse error and a method with type parameters is E0252; monomorphization reuses ADR 0030, three slices and reserved codes `E0421`-`E0423` in `docs/adr/0040-generic-classes.md` |
 | 1.3 `weak` references / cycle safety | **designed, not implemented** | ADR 0038 (`docs/adr/0038-weak-references.md`) with measured leak evidence in `benchmarks/leaks/report.md`; no `weak` token in the lexer yet |
 | 1.4 Fixed-width ints, byte buffers, binary encode/decode | **missing** | probed: `x: u8 = 1` → `E0303 unknown type u8`; only `int` (64-bit) |
 | 1.5 Checked arithmetic plus `wrapping_*` / `saturating_*` | **missing** | probed: `9223372036854775807 + 1` prints `-9223372036854775808` (silent wrap); ADR 0009 |

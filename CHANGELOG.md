@@ -7,6 +7,10 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Designs for the two language features S2 needs** (ADRs 0039 and 0040): enum
+  payloads with `match` destructuring, `is` and narrowing, plus generic classes by
+  monomorphization. Design and slice order only — no compiler or runtime change
+  yet; each slice stays its own reviewable commit.
 - **A lexer written in Kode** (S1 of `docs/PLAN-self-hosting.md`).
   `selfhost/lexer.kode` scans source into tokens with the same spans, escapes,
   error codes and recovery as `crates/kode-syntax/src/lexer.rs`;

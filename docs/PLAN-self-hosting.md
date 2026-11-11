@@ -73,6 +73,11 @@ port as a special case — they are general language features from
 Gate 0 is closed when all six rows are green in `docs/STATUS.md`. 9.5 and 9.6
 are the long poles; 9.9 is the one that blocks the most code.
 
+9.7 and 9.9 — the two rows S2 lives or dies on — now have designs (ADR 0039 for
+enum payloads, ADR 0040 for generic classes) and an ordered slice list each. S2
+opens when their first slices are green; generic classes go first, because they
+change the checker only while payload enums change a value representation.
+
 Measured correction from S1: byte *buffers* were not needed for the lexer.
 `s.size()`, `s.byte_at(i)` and `s.slice(a, b)` read bytes and the token dump only
 concatenates short lines, so the port shipped without 9.6. What 9.6 still blocks
