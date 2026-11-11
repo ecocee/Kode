@@ -34,7 +34,8 @@ general-purpose language. Blockers, in the order they hurt:
    in ADR 0037 (60,374 req/s at c=100 on one vCPU); above 1,024 connections the
    server closes the socket with no response instead of answering 503.
 3. Reference-counting cannot break cycles, so two objects pointing at each
-   other leak forever (no `weak`).
+   other leak forever (no `weak`; the design and its measured leak evidence are
+   in ADR 0038).
 4. No byte buffers and only 64-bit `int`; no fixed-width integers, no binary
    protocol work.
 5. A PostgreSQL client exists (ADR 0033) with TLS (rustls) and a connection
@@ -93,7 +94,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 |---|---|---|
 | 1.1 Enum payloads, `match` destructuring, `is`, safe downcast | **missing** | probed: `Shape.Circle(1)` is rejected (with a poor message — `E0201 unknown variable Shape`); `docs/spec/07-planned.md`, `docs/self-hosting.md` ("Enums are tags only"); no test |
 | 1.2 Generic classes, generic methods, constraints, explicit type args | **missing** | ADR 0030 "Limits"; E0251/E0252; only free functions |
-| 1.3 `weak` references / cycle safety | **missing** | `docs/design/memory-model.md` "Known limits"; no `weak` token in the lexer |
+| 1.3 `weak` references / cycle safety | **designed, not implemented** | ADR 0038 (`docs/adr/0038-weak-references.md`) with measured leak evidence in `benchmarks/leaks/report.md`; no `weak` token in the lexer yet |
 | 1.4 Fixed-width ints, byte buffers, binary encode/decode | **missing** | probed: `x: u8 = 1` → `E0303 unknown type u8`; only `int` (64-bit) |
 | 1.5 Checked arithmetic plus `wrapping_*` / `saturating_*` | **missing** | probed: `9223372036854775807 + 1` prints `-9223372036854775808` (silent wrap); ADR 0009 |
 | 1.6 Optional scalars as fields, parameters, returns | **partial** | `int?`/`float?`/`bool?` work as **locals** (ADR 0024, `tests/run-pass/optional_numbers.kode`); E0219 elsewhere |
@@ -323,7 +324,8 @@ changes behaviour):
 3. **TLS** (Phase 3.1) — the single biggest production blocker; needs a DECISION
    on `rustls` vs system OpenSSL with a binary-size measurement.
 4. **Enum payloads** (1.1) — unblocks self-hosting, needs an ADR.
-5. **`weak`** (1.3) — stops the cycle leak; needs an ADR and leak evidence.
+5. **`weak`** (1.3) — makes the cycle leak avoidable; ADR 0038 and the evidence
+   exist, the implementation is the next code change.
 
 ## 9. Gates
 

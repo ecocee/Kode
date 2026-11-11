@@ -1,0 +1,16 @@
+// ADR 0038 evidence: a two-object cycle.
+//
+// `a` owns `b` through a strong field and `b` owns `a` the same way, so both
+// counts stay at 1 after the variables are released and neither object is
+// freed. Run with KODE_LEAK_CHECK=1: the program prints its output, then exits
+// 3 with "kode: memory leak: 2 object(s) were never freed".
+class Node {
+    name: string
+    next: Node? = none
+}
+
+a = Node(name: "a")
+b = Node(name: "b")
+a.next = b
+b.next = a
+print(a.name, b.name)

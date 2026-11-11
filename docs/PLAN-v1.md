@@ -11,7 +11,7 @@ one commit set, so `git log` reads like the plan.
 
 | Area | Today | Gap for v1.0 |
 |---|---|---|
-| Language | int/float/bool/string, lists, maps, classes, enums, interfaces, `match`, `try`/`catch`/`finally`, `T?` (locals for `int?`), channels, packages, modules, closures, generic functions | cycle-safe memory (`weak`), enum payloads, fixed-width ints, generic classes |
+| Language | int/float/bool/string, lists, maps, classes, enums, interfaces, `match`, `try`/`catch`/`finally`, `T?` (locals for `int?`), channels, packages, modules, closures, generic functions | cycle-avoiding memory (`weak`, ADR 0038), enum payloads, fixed-width ints, generic classes |
 | Standard library | strings, lists, maps, files, args, env, sort, JSON, HTTP client, server, router, math, time | collection helpers (`contains`, `index_of`, `reverse`, `insert`, …), `map.values()`, string ergonomics |
 | Errors | stable codes, hints, JSON output, `kode explain`, `finally` | suggestions everywhere, better runtime messages, a depth-limit diagnostic |
 | Tools | run/build/check/test/fmt/explain/mir/lsp/doc/doctor, JSON diagnostics | language server, `kode doc`, `kode doctor`, editor integration |
@@ -112,7 +112,7 @@ tests and an ADR where behavior changes; the list is the order, not a schedule.
 | 9.2 | Docs that match the compiler | channels, `finally`, generics, LSP nav were documented as missing | **done** |
 | 9.3 | TLS for the HTTP client and server | every real service talks `https://`; today it raises an error | **done** (ADR 0034): `https://` client with webpki roots, `serve_tls` with DER certificates, one shared transport; the TLS server runs one thread per connection |
 | 9.4 | Database client (PostgreSQL wire protocol) | no data store means no backends | **done** (ADR 0033): SCRAM-SHA-256, simple + extended protocol, JSON results, opportunistic TLS, `pg.pool`; md5, `COPY`, binary format and cancellation remain |
-| 9.5 | `weak` references | two objects pointing at each other leak forever | |
+| 9.5 | `weak` references | two objects pointing at each other leak forever | **design done** (ADR 0038, leak evidence in `benchmarks/leaks/`); implementation pending |
 | 9.6 | Byte buffers and fixed-width ints (`u8`, `i32`, `[]byte`) | binary protocols, files and crypto need bytes, not 64-bit ints | |
 | 9.7 | Enum payloads, `is`, safe downcast | tag-only enums force unsafe casts for real data shapes | |
 | 9.8 | Optional scalars as fields and parameters | `int?` works only as a local (E0219) | |
@@ -122,8 +122,8 @@ tests and an ADR where behavior changes; the list is the order, not a schedule.
 | 9.12 | Verified Windows release | the CI job exists; a real Windows run must pass before anyone downloads it | |
 | 9.13 | LLVM backend, replacing Cranelift | the measured 1.6-2.4x gap against C `-O2` is code quality; Cranelift has no loop optimizer to build on | **done** (ADR 0035, B7): textual LLVM IR from MIR, `clang` builds the object, no `llvm-sys`; LLVM is the only backend since B8; the Cranelift implementation and its crates are gone |
 
-**9.1-9.4 are done.** 9.5 (`weak` references) is the next branch, and needs an ADR
-and leak evidence. TLS was the large one: rustls plus webpki-roots are now a
+**9.1-9.4 are done.** 9.5 (`weak` references) has its ADR (0038) and its leak
+evidence (`benchmarks/leaks/`); the implementation is the next branch. TLS was the large one: rustls plus webpki-roots are now a
 deliberate runtime dependency, measured in `benchmarks/http/tls.md`, and the
 1 MB binary budget is **missed** (hello world is 1,077,600 bytes stripped).
 
