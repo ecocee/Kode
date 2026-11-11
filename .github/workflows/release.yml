@@ -19,7 +19,36 @@ env:
   TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
+  verify:
+    name: Check the tag matches the version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Compare Cargo.toml with the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          want="${TAG#v}"
+          have="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          if [ -z "$have" ]; then
+            echo "ERROR: no version line in Cargo.toml"
+            exit 1
+          fi
+          if [ "$want" != "$have" ]; then
+            echo "ERROR: tag $TAG points at a commit whose Cargo.toml says $have."
+            echo "Release the commit that carries the version:"
+            echo "  git tag -f $TAG <commit> && git push --force origin $TAG"
+            echo "or bump the version and tag that instead."
+            exit 1
+          fi
+          echo "tag $TAG matches Cargo.toml $have"
+
   linux:
+    needs: verify
     name: Build Linux x86_64
     runs-on: ubuntu-latest
     steps:
@@ -119,6 +148,7 @@ jobs:
             SHA256SUMS-linux.txt
 
   macos:
+    needs: verify
     name: Build macOS arm64
     runs-on: macos-14
     steps:
@@ -188,6 +218,7 @@ jobs:
             SHA256SUMS-macos.txt
 
   windows:
+    needs: verify
     name: Build Windows x86_64
     runs-on: windows-latest
     env:
