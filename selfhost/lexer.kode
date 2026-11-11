@@ -1,0 +1,468 @@
+// The self-hosted lexer (stage S1 of docs/PLAN-self-hosting.md).
+//
+// It is the same scanner as `crates/kode-syntax/src/lexer.rs`: same tokens,
+// same spans, same error codes and the same recovery, so a file that fails
+// still yields the tokens before the failure. Parity is not an opinion here:
+// `scripts/selfhost.sh stage1` diffs `kode tokens` over the whole corpus.
+//
+// It works on bytes (`byte_at`, `size`), not characters, because that is what
+// the oracle counts: a span is a byte range and a column is a character count.
+
+from "./bytes" import is_digit, is_ident_part, is_ident_start, utf8_len
+from "./keywords" import keyword_of
+from "./strings" import hole_end
+from "./tokens" import LexError, Lexed, Token, TokenKind
+
+// Byte values of the characters the scanner compares against. Named so the scan
+// below reads as punctuation instead of numbers.
+const TAB = 9
+const LF = 10
+const CR = 13
+const SPACE = 32
+const BANG = 33
+const QUOTE = 34
+const DOLLAR = 36
+const PERCENT = 37
+const AMP = 38
+const LPAREN = 40
+const RPAREN = 41
+const STAR = 42
+const PLUS = 43
+const COMMA = 44
+const MINUS = 45
+const DOT = 46
+const SLASH = 47
+const ZERO = 48
+const NINE = 57
+const COLON = 58
+const SEMICOLON = 59
+const LT = 60
+const EQ = 61
+const GT = 62
+const QUESTION = 63
+const LBRACKET = 91
+const BACKSLASH = 92
+const RBRACKET = 93
+const CARET = 94
+const UNDERSCORE = 95
+const LBRACE = 123
+const PIPE = 124
+const RBRACE = 125
+const TILDE = 126
+
+/// Lex a whole file. Errors are returned, not thrown: the caller decides what
+/// to print, exactly as the Rust front end does.
+pub fn lex(src: string) -> Lexed {
+    lx = Lexer(src: src, out: Lexed())
+    return lx.run()
+}
+
+pub class Lexer {
+    src: string
+    out: Lexed
+    i: int = 0
+
+    fn run() -> Lexed {
+        // `.size()` is the byte length; `.len()` counts characters. Every offset
+        // here is a byte offset, so the distinction is load bearing.
+        while i < src.size() {
+            step()
+        }
+        emit(TokenKind.Eof, src.size(), src.size())
+        return out
+    }
+
+    // ---- reading ----
+
+    /// The byte at `i`, or -1 at the end of the file.
+    fn peek() -> int {
+        if i < src.size() {
+            return src.byte_at(i)
+        }
+        return -1
+    }
+
+    /// The byte `n` ahead, or -1. Only used where the bytes in between are known
+    /// to be ASCII, so a byte offset is a character offset.
+    fn peek_at(n: int) -> int {
+        at = i + n
+        if at >= 0 and at < src.size() {
+            return src.byte_at(at)
+        }
+        return -1
+    }
+
+    // ---- writing ----
+
+    fn emit(kind: TokenKind, start: int, end: int) {
+        out.tokens.add(Token(kind: kind, start: start, end: end))
+    }
+
+    fn fail(code: string, message: string, start: int, end: int, help: string) {
+        out.errors.add(
+            LexError(code: code, message: message, start: start, end: end, help: help)
+        )
+    }
+
+    /// One ASCII character.
+    fn single(kind: TokenKind) {
+        start = i
+        emit(kind, start, start + 1)
+        i += 1
+    }
+
+    /// One or two characters: `second` right after the first picks `yes`.
+    fn one_or_two(second: int, yes: TokenKind, no: TokenKind) {
+        start = i
+        if peek_at(1) == second {
+            emit(yes, start, start + 2)
+            i += 2
+        } else {
+            emit(no, start, start + 1)
+            i += 1
+        }
+    }
+
+    // ---- the scan ----
+
+    fn step() {
+        b = peek()
+        if b == SPACE or b == TAB or b == CR {
+            i += 1
+        } else if b == LF {
+            single(TokenKind.Newline)
+        } else if b == LPAREN {
+            single(TokenKind.LParen)
+        } else if b == RPAREN {
+            single(TokenKind.RParen)
+        } else if b == LBRACE {
+            single(TokenKind.LBrace)
+        } else if b == RBRACE {
+            single(TokenKind.RBrace)
+        } else if b == LBRACKET {
+            single(TokenKind.LBracket)
+        } else if b == RBRACKET {
+            single(TokenKind.RBracket)
+        } else if b == QUESTION {
+            if peek_at(1) == QUESTION {
+                start = i
+                emit(TokenKind.QuestionQuestion, start, start + 2)
+                i += 2
+            } else if peek_at(1) == DOT {
+                start = i
+                emit(TokenKind.QuestionDot, start, start + 2)
+                i += 2
+            } else {
+                single(TokenKind.Question)
+            }
+        } else if b == COMMA {
+            single(TokenKind.Comma)
+        } else if b == COLON {
+            single(TokenKind.Colon)
+        } else if b == PLUS {
+            one_or_two(EQ, TokenKind.PlusEq, TokenKind.Plus)
+        } else if b == STAR {
+            one_or_two(EQ, TokenKind.StarEq, TokenKind.Star)
+        } else if b == PERCENT {
+            one_or_two(EQ, TokenKind.PercentEq, TokenKind.Percent)
+        } else if b == AMP {
+            one_or_two(EQ, TokenKind.AmpEq, TokenKind.Amp)
+        } else if b == PIPE {
+            one_or_two(EQ, TokenKind.PipeEq, TokenKind.Pipe)
+        } else if b == CARET {
+            one_or_two(EQ, TokenKind.CaretEq, TokenKind.Caret)
+        } else if b == TILDE {
+            single(TokenKind.Tilde)
+        } else if b == LT {
+            less()
+        } else if b == GT {
+            greater()
+        } else if b == MINUS {
+            if peek_at(1) == GT {
+                start = i
+                emit(TokenKind.Arrow, start, start + 2)
+                i += 2
+            } else if peek_at(1) == EQ {
+                start = i
+                emit(TokenKind.MinusEq, start, start + 2)
+                i += 2
+            } else {
+                single(TokenKind.Minus)
+            }
+        } else if b == EQ {
+            if peek_at(1) == EQ {
+                start = i
+                emit(TokenKind.EqEq, start, start + 2)
+                i += 2
+            } else if peek_at(1) == GT {
+                start = i
+                emit(TokenKind.FatArrow, start, start + 2)
+                i += 2
+            } else {
+                single(TokenKind.Assign)
+            }
+        } else if b == BANG {
+            one_or_two(EQ, TokenKind.NotEq, TokenKind.Bang)
+        } else if b == DOT {
+            if peek_at(1) == DOT and peek_at(2) == EQ {
+                start = i
+                emit(TokenKind.DotDotEq, start, start + 3)
+                i += 3
+            } else if peek_at(1) == DOT {
+                start = i
+                emit(TokenKind.DotDot, start, start + 2)
+                i += 2
+            } else {
+                single(TokenKind.Dot)
+            }
+        } else if b == SLASH {
+            slash()
+        } else if b == QUOTE {
+            string_lit()
+        } else if b >= ZERO and b <= NINE {
+            number()
+        } else if is_ident_start(b) {
+            word()
+        } else if b == SEMICOLON {
+            start = i
+            fail(
+                "E0007",
+                "unexpected character `;`",
+                start,
+                start + 1,
+                "Kode does not use semicolons; end a statement with a new line",
+            )
+            i += 1
+        } else {
+            unexpected()
+        }
+    }
+
+    /// `<`, `<=`, `<<` and `<<=`
+    fn less() {
+        start = i
+        if peek_at(1) == LT and peek_at(2) == EQ {
+            emit(TokenKind.ShlEq, start, start + 3)
+            i += 3
+        } else if peek_at(1) == LT {
+            emit(TokenKind.Shl, start, start + 2)
+            i += 2
+        } else if peek_at(1) == EQ {
+            emit(TokenKind.Le, start, start + 2)
+            i += 2
+        } else {
+            single(TokenKind.Lt)
+        }
+    }
+
+    /// `>`, `>=`, `>>` and `>>=`
+    fn greater() {
+        start = i
+        if peek_at(1) == GT and peek_at(2) == EQ {
+            emit(TokenKind.ShrEq, start, start + 3)
+            i += 3
+        } else if peek_at(1) == GT {
+            emit(TokenKind.Shr, start, start + 2)
+            i += 2
+        } else if peek_at(1) == EQ {
+            emit(TokenKind.Ge, start, start + 2)
+            i += 2
+        } else {
+            single(TokenKind.Gt)
+        }
+    }
+
+    /// `/`, `/=`, `// comment` and `/* comment */`.
+    fn slash() {
+        start = i
+        if peek_at(1) == SLASH {
+            while peek() != -1 and peek() != LF {
+                i += 1
+            }
+        } else if peek_at(1) == STAR {
+            close = src.slice(start + 2, src.size()).find("*/")
+            if close < 0 {
+                fail(
+                    "E0004",
+                    "this block comment is never closed",
+                    start,
+                    start + 2,
+                    "end it with `*/`",
+                )
+                i = src.size()
+            } else {
+                i = start + 2 + close + 2
+            }
+        } else if peek_at(1) == EQ {
+            emit(TokenKind.SlashEq, start, start + 2)
+            i += 2
+        } else {
+            single(TokenKind.Slash)
+        }
+    }
+
+    fn eat_digits() {
+        while is_digit(peek()) or peek() == UNDERSCORE {
+            i += 1
+        }
+    }
+
+    /// `42`, `1_000`, `3.14`, `2.5e3`. `1..5` stays a range.
+    fn number() {
+        start = i
+        is_float = false
+        eat_digits()
+        if peek() == DOT and is_digit(peek_at(1)) {
+            is_float = true
+            i += 1
+            eat_digits()
+        }
+        if peek() == 101 or peek() == 69 {
+            n1 = peek_at(1)
+            n2 = peek_at(2)
+            if is_digit(n1) {
+                is_float = true
+                i += 1
+                eat_digits()
+            } else if (n1 == PLUS or n1 == MINUS) and is_digit(n2) {
+                is_float = true
+                i += 2
+                eat_digits()
+            }
+        }
+        if is_ident_part(peek()) {
+            while is_ident_part(peek()) {
+                i += 1
+            }
+            text = src.slice(start, i)
+            fail(
+                "E0006",
+                "`${text}` is not a valid number",
+                start,
+                i,
+                "write numbers like 42, 1_000, 3.14 or 2.5e3",
+            )
+            return
+        }
+        text = src.slice(start, i).replace("_", "")
+        ok = true
+        // The value itself is not part of the token yet -- the dump prints the
+        // source text -- but the conversion is what decides E0005 versus Int.
+        if is_float {
+            _exact = 0.0
+            _exact = text.to_float() catch e {
+                ok = false
+                0.0
+            }
+        } else {
+            _whole = 0
+            _whole = text.to_int() catch e {
+                ok = false
+                0
+            }
+        }
+        if ok {
+            if is_float {
+                emit(TokenKind.Float, start, i)
+            } else {
+                emit(TokenKind.Int, start, i)
+            }
+        } else if is_float {
+            fail("E0006", "this is not a valid number", start, i, "")
+        } else {
+            fail(
+                "E0005",
+                "this integer is too large",
+                start,
+                i,
+                "int is a 64-bit signed integer (max 9223372036854775807)",
+            )
+        }
+    }
+
+    /// A string literal, including its `${...}` holes. The holes are found and
+    /// skipped here; the parser lexes their contents (S2).
+    fn string_lit() {
+        start = i
+        i += 1
+        closed = false
+        while i < src.size() {
+            b = peek()
+            if b == QUOTE {
+                i += 1
+                closed = true
+                break
+            }
+            if b == LF {
+                break
+            }
+            if b == BACKSLASH {
+                e = peek_at(1)
+                if e == 110 or e == 116 or e == 114 or e == 48 or e == QUOTE or e == BACKSLASH or e == DOLLAR {
+                    i += 2
+                } else if e != LF and e != -1 {
+                    end = i + 1 + utf8_len(e)
+                    ch = src.slice(i + 1, end)
+                    fail(
+                        "E0002",
+                        "unknown escape `\\${ch}`",
+                        i,
+                        end,
+                        "valid escapes are \\n \\t \\r \\0 \\\" \\\\ and \\$",
+                    )
+                    i = end
+                } else {
+                    i += 1
+                }
+            } else if b == DOLLAR and peek_at(1) == LBRACE {
+                code_start = i + 2
+                end = hole_end(src, code_start)
+                if end >= 0 {
+                    i = end + 1
+                } else {
+                    at = i
+                    fail(
+                        "E0003",
+                        "this `\${` is never closed",
+                        at,
+                        at + 2,
+                        "close it with `}` on the same line",
+                    )
+                    i += 2
+                }
+            } else {
+                i += utf8_len(b)
+            }
+        }
+        if closed {
+            emit(TokenKind.Str, start, i)
+        } else {
+            fail(
+                "E0001",
+                "this string is never closed",
+                start,
+                start + 1,
+                "add a closing `\"` at the end of the line",
+            )
+        }
+    }
+
+    /// A word: a keyword or an identifier.
+    fn word() {
+        start = i
+        while is_ident_part(peek()) {
+            i += 1
+        }
+        text = src.slice(start, i)
+        emit(keyword_of(text), start, i)
+    }
+
+    /// Anything else is one character, reported and skipped.
+    fn unexpected() {
+        start = i
+        width = utf8_len(peek())
+        ch = src.slice(start, start + width)
+        fail("E0007", "unexpected character `${ch}`", start, start + width, "")
+        i += width
+    }
+}

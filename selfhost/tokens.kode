@@ -1,0 +1,381 @@
+// The token set of the self-hosted compiler.
+//
+// These names are not decoration: `kode tokens` prints them, and the harness
+// compares that dump byte for byte (`crates/kode-syntax/src/token.rs`,
+// `TokenKind::name`). Renaming a variant here without renaming it there is a
+// parity failure, which is the point.
+
+pub enum TokenKind {
+    // payload tokens
+    Ident,
+        Int,
+        Float,
+        Str,
+        // keywords
+    Fn,
+        Const,
+        If,
+        Else,
+        While,
+        For,
+        In,
+        Break,
+        Continue,
+        Return,
+        True,
+        False,
+        And,
+        Or,
+        Not,
+        Class,
+        Interface,
+        Implements,
+        Enum,
+        Match,
+        Import,
+        From,
+        As,
+        Pub,
+        Throw,
+        Try,
+        Catch,
+        Finally,
+        None,
+        Test,
+        Spawn,
+        Await,
+        // punctuation
+    LParen,
+        RParen,
+        LBrace,
+        RBrace,
+        LBracket,
+        RBracket,
+        Dot,
+        Question,
+        QuestionQuestion,
+        QuestionDot,
+        Bang,
+        Comma,
+        Colon,
+        Arrow,
+        FatArrow,
+        DotDot,
+        DotDotEq,
+        // operators
+    Plus,
+        Minus,
+        Star,
+        Slash,
+        Percent,
+        Assign,
+        EqEq,
+        NotEq,
+        Lt,
+        Le,
+        Gt,
+        Ge,
+        PlusEq,
+        MinusEq,
+        StarEq,
+        SlashEq,
+        PercentEq,
+        Amp,
+        Pipe,
+        Caret,
+        Tilde,
+        Shl,
+        Shr,
+        AmpEq,
+        PipeEq,
+        CaretEq,
+        ShlEq,
+        ShrEq,
+        Newline,
+        Eof,
+    }
+
+/// One token: what it is, and where it is in the file, in bytes.
+pub class Token {
+    kind: TokenKind
+    start: int
+    end: int
+}
+
+/// A lexer error: the code, message and help `kode explain` documents.
+pub class LexError {
+    code: string
+    message: string
+    start: int
+    end: int
+    help: string
+}
+
+/// What the lexer produced. Errors do not stop the scan, which is why a file
+/// can yield tokens and errors at the same time.
+pub class Lexed {
+    tokens: [Token] = []
+    errors: [LexError] = []
+}
+
+/// The name the dump prints for a kind.
+///
+/// `match` is a statement in Kode, not an expression, so each arm assigns and
+/// the single `return` at the end keeps the "returns on every path" rule. The
+/// compiler still rejects a misspelled or missing variant here, which is the
+/// property that matters when a token is added to the Rust front end.
+pub fn token_name(kind: TokenKind) -> string {
+    name = ""
+    match kind {
+        TokenKind.Ident => {
+            name = "Ident"
+        }
+        TokenKind.Int => {
+            name = "Int"
+        }
+        TokenKind.Float => {
+            name = "Float"
+        }
+        TokenKind.Str => {
+            name = "Str"
+        }
+        TokenKind.Fn => {
+            name = "Fn"
+        }
+        TokenKind.Const => {
+            name = "Const"
+        }
+        TokenKind.If => {
+            name = "If"
+        }
+        TokenKind.Else => {
+            name = "Else"
+        }
+        TokenKind.While => {
+            name = "While"
+        }
+        TokenKind.For => {
+            name = "For"
+        }
+        TokenKind.In => {
+            name = "In"
+        }
+        TokenKind.Break => {
+            name = "Break"
+        }
+        TokenKind.Continue => {
+            name = "Continue"
+        }
+        TokenKind.Return => {
+            name = "Return"
+        }
+        TokenKind.True => {
+            name = "True"
+        }
+        TokenKind.False => {
+            name = "False"
+        }
+        TokenKind.And => {
+            name = "And"
+        }
+        TokenKind.Or => {
+            name = "Or"
+        }
+        TokenKind.Not => {
+            name = "Not"
+        }
+        TokenKind.Class => {
+            name = "Class"
+        }
+        TokenKind.Interface => {
+            name = "Interface"
+        }
+        TokenKind.Implements => {
+            name = "Implements"
+        }
+        TokenKind.Enum => {
+            name = "Enum"
+        }
+        TokenKind.Match => {
+            name = "Match"
+        }
+        TokenKind.Import => {
+            name = "Import"
+        }
+        TokenKind.From => {
+            name = "From"
+        }
+        TokenKind.As => {
+            name = "As"
+        }
+        TokenKind.Pub => {
+            name = "Pub"
+        }
+        TokenKind.Throw => {
+            name = "Throw"
+        }
+        TokenKind.Try => {
+            name = "Try"
+        }
+        TokenKind.Catch => {
+            name = "Catch"
+        }
+        TokenKind.Finally => {
+            name = "Finally"
+        }
+        TokenKind.None => {
+            name = "None"
+        }
+        TokenKind.Test => {
+            name = "Test"
+        }
+        TokenKind.Spawn => {
+            name = "Spawn"
+        }
+        TokenKind.Await => {
+            name = "Await"
+        }
+        TokenKind.LParen => {
+            name = "LParen"
+        }
+        TokenKind.RParen => {
+            name = "RParen"
+        }
+        TokenKind.LBrace => {
+            name = "LBrace"
+        }
+        TokenKind.RBrace => {
+            name = "RBrace"
+        }
+        TokenKind.LBracket => {
+            name = "LBracket"
+        }
+        TokenKind.RBracket => {
+            name = "RBracket"
+        }
+        TokenKind.Dot => {
+            name = "Dot"
+        }
+        TokenKind.Question => {
+            name = "Question"
+        }
+        TokenKind.QuestionQuestion => {
+            name = "QuestionQuestion"
+        }
+        TokenKind.QuestionDot => {
+            name = "QuestionDot"
+        }
+        TokenKind.Bang => {
+            name = "Bang"
+        }
+        TokenKind.Comma => {
+            name = "Comma"
+        }
+        TokenKind.Colon => {
+            name = "Colon"
+        }
+        TokenKind.Arrow => {
+            name = "Arrow"
+        }
+        TokenKind.FatArrow => {
+            name = "FatArrow"
+        }
+        TokenKind.DotDot => {
+            name = "DotDot"
+        }
+        TokenKind.DotDotEq => {
+            name = "DotDotEq"
+        }
+        TokenKind.Plus => {
+            name = "Plus"
+        }
+        TokenKind.Minus => {
+            name = "Minus"
+        }
+        TokenKind.Star => {
+            name = "Star"
+        }
+        TokenKind.Slash => {
+            name = "Slash"
+        }
+        TokenKind.Percent => {
+            name = "Percent"
+        }
+        TokenKind.Assign => {
+            name = "Assign"
+        }
+        TokenKind.EqEq => {
+            name = "EqEq"
+        }
+        TokenKind.NotEq => {
+            name = "NotEq"
+        }
+        TokenKind.Lt => {
+            name = "Lt"
+        }
+        TokenKind.Le => {
+            name = "Le"
+        }
+        TokenKind.Gt => {
+            name = "Gt"
+        }
+        TokenKind.Ge => {
+            name = "Ge"
+        }
+        TokenKind.PlusEq => {
+            name = "PlusEq"
+        }
+        TokenKind.MinusEq => {
+            name = "MinusEq"
+        }
+        TokenKind.StarEq => {
+            name = "StarEq"
+        }
+        TokenKind.SlashEq => {
+            name = "SlashEq"
+        }
+        TokenKind.PercentEq => {
+            name = "PercentEq"
+        }
+        TokenKind.Amp => {
+            name = "Amp"
+        }
+        TokenKind.Pipe => {
+            name = "Pipe"
+        }
+        TokenKind.Caret => {
+            name = "Caret"
+        }
+        TokenKind.Tilde => {
+            name = "Tilde"
+        }
+        TokenKind.Shl => {
+            name = "Shl"
+        }
+        TokenKind.Shr => {
+            name = "Shr"
+        }
+        TokenKind.AmpEq => {
+            name = "AmpEq"
+        }
+        TokenKind.PipeEq => {
+            name = "PipeEq"
+        }
+        TokenKind.CaretEq => {
+            name = "CaretEq"
+        }
+        TokenKind.ShlEq => {
+            name = "ShlEq"
+        }
+        TokenKind.ShrEq => {
+            name = "ShrEq"
+        }
+        TokenKind.Newline => {
+            name = "Newline"
+        }
+        TokenKind.Eof => {
+            name = "Eof"
+        }
+    }
+    return name
+}

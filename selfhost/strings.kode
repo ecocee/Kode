@@ -1,0 +1,61 @@
+// String-literal scanning that the lexer shares with nothing else: finding the
+// `}` that closes a `${` hole.
+//
+// The byte values are literals rather than named constants because a program's
+// modules share one constant namespace (see selfhost/README.md); naming them
+// here would clash with `lexer.kode`, which owns the plain names.
+
+from "./bytes" import utf8_len
+
+/// The `}` that closes a `${` hole, skipping nested braces and strings, or -1
+/// when the hole never closes before the end of the line.
+pub fn hole_end(src: string, start_at: int) -> int {
+    depth = 1
+    j = start_at
+    while j < src.size() {
+        b = src.byte_at(j)
+        if b == 123 {
+            // {
+            depth += 1
+            j += 1
+        } else if b == 125 {
+            // }
+            depth -= 1
+            if depth == 0 {
+                return j
+            }
+            j += 1
+        } else if b == 34 {
+            // " -- a string inside the hole may contain braces
+            j += 1
+            closed = false
+            while j < src.size() {
+                c = src.byte_at(j)
+                if c == 92 {
+                    // backslash: whatever follows is escaped
+                    if j + 1 >= src.size() {
+                        return -1
+                    }
+                    j += 2
+                } else if c == 34 {
+                    j += 1
+                    closed = true
+                    break
+                } else if c == 10 {
+                    // a hole cannot span lines
+                    return -1
+                } else {
+                    j += 1
+                }
+            }
+            if not closed {
+                return -1
+            }
+        } else if b == 10 {
+            return -1
+        } else {
+            j += utf8_len(b)
+        }
+    }
+    return -1
+}

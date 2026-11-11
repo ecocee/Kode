@@ -38,8 +38,15 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   a stable dump (text, and `--format=json`) of token text, byte spans,
   line/column and tree shape; `scripts/selfhost.sh stage0|stage1|stage2|compare`
   dumps the whole corpus through them, checks Stage 0 against itself first, and
-  records wall clock and peak RSS. `stage1` needs `selfhost/main.kode`, which
-  arrives with the port. Format: `crates/kode-syntax/src/dump.rs`.
+  records wall clock and peak RSS. Format: `crates/kode-syntax/src/dump.rs`.
+- **The lexer, written in Kode** — S1. `selfhost/lexer.kode` is the scanner,
+  `tokens.kode` its token set and the names the dump prints, `keywords.kode` the
+  keyword table, `bytes.kode` the UTF-8 width and character-class predicates,
+  `strings.kode` the `${...}` hole scanner, `dump.kode` the line format and
+  `main.kode` the entry point. `./scripts/selfhost.sh stage1` builds it with Stage
+  0 and agrees on **184 of 184** token dumps (text, byte spans, line/column, and
+  the exit status of the cases that must fail to lex). Parser and later stages do
+  not exist yet.
 
 ### NOT IMPLEMENTED
 
@@ -54,10 +61,12 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   fields and parameters; `int?`/`float?`/`bool?` work only as locals (ADR 0024).
 - **Cycle-safe memory management.** Reference counting only; no `weak`, no
   arenas, no regions.
-- **A compiler written in Kode.** No lexer, parser, checker, MIR builder,
-  evaluator or native backend exists in Kode.
+- **A compiler written in Kode.** No parser, checker, MIR builder, evaluator or
+  native backend exists in Kode; the lexer does (`selfhost/lexer.kode`, S1).
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
-  timeouts, no sorting with a comparator, no growable string builder.
+  timeouts, no sorting with a comparator, no growable string builder, and no
+  stderr stream (the port writes diagnostics to `/dev/stderr` through
+  `write_file`, which is Unix-only).
 
 ## Dependency order for the remaining work
 

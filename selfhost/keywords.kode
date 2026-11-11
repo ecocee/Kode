@@ -1,0 +1,114 @@
+// The keyword table, kept apart from the token set so a keyword can be added
+// without touching the dump names (`tokens.kode`).
+
+from "./tokens" import TokenKind
+
+/// The keyword a word is, or `TokenKind.Ident` when it is a plain identifier.
+///
+/// Returning `Ident` for "not a keyword" keeps the caller to one branch and
+/// avoids an optional of an enum, which the language does not store yet
+/// (`docs/self-hosting.md`, 9.8).
+pub fn keyword_of(word: string) -> TokenKind {
+    kind = TokenKind.Ident
+    match word {
+        "fn" => {
+            kind = TokenKind.Fn
+        }
+        "const" => {
+            kind = TokenKind.Const
+        }
+        "if" => {
+            kind = TokenKind.If
+        }
+        "else" => {
+            kind = TokenKind.Else
+        }
+        "while" => {
+            kind = TokenKind.While
+        }
+        "for" => {
+            kind = TokenKind.For
+        }
+        "in" => {
+            kind = TokenKind.In
+        }
+        "break" => {
+            kind = TokenKind.Break
+        }
+        "continue" => {
+            kind = TokenKind.Continue
+        }
+        "return" => {
+            kind = TokenKind.Return
+        }
+        "true" => {
+            kind = TokenKind.True
+        }
+        "false" => {
+            kind = TokenKind.False
+        }
+        "and" => {
+            kind = TokenKind.And
+        }
+        "or" => {
+            kind = TokenKind.Or
+        }
+        "not" => {
+            kind = TokenKind.Not
+        }
+        "class" => {
+            kind = TokenKind.Class
+        }
+        "interface" => {
+            kind = TokenKind.Interface
+        }
+        "implements" => {
+            kind = TokenKind.Implements
+        }
+        "enum" => {
+            kind = TokenKind.Enum
+        }
+        "match" => {
+            kind = TokenKind.Match
+        }
+        "import" => {
+            kind = TokenKind.Import
+        }
+        "from" => {
+            kind = TokenKind.From
+        }
+        "as" => {
+            kind = TokenKind.As
+        }
+        "pub" => {
+            kind = TokenKind.Pub
+        }
+        "throw" => {
+            kind = TokenKind.Throw
+        }
+        "try" => {
+            kind = TokenKind.Try
+        }
+        "catch" => {
+            kind = TokenKind.Catch
+        }
+        "finally" => {
+            kind = TokenKind.Finally
+        }
+        "none" => {
+            kind = TokenKind.None
+        }
+        "test" => {
+            kind = TokenKind.Test
+        }
+        "spawn" => {
+            kind = TokenKind.Spawn
+        }
+        "await" => {
+            kind = TokenKind.Await
+        }
+        // Anything else stays an identifier, which is what `kind` starts as.
+        _ => {}
+    }
+    return kind
+}

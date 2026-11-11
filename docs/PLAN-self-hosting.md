@@ -73,6 +73,11 @@ port as a special case — they are general language features from
 Gate 0 is closed when all six rows are green in `docs/STATUS.md`. 9.5 and 9.6
 are the long poles; 9.9 is the one that blocks the most code.
 
+Measured correction from S1: byte *buffers* were not needed for the lexer.
+`s.size()`, `s.byte_at(i)` and `s.slice(a, b)` read bytes and the token dump only
+concatenates short lines, so the port shipped without 9.6. What 9.6 still blocks
+is S5: building IR text by `+`, and `u8`/`i32` for object encoding.
+
 ## 4. Stages
 
 ### S0 — bootstrap harness (branch `selfhost/s0-harness`)
@@ -105,16 +110,34 @@ as debug output in `docs/cheatsheet.md`, and `--format=json` stability rules
 
 ### S1 — lexer (branch `selfhost/s1-lexer`)
 
-Files: `selfhost/lexer.kode` (~1,200 lines estimated), `selfhost/tokens.kode`
-(the dump format).
+Status: **done**. `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode`
+(about 1,250 lines across seven files, each under 500) and
+`selfhost/spec/lexer_cases.kode`.
 
-Acceptance: byte-identical `kode tokens` output for all 46 run-pass programs, all
-98 compile-fail programs, `examples/` and `benchmarks/` Kode sources — including
-byte offsets, line/column and string escapes.
+Acceptance met: `./scripts/selfhost.sh stage1` builds the port with Stage 0 and
+reports **184 of 184 token dumps byte-identical** — token text, byte spans,
+line/column, escaped characters, and the exit status of the programs that must
+fail to lex. The run is recorded in `target/selfhost/stage1.txt`: 2.27 s and
+3,824 KB peak RSS for token dumps only, which is not comparable with Stage 0's
+3.51 s because that run dumps trees as well.
 
-Risk: Unicode and escapes. Mitigation: the corpus already contains string tests;
-add `selfhost/spec/lexer_cases.kode` with every escape and a 4-byte UTF-8
-character.
+Two findings carried into S2:
+
+- `.len()` counts characters; `.size()` counts bytes. A compiler offset is a byte
+  offset, so the port uses `.size()` everywhere — `.len()` there silently
+  truncates any file containing a multibyte character. This is the measured cost
+  of the 9.6 row: reading bytes needed nothing new (`byte_at`, `slice`, `size`),
+  while a `StringBuilder` is still needed to build IR text in S5.
+- There is no stderr stream. `main.kode` reports diagnostics through
+  `write_file("/dev/stderr", ...)`, which is Unix-only; a `stderr(text)` builtin
+  is the fix and is recorded in `docs/self-hosting.md`.
+
+`ast` and later commands exit 2 with a "not implemented yet" message rather than
+pretending, so a green `stage1` cannot be mistaken for a parser.
+
+Risk: Unicode and escapes. Mitigation: `selfhost/spec/lexer_cases.kode` is part of
+the corpus the harness dumps — every escape, a 4-byte character, a hole with a
+brace inside a string, and the three-character operator runs (`<<=`, `>>=`, `..=`).
 
 ### S2 — parser and spans (branch `selfhost/s2-parser`)
 

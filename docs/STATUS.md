@@ -150,11 +150,13 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 |---|---|---|
 | 6.1 Bootstrap harness (S0) | **done** | `scripts/selfhost.sh` and the `kode tokens` / `kode ast` dumps (`crates/kode-syntax/src/dump.rs`); `stage0` green on a clean checkout, `stage1`/`compare` refuse without a Stage 1. Branch `selfhost/s0-harness` |
 | 6.1 Backend decision | **missing** | not decided |
-| 6.2–6.5 Lexer, parser, checker, codegen in Kode | **missing** | `docs/self-hosting.md`: "No lexer, parser, checker, MIR builder, evaluator or native backend exists in Kode" |
-| 6.6 Bootstrap proof in CI | **partial** | the harness exists (S0) but nothing runs it in CI yet; it needs a port to compare against |
+| 6.2 Lexer in Kode (S1) | **done** | `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode`; `./scripts/selfhost.sh stage1` reports **184/184** token dumps byte-identical (text, byte spans, line/column, and the status of the programs that must fail to lex), 2.27 s and 3,824 KB for token dumps only. Branch `selfhost/s1-lexer` |
+| 6.3–6.5 Parser, checker, codegen in Kode | **missing** | `docs/self-hosting.md`: no parser, checker, MIR builder, evaluator or native backend exists in Kode |
+| 6.6 Bootstrap proof in CI | **partial** | `stage0` and `stage1` are green locally over 184 files; nothing runs them in CI yet, and `stage2` needs the parser |
 
 Prerequisites that are absent: enum payloads (1.1), generic classes (1.2), and
-a memory strategy for AST/token graphs that does not leak on cycles (1.3).
+a memory strategy for AST/token graphs that does not leak on cycles (1.3). S1
+needed none of them; S2 needs all three.
 
 ### Phase 7 — stability and v1.0
 

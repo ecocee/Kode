@@ -1,0 +1,60 @@
+// The self-hosted compiler's entry point (stage S1 of
+// docs/PLAN-self-hosting.md).
+//
+//   kode-stage1 tokens <file.kode>
+//
+// `ast` and everything after it arrive with the later stages; until then this
+// says so and exits 2 instead of pretending.
+
+from "./dump" import position, tokens_lines
+from "./lexer" import lex
+
+argv = args()
+
+if argv.len() == 0 {
+    print("usage: kode-stage1 tokens <file.kode>")
+    exit(2)
+}
+
+command = argv[0]
+
+if command != "tokens" {
+    print("kode-stage1: `${command}` is not implemented yet; only `tokens` exists until the parser lands (S2)")
+    exit(2)
+}
+
+if argv.len() < 2 {
+    print("kode-stage1: `tokens` needs a file name")
+    exit(2)
+}
+
+file = argv[1]
+src = ""
+try {
+    src = read_file(file)
+} catch e {
+    print("kode-stage1: cannot read ${file}: ${e.message}")
+    exit(1)
+}
+
+lx = lex(src)
+
+if lx.errors.len() > 0 {
+    // Diagnostics belong on stderr, and `kode tokens` puts them there. The
+    // stdlib has no stderr stream yet (`docs/self-hosting.md`, gate 6), so the
+    // port writes the report to the device directly. A missing /dev/stderr on
+    // Windows is a known gap, recorded in selfhost/README.md.
+    report = ""
+    for err in lx.errors {
+        report += "${file}:${position(src, err.start)}: error ${err.code}: ${err.message}\n"
+        if err.help.len() > 0 {
+            report += "  help: ${err.help}\n"
+        }
+    }
+    write_file("/dev/stderr", report)
+    exit(1)
+}
+
+// The dump ends with a newline, and `print` adds one, so the lines are joined
+// without a trailing empty one.
+print(tokens_lines(src, lx).join("\n"))

@@ -37,6 +37,7 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 | `kode fmt`, `kode explain` | `crates/kode-cli/src/fmt.rs`, `explain.rs` (reads `docs/errors/index.md`) |
 | `kode tokens` / `kode ast` dumps (the self-hosting oracles) | `crates/kode-syntax/src/dump.rs`, `dump/ast.rs` |
 | the bootstrap harness | `scripts/selfhost.sh` (plan: `docs/PLAN-self-hosting.md`) |
+| the self-hosted compiler (S1 lexer) | `selfhost/` — `tokens.kode`, `keywords.kode`, `bytes.kode`, `strings.kode`, `lexer.kode`, `dump.kode`, `main.kode`; cases in `selfhost/spec/`; parity via `./scripts/selfhost.sh stage1` |
 | language server | `kode lsp` in `kode-cli`; editor setup in `docs/editors.md` |
 | `kode doc` and the docs site | `docs/site/build.sh` |
 | PostgreSQL client | `crates/kode-rt/src/pg.rs` (API, handles, JSON results), `pg_wire.rs` (protocol, SCRAM), `sha256.rs` + `base64.rs` (SCRAM hashing) |

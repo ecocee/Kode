@@ -3,6 +3,24 @@
 Release notes for the `kode` compiler. Versions follow the binary, not the
 language: a patch release fixes bugs, a minor release may add syntax.
 
+## Unreleased
+
+### Added
+
+- **A lexer written in Kode** (S1 of `docs/PLAN-self-hosting.md`).
+  `selfhost/lexer.kode` scans source into tokens with the same spans, escapes,
+  error codes and recovery as `crates/kode-syntax/src/lexer.rs`;
+  `./scripts/selfhost.sh stage1` builds it with Stage 0 and reports **184 of 184**
+  token dumps byte-identical over the corpus plus `selfhost/spec`. `ast` and the
+  later commands exit 2 until the parser lands (S2).
+- **The self-hosting harness and its oracles** (S0 of
+  `docs/PLAN-self-hosting.md`). `kode tokens` and `kode ast` print a stable,
+  diffable dump — token kind, text, byte span, line and column, or the tree with
+  its spans — in text or with `--format=json`, and `scripts/selfhost.sh
+  stage0|stage1|stage2|compare` dumps the whole corpus through them, checks
+  Stage 0 against itself first, records wall clock and peak RSS, and refuses to
+  compare against a Stage 1 that does not exist yet.
+
 ## 0.3.6
 
 The LLVM backend becomes the only code generator, the release workflow learns to
@@ -36,13 +54,6 @@ check the tag it is building, and Windows joins CI.
 
 ### Added
 
-- **The self-hosting harness and its oracles** (S0 of
-  `docs/PLAN-self-hosting.md`). `kode tokens` and `kode ast` now print a stable,
-  diffable dump — token kind, text, byte span, line and column, or the tree with
-  its spans — in text or with `--format=json`, and `scripts/selfhost.sh
-  stage0|stage1|stage2|compare` dumps the whole corpus through them, checks
-  Stage 0 against itself first, records wall clock and peak RSS, and refuses to
-  compare against a Stage 1 that does not exist yet.
 - **Packages can require a compiler version.** `kode = "0.3"` under `[package]`
   in `kode.toml` states the minimum compiler, like `go 1.24` in `go.mod`;
   `kode doctor` reports and exits 1 when this compiler is older (ADR 0036).

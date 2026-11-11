@@ -22,7 +22,9 @@ STAGE0="$ROOT/target/debug/kode"
 STAGE1="$OUT/stage1/kode-stage1"
 STAGE2="$OUT/stage2/kode-stage2"
 PORT="$ROOT/selfhost/main.kode"
-CORPUS=(tests/run-pass tests/compile-fail examples benchmarks)
+# `selfhost/spec` holds the cases the port needs but the language suite does not
+# cover: every escape, a 4-byte character, a hole with a brace in a string.
+CORPUS=(tests/run-pass tests/compile-fail examples benchmarks selfhost/spec)
 
 usage() {
     sed -n '3,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -89,13 +91,24 @@ record_measurement() {
 }
 
 diff_dumps() {
-    # diff_dumps <left> <right> <what>  -- returns 1 when they differ
-    local left="$1" right="$2" what="$3"
+    # diff_dumps <left> <right> <what> [tokens|all] -- returns 1 when they differ
+    #
+    # Stage S1 ships the lexer only, so `tokens` compares token dumps and leaves
+    # the tree dumps to S2. `all` (the default) compares both.
+    local left="$1" right="$2" what="$3" only="${4:-all}"
     local report="$OUT/diff-$what.txt"
-    if diff -r -u "$left" "$right" >"$report" 2>&1; then
+    local excludes=()
+    if [[ "$only" == "tokens" ]]; then
+        excludes=(-x '*.ast' -x '*.ast.status')
+    fi
+    if diff -r -u ${excludes[@]+"${excludes[@]}"} "$left" "$right" >"$report" 2>&1; then
         local count
         count="$(find "$right" -name '*.tokens' | wc -l | tr -d ' ')"
-        echo "  parity: $count token dumps and as many tree dumps agree"
+        if [[ "$only" == "tokens" ]]; then
+            echo "  parity: $count token dumps agree (tree dumps arrive with S2)"
+        else
+            echo "  parity: $count token dumps and as many tree dumps agree"
+        fi
         rm -f "$report"
         return 0
     fi
@@ -143,8 +156,8 @@ stage1)
         echo "  no Stage 0 oracle: run ./scripts/selfhost.sh stage0 first" >&2
         exit 2
     fi
-    diff_dumps "$OUT/dumps/stage0" "$OUT/dumps/stage1" stage0-vs-stage1
-    echo "stage1: green"
+    diff_dumps "$OUT/dumps/stage0" "$OUT/dumps/stage1" stage0-vs-stage1 tokens
+    echo "stage1: green (lexer)"
     ;;
 stage2)
     echo "S2: Stage 1 compiles itself"

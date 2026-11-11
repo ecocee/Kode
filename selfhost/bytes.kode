@@ -1,0 +1,56 @@
+// Byte-level helpers shared by the lexer and the dump.
+//
+// The language has no `u8`: a byte is an `int` from `s.byte_at(i)`, and
+// `s.size()` is the byte length (`s.len()` counts characters). Source is always
+// valid UTF-8 — `read_file` only returns a string — so the leading byte decides
+// a character's width and these predicates are the whole character model the
+// scanner needs.
+
+/// How many bytes the character starting with `b` occupies. Continuation bytes
+/// and anything below 0x80 report 1.
+pub fn utf8_len(b: int) -> int {
+    if b < 0 {
+        return 1
+    }
+    if b < 192 {
+        return 1
+    }
+    if b < 224 {
+        return 2
+    }
+    if b < 240 {
+        return 3
+    }
+    return 4
+}
+
+/// True for `10xxxxxx`, a UTF-8 continuation byte. There is exactly one of those
+/// per character and none per ASCII character, which is how columns count
+/// characters without decoding anything.
+pub fn is_continuation(b: int) -> bool {
+    return b >= 128 and b < 192
+}
+
+/// `0` to `9`.
+pub fn is_digit(b: int) -> bool {
+    return b >= 48 and b <= 57
+}
+
+/// `_`, `A` to `Z`, or `a` to `z`. Identifiers are ASCII by design, so a
+/// multibyte character never starts one.
+pub fn is_ident_start(b: int) -> bool {
+    if b == 95 {
+        return true
+    }
+    if b >= 65 and b <= 90 {
+        return true
+    }
+    return b >= 97 and b <= 122
+}
+
+pub fn is_ident_part(b: int) -> bool {
+    if is_ident_start(b) {
+        return true
+    }
+    return is_digit(b)
+}
