@@ -1,0 +1,9 @@
+// A payload variant parses (ADR 0039) but cannot be constructed yet: the
+// representation, `match` destructuring and `is` arrive in later slices.
+enum Shape {
+    Circle(radius: float)
+    Empty
+}
+
+s = Shape.Circle(1.0)
+print(s)

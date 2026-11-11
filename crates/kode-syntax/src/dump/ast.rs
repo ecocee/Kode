@@ -50,15 +50,16 @@ fn item(item: &Item) -> Node {
                     .kids(m.params.iter().map(param))
                     .kids(m.ret.iter().map(type_ann))
             })),
-        Item::Enum(e) => {
-            Node::new("Enum")
-                .text("name", &e.name)
-                .span("name_span", e.name_span)
-                .flag("pub", e.is_pub)
-                .kids(e.variants.iter().map(|(name, span)| {
-                    Node::new("Variant").text("name", name).span("span", *span)
-                }))
-        }
+        Item::Enum(e) => Node::new("Enum")
+            .text("name", &e.name)
+            .span("name_span", e.name_span)
+            .flag("pub", e.is_pub)
+            .kids(e.variants.iter().map(|v| {
+                Node::new("Variant")
+                    .text("name", &v.name)
+                    .span("span", v.name_span)
+                    .kids(v.fields.iter().map(param))
+            })),
         Item::Import(i) => Node::new("Import")
             .text("path", &i.path)
             .span("path_span", i.path_span)

@@ -328,7 +328,38 @@ impl Parser {
                 self.bump();
                 break;
             }
-            variants.push(self.ident("a variant name")?);
+            let (vname, vspan) = self.ident("a variant name")?;
+            // `Circle(radius: float)`: a payload variant (ADR 0039). The
+            // checker still refuses construction; the syntax and the AST dump
+            // carry it so S2's oracle has the shape to reproduce.
+            let mut fields = Vec::new();
+            if matches!(self.peek(), TokenKind::LParen) {
+                self.bump();
+                if !matches!(self.peek(), TokenKind::RParen) {
+                    loop {
+                        let (fname, fspan) = self.ident("a field name")?;
+                        self.expect(TokenKind::Colon, "`:`")?;
+                        let ty = self.type_ann()?;
+                        fields.push(Param {
+                            name: fname,
+                            name_span: fspan,
+                            ty,
+                        });
+                        if matches!(self.peek(), TokenKind::Comma) {
+                            self.bump();
+                            self.skip_newlines();
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RParen, "`)`")?;
+            }
+            variants.push(EnumVariant {
+                name: vname,
+                name_span: vspan,
+                fields,
+            });
             self.skip_newlines();
             if matches!(self.peek(), TokenKind::Comma) {
                 self.bump();

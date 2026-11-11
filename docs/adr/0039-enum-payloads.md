@@ -1,9 +1,11 @@
 # ADR 0039: Enum payloads
 
-Status: **proposed** — design only. No compiler change has been made; the four
-slices in §9 are separate, test-first changes and need the maintainer's approval,
-because this adds syntax and changes a value representation (AGENTS.md "Ask the
-maintainer first").
+Status: **proposed** — design, with slice 1a landed. The syntax, AST and
+`kode ast` tree for payload variants now exist (`crates/kode-syntax`: `EnumVariant`,
+parser, dump, depth limit); construction still reports `E0253` and nothing in
+`kode-sema` or the runtime has changed. The remaining slices in §9 are separate,
+test-first changes and need the maintainer's approval, because they change a
+value representation (AGENTS.md "Ask the maintainer first").
 Date: 2026-11-11.
 Plan item: `docs/PLAN-v1.md` 9.7, `docs/STATUS.md` 1.1. Blocks S2 of
 `docs/PLAN-self-hosting.md`.

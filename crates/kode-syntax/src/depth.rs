@@ -83,7 +83,16 @@ pub(crate) fn too_deep(program: &Program) -> Option<Span> {
             }
             Item::Test(t) => stack.push(Node::Block(&t.body, 1)),
             Item::Stmt(s) => stack.push(Node::Stmt(s, 1)),
-            Item::Enum(_) | Item::Import(_) => {}
+            // A payload variant's field types count towards the nesting limit
+            // like any other annotation (ADR 0032).
+            Item::Enum(e) => {
+                for v in &e.variants {
+                    for f in &v.fields {
+                        stack.push(Node::Ty(&f.ty, 1));
+                    }
+                }
+            }
+            Item::Import(_) => {}
         }
     }
 

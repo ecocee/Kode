@@ -7,6 +7,10 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Enum payload variants parse.** A variant may declare fields,
+  `Circle(radius: float)` (ADR 0039, slice 1a): the AST, `kode ast` (text and
+  JSON) and the nesting-limit walker carry them. Constructing one is still
+  `E0253` — the representation, `match` destructuring and `is` are later slices.
 - **Designs for the two language features S2 needs** (ADRs 0039 and 0040): enum
   payloads with `match` destructuring, `is` and narrowing, plus generic classes by
   monomorphization. Design and slice order only — no compiler or runtime change

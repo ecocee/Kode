@@ -72,6 +72,22 @@ fn the_tree_keeps_shape_and_spans() {
 }
 
 #[test]
+fn payload_variants_are_in_the_tree() {
+    let file = write_temp(
+        "enum-payload",
+        "enum Shape {\n    Circle(radius: float)\n    Empty\n}\n",
+    );
+    let (code, out) = run(&["ast", file.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("Variant name=\"Circle\""), "{out}");
+    assert!(out.contains("Param name=\"radius\""), "{out}");
+    assert!(out.contains("TypeName name=\"float\""), "{out}");
+    // A bare variant is still just a name, so the old shape is unchanged.
+    assert!(out.contains("Variant name=\"Empty\""), "{out}");
+    let _ = std::fs::remove_file(&file);
+}
+
+#[test]
 fn a_lexer_error_is_a_diagnostic_not_a_dump() {
     let file = write_temp("bad-token", "x = \"unterminated\n");
     let (code, out) = run(&["tokens", file.to_str().unwrap(), "--format=json"]);

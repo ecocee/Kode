@@ -49,6 +49,10 @@ match c {
 
 - `match` works on `int`, `string`, `bool` and enums. It must cover every case or end with `_ =>` (E0224).
 - Enum values are compared with `==`: they are plain ints with a name.
+- A variant may declare fields, `Circle(radius: float)`, which is the syntax
+  payload enums will use (ADR 0039). The parser and `kode ast` accept it today;
+  constructing one is still `E0253`, because payloads have no representation
+  yet.
 - `print(c)` and `"${c}"` write the value the way it is written in source,
   `Color.Green`. The text is chosen from static strings, so printing allocates
   nothing and the representation does not change (ADR 0027).

@@ -94,12 +94,22 @@ pub struct IfaceMethod {
     pub span: Span,
 }
 
+/// One variant of an enum: its name, and the fields it carries when the enum
+/// has payloads (ADR 0039). A bare variant like `Empty` has no fields.
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub name: String,
+    pub name_span: Span,
+    /// `Circle(radius: float)` — empty for `Empty`.
+    pub fields: Vec<Param>,
+}
+
 #[derive(Debug, Clone)]
 pub struct EnumDecl {
     pub name: String,
     pub name_span: Span,
     pub is_pub: bool,
-    pub variants: Vec<(String, Span)>,
+    pub variants: Vec<EnumVariant>,
 }
 
 #[derive(Debug, Clone)]

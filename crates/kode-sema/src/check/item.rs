@@ -153,7 +153,7 @@ impl Checker {
                         self.enum_index.insert(e.name.clone(), self.enums.len());
                         self.enums.push(EnumInfo {
                             name: e.name.clone(),
-                            variants: e.variants.iter().map(|(n, _)| n.clone()).collect(),
+                            variants: e.variants.iter().map(|v| v.name.clone()).collect(),
                         });
                     }
                 }
