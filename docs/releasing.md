@@ -39,8 +39,10 @@ binaries plus notes. Nothing is installed at run time.
    release is published only after that.
 
    On Linux you can also install the `.deb` and run the compiler directly:
-   `sudo dpkg -i kode_<version>_<arch>.deb`, or via
-   `apt install ./kode_<version>_<arch>.deb`.
+   `sudo dpkg -i kode-<version>-linux-x86_64.deb`, or via
+   `apt install ./kode-<version>-linux-x86_64.deb`. The file name carries the tag
+   (`v0.3.6`), like the tarball; only the version inside the package drops the
+   `v`, because dpkg version strings must start with a digit.
 
 ## Why installers, not one universal download
 

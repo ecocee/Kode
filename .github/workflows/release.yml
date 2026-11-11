@@ -121,6 +121,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${TAG#v}"   # dpkg version strings start with a digit
+          FILE_VERSION="$TAG"  # artifact names follow the tag, like the tarball
           ROOT="pkg/kode_${VERSION}_amd64"
           mkdir -p "$ROOT/DEBIAN" "$ROOT/usr/bin" "$ROOT/usr/share/doc/kode"
           cp dist/kode "$ROOT/usr/bin/kode"
@@ -138,8 +139,8 @@ jobs:
           Description: Kode programming language compiler
            Kode compiles programs to native machine code.
           EOF
-          dpkg-deb --root-owner-group --build "$ROOT" "kode-${VERSION}-linux-x86_64.deb"
-          dpkg-deb --info "kode-${VERSION}-linux-x86_64.deb"
+          dpkg-deb --root-owner-group --build "$ROOT" "kode-${FILE_VERSION}-linux-x86_64.deb"
+          dpkg-deb --info "kode-${FILE_VERSION}-linux-x86_64.deb"
 
       - name: Generate checksums
         shell: bash

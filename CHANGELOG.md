@@ -80,6 +80,11 @@ check the tag it is building, and Windows joins CI.
   libkode_rt.a"; locally a previous `cargo build` hid it. It now searches the
   matching `deps/` folder and takes the newest archive, the same fallback
   `kode-cli`'s build script already had.
+- **The Linux release could not produce checksums.** The `.deb` was written as
+  `kode-0.3.6-linux-x86_64.deb` while the tarball and the checksum step use the
+  tag, `kode-v0.3.6-...`, so `sha256sum` failed after packaging and the release
+  job stopped. Artifact names now follow the tag; only the version recorded
+  inside the package drops the `v`, because dpkg requires a leading digit.
 - Two diagnostics that sent readers looking in the wrong place now say what is
   actually missing. `Shape.Circle(1)` reports `E0253` "enum payloads are not
   supported yet" with a class-based example instead of "unknown variable
