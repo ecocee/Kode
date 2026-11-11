@@ -29,7 +29,7 @@ working, tested compiler.
 | **M7.6 Interfaces** | `interface` signatures, `implements`, dynamic dispatch, signature checks | **Done** |
 | **M7.7 Packages** | `kode.toml` manifests with a source root, package-relative imports, `import ... as` qualified access, `pub`-gated module exports (dependencies and a registry still to come) | **Done** |
 | ~~**M8 Budgets and AI**~~ | `memory` budgets, declared effects (`uses`), typed `ask` / `tool` calls | **Skipped** — not on the path to a production language |
-| **M9 Production core** | what a general-purpose language needs in daily use: complete printing, TLS, a database client, cycle-safe memory, byte buffers, enum payloads, optional scalars everywhere, generic classes, checked arithmetic, a package registry, a verified Windows build | In progress: printing, docs, TLS (ADR 0034) and the database client are done; see [PLAN-v1.md](PLAN-v1.md) |
+| **M9 Production core** | what a general-purpose language needs in daily use: complete printing, TLS, a database client, cycle-avoiding memory (`weak`, ADR 0038), byte buffers, enum payloads, optional scalars everywhere, generic classes, checked arithmetic, a package registry, a verified Windows build | In progress: printing, docs, TLS (ADR 0034) and the database client are done; see [PLAN-v1.md](PLAN-v1.md) |
 
 ## Checkpoints (go / no-go)
 

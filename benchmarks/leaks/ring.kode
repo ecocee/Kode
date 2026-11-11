@@ -1,0 +1,24 @@
+// ADR 0038 evidence: a ring of 10,000 objects.
+//
+// Every node owns the next one, so the whole ring stays alive after the list
+// that held it is released. The leak grows with the data, which is why a single
+// forgotten back-link in a tree is a whole-graph leak rather than one object.
+// Run with KODE_LEAK_CHECK=1: prints 10000, then exits 3 with
+// "kode: memory leak: 10000 object(s) were never freed".
+class Node {
+    id: int = 0
+    next: Node? = none
+}
+
+nodes: [Node] = []
+i = 0
+while i < 10000 {
+    nodes.add(Node(id: i))
+    i += 1
+}
+i = 0
+while i < 10000 {
+    nodes[i].next = nodes[(i + 1) % 10000]
+    i += 1
+}
+print(len(nodes))

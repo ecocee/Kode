@@ -41,5 +41,8 @@ object is left at the end. `cargo test` sets it for every run-pass program.
 - Counts use atomics once a program creates its first channel (`THREADED` in the object header,
   set in `crates/kode-rt/src/channel.rs`); single-threaded programs pay nothing extra.
 - Two objects that point at each other leak, because reference counting cannot see a cycle.
-  `weak` references are planned (M9.5 in `docs/PLAN-v1.md`); until then keep back-links out of
-  the object graph or break them by hand (`a.next = none`).
+  Measured with `KODE_LEAK_CHECK=1`: a two-object cycle leaks 2 objects, a ring of 10,000 leaks
+  10,000 (`benchmarks/leaks/report.md`). `weak` references are designed in
+  [ADR 0038](../adr/0038-weak-references.md) but not implemented; until then keep back-links out
+  of the object graph or break them by hand (`a.next = none`). `weak` makes a cycle avoidable —
+  it does not collect one that is already built from strong fields.

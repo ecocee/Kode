@@ -1,0 +1,17 @@
+// ADR 0038 evidence: the same two objects with the back-edge cleared.
+//
+// This is the convention `docs/design/memory-model.md` tells users to follow
+// today ("break back-links by hand"). It works, and it exits 0 under
+// KODE_LEAK_CHECK=1, but nothing in the language checks that the assignment
+// happens.
+class Node {
+    name: string
+    next: Node? = none
+}
+
+a = Node(name: "a")
+b = Node(name: "b")
+a.next = b
+b.next = a
+b.next = none
+print(a.name, b.name)

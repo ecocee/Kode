@@ -30,9 +30,12 @@ general-purpose language. Blockers, in the order they hurt:
    and the server-side crypto) are linked wholesale into every binary (§2, §10).
 2. TLS servers pay one thread per connection (ADR 0034) and do not use the epoll
    loop, so 1,024 concurrent TLS connections is the practical ceiling and RSS
-   grows with connections, not with request rate.
+   grows with connections, not with request rate. Plaintext capacity is measured
+   in ADR 0037 (60,374 req/s at c=100 on one vCPU); above 1,024 connections the
+   server closes the socket with no response instead of answering 503.
 3. Reference-counting cannot break cycles, so two objects pointing at each
-   other leak forever (no `weak`).
+   other leak forever (no `weak`; the design and its measured leak evidence are
+   in ADR 0038).
 4. No byte buffers and only 64-bit `int`; no fixed-width integers, no binary
    protocol work.
 5. A PostgreSQL client exists (ADR 0033) with TLS (rustls) and a connection
@@ -91,7 +94,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 |---|---|---|
 | 1.1 Enum payloads, `match` destructuring, `is`, safe downcast | **missing** | probed: `Shape.Circle(1)` is rejected (with a poor message — `E0201 unknown variable Shape`); `docs/spec/07-planned.md`, `docs/self-hosting.md` ("Enums are tags only"); no test |
 | 1.2 Generic classes, generic methods, constraints, explicit type args | **missing** | ADR 0030 "Limits"; E0251/E0252; only free functions |
-| 1.3 `weak` references / cycle safety | **missing** | `docs/design/memory-model.md` "Known limits"; no `weak` token in the lexer |
+| 1.3 `weak` references / cycle safety | **designed, not implemented** | ADR 0038 (`docs/adr/0038-weak-references.md`) with measured leak evidence in `benchmarks/leaks/report.md`; no `weak` token in the lexer yet |
 | 1.4 Fixed-width ints, byte buffers, binary encode/decode | **missing** | probed: `x: u8 = 1` → `E0303 unknown type u8`; only `int` (64-bit) |
 | 1.5 Checked arithmetic plus `wrapping_*` / `saturating_*` | **missing** | probed: `9223372036854775807 + 1` prints `-9223372036854775808` (silent wrap); ADR 0009 |
 | 1.6 Optional scalars as fields, parameters, returns | **partial** | `int?`/`float?`/`bool?` work as **locals** (ADR 0024, `tests/run-pass/optional_numbers.kode`); E0219 elsewhere |
@@ -224,7 +227,7 @@ plan targets). Wall clock: best of 3; RSS: peak of one run. Compiler: debug
 | `mandel` wall clock | within 3× of C `-O2` | 17 ms vs 12 ms = **1.41×** | met |
 | idle HTTP server RSS | under 3 MB above the binary | 2,144 KB total, binary 440 KB → ~1.7 MB above | met |
 | echo server RSS at 1000 requests | flat | 2,144 → 2,432 KB at 1,000; 2,160 → 2,464 KB at 10,000 | provisionally met (+0.3 MB, no growth with load) |
-| hello world binary | under 1 MB stripped | 373,336 bytes stripped | met |
+| hello world binary | under 1 MB stripped | **1,073,176 bytes** (`kode build --release`, measured 2026-11-11 after the TLS runtime landed) | **missed** |
 | `kode check` | under 100 ms on 5k lines | 4,802-line file: **9–12 ms** | met |
 
 Not measured, and why:
@@ -232,9 +235,12 @@ Not measured, and why:
 - **1 vCPU / 1 GB Linux VM**: no such machine in this pass (local arm64 laptop,
   plus this repo has no VM provisioning). All four compute rows must be re-run
   there before quoting them.
-- **Requests per second vs Node/Python/Go**: no HTTP benchmark exists in
-  `benchmarks/` at all; only compute programs. The ROADMAP go/no-go checkpoint
-  cannot be evaluated until one is written.
+- **Requests per second vs Node/Python/Go**: the Kode side is now measured
+  (ADR 0037, `benchmarks/http/report.md` "Stage 2"): 60,374 req/s for `/hello`
+  at c=100 and 43,304 at c=1,000 on 1 vCPU / 1 GiB, 1,024 connections, ~20 MB.
+  The other languages' rows come from a harness whose client source
+  (`benchmarks/http/load.go`) is missing, so the comparison is **not** complete
+  and the ROADMAP checkpoint still cannot be closed.
 - **RSS comparison with Node/Python** for the same server: not built.
 - **100,000 requests** (the flat-RSS target): ran 10,000 instead; a 10k run takes
   minutes with `curl` per request and a keep-alive client is the right tool.
@@ -318,7 +324,8 @@ changes behaviour):
 3. **TLS** (Phase 3.1) — the single biggest production blocker; needs a DECISION
    on `rustls` vs system OpenSSL with a binary-size measurement.
 4. **Enum payloads** (1.1) — unblocks self-hosting, needs an ADR.
-5. **`weak`** (1.3) — stops the cycle leak; needs an ADR and leak evidence.
+5. **`weak`** (1.3) — makes the cycle leak avoidable; ADR 0038 and the evidence
+   exist, the implementation is the next code change.
 
 ## 9. Gates
 
