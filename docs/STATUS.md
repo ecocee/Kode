@@ -45,7 +45,8 @@ general-purpose language. Blockers, in the order they hurt:
    macOS Intel and Windows artifacts are promised in the docs but not built, and
    Windows has never been verified by hand (§4.1).
 
-**Self-hosting-ready: no, and far away.** There is no lexer, parser, checker or
+**Self-hosting-ready: no, and far away.** The stages that would get there, with
+oracles and gates, are in [PLAN-self-hosting.md](PLAN-self-hosting.md). There is no lexer, parser, checker or
 backend written in Kode (§3, Phase 6). The language also lacks the three things
 a compiler needs first: enum payloads with pattern matching, generic classes,
 and a faster memory story for token/AST graphs. The backend question is settled: LLVM, which needs `clang` at build time.

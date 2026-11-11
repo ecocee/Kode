@@ -123,7 +123,12 @@ tests and an ADR where behavior changes; the list is the order, not a schedule.
 | 9.13 | LLVM backend, replacing Cranelift | the measured 1.6-2.4x gap against C `-O2` is code quality; Cranelift has no loop optimizer to build on | **done** (ADR 0035, B7): textual LLVM IR from MIR, `clang` builds the object, no `llvm-sys`; LLVM is the only backend since B8; the Cranelift implementation and its crates are gone |
 
 **9.1-9.4 are done.** 9.5 (`weak` references) has its ADR (0038) and its leak
-evidence (`benchmarks/leaks/`); the implementation is the next branch. TLS was the large one: rustls plus webpki-roots are now a
+evidence (`benchmarks/leaks/`); the implementation is the next branch.
+
+The path from here to a Kode-written compiler is its own plan:
+[PLAN-self-hosting.md](PLAN-self-hosting.md). It makes 9.5-9.9 prerequisites
+rather than parallel work, because a compiler cannot be written in a language
+that has no generic classes, no enum payloads and no byte buffers. TLS was the large one: rustls plus webpki-roots are now a
 deliberate runtime dependency, measured in `benchmarks/http/tls.md`, and the
 1 MB binary budget is **missed** (hello world is 1,077,600 bytes stripped).
 

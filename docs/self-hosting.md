@@ -4,15 +4,16 @@
 page records exactly what exists, what is missing, and the order the remaining
 work has to happen in, so progress does not have to be rediscovered.
 
-Status date: 2026-11-05.
+Status date: 2026-11-11. The sequence of stages, their gates and their
+acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
 
 ## Verified baseline
 
 | Item | Value |
 |---|---|
-| Rust compiler | 19,250 lines across 8 crates |
-| `tests/run-pass` | 40 programs, each with a `.out` file |
-| `tests/compile-fail` | 88 programs, each with a `.err` code |
+| Rust compiler | **27,606 lines** in `src` across 8 crates (31,081 with tests) |
+| `tests/run-pass` | 46 programs, each with a `.out` file |
+| `tests/compile-fail` | 98 programs, each with a `.err` code |
 | Conformance run | `cargo test --workspace`, all green, leak checking on |
 | Runtime ABI marker | `kode_rt_abi_0004` |
 | Native output | LLVM object file from `clang`, linked with the system `cc` |
@@ -29,18 +30,15 @@ Status date: 2026-11-05.
   without a shell and returns `ProcessResult { code, stdout, stderr }`. This is
   the capability a Kode-written compiler needs to call `cc` and `ld`.
   Tests: `tests/run-pass/{process,process_posix}.kode`.
+- **Generic functions and monomorphization** — ADR 0030. Type parameters on free
+  functions, inferred at each call site; every distinct type combination becomes
+  its own native function. Tests:
+  `tests/run-pass/{generics,generics_nested}.kode`.
 
 ### NOT IMPLEMENTED
 
-- **Generic functions and monomorphization** — ADR 0030. Free functions may
-  declare type parameters (`fn first<T>(xs: [T]) -> T`) with types inferred at
-  each call site from the argument types. Every distinct combination of type
-  arguments becomes its own native function (monomorphization), shared by
-  identical calls; the compiler never re-enters the checker for an instantiation,
-  so recursion and generic-calls-generic work. Tests: `tests/run-pass/{generics,generics_nested}.kode`.
-  Not yet: generic classes, generic methods, constraints and explicit type
-  arguments (`first::<int>`); a generic function used as a value is E0251, a
-  generic method is E0252.
+- **Generic classes, generic methods, constraints, explicit type arguments** —
+  9.9. A generic function used as a value is E0251, a generic method is E0252.
 - **Enum payloads and type tests.** Enums are tags only (ADR 0009); there is no
   `Shape.Circle(radius)`, no `x is Circle`, no safe downcast.
 - **Fixed-width integers and binary data.** Only 64-bit `int`. No `u8`/`i32`
@@ -96,6 +94,8 @@ cargo test --workspace                       # conformance + leak checks
 bash docs/site/build.sh
 ```
 
-## Reproduce the current state:  Keep every stage green: `cargo test --workspace` must pass before each commit,
-  and the Rust compiler must remain able to build every Kode program in `tests/`.
+## Rules
+
+Keep every stage green: `cargo test --workspace` must pass before each commit,
+and the Rust compiler must remain able to build every Kode program in `tests/`.
 
