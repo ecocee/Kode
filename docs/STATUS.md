@@ -67,7 +67,7 @@ and a faster memory story for token/AST graphs. The backend question is settled:
 | `cargo clippy --workspace --all-targets -- -D warnings` | passes |
 | `kode fmt examples tests/run-pass --check` | passes |
 | `kode check` on every example and run-pass program | passes, 54 files |
-| `kode doctor` | all ok: kode 0.3.5, macos-aarch64, runtime ABI 0004, clang 2100 |
+| `kode doctor` | all ok: kode 0.3.6, macos-aarch64, runtime ABI 0004, clang 2100 |
 | hello world, debug build | 1,252,288 bytes |
 | hello world, `--release` | 1,233,472 bytes |
 | hello world, `--release` + `strip -x` | **1,077,600 bytes — over the 1 MB budget** |
@@ -81,8 +81,11 @@ PLAN-v1 §3 is currently **missed**: the PostgreSQL client's `rustls` and
 This was recorded on 2026-11-09 and must be fixed or budgeted before any size
 claim is published (§10).
 
-Version history: `Cargo.toml` and the latest tag both say `0.3.5`; `dist/` is no
-longer tracked and is git-ignored; `LICENSE` and `SECURITY.md` exist.
+Version history: `Cargo.toml` says `0.3.6`, and `v0.3.6` is the tag for that
+commit. The earlier `v0.3.5` tag points at `ae2ce27`, a 0.3.0 tree, which is why
+the release workflow used to build 0.3.0 while the tag said 0.3.5; it now checks
+the tag against the tree first. `dist/` is no longer tracked and is git-ignored;
+`LICENSE` and `SECURITY.md` exist.
 
 ## 3. Phase status
 

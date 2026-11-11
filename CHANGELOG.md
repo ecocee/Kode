@@ -3,7 +3,10 @@
 Release notes for the `kode` compiler. Versions follow the binary, not the
 language: a patch release fixes bugs, a minor release may add syntax.
 
-## Unreleased
+## 0.3.6
+
+The LLVM backend becomes the only code generator, the release workflow learns to
+check the tag it is building, and Windows joins CI.
 
 ### Changed
 
