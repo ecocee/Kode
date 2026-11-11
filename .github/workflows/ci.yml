@@ -146,3 +146,39 @@ jobs:
           ./target/release/kode build examples/hello.kode -o "$out/hello" --release
           test "$("$out/hello")" = "hello world"
           ./target/release/kode doctor
+
+  # The self-hosting harness (docs/PLAN-self-hosting.md). Stage 0 records the
+  # oracle, Stage 0 then compiles the Kode port, and the two token dumps must
+  # agree byte for byte on every corpus file. One runner is enough: the port is
+  # platform independent, and the point of the job is to catch a parity
+  # regression the moment it lands, not to test four architectures of it.
+  selfhost:
+    name: selfhost (stage0 -> stage1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # `kode build` emits LLVM IR and hands it to clang, so the port needs a
+      # clang and a C linker even though it is not the thing being built.
+      - name: Install clang and a C linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang gcc libc6-dev
+
+      - name: Stage 0 builds the oracle
+        run: ./scripts/selfhost.sh stage0
+
+      - name: Stage 0 builds the Kode lexer; token dumps must match
+        run: ./scripts/selfhost.sh stage1
+
+      - name: Keep the measurements
+        uses: actions/upload-artifact@v4
+        with:
+          name: selfhost-measurements
+          path: |
+            target/selfhost/stage0.txt
+            target/selfhost/stage1.txt
+          if-no-files-found: error

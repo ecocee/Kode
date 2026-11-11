@@ -7,6 +7,9 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The self-hosting harness runs in CI.** A `selfhost` job records the Stage 0
+  oracle, builds the Kode lexer with it and compares 184 token dumps on every
+  push and pull request, uploading both measurement files (`.github/workflows/ci.yml`).
 - **Enum payload variants parse.** A variant may declare fields,
   `Circle(radius: float)` (ADR 0039, slice 1a): the AST, `kode ast` (text and
   JSON) and the nesting-limit walker carry them. Constructing one is still

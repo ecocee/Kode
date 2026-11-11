@@ -140,6 +140,10 @@ Two findings carried into S2:
 `ast` and later commands exit 2 with a "not implemented yet" message rather than
 pretending, so a green `stage1` cannot be mistaken for a parser.
 
+The harness runs in CI: the `selfhost` job in `.github/workflows/ci.yml` runs
+`stage0` then `stage1` on every push and pull request, so a parity regression
+fails the build instead of hiding until someone runs it by hand.
+
 Risk: Unicode and escapes. Mitigation: `selfhost/spec/lexer_cases.kode` is part of
 the corpus the harness dumps — every escape, a 4-byte character, a hole with a
 brace inside a string, and the three-character operator runs (`<<=`, `>>=`, `..=`).
