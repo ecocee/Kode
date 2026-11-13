@@ -1,0 +1,356 @@
+// The parser of the self-hosted compiler: stage S2, slice 1.
+//
+// Slice 1 is the smallest tree that is still a tree: assignments of a literal or
+// a name (`x = 1`), and call statements whose arguments are literals or names
+// (`print(x, 2)`). Every later slice adds statements and expressions without
+// changing the arena (ADR 0042), the dump format, or the way a statement is
+// dispatched, so the tree this builds is the shape the rest of S2 fills in.
+
+from "./ast" import Ast
+from "./tokens" import Lexed, Token, TokenKind
+
+/// A parse error, in the shape the lexer's errors already use.
+pub class ParseError {
+    code: string
+    message: string
+    start: int
+    end: int
+    help: string
+}
+
+pub class Parsed {
+    ast: Ast
+    errors: [ParseError] = []
+}
+
+/// Parse a token stream. Errors are collected, not thrown: the caller prints
+/// them and exits, exactly as `kode ast` does.
+pub fn parse(src: string, lx: Lexed) -> Parsed {
+    p = Parser(src: src, tokens: lx.tokens, out: Parsed(ast: Ast()))
+    return p.run()
+}
+
+pub class Parser {
+    src: string
+    tokens: [Token]
+    out: Parsed
+    at: int = 0
+    last_end: int = 0
+
+    fn run() -> Parsed {
+        out.ast.add("Program")
+        while not done() {
+            step()
+        }
+        return out
+    }
+
+    // ---- token cursor ----
+
+    fn peek() -> TokenKind {
+        if at < tokens.len() {
+            return tokens[at].kind
+        }
+        return TokenKind.Eof
+    }
+
+    fn peek_at(n: int) -> TokenKind {
+        if at + n < tokens.len() {
+            return tokens[at + n].kind
+        }
+        return TokenKind.Eof
+    }
+
+    fn done() -> bool {
+        return peek() == TokenKind.Eof
+    }
+
+    fn advance() {
+        if at < tokens.len() {
+            last_end = tokens[at].end
+            at += 1
+        }
+    }
+
+    fn text_of(token: int) -> string {
+        return src.slice(tokens[token].start, tokens[token].end)
+    }
+
+    fn fail(code: string, message: string, start: int, end: int, help: string) {
+        out.errors.add(
+            ParseError(code: code, message: message, start: start, end: end, help: help)
+        )
+    }
+
+    /// Skip to the next statement boundary after an error.
+    fn recover() {
+        while not done() and peek() != TokenKind.Newline {
+            advance()
+        }
+        if peek() == TokenKind.Newline {
+            advance()
+        }
+    }
+
+    // ---- statements ----
+
+    fn step() {
+        if peek() == TokenKind.Newline {
+            advance()
+            return
+        }
+        if peek() == TokenKind.Ident {
+            if peek_at(1) == TokenKind.Assign {
+                assign()
+                return
+            }
+            if peek_at(1) == TokenKind.LParen {
+                call_stmt()
+                return
+            }
+        }
+        token = at
+        advance()
+        fail(
+            "E0102",
+            "expected a statement, found `${text_of(token)}`",
+            tokens[token].start,
+            tokens[token].end,
+            "slice 1 parses `name = value` and `name(args)`; other statements arrive next",
+        )
+        recover()
+    }
+
+    /// `x = 1`: the target is a `TargetVar`, its span the name's.
+    fn assign() {
+        name_id = at
+        advance()
+        advance()
+        value = expr()
+        id = out.ast.add("Assign")
+        target = out.ast.counted("TargetVar")
+        out.ast.text(target, "name", text_of(name_id))
+        out.ast.span(target, "span", tokens[name_id].start, tokens[name_id].end)
+        out.ast.kid(id, target)
+        if value >= 0 {
+            out.ast.kid(id, value)
+            out.ast.span(id, "span", tokens[name_id].start, last_end)
+        } else {
+            out.ast.span(id, "span", tokens[name_id].start, tokens[name_id].end)
+        }
+        out.ast.nodes[0].kids.add(id)
+        end_line()
+    }
+
+    /// `print(x)`: an expression statement whose expression is a call.
+    fn call_stmt() {
+        value = expr()
+        stmt = out.ast.add("ExprStmt")
+        if value >= 0 {
+            out.ast.kid(stmt, value)
+        }
+        out.ast.nodes[0].kids.add(stmt)
+        end_line()
+    }
+
+    /// A statement ends at a newline. Anything else is a parse error.
+    fn end_line() {
+        if peek() == TokenKind.Newline {
+            advance()
+            return
+        }
+        if done() {
+            return
+        }
+        token = at
+        fail(
+            "E0102",
+            "expected the end of the statement, found `${text_of(token)}`",
+            tokens[token].start,
+            tokens[token].end,
+            "one statement per line",
+        )
+        recover()
+    }
+
+    // ---- expressions ----
+
+    /// Slice 1 expressions: a literal, a name, or a call of names and literals.
+    /// Returns -1 after an error, so the caller can still record the node.
+    fn expr() -> int {
+        kind = peek()
+        if kind == TokenKind.Int {
+            token = at
+            advance()
+            id = out.ast.counted("Int")
+            out.ast.num(id, "value", parse_int(text_of(token)))
+            spans(id, token)
+            return id
+        }
+        if kind == TokenKind.Float {
+            token = at
+            advance()
+            id = out.ast.counted("Float")
+            out.ast.text(id, "value", text_of(token))
+            spans(id, token)
+            return id
+        }
+        if kind == TokenKind.Str {
+            token = at
+            advance()
+            id = out.ast.counted("Str")
+            out.ast.text(id, "value", parse_string(text_of(token)))
+            spans(id, token)
+            return id
+        }
+        if kind == TokenKind.True or kind == TokenKind.False {
+            token = at
+            advance()
+            id = out.ast.counted("Bool")
+            out.ast.flag(id, "value", kind == TokenKind.True)
+            spans(id, token)
+            return id
+        }
+        if kind == TokenKind.Ident {
+            return call_or_name()
+        }
+        token = at
+        fail(
+            "E0102",
+            "expected a value",
+            tokens[token].start,
+            tokens[token].end,
+            "slice 1 values are numbers, strings, bools, names and calls",
+        )
+        recover()
+        return -1
+    }
+
+    fn call_or_name() -> int {
+        callee = at
+        advance()
+        if peek() != TokenKind.LParen {
+            id = out.ast.counted("Ident")
+            out.ast.text(id, "name", text_of(callee))
+            spans(id, callee)
+            return id
+        }
+        open = at
+        advance()
+        args: [int] = []
+        while not done() and peek() != TokenKind.RParen {
+            args.add(expr())
+            if peek() == TokenKind.Comma {
+                advance()
+            } else {
+                break
+            }
+        }
+        if peek() == TokenKind.RParen {
+            advance()
+        } else {
+            fail(
+                "E0102",
+                "expected `)` to close the call",
+                tokens[open].start,
+                tokens[open].end,
+                "every `(` needs a `)`",
+            )
+        }
+        id = out.ast.counted("Call")
+        out.ast.text(id, "callee", text_of(callee))
+        out.ast.span(id, "callee_span", tokens[callee].start, tokens[callee].end)
+        for arg in args {
+            if arg >= 0 {
+                node = out.ast.add("Arg")
+                out.ast.kid(node, arg)
+                out.ast.kid(id, node)
+            }
+        }
+        out.ast.span(id, "span", tokens[callee].start, last_end)
+        return id
+    }
+
+    /// `span=a..b` for a one-token node.
+    fn spans(id: int, token: int) {
+        out.ast.span(id, "span", tokens[token].start, tokens[token].end)
+    }
+}
+
+/// The `int` a literal names, in base 2, 8, 10 or 16 (ADR 0043).
+fn parse_int(text: string) -> int {
+    body = text.replace("_", "")
+    radix = 10
+    start_at = 0
+    if body.size() >= 2 and body.byte_at(0) == 48 {
+        first = body.byte_at(1)
+        if first == 120 or first == 88 {
+            radix = 16
+            start_at = 2
+        } else if first == 98 or first == 66 {
+            radix = 2
+            start_at = 2
+        } else if first == 111 or first == 79 {
+            radix = 8
+            start_at = 2
+        }
+    }
+    value = 0
+    k = start_at
+    while k < body.size() {
+        value = value * radix + parse_digit(body.byte_at(k))
+        k += 1
+    }
+    return value
+}
+
+fn parse_digit(b: int) -> int {
+    if b >= 48 and b <= 57 {
+        return b - 48
+    }
+    if b >= 97 and b <= 102 {
+        return b - 97 + 10
+    }
+    if b >= 65 and b <= 70 {
+        return b - 65 + 10
+    }
+    return 0
+}
+
+/// The text a string literal holds, with the escapes the lexer accepts undone.
+fn parse_string(text: string) -> string {
+    if text.size() < 2 {
+        return ""
+    }
+    body = text.slice(1, text.size() - 1)
+    out = ""
+    k = 0
+    while k < body.size() {
+        b = body.byte_at(k)
+        if b == 92 and k + 1 < body.size() {
+            e = body.byte_at(k + 1)
+            if e == 110 {
+                out += "\n"
+            } else if e == 116 {
+                out += "\t"
+            } else if e == 114 {
+                out += "\r"
+            } else if e == 48 {
+                out += "\0"
+            } else if e == 34 {
+                out += "\""
+            } else if e == 92 {
+                out += "\\"
+            } else if e == 36 {
+                out += "$"
+            } else {
+                out += body.slice(k, k + 2)
+            }
+            k += 2
+        } else {
+            out += body.slice(k, k + 1)
+            k += 1
+        }
+    }
+    return out
+}

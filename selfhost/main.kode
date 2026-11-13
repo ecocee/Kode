@@ -2,12 +2,16 @@
 // docs/PLAN-self-hosting.md).
 //
 //   kode-stage1 tokens <file.kode>
+//   kode-stage1 ast <file.kode>
 //
-// `ast` and everything after it arrive with the later stages; until then this
-// says so and exits 2 instead of pretending.
+// The parser is S2 slice 1: assignments of a literal or a name, and call
+// statements. Everything after it arrives with the later slices; until then an
+// unsupported statement is a parse error, not a silent omission.
 
+from "./ast" import ast_lines
 from "./dump" import position, tokens_lines
 from "./lexer" import lex
+from "./parser" import parse
 
 argv = args()
 
@@ -18,13 +22,13 @@ if argv.len() == 0 {
 
 command = argv[0]
 
-if command != "tokens" {
-    print("kode-stage1: `${command}` is not implemented yet; only `tokens` exists until the parser lands (S2)")
+if command != "tokens" and command != "ast" {
+    print("kode-stage1: `${command}` is not implemented yet; `tokens` and `ast` exist")
     exit(2)
 }
 
 if argv.len() < 2 {
-    print("kode-stage1: `tokens` needs a file name")
+    print("kode-stage1: `${command}` needs a file name")
     exit(2)
 }
 
@@ -53,6 +57,23 @@ if lx.errors.len() > 0 {
     }
     write_file("/dev/stderr", report)
     exit(1)
+}
+
+if command == "ast" {
+    parsed = parse(src, lx)
+    if parsed.errors.len() > 0 {
+        report = ""
+        for err in parsed.errors {
+            report += "${file}:${position(src, err.start)}: error ${err.code}: ${err.message}\n"
+            if err.help.len() > 0 {
+                report += "  help: ${err.help}\n"
+            }
+        }
+        write_file("/dev/stderr", report)
+        exit(1)
+    }
+    print(ast_lines(parsed.ast).join("\n"))
+    exit(0)
 }
 
 // The dump ends with a newline, and `print` adds one, so the lines are joined

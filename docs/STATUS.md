@@ -151,9 +151,10 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 |---|---|---|
 | 6.1 Bootstrap harness (S0) | **done** | `scripts/selfhost.sh` and the `kode tokens` / `kode ast` dumps (`crates/kode-syntax/src/dump.rs`); `stage0` green on a clean checkout, `stage1`/`compare` refuse without a Stage 1. Branch `selfhost/s0-harness` |
 | 6.1 Backend decision | **missing** | not decided |
-| 6.2 Lexer in Kode (S1) | **done** | `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode`; `./scripts/selfhost.sh stage1` reports **213/213** token dumps byte-identical (text, byte spans, line/column, and the status of the programs that must fail to lex), 2.27 s and 3,824 KB for token dumps only. Branch `selfhost/s1-lexer` |
-| 6.3–6.5 Parser, checker, codegen in Kode | **missing** | `docs/self-hosting.md`: no parser, checker, MIR builder, evaluator or native backend exists in Kode |
-| 6.6 Bootstrap proof in CI | **done** for S0-S1 | the `selfhost` job in `ci.yml` runs `stage0` then `stage1` on `ubuntu-latest` and compares 213 token dumps, uploading both measurement files; `stage2` waits for the parser |
+| 6.2 Lexer in Kode (S1) | **done** | `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode`; `./scripts/selfhost.sh stage1` reports **216/216** token dumps byte-identical (text, byte spans, line/column, and the status of the programs that must fail to lex), 2.53 s and 4,400 KB for token dumps only (the binary now also carries the parser). Branch `selfhost/s1-lexer` |
+| 6.3 Parser in Kode (S2) | **partial** | slice 1: `selfhost/ast.kode` (the arena, ADR 0042) and `selfhost/parser.kode` parse assignments of a literal or a name and call statements, and **`kode-stage1 ast` is byte-identical to `kode ast` on 3/3 cases** in `selfhost/spec/parse` (`./scripts/selfhost.sh parse`). Branch `selfhost/s2-parser`. Not yet: other statements and expressions, `E01xx` parity, `int?` parent edges |
+| 6.4–6.5 Checker, codegen in Kode | **missing** | `docs/self-hosting.md`: no checker, MIR builder, evaluator or native backend exists in Kode |
+| 6.6 Bootstrap proof in CI | **done** for S0-S1 | the `selfhost` job in `ci.yml` runs `stage0` then `stage1` on `ubuntu-latest` and compares 216 token dumps, uploading both measurement files; `stage2` waits for the parser |
 
 Prerequisites: enum payloads (1.1, done), generic classes and methods (1.2, done for
 what S2 and S3 need), and a memory strategy for the AST (1.3 → ADR 0042: an arena of

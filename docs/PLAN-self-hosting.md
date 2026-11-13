@@ -58,7 +58,7 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R5** | the front end interprets programs | every run-pass `.out` through the Kode evaluator |
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
-Measured today: **R1** — 213 token dumps byte-identical, including the twelve work
+Measured today: **R1** — 216 token dumps byte-identical, including the twelve work
 packet probes. R2 is open: `gates` reports 9 met, 4 blocked.
 
 ## 3. Work packets
@@ -120,7 +120,7 @@ output; `--format=json` stability (AGENTS.md 9) applies from day one.
 `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode` (~1,250 lines,
 each file under 500) plus `selfhost/spec/lexer_cases.kode`.
 
-`stage1` builds the port with Stage 0 and reports **213 of 213 token dumps
+`stage1` builds the port with Stage 0 and reports **216 of 216 token dumps
 byte-identical** (3.0 s / 6,736 KB for Stage 0 including trees, 2.3 s / 3,792 KB
 for Stage 1 tokens).
 
@@ -133,8 +133,19 @@ Opens when WP-03/04/05, WP-06 and WP-11 are `met` (ADR 0042).
 
 Files: `selfhost/ast.kode`, `selfhost/parser.kode` (~2,500 lines estimated).
 Acceptance: identical `kode ast` dumps on the corpus, including E01xx syntax
-errors (message, span, hint). The AST is one arena with `int?` links (ADR 0042), so
+errors (message, span, hint). The AST is one arena with `int` ids (ADR 0042), so
 freeing the tree frees every node, and the compiler's own leak check runs from here on.
+
+**Slice 1 is in.** `selfhost/ast.kode` is the arena: `Node { kind, attrs, kids }`
+with children as ids, no parent links, and `ast_lines` printing the oracle's format.
+`selfhost/parser.kode` parses assignments of a literal or a name and call
+statements whose arguments are literals or names, with `Int`/`Float`/`Str`/`Bool`/
+`Ident`/`Call`/`Arg`/`Assign`/`TargetVar`/`ExprStmt` nodes. `kode-stage1 ast` prints
+it, and `./scripts/selfhost.sh parse` diffs it with `kode ast` over
+`selfhost/spec/parse` (3/3 trees byte-identical, `expr_count` included).
+Not yet: every other statement and expression, `E01xx` parity, and the `int?`
+parent edges ADR 0042 allows. Those are the rest of S2's slices, and each adds
+cases to `selfhost/spec/parse` rather than rewriting this one.
 
 Risk: this is where a missing language feature becomes duplication. Stop and
 report rather than invent a workaround.

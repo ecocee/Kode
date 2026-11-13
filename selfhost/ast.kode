@@ -1,0 +1,105 @@
+// The syntax tree of the self-hosted compiler, as an arena (ADR 0042).
+//
+// One `Ast` owns every node; a node names its children by `int` id. There is no
+// parent link and no reference between nodes, so no cycle is expressible and one
+// release frees the whole tree. The dump format is the one
+// `crates/kode-syntax/src/dump/ast.rs` defines and the harness compares: kind,
+// then `attr=value` pairs in a fixed order, then children indented two spaces.
+
+/// One node: the dump kind, attributes already rendered in dump order, children.
+pub class Node {
+    kind: string
+    attrs: [string] = []
+    kids: [int] = []
+}
+
+pub class Ast {
+    nodes: [Node] = []
+    /// `Program expr_count=`: how many expression nodes the parser made.
+    expr_count: int = 0
+
+    /// A new node, returned as its id.
+    fn add(kind: string) -> int {
+        nodes.add(Node(kind: kind))
+        return nodes.len() - 1
+    }
+
+    /// A new expression node, counted for `expr_count`.
+    fn counted(kind: string) -> int {
+        expr_count += 1
+        return add(kind)
+    }
+
+    fn text(id: int, name: string, value: string) {
+        nodes[id].attrs.add("${name}=\"${escape(value)}\"")
+    }
+
+    fn num(id: int, name: string, value: int) {
+        nodes[id].attrs.add("${name}=${value}")
+    }
+
+    fn flag(id: int, name: string, value: bool) {
+        shown = "false"
+        if value {
+            shown = "true"
+        }
+        nodes[id].attrs.add("${name}=${shown}")
+    }
+
+    fn span(id: int, name: string, start: int, end: int) {
+        nodes[id].attrs.add("${name}=${start}..${end}")
+    }
+
+    fn kid(id: int, child: int) {
+        nodes[id].kids.add(child)
+    }
+}
+
+/// The whole tree, one line per node, in source order.
+pub fn ast_lines(ast: Ast) -> [string] {
+    lines: [string] = []
+    lines.add("Program expr_count=${ast.expr_count}")
+    if ast.nodes.len() > 0 {
+        for kid in ast.nodes[0].kids {
+            walk(ast, kid, 1, lines)
+        }
+    }
+    return lines
+}
+
+/// One node and everything under it. The dumps nest as deep as the source does.
+fn walk(ast: Ast, id: int, depth: int, out: [string]) {
+    node = ast.nodes[id]
+    line = "  ".repeat(depth) + node.kind
+    for attr in node.attrs {
+        line += " " + attr
+    }
+    out.add(line)
+    for kid in node.kids {
+        walk(ast, kid, depth + 1, out)
+    }
+}
+
+/// Escape what would break the one-line rule, exactly as the Rust dump does.
+fn escape(s: string) -> string {
+    out = ""
+    at = 0
+    while at < s.size() {
+        b = s.byte_at(at)
+        if b == 9 {
+            out += "\\t"
+        } else if b == 10 {
+            out += "\\n"
+        } else if b == 13 {
+            out += "\\r"
+        } else if b == 34 {
+            out += "\\\""
+        } else if b == 92 {
+            out += "\\\\"
+        } else {
+            out += s.slice(at, at + 1)
+        }
+        at += 1
+    }
+    return out
+}

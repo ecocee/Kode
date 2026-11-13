@@ -6,6 +6,7 @@
 #   ./scripts/selfhost.sh stage1     compile the port and compare it with Stage 0
 #   ./scripts/selfhost.sh stage2     Stage 1 compiles itself; compare with Stage 1
 #   ./scripts/selfhost.sh compare    diff the dumps that already exist
+#   ./scripts/selfhost.sh parse      the S2 subset: tree dumps, case by case
 #   ./scripts/selfhost.sh gates      every work packet: target declared vs today
 #   ./scripts/selfhost.sh readiness  the readiness level reached, and what is next
 #   ./scripts/selfhost.sh all        Stage 0, Stage 1, then the work packets
@@ -76,6 +77,40 @@ check_gates() {
     echo "  work packets: $met met, $blocked blocked ($out)"
 }
 
+# Compare `kode ast` with the port's parser over `selfhost/spec/parse`. Only that
+# directory: S2 slice 1 parses a subset, so running the whole corpus would compare
+# trees the port does not build yet. A case is the acceptance test for the slice it
+# was added with; this refuses to report success when there are no cases at all.
+check_parse() {
+    local dir="$ROOT/selfhost/spec/parse" out="$OUT/parse" total=0 bad=0 file
+    if [[ ! -d "$dir" ]]; then
+        echo "  no parse cases in $dir" >&2
+        return 2
+    fi
+    if [[ ! -x "$STAGE1" ]]; then
+        echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
+        return 2
+    fi
+    rm -rf "$out"
+    mkdir -p "$out"
+    while IFS= read -r file; do
+        total=$((total + 1))
+        "$STAGE0" ast "$file" >"$out/expected.txt" 2>"$out/expected.err"
+        "$STAGE1" ast "$file" >"$out/actual.txt" 2>"$out/actual.err"
+        if ! diff -u "$out/expected.txt" "$out/actual.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): tree differs"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        fi
+    done < <(find "$dir" -name '*.kode' -type f | LC_ALL=C sort)
+    if [[ "$total" -eq 0 ]]; then
+        echo "  no parse cases in $dir" >&2
+        return 2
+    fi
+    echo "  parse cases: $((total - bad))/$total trees byte-identical"
+    [[ "$bad" -eq 0 ]]
+}
+
 # The level reached (PLAN-self-hosting.md §2), from the artefacts on disk and the
 # packet table. This reports; it never pretends a stage exists.
 readiness() {
@@ -96,6 +131,8 @@ readiness() {
     echo "  R2 language: $blocked work packet(s) blocked"
     if [[ -d "$OUT/dumps/stage2" ]]; then
         echo "  R3 parser: present"
+    elif [[ -d "$ROOT/selfhost/spec/parse" ]]; then
+        echo "  R3 parser: slice 1 (./scripts/selfhost.sh parse)"
     else
         echo "  R3 parser: not started"
     fi
@@ -289,9 +326,14 @@ readiness)
     [[ -x "$STAGE0" ]] || ( cd "$ROOT" && cargo build --workspace )
     readiness
     ;;
+parse)
+    echo "S2: the port's parser against the oracle (slice 1)"
+    check_parse || exit $?
+    ;;
 all)
     bash "${BASH_SOURCE[0]}" stage0
     bash "${BASH_SOURCE[0]}" stage1
+    bash "${BASH_SOURCE[0]}" parse
     bash "${BASH_SOURCE[0]}" gates
     ;;
 __dump)

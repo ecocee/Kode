@@ -20,6 +20,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The parser, slice 1 (S2).** `selfhost/ast.kode` is the syntax tree as one arena
+  of nodes with `int` child ids (ADR 0042), and `selfhost/parser.kode` parses
+  assignments of a literal or a name and call statements whose arguments are
+  literals or names. `kode-stage1 ast` prints the oracle's format;
+  `./scripts/selfhost.sh parse` diffs it with `kode ast` over
+  `selfhost/spec/parse` and reports 3/3 trees byte-identical, `expr_count`
+  included. Every other statement and expression is an `E0102` error until its
+  slice lands.
+
 - **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
   `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
   outside `0..=255` instead of truncating them; the object is a packed list, so a
