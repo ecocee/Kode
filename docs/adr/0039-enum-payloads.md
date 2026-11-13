@@ -6,9 +6,12 @@ field names, and a `match` compares the tag; the object layout is the class
 layout with the variant tag in the class-id bits, and `kode_enum_tag` is the one
 new runtime symbol. The representation rule of §2 is exactly as written: tag-only
 enums stay `int`, one payload variant makes every variant a heap object. `E0253`
-is gone; `E0417` and `E0420` landed with their rows. Slices 2 (pattern bindings)
-and 3 (`is` and narrowing) remain, plus `E0418` if a variant constructor's field
-names need their own code (it reuses E0208/E0216 for now).
+is gone; `E0417` and `E0420` landed with their rows. Slice 2 (pattern bindings,
+`Shape.Circle(r)`) is in: bindings are positional, a test holds a recursive
+`Value` tree with zero leaks, and the arm's names are ordinary locals. Slice 3
+(`is` and narrowing) remains, plus `E0418` if a variant constructor's field names
+need their own code (it reuses E0208/E0216 for now, and a pattern with the wrong
+number of names is E0207).
 Date: 2026-11-11.
 Plan item: `docs/PLAN-v1.md` 9.7, `docs/STATUS.md` 1.1. Blocks S2 of
 `docs/PLAN-self-hosting.md`.

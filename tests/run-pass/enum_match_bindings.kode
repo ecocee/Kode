@@ -1,0 +1,46 @@
+// A tiny expression tree: payload enums with pattern bindings (ADR 0039 §4.3).
+enum Value {
+    Text(body: string)
+    Num(n: int)
+    Pair(left: Value, right: Value)
+    Nil
+}
+
+// Bindings are positional, in the order the variant declares its fields.
+fn show(v: Value) -> string {
+    match v {
+        Value.Text(body) => return "text:" + body
+        Value.Num(n) => return "num:${n}"
+        Value.Pair(left, right) => return "pair(" + show(left) + "," + show(right) + ")"
+        Value.Nil => return "nil"
+    }
+}
+
+print(show(Value.Text(body: "hi")))
+print(show(Value.Num(n: 7)))
+print(show(Value.Pair(left: Value.Num(n: 1), right: Value.Nil)))
+
+// The bound value outlives the match: it is a normal local inside the arm.
+fn first_text(v: Value) -> string {
+    match v {
+        Value.Text(body) => return body
+        _ => return "?"
+    }
+}
+print(first_text(Value.Text(body: "kept")))
+print(first_text(Value.Nil))
+
+// Payload enums in a list, matched with bindings on the way out.
+vals = [Value.Text(body: "a"), Value.Num(n: 2), Value.Nil]
+for v in vals {
+    print(show(v))
+}
+
+// `_` still covers the variants it replaces.
+fn width(v: Value) -> int {
+    match v {
+        Value.Num(n) => return n
+        _ => return 0
+    }
+}
+print(width(Value.Num(n: 9)), width(Value.Nil))

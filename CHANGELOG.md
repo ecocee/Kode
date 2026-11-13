@@ -7,6 +7,14 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Pattern bindings on payload enums** (ADR 0039 §4.3). `Shape.Circle(r)` binds
+  the variant's fields in declaration order, positionally, as ordinary locals
+  inside the arm: `match v { Value.Pair(l, r) => ... }` handles a recursive tree
+  with no leaks. The arm still compares the tag, so a binding pattern is one tag
+  compare plus one field load per name; a wrong number of names is `E0207`, a
+  non-name in a binding position `E0201`, a duplicate name `E0306`. `is` and
+  narrowing are the last slice of ADR 0039.
+
 - **Payload enums are values** (ADR 0039, slice 1). `enum Shape { Circle(radius: float) }`
   builds with `Shape.Circle(radius: 1.5)`, prints as it is written
   (`Shape.Circle(radius: 1.5)`, `Shape.Empty`), and `match` compares the variant

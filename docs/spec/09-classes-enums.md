@@ -62,9 +62,11 @@ match c {
 - `print(s)` writes `Shape.Circle(radius: 1.5)`, field names included, for
   `int`, `float`, `bool` and `string` fields; a payload enum with any other field
   type is not printable yet (E0203).
-- `match` on a payload enum compares the variant tag, not the pointer. Binding
-  the fields (`Shape.Circle(r)`) and `is` narrowing are the next slices, so a
-  pattern names a whole variant today.
+- `match` on a payload enum compares the variant tag, not the pointer, and a
+  pattern binds the fields in declaration order: `Shape.Rect(w, h)`. The names
+  are ordinary locals inside the arm. Binding the wrong number of names is E0207,
+  a non-name in a binding position is E0201, and a name bound twice is E0306.
+  `is` narrowing is the next slice.
 - `==` on a payload enum is E0420: it would compare two heap addresses. Use the
   variant, or compare the fields.
 - `print(c)` and `"${c}"` write the value the way it is written in source,

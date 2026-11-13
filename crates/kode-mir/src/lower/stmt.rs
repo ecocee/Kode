@@ -535,6 +535,37 @@ impl<'a> Lowerer<'a> {
         self.switch(exit);
     }
 
+    /// `Shape.Circle(r)` in a pattern: the variant index and the binding names,
+    /// in field order.
+    fn binding_pattern(&self, p: &Expr, ei: usize) -> Option<(usize, Vec<String>)> {
+        let ExprKind::MethodCall {
+            obj, name, args, ..
+        } = &p.kind
+        else {
+            return None;
+        };
+        let ExprKind::Ident(vn) = &obj.kind else {
+            return None;
+        };
+        if self.checked.enum_index.get(vn) != Some(&ei) {
+            return None;
+        }
+        let info = &self.checked.enums[ei];
+        let vi = info.variant_index(name)?;
+        let fields = &info.fields[vi];
+        if fields.is_empty() || fields.len() != args.len() {
+            return None;
+        }
+        let names: Vec<String> = args
+            .iter()
+            .map(|a| match &a.value.kind {
+                ExprKind::Ident(n) => n.clone(),
+                _ => String::new(),
+            })
+            .collect();
+        Some((vi, names))
+    }
+
     /// `Shape.Circle` in a pattern position: the tag, not a value.
     fn pattern_tag(&self, e: &Expr, ei: usize) -> Option<Operand> {
         let ExprKind::Member { obj, name, .. } = &e.kind else {
@@ -562,6 +593,7 @@ impl<'a> Lowerer<'a> {
             }
             _ => None,
         };
+        let mut obj_holder: Option<LocalId> = None;
         // A string scrutinee is kept alive in a hidden variable.
         let sop = if *st == Type::Str {
             let holder = self.hidden_ref();
@@ -573,13 +605,21 @@ impl<'a> Lowerer<'a> {
             });
             Operand::Local(holder)
         } else if payload_ei.is_some() {
+            // The object stays alive for field bindings; `sop` is only the tag.
+            let holder = self.hidden_ref();
+            let op = self.own(sv);
+            self.emit(Inst::Release(Operand::Local(holder)));
+            self.emit(Inst::Assign {
+                dst: holder,
+                rv: Rvalue::Use(op),
+            });
+            obj_holder = Some(holder);
             let tag = self.new_temp(Ty::Int);
             self.emit(Inst::Call {
                 dst: Some(tag),
                 callee: Callee::Rt(RtFn::EnumTag),
-                args: vec![sv.op.clone()],
+                args: vec![Operand::Local(holder)],
             });
-            self.release_if_owned(sv);
             Operand::Local(tag)
         } else {
             sv.op
@@ -596,10 +636,15 @@ impl<'a> Lowerer<'a> {
                 }
                 Pattern::Value(p) => {
                     // A variant pattern names a tag; constructing the variant
-                    // here would compare a pointer with an int.
-                    let pv = match payload_ei.and_then(|ei| self.pattern_tag(p, ei)) {
-                        Some(tag) => V::val(tag),
-                        None => self.expr(p),
+                    // here would compare a pointer with an int. `Shape.Circle(r)`
+                    // additionally binds the fields (ADR 0039 §4.3).
+                    let binding = payload_ei.and_then(|ei| self.binding_pattern(p, ei));
+                    let pv = match &binding {
+                        Some((vi, _)) => V::val(Operand::Int(*vi as i64)),
+                        None => match payload_ei.and_then(|ei| self.pattern_tag(p, ei)) {
+                            Some(tag) => V::val(tag),
+                            None => self.expr(p),
+                        },
                     };
                     let cond = self.new_temp(Ty::Bool);
                     if *st == Type::Str {
@@ -623,6 +668,23 @@ impl<'a> Lowerer<'a> {
                         else_bb: next,
                     });
                     self.switch(arm_bb);
+                    if let (Some((vi, names)), Some(ei), Some(holder)) =
+                        (&binding, payload_ei, obj_holder)
+                    {
+                        let fields = self.checked.enums[ei].fields[*vi].clone();
+                        for (i, ((_, fty), name)) in fields.iter().zip(names.iter()).enumerate() {
+                            let load_ty = self.mty(fty);
+                            let f = self.new_temp(load_ty);
+                            self.emit(Inst::Load {
+                                dst: f,
+                                base: Operand::Local(holder),
+                                offset: 24 + 8 * i as i32,
+                                ty: load_ty,
+                            });
+                            let id = self.declare_var(name, load_ty);
+                            self.store_local(id, V::val(Operand::Local(f)), load_ty);
+                        }
+                    }
                     self.block(&arm.body);
                     self.term(Terminator::Goto(join));
                     self.switch(next);

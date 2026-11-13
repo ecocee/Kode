@@ -497,6 +497,78 @@ impl Checker {
         self.pop_scope();
     }
 
+    /// `Shape.Circle(r)`: a pattern that binds the variant's fields, in
+    /// declaration order (ADR 0039 §4.3). Returns true when the pattern has
+    /// that shape, with a scope pushed and the names declared in it.
+    fn pattern_bindings(&mut self, st: &Option<Type>, p: &Expr) -> Option<String> {
+        let Some(Type::Enum(en)) = st else {
+            return None;
+        };
+        let ExprKind::MethodCall {
+            obj, name, args, ..
+        } = &p.kind
+        else {
+            return None;
+        };
+        let ExprKind::Ident(vn) = &obj.kind else {
+            return None;
+        };
+        if vn != en {
+            return None;
+        }
+        let &ei = self.enum_index.get(en)?;
+        let info = self.enums[ei].clone();
+        let vi = info.variant_index(name)?;
+        let fields = info.fields[vi].clone();
+        if fields.is_empty() {
+            return None;
+        }
+        self.scopes.push();
+        if args.len() != fields.len() {
+            let list = fields
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.errors.push(
+                Diagnostic::error(
+                    "E0207",
+                    format!(
+                        "`{en}.{name}` has {} field{}, so the pattern binds {}",
+                        fields.len(),
+                        if fields.len() == 1 { "" } else { "s" },
+                        fields.len()
+                    ),
+                    p.span,
+                )
+                .with_help(format!("write `{en}.{name}({list})`")),
+            );
+            return Some(name.clone());
+        }
+        let mut seen: Vec<String> = Vec::new();
+        for (a, (_, fty)) in args.iter().zip(fields.iter()) {
+            let ExprKind::Ident(b) = &a.value.kind else {
+                self.errors.push(
+                    Diagnostic::error("E0201", "a pattern binds a name", a.value.span).with_help(
+                        "write the field name on its own, for example `Shape.Circle(r)`",
+                    ),
+                );
+                continue;
+            };
+            if seen.contains(b) {
+                self.errors.push(Diagnostic::error(
+                    "E0306",
+                    format!("the pattern binds `{b}` twice"),
+                    a.value.span,
+                ));
+                continue;
+            }
+            seen.push(b.clone());
+            self.scopes.declare(b, fty.clone(), a.value.span, false);
+        }
+        Some(name.clone())
+    }
+
     /// The variant a pattern names, when the pattern is `Enum.Variant` and the
     /// scrutinee is that enum.
     fn pattern_variant(&self, st: &Option<Type>, p: &Expr) -> Option<String> {
@@ -537,6 +609,13 @@ impl Checker {
             match &arm.pattern {
                 Pattern::Wildcard => has_wild = true,
                 Pattern::Value(p) => {
+                    // `Shape.Circle(r)`: the fields are bound for the arm.
+                    if let Some(name) = self.pattern_bindings(&st, p) {
+                        variants.push(name);
+                        self.block(&arm.body);
+                        self.pop_scope();
+                        continue;
+                    }
                     // `Shape.Circle` in a pattern names a tag; the same
                     // expression in value position is a constructor, so it is
                     // resolved here rather than through `self.expr` (ADR 0039).
