@@ -102,7 +102,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 | 1.3 `weak` references / cycle safety | **designed, not implemented** | ADR 0038 (`docs/adr/0038-weak-references.md`) with measured leak evidence in `benchmarks/leaks/report.md`; no `weak` token in the lexer yet |
 | 1.4 Fixed-width ints, byte buffers, binary encode/decode | **missing** | probed: `x: u8 = 1` → `E0303 unknown type u8`; only `int` (64-bit) |
 | 1.5 Checked arithmetic plus `wrapping_*` / `saturating_*` | **missing** | probed: `9223372036854775807 + 1` prints `-9223372036854775808` (silent wrap); ADR 0009 |
-| 1.6 Optional scalars as fields, parameters, returns | **partial** | `int?`/`float?`/`bool?` work as **locals** (ADR 0024, `tests/run-pass/optional_numbers.kode`); E0219 elsewhere |
+| 1.6 Optional scalars as fields, parameters, returns | **partial** | `int?`/`float?`/`bool?` work as **locals** (ADR 0024) and as **class fields** (ADR 0041: two slots, the value and its flag, `tests/run-pass/optional_fields.kode`); a parameter or return type and a list/map of them are still E0219 (WP-06b) |
 | 1.7 String formatting, `shared` classes, cancellation/timeouts, print everything | **partial** | interpolation, `string()`, `to_int`/`to_float`, collection printing (ADR 0031); no `printf`-style formatting, no `shared`, no cancellation; classes/enums inside a collection are still E0203 |
 
 ### Phase 2 — standard library

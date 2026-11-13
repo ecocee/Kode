@@ -1,0 +1,10 @@
+// work packet: WP06b optional scalar parameters
+// target: ok
+// Slice 2 of ADR 0041: a parameter would be two ABI operands, so it needs the
+// calling convention to say so. Until then this is E0219.
+fn add_or_zero(base: int, extra: int?) -> int {
+    return base + (extra ?? 0)
+}
+
+print(add_or_zero(1, 2))
+print(add_or_zero(1, none))

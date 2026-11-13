@@ -308,12 +308,6 @@ impl Checker {
                     ));
                 }
                 let ty = self.resolve_type(&f.ty).unwrap_or(Type::Int);
-                if crate::types::is_opt_scalar(&ty).is_some() {
-                    self.errors.push(
-                        Diagnostic::error("E0219", format!("a field cannot be `{}` yet", ty.name()), f.name_span)
-                            .with_help("an optional number works as a local variable; keep a value field and a `bool` field instead"),
-                    );
-                }
                 fields.push(FieldInfo {
                     name: f.name.clone(),
                     ty,

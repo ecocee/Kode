@@ -106,6 +106,24 @@ impl<'a> Lowerer<'a> {
             self.this_local
                 .expect("a field is only visible inside a method"),
         );
+        if let Some(scalar) = kode_sema::types::is_opt_scalar(&ty) {
+            let vty = self.mty(&scalar);
+            let dst = self.new_temp(vty);
+            let flag = self.new_temp(Ty::Bool);
+            self.emit(Inst::Load {
+                dst,
+                base: this.clone(),
+                offset,
+                ty: vty,
+            });
+            self.emit(Inst::Load {
+                dst: flag,
+                base: this,
+                offset: offset + 8,
+                ty: Ty::Bool,
+            });
+            return V::opt(Operand::Local(dst), Operand::Local(flag));
+        }
         let dst = self.new_temp(self.mty(&ty));
         self.emit(Inst::Load {
             dst,
@@ -121,7 +139,8 @@ impl<'a> Lowerer<'a> {
         let ci = self.cur_class?;
         let fields = &self.checked.classes[ci].fields;
         let i = fields.iter().position(|f| f.name == name)?;
-        Some((24 + 8 * i as i32, fields[i].ty.clone()))
+        let (offsets, _) = self.field_offsets(ci);
+        Some((offsets[i], fields[i].ty.clone()))
     }
 
     /// `|x: int| x * 2`: a heap object `[rc][kind][refmask][code][captures...]`.

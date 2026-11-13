@@ -26,7 +26,12 @@ const DETAILS: &[(&str, &str, &str, &str)] = &[
     ("E0213", "All items of a list must have the same type.", "xs = [1, \"a\"]", "xs = [1, 2]"),
     ("E0216", "A class value needs every field that has no default.", "class A {\n    x: int\n}\na = A()", "a = A(x: 1)"),
     ("E0217", "A class has no field or method with this name.", "a.y", "a.x"),
-    ("E0219", "`none` and `T?` are only for strings, lists, maps and classes so far.", "x: int? = none", "x: string? = none"),
+    (
+        "E0219",
+        "An optional number works as a local variable and as a class field, but not yet as a parameter, a return type, or inside a list or map.",
+        "fn f(x: int?) -> int {\n    return 0\n}",
+        "fn f(x: int, present: bool) -> int {\n    return 0\n}",
+    ),
     ("E0220", "A value that may be none cannot be used directly.", "fn f(a: A?) -> int {\n    return a.x\n}", "return a!.x\n// or: a?.name ?? \"?\""),
     ("E0222", "An empty list or map has no type until you declare one.", "xs = []", "xs: [int] = []"),
     ("E0224", "A `match` must handle every case. Add the missing cases or a `_ =>` arm.", "match x {\n    1 => print(1)\n}", "match x {\n    1 => print(1)\n    _ => print(0)\n}"),

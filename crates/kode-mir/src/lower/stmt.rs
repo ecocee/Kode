@@ -360,12 +360,30 @@ impl<'a> Lowerer<'a> {
                 let Type::Class(cn) = ot else {
                     unreachable!("checked: a class value")
                 };
-                let class = &self.checked.classes[self.checked.class_index[cn]];
-                let fi = class.fields.iter().position(|f| f.name == *name).unwrap();
-                let fty = self.mty(&class.fields[fi].ty);
+                let ci = self.checked.class_index[cn];
+                let fields = self.checked.classes[ci].fields.clone();
+                let fi = fields.iter().position(|f| f.name == *name).unwrap();
+                let fty = self.mty(&fields[fi].ty);
+                let offset = self.field_offsets(ci).0[fi];
                 let ov = self.expr(obj);
                 let v = self.expr(value);
-                self.store_field(ov.op.clone(), 24 + 8 * fi as i32, fty, v);
+                if kode_sema::types::is_opt_scalar(&fields[fi].ty).is_some() {
+                    // `p.n = none`: both slots, so the flag always moves with
+                    // the value (ADR 0041 §2).
+                    self.emit(Inst::Store {
+                        base: ov.op.clone(),
+                        offset,
+                        value: v.op.clone(),
+                    });
+                    let flag = Self::opt_field_flag(value, &v);
+                    self.emit(Inst::Store {
+                        base: ov.op.clone(),
+                        offset: offset + 8,
+                        value: flag,
+                    });
+                } else {
+                    self.store_field(ov.op.clone(), offset, fty, v);
+                }
                 self.release_if_owned(ov);
             }
         }

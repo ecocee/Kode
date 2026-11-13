@@ -489,10 +489,36 @@ impl<'a> Lowerer<'a> {
             unreachable!("checked: a class value")
         };
         let class = &self.checked.classes[self.checked.class_index[cn]];
+        let ci = self.checked.class_index[cn];
         let fi = class.fields.iter().position(|f| f.name == name).unwrap();
         let fty = &class.fields[fi].ty;
-        let offset = 24 + 8 * fi as i32;
+        let ci_offsets = self.field_offsets(ci);
+        let offset = ci_offsets.0[fi];
         let ov = self.expr(obj);
+
+        // `p.n` where `n` is `int?`: the value and its flag (ADR 0041 §2).
+        if let Some(scalar) = kode_sema::types::is_opt_scalar(fty) {
+            if safe {
+                return self.safe_opt_field(ov, offset, &scalar, fty);
+            }
+            let vty = self.mty(&scalar);
+            let value = self.new_temp(vty);
+            let flag = self.new_temp(Ty::Bool);
+            self.emit(Inst::Load {
+                dst: value,
+                base: ov.op.clone(),
+                offset,
+                ty: vty,
+            });
+            self.emit(Inst::Load {
+                dst: flag,
+                base: ov.op.clone(),
+                offset: offset + 8,
+                ty: Ty::Bool,
+            });
+            self.release_if_owned(ov);
+            return V::opt(Operand::Local(value), Operand::Local(flag));
+        }
 
         if !safe {
             let dst = self.new_temp(self.mty(fty));
@@ -535,6 +561,52 @@ impl<'a> Lowerer<'a> {
         self.switch(join);
         self.release_if_owned(ov);
         self.owned(Operand::Local(t))
+    }
+
+    /// `p?.n` on an `int?` field: none when `p` is none, otherwise the field's
+    /// value and flag (ADR 0041 §2).
+    fn safe_opt_field(&mut self, ov: V, offset: i32, scalar: &Type, fty: &Type) -> V {
+        let vty = self.mty(scalar);
+        let value = self.new_temp(vty);
+        self.emit(Inst::Assign {
+            dst: value,
+            rv: Rvalue::Use(Operand::Int(0)),
+        });
+        let flag = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: flag,
+            rv: Rvalue::Use(Operand::Int(0)),
+        });
+        let isnull = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: isnull,
+            rv: Rvalue::Binary(BinOp::Eq, ov.op.clone(), Operand::NullRef),
+        });
+        let load_bb = self.new_block();
+        let join = self.new_block();
+        self.term(Terminator::Branch {
+            cond: Operand::Local(isnull),
+            then_bb: join,
+            else_bb: load_bb,
+        });
+        self.switch(load_bb);
+        self.emit(Inst::Load {
+            dst: value,
+            base: ov.op.clone(),
+            offset,
+            ty: vty,
+        });
+        self.emit(Inst::Load {
+            dst: flag,
+            base: ov.op.clone(),
+            offset: offset + 8,
+            ty: Ty::Bool,
+        });
+        self.term(Terminator::Goto(join));
+        self.switch(join);
+        self.release_if_owned(ov);
+        let _ = fty;
+        V::opt(Operand::Local(value), Operand::Local(flag))
     }
 
     pub(crate) fn method_call(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> V {
@@ -732,20 +804,53 @@ impl<'a> Lowerer<'a> {
     }
 
     /// `ClassName(field: value, ...)`
+    /// The `present` flag a value gets in an optional-scalar field: the
+    /// argument's own flag, `false` for `none`, and `true` for a plain value
+    /// the checker widened (ADR 0041 §2).
+    pub(crate) fn opt_field_flag(e: &Expr, v: &V) -> Operand {
+        if let Some(p) = &v.present {
+            return p.clone();
+        }
+        if matches!(e.kind, ExprKind::None) {
+            return Operand::Int(0);
+        }
+        Operand::Int(1)
+    }
+
+    /// Byte offset of each field and the class's slot count. A field is one
+    /// 8-byte slot, except an optional scalar: the value and its `present`
+    /// flag are two slots (ADR 0041 §2).
+    pub(crate) fn field_offsets(&self, ci: usize) -> (Vec<i32>, i32) {
+        let mut at = 24i32;
+        let mut offsets = Vec::new();
+        for f in &self.checked.classes[ci].fields {
+            offsets.push(at);
+            at += if kode_sema::types::is_opt_scalar(&f.ty).is_some() {
+                16
+            } else {
+                8
+            };
+        }
+        (offsets, (at - 24) / 8)
+    }
+
     pub(crate) fn construct(&mut self, e: &Expr, ci: usize, args: &[Arg]) -> V {
         let checked = self.checked;
         let fields = &checked.classes[ci].fields;
+        let (offsets, slots_total) = self.field_offsets(ci);
         let mask: i64 = fields
             .iter()
             .enumerate()
-            .filter(|(_, f)| self.mty(&f.ty) == Ty::Ref)
-            .fold(0, |m, (i, _)| m | (1 << i));
+            .filter(|(_, f)| {
+                self.mty(&f.ty) == Ty::Ref && kode_sema::types::is_opt_scalar(&f.ty).is_none()
+            })
+            .fold(0, |m, (i, _)| m | (1 << ((offsets[i] - 24) / 8)));
         let p = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
             dst: Some(p),
             callee: Callee::Rt(RtFn::ObjNewClass),
             args: vec![
-                Operand::Int(fields.len() as i64),
+                Operand::Int(slots_total as i64),
                 Operand::Int(mask),
                 Operand::Int(ci as i64),
             ],
@@ -753,14 +858,28 @@ impl<'a> Lowerer<'a> {
         let obj = self.owned(Operand::Local(p));
         let slots = checked.call_args[&e.id].clone();
         for (i, f) in fields.iter().enumerate() {
-            let v = match slots[i] {
-                Some(ai) => self.expr(&args[ai].value),
-                None => self.expr(
-                    f.default
-                        .as_ref()
-                        .expect("the type checker made sure a default exists"),
-                ),
+            let arg = match slots[i] {
+                Some(ai) => &args[ai].value,
+                None => f
+                    .default
+                    .as_ref()
+                    .expect("the type checker made sure a default exists"),
             };
+            let v = self.expr(arg);
+            if kode_sema::types::is_opt_scalar(&f.ty).is_some() {
+                self.emit(Inst::Store {
+                    base: Operand::Local(p),
+                    offset: offsets[i],
+                    value: v.op.clone(),
+                });
+                let flag = Self::opt_field_flag(arg, &v);
+                self.emit(Inst::Store {
+                    base: Operand::Local(p),
+                    offset: offsets[i] + 8,
+                    value: flag,
+                });
+                continue;
+            }
             let op = if self.mty(&f.ty) == Ty::Ref {
                 self.own(v)
             } else {
@@ -768,15 +887,13 @@ impl<'a> Lowerer<'a> {
             };
             self.emit(Inst::Store {
                 base: Operand::Local(p),
-                offset: 24 + 8 * i as i32,
+                offset: offsets[i],
                 value: op,
             });
         }
         obj
     }
 
-    /// `Shape.Circle(radius: 1.5)`: a class instance with the variant's fields
-    /// and the tag where a class id goes (ADR 0039 §3).
     pub(crate) fn construct_enum(&mut self, e: &Expr, ei: usize, vi: usize, args: &[Arg]) -> V {
         let checked = self.checked;
         let fields = checked.enums[ei].fields[vi].clone();

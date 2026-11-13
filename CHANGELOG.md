@@ -7,6 +7,12 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Optional numbers as class fields** (ADR 0041). `int?`, `float?` and `bool?` are
+  no longer locals only: a field takes two slots, the value and its `present` flag,
+  and construction, assignment, `this`-reads and `?.` move the two together. So a
+  span can hold "no parent" and "line if known" without a second `bool` field. A
+  parameter, a return type, or a list of optional numbers is still E0219 (WP-06b).
+
 - **`is` and narrowing** (ADR 0039 §4.4). `s is Shape.Circle` is one tag compare
   and a bool, so it composes with `and`/`not`; inside `if s is Shape.Circle { ... }`
   the value is narrowed and `s.radius` may be read, while an unnarrowed field read
