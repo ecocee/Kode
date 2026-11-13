@@ -57,7 +57,7 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0216 | missing argument |
 | E0217 | unknown field or method |
 | E0218 | this value has no fields |
-| E0219 | optional type not supported here (an optional number works as a local and a class field) |
+| E0219 | optional type not supported here (an optional number cannot be a list or map item yet) |
 | E0220 | value may be none and cannot be used directly |
 | E0221 | `?.` or `??` used on something that is not an optional |
 | E0222 | an empty list or map needs a declared type |

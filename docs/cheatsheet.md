@@ -32,7 +32,8 @@ if score != none {
 ```
 
 - `?.` reads a field only when the object is not none.
-- `int?`, `float?` and `bool?` work as **local variables** and are stored as a
+- `int?`, `float?` and `bool?` work as **local variables**, **class fields**,
+  **parameters** and **returns** and are stored as a
   value plus a `present` flag, with no boxing. As a parameter, return type, field
   or list item they are still E0219.
 - Narrowing holds inside `if x != none { }`, inside `while x != none { }`, and in

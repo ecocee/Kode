@@ -126,6 +126,9 @@ pub struct Checked {
     pub throws: Vec<bool>,
     /// Calls that go through a function value (`f(1)` where `f` is a variable).
     pub fn_value_calls: std::collections::HashSet<ExprId>,
+    /// The signature behind a call through a function value, so lowering knows
+    /// which arguments travel as a boxed pair (ADR 0041 §5).
+    pub fn_value_sigs: std::collections::HashMap<ExprId, (Vec<(String, Type)>, Type)>,
     /// Closure literals, by expression id.
     pub closures: HashMap<ExprId, ClosureInfo>,
     /// The body of every function in `fns`, in the same order: declared
@@ -159,6 +162,9 @@ pub(crate) struct Checker {
     pub consts: HashMap<String, (Type, ConstVal)>,
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
     pub fn_value_calls: std::collections::HashSet<ExprId>,
+    /// The signature behind a call through a function value, so lowering knows
+    /// which arguments travel as a boxed pair (ADR 0041 §5).
+    pub fn_value_sigs: std::collections::HashMap<ExprId, (Vec<(String, Type)>, Type)>,
     pub closures: HashMap<ExprId, ClosureInfo>,
     /// Inside a closure literal: fields of `this` cannot be reached (E0242).
     pub in_closure: bool,
@@ -452,6 +458,7 @@ impl Checker {
             consts: HashMap::new(),
             call_args: HashMap::new(),
             fn_value_calls: Default::default(),
+            fn_value_sigs: Default::default(),
             closures: HashMap::new(),
             in_closure: false,
             generic_index: HashMap::new(),
@@ -619,6 +626,7 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         consts: c.consts,
         call_args: c.call_args,
         fn_value_calls: c.fn_value_calls,
+        fn_value_sigs: c.fn_value_sigs,
         closures: c.closures,
         bodies: c.bodies,
         generic_calls: c.generic_calls,

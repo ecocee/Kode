@@ -7,6 +7,13 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Optional numbers as parameters and returns** (ADR 0041 §5). `int?`, `float?`
+  and `bool?` cross a call as one boxed pair (`null` for none), so no calling
+  convention, function value, closure or interface dispatch changed: the callee
+  decodes it into the two locals a pair already uses, and calls through a function
+  value box and decode the same way. A list or map of an optional number is still
+  E0219. `tests/compile-fail/e0219_optional_int.kode` is gone with the restriction.
+
 - **Optional numbers as class fields** (ADR 0041). `int?`, `float?` and `bool?` are
   no longer locals only: a field takes two slots, the value and its `present` flag,
   and construction, assignment, `this`-reads and `?.` move the two together. So a

@@ -570,7 +570,7 @@ impl<'a> Lowerer<'a> {
         let value = self.new_temp(vty);
         self.emit(Inst::Assign {
             dst: value,
-            rv: Rvalue::Use(Operand::Int(0)),
+            rv: Rvalue::Use(super::default_operand(vty)),
         });
         let flag = self.new_temp(Ty::Bool);
         self.emit(Inst::Assign {
@@ -676,7 +676,8 @@ impl<'a> Lowerer<'a> {
             let ov = self.expr(obj);
             let vals = self.call_vals(e.id, args, Some(ov), sig.params.len());
             let ret = self.mty(&sig.ret);
-            let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
+            let mut boxes = Vec::new();
+            let ops = self.pass_vals(&sig.params, &vals, &mut boxes);
             let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
             self.emit(Inst::Call {
                 dst,
@@ -684,14 +685,13 @@ impl<'a> Lowerer<'a> {
                 args: ops,
             });
             self.error_check();
+            for b in boxes {
+                self.emit(Inst::Release(b));
+            }
             for v in vals {
                 self.release_if_owned(v);
             }
-            return match dst {
-                Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
-                Some(d) => V::val(Operand::Local(d)),
-                None => V::unit(),
-            };
+            return self.decode_ret(&sig.ret, dst);
         }
         if matches!(ot, Type::Class(n) if n == "Router") {
             return self.router_add(obj, name, args);
@@ -866,11 +866,12 @@ impl<'a> Lowerer<'a> {
                     .expect("the type checker made sure a default exists"),
             };
             let v = self.expr(arg);
-            if kode_sema::types::is_opt_scalar(&f.ty).is_some() {
+            if let Some(scalar) = kode_sema::types::is_opt_scalar(&f.ty) {
+                let st = self.mty(&scalar);
                 self.emit(Inst::Store {
                     base: Operand::Local(p),
                     offset: offsets[i],
-                    value: v.op.clone(),
+                    value: Lowerer::opt_value(&v.op, st),
                 });
                 let flag = Self::opt_field_flag(arg, &v);
                 self.emit(Inst::Store {

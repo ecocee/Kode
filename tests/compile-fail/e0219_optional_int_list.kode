@@ -1,0 +1,2 @@
+// A list of optional numbers is not supported yet: a list item is one slot.
+xs: [int?] = []

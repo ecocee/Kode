@@ -56,7 +56,7 @@ impl<'a> Lowerer<'a> {
 
     /// Store into an optional number: keep the value and the `present` flag in
     /// step. `none` clears the flag; anything else sets it.
-    fn store_opt(&mut self, value_id: LocalId, flag_id: LocalId, scalar: Ty, v: V) {
+    pub(crate) fn store_opt(&mut self, value_id: LocalId, flag_id: LocalId, scalar: Ty, v: V) {
         let flag = match v.present.clone() {
             Some(f) => f,
             None => Operand::Bool(!matches!(v.op, Operand::NullRef)),
@@ -311,13 +311,38 @@ impl<'a> Lowerer<'a> {
                     return;
                 }
                 let vty = self.expr_type(value).clone();
+                // `x = maybe(1)`: the value's own type is the pair, so the new
+                // local is one too (ADR 0041).
+                if let Some(inner) = kode_sema::types::is_opt_scalar(&vty) {
+                    let scalar = self.mty(&inner);
+                    let v = self.expr(value);
+                    let id = self.declare_var_opt(name, scalar);
+                    let flag = self.opt_flags[&id];
+                    self.store_opt(id, flag, scalar, v);
+                    return;
+                }
                 let ty = self.mty(&vty);
                 let v = self.expr(value);
                 if let Some(id) = self.lookup(name) {
                     self.store_local(id, v, ty);
                 } else if let Some((offset, fty)) = self.this_field(name) {
                     let this = Operand::Local(self.this_local.unwrap());
-                    self.store_field(this, offset, self.mty(&fty), v);
+                    if let Some(scalar) = kode_sema::types::is_opt_scalar(&fty) {
+                        let st = self.mty(&scalar);
+                        self.emit(Inst::Store {
+                            base: this.clone(),
+                            offset,
+                            value: Lowerer::opt_value(&v.op, st),
+                        });
+                        let flag = Self::opt_field_flag(value, &v);
+                        self.emit(Inst::Store {
+                            base: this,
+                            offset: offset + 8,
+                            value: flag,
+                        });
+                    } else {
+                        self.store_field(this, offset, self.mty(&fty), v);
+                    }
                 } else {
                     let id = self.declare_var(name, ty);
                     self.store_local(id, v, ty);
@@ -367,13 +392,14 @@ impl<'a> Lowerer<'a> {
                 let offset = self.field_offsets(ci).0[fi];
                 let ov = self.expr(obj);
                 let v = self.expr(value);
-                if kode_sema::types::is_opt_scalar(&fields[fi].ty).is_some() {
+                if let Some(scalar) = kode_sema::types::is_opt_scalar(&fields[fi].ty) {
                     // `p.n = none`: both slots, so the flag always moves with
                     // the value (ADR 0041 §2).
+                    let st = self.mty(&scalar);
                     self.emit(Inst::Store {
                         base: ov.op.clone(),
                         offset,
-                        value: v.op.clone(),
+                        value: Lowerer::opt_value(&v.op, st),
                     });
                     let flag = Self::opt_field_flag(value, &v);
                     self.emit(Inst::Store {

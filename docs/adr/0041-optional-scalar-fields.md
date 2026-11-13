@@ -1,7 +1,7 @@
 # ADR 0041: optional scalars in class fields
 
-Status: **accepted** — slice 1 landed; slice 2 (parameters, returns, collections) is
-WP-06b.
+Status: **accepted** — fields, parameters and returns landed; a list or map of an
+optional number is still E0219.
 
 ## Context
 
@@ -32,10 +32,19 @@ reference.
    local.
 4. **`?.` stays safe.** `p?.n` on an optional scalar field is the null check followed
    by both loads, with a clear flag on the none path.
-5. **Not in this slice:** a parameter, a return type, and a list or map of an optional
-   scalar stay E0219. A parameter would have to be two ABI operands, which changes the
-   calling convention, function values, closures and interface dispatch; that is
-   WP-06b, not a side effect of this ADR.
+5. **A call boundary is one reference.** A parameter or a return of type `int?`
+   would need two ABI operands or a second return slot, which reaches the calling
+   convention, function values, closures, thunks and interface dispatch. Instead the
+   pair is boxed at the boundary: `[value][flag]`, or `null` for none. The callee
+   decodes the box into its value and flag locals at entry and boxes its pair on the
+   way out, so `??`, `!`, `== none` and narrowing inside the function are the code a
+   local already uses. `pass_vals` and `decode_ret` are the only two places that know
+   this: direct calls, method calls, interface dispatch and calls through a function
+   value all go through them. A box is owned by the caller and released after the
+   call; a parameter's box is borrowed, a returned one is owned and released by the
+   caller after decoding.
+6. **Still not supported:** a list or map of an optional number is E0219. A list item
+   is one slot and would need the same box, which changes every list operation.
 
 ## Consequences
 
@@ -48,12 +57,19 @@ reference.
   through `field_offsets` (the checker's `FieldInfo` still lists fields, not slots).
 - Locals keep the one-local-pair representation; the two are identical in meaning, so
   a value moves between them without conversion.
+- A call that takes or returns an optional number allocates one box per such
+  parameter or result. That is the price of not changing the calling convention; a
+  function with none of them is unaffected, which is every function today.
 
 ## Alternatives
 
-- **Box the pair.** One slot, params and collections work immediately, but every
+- **Box the pair everywhere.** One representation, no conversion at a call, but every
   optional scalar local would allocate, and `int?` is used in hot paths (spans,
-  indices). Rejected for now, not forever.
+  indices). Rejected: boxing stays at the boundary.
+- **Two ABI operands, or a second return slot.** No allocation, but every call site,
+  function value, closure, thunk and interface dispatch would have to describe the
+  wider signature, and the backend would return a pair. Rejected for now: it is a
+  calling-convention change for a shape the AST does not call hot.
 - **Pack value and flag into one word.** Works for `bool?` and `float?` bit tricks,
   loses range or precision for `int?`, and needs per-type unwrap code. Rejected.
 - **Two parallel fields in the AST.** What the port would do today: `line` and

@@ -1888,6 +1888,8 @@ impl Checker {
             let defaults = vec![false; names.len()];
             self.check_call_args(id, &names, args, &tys, &defaults, span, callee);
             self.fn_value_calls.insert(id);
+            let sig_ret: Type = Type::clone(&*ret);
+            self.fn_value_sigs.insert(id, (names, sig_ret));
             return Some(*ret);
         }
 

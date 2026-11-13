@@ -28,9 +28,9 @@ const DETAILS: &[(&str, &str, &str, &str)] = &[
     ("E0217", "A class has no field or method with this name.", "a.y", "a.x"),
     (
         "E0219",
-        "An optional number works as a local variable and as a class field, but not yet as a parameter, a return type, or inside a list or map.",
-        "fn f(x: int?) -> int {\n    return 0\n}",
-        "fn f(x: int, present: bool) -> int {\n    return 0\n}",
+        "An optional number works as a local, a class field, a parameter and a return type, but not yet as a list or map item: those hold one slot per element.",
+        "xs: [int?] = []",
+        "xs: [int] = []\n// or keep the values and a `bool` beside them",
     ),
     ("E0220", "A value that may be none cannot be used directly.", "fn f(a: A?) -> int {\n    return a.x\n}", "return a!.x\n// or: a?.name ?? \"?\""),
     ("E0222", "An empty list or map has no type until you declare one.", "xs = []", "xs: [int] = []"),

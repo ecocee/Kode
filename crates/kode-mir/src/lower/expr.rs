@@ -3,7 +3,7 @@ use kode_sema::std_fns::{self, StdFn, StdTy};
 use kode_sema::Type;
 use kode_syntax::ast::{self, Arg, Expr, ExprKind, InterpPart};
 
-use super::{mir_ty, Lowerer, V};
+use super::{default_operand, mir_ty, pair_flag, Lowerer, V};
 use crate::ir::*;
 
 fn mir_binop(op: ast::BinOp) -> BinOp {
@@ -172,6 +172,7 @@ impl<'a> Lowerer<'a> {
                 .map(|(n, t)| (n.clone(), self.mty(t)))
                 .collect(),
             ret: self.mty(&info.ret),
+            ret_opt: kode_sema::types::is_opt_scalar(&info.ret).map(|s| self.mty(&s)),
             captures: info
                 .captures
                 .iter()
@@ -789,8 +790,11 @@ impl<'a> Lowerer<'a> {
 
     /// Call a user function or method. Heap arguments are borrowed by the callee.
     pub(crate) fn emit_call(&mut self, idx: usize, vals: Vec<V>) -> V {
-        let ret = self.mty(&self.checked.fns[idx].ret);
-        let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
+        let params = self.checked.fns[idx].params.clone();
+        let ret_ty = self.checked.fns[idx].ret.clone();
+        let ret = self.mty(&ret_ty);
+        let mut boxes = Vec::new();
+        let ops = self.pass_vals(&params, &vals, &mut boxes);
         let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
         self.emit(Inst::Call {
             dst,
@@ -800,14 +804,149 @@ impl<'a> Lowerer<'a> {
         if self.checked.throws[idx] {
             self.error_check();
         }
+        for b in boxes {
+            self.emit(Inst::Release(b));
+        }
         for v in vals {
             self.release_if_owned(v);
+        }
+        self.decode_ret(&ret_ty, dst)
+    }
+
+    /// The operand list for a call. An optional number travels as one reference
+    /// at the boundary: a boxed pair, or `null` for none (ADR 0041 §5), so no
+    /// calling convention changes. The caller owns every box it made here.
+    pub(crate) fn pass_vals(
+        &mut self,
+        params: &[(String, Type)],
+        vals: &[V],
+        boxes: &mut Vec<Operand>,
+    ) -> Vec<Operand> {
+        vals.iter()
+            .enumerate()
+            .map(|(i, v)| {
+                match params
+                    .get(i)
+                    .map(|(_, t)| kode_sema::types::is_opt_scalar(t))
+                {
+                    Some(Some(_)) => {
+                        let b = self.box_pair(&v.op, pair_flag(v));
+                        boxes.push(b.clone());
+                        b
+                    }
+                    _ => v.op.clone(),
+                }
+            })
+            .collect()
+    }
+
+    /// The value a call produced, turning a boxed optional number back into its
+    /// pair. The returned reference is owned, so it is released here.
+    pub(crate) fn decode_ret(&mut self, ret_ty: &Type, dst: Option<LocalId>) -> V {
+        let ret = self.mty(ret_ty);
+        if let (Some(d), Some(scalar)) = (dst, kode_sema::types::is_opt_scalar(ret_ty)) {
+            let st = self.mty(&scalar);
+            let v = self.unbox_pair(Operand::Local(d), st);
+            // The box came back owned; the pair it held does not own anything.
+            self.emit(Inst::Release(Operand::Local(d)));
+            return v;
         }
         match dst {
             Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
             Some(d) => V::val(Operand::Local(d)),
             None => V::unit(),
         }
+    }
+
+    /// Put a pair in a heap box for a call boundary: `[value][flag]`.
+    pub(crate) fn box_pair(&mut self, value: &Operand, flag: Operand) -> Operand {
+        let out = self.new_temp(Ty::Ref);
+        self.emit(Inst::Assign {
+            dst: out,
+            rv: Rvalue::Use(Operand::NullRef),
+        });
+        let make = self.new_block();
+        let join = self.new_block();
+        self.term(Terminator::Branch {
+            cond: flag,
+            then_bb: make,
+            else_bb: join,
+        });
+        self.switch(make);
+        let p = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(p),
+            callee: Callee::Rt(RtFn::ObjNewClass),
+            args: vec![Operand::Int(2), Operand::Int(0), Operand::Int(0)],
+        });
+        self.emit(Inst::Store {
+            base: Operand::Local(p),
+            offset: 24,
+            value: value.clone(),
+        });
+        self.emit(Inst::Store {
+            base: Operand::Local(p),
+            offset: 32,
+            value: Operand::Bool(true),
+        });
+        self.emit(Inst::Assign {
+            dst: out,
+            rv: Rvalue::Use(Operand::Local(p)),
+        });
+        self.term(Terminator::Goto(join));
+        self.switch(join);
+        Operand::Local(out)
+    }
+
+    /// The value slot of a pair: `none` stores a zero of the scalar's own type,
+    /// so a `float?` never stores an integer constant.
+    pub(crate) fn opt_value(op: &Operand, scalar: Ty) -> Operand {
+        if matches!(op, Operand::NullRef) {
+            default_operand(scalar)
+        } else {
+            op.clone()
+        }
+    }
+
+    pub(crate) fn unbox_pair(&mut self, r: Operand, scalar: Ty) -> V {
+        let value = self.new_temp(scalar);
+        self.emit(Inst::Assign {
+            dst: value,
+            rv: Rvalue::Use(default_operand(scalar)),
+        });
+        let flag = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: flag,
+            rv: Rvalue::Use(Operand::Int(0)),
+        });
+        let isnull = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: isnull,
+            rv: Rvalue::Binary(BinOp::Eq, r.clone(), Operand::NullRef),
+        });
+        let read = self.new_block();
+        let join = self.new_block();
+        self.term(Terminator::Branch {
+            cond: Operand::Local(isnull),
+            then_bb: join,
+            else_bb: read,
+        });
+        self.switch(read);
+        self.emit(Inst::Load {
+            dst: value,
+            base: r.clone(),
+            offset: 24,
+            ty: scalar,
+        });
+        self.emit(Inst::Load {
+            dst: flag,
+            base: r.clone(),
+            offset: 32,
+            ty: Ty::Bool,
+        });
+        self.term(Terminator::Goto(join));
+        self.switch(join);
+        V::opt(Operand::Local(value), Operand::Local(flag))
     }
 
     /// Evaluate call arguments in parameter order, using the slot map from the checker.
@@ -844,22 +983,24 @@ impl<'a> Lowerer<'a> {
                 .expect("the type checker resolved this call");
             let n = self.checked.call_args[&e.id].len();
             let vals = self.call_vals(e.id, args, None, n);
-            let ret = self.ety(e);
+            let sig = self.checked.fn_value_sigs[&e.id].clone();
+            let ret_ty = sig.1;
+            let ret = self.mty(&ret_ty);
+            let mut boxes = Vec::new();
+            let ops = self.pass_vals(&sig.0, &vals, &mut boxes);
             let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
-            let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
             self.emit(Inst::CallIndirect {
                 dst,
                 callee: Operand::Local(callee_id),
                 args: ops,
             });
+            for b in boxes {
+                self.emit(Inst::Release(b));
+            }
             for v in vals {
                 self.release_if_owned(v);
             }
-            return match dst {
-                Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
-                Some(d) => V::val(Operand::Local(d)),
-                None => V::unit(),
-            };
+            return self.decode_ret(&ret_ty, dst);
         }
         if let Some(b) = builtins::lookup(callee) {
             return self.builtin(b, args, e);

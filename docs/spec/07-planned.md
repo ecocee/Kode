@@ -20,8 +20,8 @@ Still missing, in the order the plan takes them:
   no `x is Circle`, no safe downcast.
 - **Integer map keys.** Maps are string-keyed by decision (ADR 0014).
 - **Optional scalars beyond locals.** `string?`, `[T]?` and class optionals work as
-  parameters and returns; `int?`/`float?`/`bool?` work as locals and class fields (ADR 0024,
-  ADR 0041).
+  a list or map of optional numbers; `int?`/`float?`/`bool?` work as locals, class fields,
+  parameters and returns (ADR 0024, ADR 0041).
 - **Generic classes, generic methods and constraints.** Free functions only.
 - **Checked arithmetic.** `+ - *` wrap on overflow; checked operators are planned.
 - **A package registry.** Dependencies are `path` only; `kode.lock` pins them.

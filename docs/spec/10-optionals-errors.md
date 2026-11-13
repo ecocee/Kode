@@ -19,8 +19,10 @@ first = u!                       # stop with an error if it is none
 - `int?`, `float?` and `bool?` are stored as a pair (the value and a `present` flag): no boxing
   and no allocation. They work as a **local variable** and as a **class field** (ADR 0041): a
   field takes two slots, the value and the flag, and every read hands back the pair, so `??`,
-  `!`, `== none` and narrowing behave as they do for a local. A parameter, a return type, or a
-  list or map of them is still E0219 (WP-06b).
+  `!`, `== none` and narrowing behave as they do for a local. They also work as a parameter
+  and as a return type: the pair travels across the call boxed (one reference, `null` for
+  none), and the callee decodes it into the same two locals (ADR 0041). A list or map of them
+  is still E0219.
 - A value that may be none cannot be used with `.` or passed where `T` is needed (E0220).
   Use `?.`, `??` or `!`.
 - Narrowing: after `if x != none { ... }`, inside `while x != none { ... }`, and in the code

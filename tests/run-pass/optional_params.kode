@@ -1,0 +1,59 @@
+// Optional numbers as parameters and returns (ADR 0041 §5). At a call boundary
+// the pair travels as one reference: a box, or null for none.
+fn add(base: int, extra: int?) -> int {
+    return base + (extra ?? 0)
+}
+print(add(1, 2), add(1, none))
+
+fn maybe(flag: bool) -> int? {
+    if flag {
+        return 7
+    }
+    return none
+}
+print(maybe(true), maybe(false))
+
+// A returned pair narrows like a local one.
+x = maybe(true)
+if x != none {
+    print("unwrap", x)
+}
+print(maybe(true) ?? 0)
+
+// A pair in and a pair out.
+fn first(a: int?, b: int?) -> int? {
+    if a == none {
+        return b
+    }
+    return a
+}
+print(first(none, none), first(3, none), first(none, 4))
+
+// A method takes and reads one too.
+class Acc {
+    total: int?
+
+    fn bump(by: int?) {
+        n = total ?? 0
+        total = n + (by ?? 0)
+    }
+}
+a = Acc(total: none)
+a.bump(2)
+a.bump(none)
+print(a.total)
+
+// float? and bool? use the same path.
+fn ratio(v: float?) -> float? {
+    return v
+}
+print(ratio(2.5), ratio(none))
+
+fn yes(b: bool?) -> bool {
+    return b ?? false
+}
+print(yes(true), yes(none))
+
+// A function value carries the box through untouched.
+pick = maybe
+print(pick(true), pick(false))
