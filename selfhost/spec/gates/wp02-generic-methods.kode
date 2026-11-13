@@ -1,0 +1,9 @@
+// work packet: WP02 generic methods
+// target: ok
+// A method that declares its own type parameter; the parser and the checker both
+// have to allow it (today: E0252).
+class Util {
+    fn id<T>(x: T) -> T => x
+}
+
+print(Util.id(1))

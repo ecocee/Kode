@@ -7,6 +7,13 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The self-host plan is executable.** `./scripts/selfhost.sh gates` compiles one
+  probe per work packet (`selfhost/spec/gates/`) and prints `met`/`blocked` against
+  the target each probe declares; `readiness` turns that into the R0-R6 level and
+  names the next packet; `all` runs Stage 0, Stage 1 and the gates. The plan in
+  `docs/PLAN-self-hosting.md` is the same table, so the script and the document
+  cannot drift apart.
+
 - **Generic classes work** (ADR 0040). `class Box<T>` is instantiated once per
   set of type arguments, inferred at the constructor (`Box(value: 1)` is
   `Box.int`); fields and methods are substituted and each method compiles as an

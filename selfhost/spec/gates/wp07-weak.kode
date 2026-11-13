@@ -1,0 +1,12 @@
+// work packet: WP07 weak back edges
+// target: ok
+// An AST with parent pointers is a cycle; the up edge stays weak so freeing the
+// tree frees its nodes (ADR 0038).
+class Node {
+    weak parent: Node?
+    name: string
+}
+
+root = Node(parent: none, name: "root")
+child = Node(parent: root, name: "child")
+print(child.name)

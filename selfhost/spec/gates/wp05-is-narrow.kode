@@ -1,0 +1,13 @@
+// work packet: WP05 is narrow
+// target: ok
+// `is` answers "this value is that variant", which is how AST dispatch replaces
+// a parallel field per node kind (ADR 0039).
+enum Shape {
+    Circle(radius: float)
+    Square(side: float)
+}
+
+s = Shape.Square(side: 2.0)
+if s is Shape.Square {
+    print("square")
+}

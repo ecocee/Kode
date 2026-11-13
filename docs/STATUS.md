@@ -446,3 +446,11 @@ Re-verified the tree at `60f491d` (the `bench/http` line, 11 commits ahead of
   program; the embedded runtime archive is 59,649 KB. The 1 MB budget is missed
   by about 29 KB. Fix with link-on-use (split the archive per subsystem) or
   change the budget deliberately, before A4 publishes any size claim.
+
+## Self-host readiness (measured)
+
+`./scripts/selfhost.sh readiness` prints the level and the blocked work packets;
+`./scripts/selfhost.sh gates` prints the table itself. Today: **R1** — the lexer
+runs in Kode with token-dump parity, and R2 (the language an AST needs) is open on
+`selfhost/spec/gates/`, one probe per work packet. The plan, the levels and the
+probe list live in `docs/PLAN-self-hosting.md`.

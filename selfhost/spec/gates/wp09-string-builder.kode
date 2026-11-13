@@ -1,0 +1,8 @@
+// work packet: WP09 string builder
+// target: ok
+// Building IR text with `+` is quadratic; a builder keeps S5 linear.
+sb = StringBuilder()
+sb.push("kode")
+sb.push("_")
+sb.push("main")
+print(sb.build())

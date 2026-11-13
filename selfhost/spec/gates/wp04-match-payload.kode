@@ -1,0 +1,16 @@
+// work packet: WP04 match payload
+// target: ok
+// Destructure a payload variant and bind its fields (ADR 0039).
+enum Shape {
+    Circle(radius: float)
+    Empty
+}
+
+fn area(s: Shape) -> float {
+    match s {
+        Shape.Circle(r) => 3.14159 * r * r
+        Shape.Empty => 0.0
+    }
+}
+
+print(area(Shape.Circle(radius: 2.0)))

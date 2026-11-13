@@ -6,6 +6,9 @@
 #   ./scripts/selfhost.sh stage1     compile the port and compare it with Stage 0
 #   ./scripts/selfhost.sh stage2     Stage 1 compiles itself; compare with Stage 1
 #   ./scripts/selfhost.sh compare    diff the dumps that already exist
+#   ./scripts/selfhost.sh gates      every work packet: target declared vs today
+#   ./scripts/selfhost.sh readiness  the readiness level reached, and what is next
+#   ./scripts/selfhost.sh all        Stage 0, Stage 1, then the work packets
 #
 # The oracle is `kode tokens` and `kode ast` over the whole corpus: the port is
 # verified by comparison, not by opinion (PLAN-self-hosting.md §5). Every stage
@@ -27,7 +30,94 @@ PORT="$ROOT/selfhost/main.kode"
 CORPUS=(tests/run-pass tests/compile-fail examples benchmarks selfhost/spec)
 
 usage() {
-    sed -n '3,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    grep '^#   \./scripts/selfhost.sh' "${BASH_SOURCE[0]}" | sed 's/^# *//'
+}
+
+GATES_DIR="$ROOT/selfhost/spec/gates"
+# The order PLAN-self-hosting.md §6 builds in: what unblocks the most, first.
+# `readiness` names the next packet from this list, not from file order.
+PACKET_ORDER=(WP03 WP04 WP05 WP02 WP06 WP07 WP08 WP09 WP10)
+
+# Compile every work-packet probe and compare what Stage 0 does today with the
+# target the probe declares. Writes `target/selfhost/gates.txt` (packet, probe,
+# target, observed, state) and prints the table. The table is the build's
+# to-do list: `blocked` rows are what still needs code (PLAN-self-hosting §3).
+check_gates() {
+    if [[ ! -d "$GATES_DIR" ]]; then
+        echo "  no work-packet probes in $GATES_DIR" >&2
+        return 2
+    fi
+    local out="$OUT/gates.txt" probe packet target observed state met=0 blocked=0
+    : >"$out"
+    for probe in "$GATES_DIR"/*.kode; do
+        packet="$(sed -n 's|^// work packet: \([^ ]*\).*|\1|p' "$probe" | head -1)"
+        target="$(sed -n 's|^// target: \(.*\)|\1|p' "$probe" | head -1)"
+        if "$STAGE0" check "$probe" >"$OUT/gate.log" 2>&1; then
+            observed=ok
+        else
+            observed="$(grep -o 'E0[0-9][0-9][0-9]' "$OUT/gate.log" | head -1)"
+            observed="${observed:-error}"
+        fi
+        if [[ "$observed" == "$target" ]]; then
+            state=met
+            met=$((met + 1))
+        else
+            state=blocked
+            blocked=$((blocked + 1))
+        fi
+        printf '%s\t%s\t%s\t%s\t%s\n' "$packet" "$(basename "$probe" .kode)" \
+            "$target" "$observed" "$state" >>"$out"
+        printf '  %-6s %-34s target %-6s today %-6s %s\n' \
+            "$packet" "$(basename "$probe" .kode)" "$target" "$observed" "$state"
+    done
+    rm -f "$OUT/gate.log"
+    echo "  work packets: $met met, $blocked blocked ($out)"
+}
+
+# The level reached (PLAN-self-hosting.md §2), from the artefacts on disk and the
+# packet table. This reports; it never pretends a stage exists.
+readiness() {
+    echo "Self-host readiness (docs/PLAN-self-hosting.md)"
+    if [[ -d "$OUT/dumps/stage0" ]]; then
+        echo "  R0 oracle: present"
+    else
+        echo "  R0 oracle: missing - run ./scripts/selfhost.sh stage0"
+    fi
+    if [[ -d "$OUT/dumps/stage1" ]]; then
+        echo "  R1 lexer: present and compared"
+    else
+        echo "  R1 lexer: missing - run ./scripts/selfhost.sh stage1"
+    fi
+    check_gates || true
+    local blocked next
+    blocked="$(awk -F'\t' '$5 == "blocked"' "$OUT/gates.txt" | wc -l | tr -d ' ')"
+    echo "  R2 language: $blocked work packet(s) blocked"
+    if [[ -d "$OUT/dumps/stage2" ]]; then
+        echo "  R3 parser: present"
+    else
+        echo "  R3 parser: not started"
+    fi
+    {
+        echo "gates_blocked=$blocked"
+        awk -F'\t' '$5 == "blocked" {printf "blocked=%s %s (target %s, today %s)\n", $1, $2, $3, $4}' \
+            "$OUT/gates.txt"
+    } >"$OUT/readiness.txt"
+    next=""
+    local packet
+    for packet in "${PACKET_ORDER[@]}"; do
+        if awk -F'\t' -v p="$packet" '$1 == p && $5 == "blocked" {found = 1} END {exit !found}' \
+            "$OUT/gates.txt"; then
+            next="$packet"
+            break
+        fi
+    done
+    # A packet added to the probes but not yet to the order still gets named.
+    [[ -n "$next" ]] || next="$(awk -F'\t' '$5 == "blocked" {print $1; exit}' "$OUT/gates.txt")"
+    if [[ -n "$next" ]]; then
+        echo "  next: $next (docs/PLAN-self-hosting.md §3)"
+    else
+        echo "  next: S2 parser (R3) - every work packet is met"
+    fi
 }
 
 corpus() {
@@ -184,6 +274,20 @@ compare)
     fi
     diff_dumps "$OUT/dumps/stage1" "$OUT/dumps/stage2" compare
     echo "compare: green"
+    ;;
+gates)
+    echo "Self-host work packets (docs/PLAN-self-hosting.md §3)"
+    [[ -x "$STAGE0" ]] || ( cd "$ROOT" && cargo build --workspace )
+    check_gates
+    ;;
+readiness)
+    [[ -x "$STAGE0" ]] || ( cd "$ROOT" && cargo build --workspace )
+    readiness
+    ;;
+all)
+    bash "${BASH_SOURCE[0]}" stage0
+    bash "${BASH_SOURCE[0]}" stage1
+    bash "${BASH_SOURCE[0]}" gates
     ;;
 __dump)
     dump_corpus "$2" "$3"
