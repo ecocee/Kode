@@ -7,6 +7,12 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Generic methods** (ADR 0040 slice 1c). A method may declare its own type
+  parameters: `fn id<T>(x: T) -> T => x` inside `class Util` compiles one instance
+  per call's type arguments (`Util.id.int`, `Util.id.str`), each an ordinary method
+  with `this` first, so a body can read fields and its own parameters together. A
+  method of a generic class still cannot declare its own parameters (E0252).
+
 - **Optional numbers as parameters and returns** (ADR 0041 §5). `int?`, `float?`
   and `bool?` cross a call as one boxed pair (`null` for none), so no calling
   convention, function value, closure or interface dispatch changed: the callee

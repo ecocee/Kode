@@ -1731,6 +1731,12 @@ impl Checker {
                 Some(Type::List(Box::new(Type::Str)))
             }
             Type::Class(cn) => {
+                if let Some(&gidx) = self
+                    .class_generic_index
+                    .get(&(cn.clone(), name.to_string()))
+                {
+                    return self.generic_call(id, name, gidx, args, &tys, span, name_span);
+                }
                 let ci = self.class_index[cn];
                 let Some(&mi) = self.classes[ci].methods.get(name) else {
                     self.unknown_field(cn, name, name_span);

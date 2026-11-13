@@ -1,14 +1,17 @@
 # ADR 0040: Generic classes
 
-Status: **accepted in part** — slices 1a and 1b landed. `class Box<T>` and
+Status: **accepted in part** — slices 1a, 1b and 1c landed. `class Box<T>` and
 `Box<int>` parse, appear in `kode ast` and count towards the nesting limit, and
 instances are real: the constructor infers the type arguments from the field
 annotations, one class is created per distinct tuple (`Box.int`, mangled by
 `instance_name`), fields are substituted, and each method is instantiated as an
 ordinary function with `this` first. `E0421` (arity), `E0422` (cannot infer) and
-`E0423` (bare `Box`) cover the failure modes. Still missing, by design: generic
-methods, constraints, explicit type arguments, generic interfaces, and checking
-`implements` per instance.
+`E0423` (bare `Box`) cover the failure modes. Slice 1c adds generic methods: a
+method may declare its own type parameters, compiled once per call's type
+arguments as an ordinary method with `this` first, so the body can read fields and
+its own parameters together. Still missing, by design: a method of a generic class
+that declares its own parameters (E0252), constraints, explicit type arguments,
+generic interfaces, and checking `implements` per instance.
 Date: 2026-11-11.
 Plan item: `docs/PLAN-v1.md` 9.9, `docs/STATUS.md` 1.2. Blocks S2 of
 `docs/PLAN-self-hosting.md`.
@@ -121,8 +124,10 @@ the program writes one, and a self-referential instantiation (`class Tree<T> {
 
 ## 6. Limits (deliberately not implemented here)
 
-- **No generic methods.** A method may use its class's parameters only. S2's
-  containers do not need more, and generic methods raise the same inference
+- **No generic methods in a generic class.** Slice 1c allows a method to declare
+  its own parameters when its class has none; one class of substitution at a time
+  keeps the two from being confused, and S2's containers do not need both. Generic
+  methods raise the same inference
   questions as generic functions plus a receiver.
 - **No constraints/traits.** A type parameter can be used where every type is
   allowed; a call on a `T` value is an error. This is ADR 0030's position,

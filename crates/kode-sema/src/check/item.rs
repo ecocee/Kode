@@ -149,6 +149,21 @@ impl Checker {
                             c.name_span,
                         ));
                     } else if !c.type_params.is_empty() {
+                        for m in &c.methods {
+                            if !m.type_params.is_empty() {
+                                self.errors.push(
+                                    Diagnostic::error(
+                                        "E0252",
+                                        format!(
+                                            "the method `{}.{}` cannot have type parameters yet: `{}` already has its own",
+                                            c.name, m.name, c.name
+                                        ),
+                                        m.name_span,
+                                    )
+                                    .with_help("take the class's type parameter instead, or move the method out as a free `fn`"),
+                                );
+                            }
+                        }
                         // A generic class is a template: it has no class entry of
                         // its own, only one per set of type arguments (ADR 0040).
                         self.generic_class_index
@@ -592,19 +607,37 @@ impl Checker {
     /// A generic declaration is not a function yet: it is checked once per set of
     /// concrete type arguments (ADR 0030).
     fn collect_generic(&mut self, cls: Option<&ClassDecl>, f: &FnDecl) {
+        // A method may declare its own type parameters; one instance is compiled
+        // per set of arguments, with `this` first (ADR 0040 slice 1c).
         if let Some(c) = cls {
-            self.errors.push(
-                Diagnostic::error(
-                    "E0252",
-                    format!(
-                        "the method `{}.{}` cannot have type parameters yet",
-                        c.name, f.name
-                    ),
+            if !c.type_params.is_empty() {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0252",
+                        format!(
+                            "the method `{}.{}` cannot have type parameters yet: `{}` already has its own",
+                            c.name, f.name, c.name
+                        ),
+                        f.name_span,
+                    )
+                    .with_help("take the class's type parameter instead, or move the method out as a free `fn`"),
+                );
+                return;
+            }
+            if self.classes[self.class_index[&c.name]]
+                .methods
+                .contains_key(&f.name)
+                || self
+                    .class_generic_index
+                    .contains_key(&(c.name.clone(), f.name.clone()))
+            {
+                self.errors.push(Diagnostic::error(
+                    "E0306",
+                    format!("the method `{}` appears twice", f.name),
                     f.name_span,
-                )
-                .with_help("move it out of the class as a free `fn` with the same parameters"),
-            );
-            return;
+                ));
+                return;
+            }
         }
         let mut seen = HashSet::new();
         for (name, span) in &f.type_params {
@@ -643,8 +676,19 @@ impl Checker {
                 f.name_span,
             ));
         } else {
-            self.generic_index
-                .insert(f.name.clone(), self.generic_decls.len());
+            match cls {
+                Some(c) => {
+                    // Free-function name rules do not apply: a method lives in
+                    // its class's namespace.
+                    self.class_generic_index
+                        .insert((c.name.clone(), f.name.clone()), self.generic_decls.len());
+                }
+                None => {
+                    self.generic_index
+                        .insert(f.name.clone(), self.generic_decls.len());
+                }
+            }
+            self.generic_decl_class.push(cls.map(|c| c.name.clone()));
             self.generic_decls.push(f.clone());
         }
     }

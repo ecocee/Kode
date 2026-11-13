@@ -1,0 +1,7 @@
+// A generic class declares its type parameters once; its methods cannot declare
+// their own yet (ADR 0040 slice 1c keeps the two substitutions apart).
+class Box<T> {
+    value: T
+
+    fn wrap<U>(other: U) -> U => other
+}

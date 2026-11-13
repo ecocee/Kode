@@ -58,8 +58,8 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R5** | the front end interprets programs | every run-pass `.out` through the Kode evaluator |
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
-Measured today: **R1** — 206 token dumps byte-identical, including the eleven work
-packet probes. R2 is open: `gates` reports 6 met, 5 blocked.
+Measured today: **R1** — 208 token dumps byte-identical, including the eleven work
+packet probes. R2 is open: `gates` reports 7 met, 4 blocked.
 
 ## 3. Work packets
 
@@ -116,7 +116,7 @@ output; `--format=json` stability (AGENTS.md 9) applies from day one.
 `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode` (~1,250 lines,
 each file under 500) plus `selfhost/spec/lexer_cases.kode`.
 
-`stage1` builds the port with Stage 0 and reports **206 of 206 token dumps
+`stage1` builds the port with Stage 0 and reports **208 of 208 token dumps
 byte-identical** (3.0 s / 6,736 KB for Stage 0 including trees, 2.3 s / 3,792 KB
 for Stage 1 tokens).
 

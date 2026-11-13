@@ -66,6 +66,11 @@ match c {
   pattern binds the fields in declaration order: `Shape.Rect(w, h)`. The names
   are ordinary locals inside the arm. Binding the wrong number of names is E0207,
   a non-name in a binding position is E0201, and a name bound twice is E0306.
+- A method may declare its own type parameters, and is compiled once per set of
+  type arguments at the call: `fn id<T>(x: T) -> T => x` inside `class Util` gives
+  `Util.id.int` and `Util.id.str`, each an ordinary method with `this` first, so
+  it can read fields and its own parameters in one body. A generic class's methods
+  cannot declare their own parameters yet (E0252).
 - `s is Shape.Circle` is a bool: one tag compare, also usable in `and`/`not`.
   Inside `if s is Shape.Circle { ... }` the value is narrowed to that variant, so
   `s.radius` may be read there; reading it without a narrowing is E0419, not a

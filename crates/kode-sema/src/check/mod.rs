@@ -170,6 +170,12 @@ pub(crate) struct Checker {
     pub in_closure: bool,
     /// Generic declarations, by name. They are never lowered themselves.
     pub generic_index: HashMap<String, usize>,
+    /// `(class, method)` for a method that declares its own type parameters
+    /// (ADR 0040 slice 1c).
+    pub class_generic_index: HashMap<(String, String), usize>,
+    /// The class each generic declaration belongs to, parallel to
+    /// `generic_decls`; `None` for a free function.
+    pub generic_decl_class: Vec<Option<String>>,
     pub generic_decls: Vec<FnDecl>,
     /// (generic index, concrete type names) -> instantiated function index.
     pub instances: Vec<((usize, Vec<String>), usize)>,
@@ -462,6 +468,8 @@ impl Checker {
             closures: HashMap::new(),
             in_closure: false,
             generic_index: HashMap::new(),
+            class_generic_index: HashMap::new(),
+            generic_decl_class: Vec::new(),
             generic_decls: Vec::new(),
             class_ctor_calls: HashMap::new(),
             enum_ctor_calls: HashMap::new(),

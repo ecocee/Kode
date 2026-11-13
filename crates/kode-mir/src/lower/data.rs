@@ -756,6 +756,13 @@ impl<'a> Lowerer<'a> {
             }
             (Type::Class(cn), m) => {
                 let checked = self.checked;
+                // `u.id(1)` resolved to one instance of a generic method
+                // (ADR 0040 slice 1c): it is an ordinary method with `this`.
+                if let Some(&idx) = checked.generic_calls.get(&e.id) {
+                    let n = checked.fns[idx].params.len() - 1;
+                    let vals = self.call_vals(e.id, args, Some(ov), n);
+                    return self.emit_call(idx, vals);
+                }
                 let mi = checked.classes[checked.class_index[cn]].methods[m];
                 let n = checked.fns[mi].params.len() - 1;
                 let vals = self.call_vals(e.id, args, Some(ov), n);

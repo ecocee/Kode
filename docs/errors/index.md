@@ -80,7 +80,7 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0242 | bad function value: `map`/`filter` callback, or `this` used inside a closure |
 | E0250 | cannot infer a type parameter of a generic function |
 | E0251 | a generic function cannot be used as a value |
-| E0252 | a method cannot have type parameters yet |
+| E0252 | a generic class's method cannot have its own type parameters yet |
 
 ## Declarations and statements (E03xx)
 

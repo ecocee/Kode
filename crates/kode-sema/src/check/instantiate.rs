@@ -104,8 +104,11 @@ impl Checker {
         let idx = self.instantiate(gidx, &decl, &params, &subst, callee_span)?;
         self.generic_calls.insert(id, idx);
         let sig = self.fns[idx].clone();
-        let defaults = vec![false; sig.params.len()];
-        self.check_call_args(id, &sig.params, args, tys, &defaults, span, callee);
+        // A method instance carries `this` first; the call site passes the
+        // receiver separately, so only the declared parameters are matched.
+        let skip = usize::from(sig.class.is_some());
+        let defaults = vec![false; sig.params.len() - skip];
+        self.check_call_args(id, &sig.params[skip..], args, tys, &defaults, span, callee);
         self.note_call(idx);
         Some(sig.ret)
     }
@@ -137,7 +140,11 @@ impl Checker {
             substitute_ann(ret, subst);
         }
 
+        let class = self.generic_decl_class[gidx].clone();
         let mut sig_params: Vec<(String, Type)> = Vec::new();
+        if let Some(cn) = &class {
+            sig_params.push(("this".to_string(), Type::Class(cn.clone())));
+        }
         for p in &body.params {
             let ty = self.resolve_type(&p.ty).unwrap_or(Type::Int);
             sig_params.push((p.name.clone(), ty));
@@ -146,13 +153,16 @@ impl Checker {
             Some(a) => self.resolve_type(a).unwrap_or(Type::Unit),
             None => Type::Unit,
         };
-        let name = format!("{}.{}", decl.name, key.join("_"));
+        let name = match &class {
+            Some(cn) => format!("{cn}.{}.{}", decl.name, key.join("_")),
+            None => format!("{}.{}", decl.name, key.join("_")),
+        };
         let idx = self.fns.len();
         self.fns.push(super::FnSig {
             name,
             params: sig_params,
             ret,
-            class: None,
+            class,
             type_params: Vec::new(),
         });
         self.instances.push(((gidx, key), idx));

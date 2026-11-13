@@ -1,9 +1,13 @@
 // work packet: WP02 generic methods
 // target: ok
-// A method that declares its own type parameter; the parser and the checker both
-// have to allow it (today: E0252).
+// A method that declares its own type parameter: one instance per set of type
+// arguments, with `this` first (ADR 0040 slice 1c).
 class Util {
+    n: int
+
     fn id<T>(x: T) -> T => x
 }
 
-print(Util.id(1))
+u = Util(n: 0)
+print(u.id(1))
+print(u.id("one"))

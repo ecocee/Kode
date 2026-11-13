@@ -1,0 +1,22 @@
+// A method with its own type parameters: one instance per type argument, with
+// `this` first (ADR 0040 slice 1c).
+class Util {
+    tag: string
+
+    fn id<T>(x: T) -> T => x
+
+    fn both<T>(a: T, b: T) -> [T] => [a, b]
+
+    fn label<T>(x: T) -> string => "${tag}:${x}"
+}
+
+u = Util(tag: "u")
+print(u.id(1), u.id("one"), u.id(2.5))
+print(u.both(1, 2))
+print(u.both("a", "b"))
+print(u.label(7))
+
+// A second receiver reuses the same instances.
+v = Util(tag: "v")
+print(v.label(8))
+print(v.id(true))
