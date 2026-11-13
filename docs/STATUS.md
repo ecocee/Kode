@@ -99,7 +99,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 |---|---|---|
 | 1.1 Enum payloads, `match` destructuring, `is`, safe downcast | **done** (ADR 0039) | payload variants construct (`Shape.Circle(radius: 1.5)`), print with field names, destructure positionally in `match`, and `is` narrows the true branch so `s.radius` compiles while an unnarrowed read is `E0419`. A payload enum is a class-layout object whose class-id bits hold the tag; tag-only enums stay `int`; `kode_enum_tag` is the only new symbol. Evidence: `tests/run-pass/{enum_payloads,enum_match_bindings,enum_is}` (0 leaks), `compile-fail/{e0417_payload_value,e0419_field_without_narrow,e0420_enum_eq}`; `E0253` is gone |
 | 1.2 Generic classes, generic methods, constraints, explicit type args | **partial** (ADR 0040) | slices 1a-1c: `class Box<T>` instantiates per type-argument tuple (`Box.int`), fields and methods substitute, the constructor infers; a method may declare its own type parameters (`Util.id.int`, compiled with `this` first, `tests/run-pass/generic_methods`); `tests/run-pass/generic_classes`, `compile-fail/e0421`-`e0423`, `e0252_generic_class_method`. Constraints and explicit type args still missing |
-| 1.3 `weak` references / cycle safety | **designed, not implemented** | ADR 0038 (`docs/adr/0038-weak-references.md`) with measured leak evidence in `benchmarks/leaks/report.md`; no `weak` token in the lexer yet |
+| 1.3 `weak` references / cycle safety | **deferred** (design only) | ADR 0038 (`docs/adr/0038-weak-references.md`) with measured leak evidence in `benchmarks/leaks/report.md`; no `weak` token in the lexer yet. ADR 0042 takes it off the self-hosting path: the port's AST is an arena of nodes with `int?` edges, so its graph has no cycles to break. Still worth doing for user code |
 | 1.4 Fixed-width ints, byte buffers, binary encode/decode | **missing** | probed: `x: u8 = 1` → `E0303 unknown type u8`; only `int` (64-bit) |
 | 1.5 Checked arithmetic plus `wrapping_*` / `saturating_*` | **missing** | probed: `9223372036854775807 + 1` prints `-9223372036854775808` (silent wrap); ADR 0009 |
 | 1.6 Optional scalars as fields, parameters, returns | **done** | `int?`/`float?`/`bool?` work as **locals** (ADR 0024), **class fields** (two slots: the value and its flag) and **parameters and returns** (the pair travels across a call boxed, `null` for none, and is decoded into the same two locals — ADR 0041). `tests/run-pass/{optional_fields,optional_params}.kode` cover each shape with 0 leaks. A list or map of an optional number is still E0219 |
@@ -151,13 +151,14 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 |---|---|---|
 | 6.1 Bootstrap harness (S0) | **done** | `scripts/selfhost.sh` and the `kode tokens` / `kode ast` dumps (`crates/kode-syntax/src/dump.rs`); `stage0` green on a clean checkout, `stage1`/`compare` refuse without a Stage 1. Branch `selfhost/s0-harness` |
 | 6.1 Backend decision | **missing** | not decided |
-| 6.2 Lexer in Kode (S1) | **done** | `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode`; `./scripts/selfhost.sh stage1` reports **184/184** token dumps byte-identical (text, byte spans, line/column, and the status of the programs that must fail to lex), 2.27 s and 3,824 KB for token dumps only. Branch `selfhost/s1-lexer` |
+| 6.2 Lexer in Kode (S1) | **done** | `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode`; `./scripts/selfhost.sh stage1` reports **209/209** token dumps byte-identical (text, byte spans, line/column, and the status of the programs that must fail to lex), 2.27 s and 3,824 KB for token dumps only. Branch `selfhost/s1-lexer` |
 | 6.3–6.5 Parser, checker, codegen in Kode | **missing** | `docs/self-hosting.md`: no parser, checker, MIR builder, evaluator or native backend exists in Kode |
-| 6.6 Bootstrap proof in CI | **done** for S0-S1 | the `selfhost` job in `ci.yml` runs `stage0` then `stage1` on `ubuntu-latest` and compares 184 token dumps, uploading both measurement files; `stage2` waits for the parser |
+| 6.6 Bootstrap proof in CI | **done** for S0-S1 | the `selfhost` job in `ci.yml` runs `stage0` then `stage1` on `ubuntu-latest` and compares 209 token dumps, uploading both measurement files; `stage2` waits for the parser |
 
-Prerequisites that are absent: enum payloads (1.1), generic classes (1.2), and
-a memory strategy for AST/token graphs that does not leak on cycles (1.3). S1
-needed none of them; S2 needs all three.
+Prerequisites: enum payloads (1.1, done), generic classes and methods (1.2, done for
+what S2 and S3 need), and a memory strategy for the AST (1.3 → ADR 0042: an arena of
+nodes with `int?` edges). S1 needed none of them; S2's prerequisite set is now met, and
+WP-08/WP-09/WP-10 wait for the stages that need them.
 
 ### Phase 7 — stability and v1.0
 
@@ -332,8 +333,9 @@ changes behaviour):
 3. **TLS** (Phase 3.1) — the single biggest production blocker; needs a DECISION
    on `rustls` vs system OpenSSL with a binary-size measurement.
 4. **Enum payloads** (1.1) — unblocks self-hosting, needs an ADR.
-5. **`weak`** (1.3) — makes the cycle leak avoidable; ADR 0038 and the evidence
-   exist, the implementation is the next code change.
+5. **`weak`** (1.3) — makes the cycle leak avoidable for user graphs; ADR 0038 and the
+   evidence exist. Not on the self-hosting path any more (ADR 0042 chose an arena for
+   the port's AST), so it competes with the rest of the 1.x list rather than blocking S2.
 
 ## 9. Gates
 

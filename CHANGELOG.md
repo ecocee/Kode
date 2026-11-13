@@ -5,6 +5,14 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ## Unreleased
 
+### Docs
+
+- **ADR 0042: the AST is an arena.** The port's syntax tree is one list of nodes
+  owned by the tree, with children and parents as `int?` ids, so no cycle is
+  expressible and one release frees everything. `weak` (ADR 0038) stays proposed and
+  off the self-hosting path; the new `wp11-arena` gate probe compiles and runs the
+  shape on Stage 0.
+
 ### Added
 
 - **Generic methods** (ADR 0040 slice 1c). A method may declare its own type

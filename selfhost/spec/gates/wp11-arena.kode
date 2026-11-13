@@ -1,0 +1,45 @@
+// work packet: WP11 arena
+// target: ok
+// The AST shape S2 uses (ADR 0042): one list of nodes owned by the tree, child
+// and parent links as `int?` ids, node kinds as a payload enum. No cycle is
+// expressible, so freeing the owner frees every node.
+enum Kind {
+    Root
+    Dir(name: string)
+    File(name: string)
+}
+
+class Node {
+    kind: Kind
+    parent: int?
+}
+
+class Ast {
+    nodes: [Node]
+
+    fn add(kind: Kind, parent: int?) -> int {
+        nodes.add(Node(kind: kind, parent: parent))
+        return nodes.len() - 1
+    }
+
+    fn walk(id: int) {
+        n = nodes[id]
+        match n.kind {
+            Kind.Root => print("/")
+            Kind.Dir(name) => print("dir", name)
+            Kind.File(name) => print("file", name)
+        }
+        if n.parent != none {
+            print("  parent at", n.parent)
+        }
+    }
+}
+
+a = Ast(nodes: [])
+root = a.add(Kind.Root, none)
+etc = a.add(Kind.Dir(name: "etc"), root)
+hosts = a.add(Kind.File(name: "hosts"), etc)
+a.walk(root)
+a.walk(etc)
+a.walk(hosts)
+print("nodes:", a.nodes.len())

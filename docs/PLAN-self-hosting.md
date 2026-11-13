@@ -14,7 +14,7 @@ The plan is executable: `scripts/selfhost.sh` is its driver.
 ```
 
 Companions: `docs/self-hosting.md` (what exists), `docs/PLAN-v1.md` (v1.0),
-`docs/STATUS.md` (measured state), ADR 0030 (monomorphization), ADR 0038 (`weak`),
+`docs/STATUS.md` (measured state), ADR 0030 (monomorphization), ADR 0038 (`weak`), ADR 0042 (the AST arena),
 ADR 0039 (enum payloads), ADR 0040 (generic classes).
 
 ## 1. Definition of done
@@ -58,8 +58,8 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R5** | the front end interprets programs | every run-pass `.out` through the Kode evaluator |
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
-Measured today: **R1** — 208 token dumps byte-identical, including the eleven work
-packet probes. R2 is open: `gates` reports 7 met, 4 blocked.
+Measured today: **R1** — 209 token dumps byte-identical, including the twelve work
+packet probes. R2 is open: `gates` reports 8 met, 4 blocked.
 
 ## 3. Work packets
 
@@ -85,16 +85,18 @@ each probe with Stage 0, records the observed result, and prints `met` or
 | **WP-05** | `is` on a payload variant, with narrowing | `wp05-is-narrow` | **met** |
 | **WP-06** | optional scalars as class fields (ADR 0041) | `wp06-optional-scalar-fields` | **met** |
 | **WP-06b** | optional scalars as parameters and returns (ADR 0041 §5) | `wp06b-opt-params` | **met** |
-| **WP-07** | `weak` back-edges (ADR 0038) | `wp07-weak` | E0114 |
+| **WP-07** | `weak` back-edges (ADR 0038) | `wp07-weak` | E0114 — deferred by ADR 0042, not on the S2 path |
 | **WP-08** | byte buffers, `u8`/`i32` | `wp08-bytes` | E0006 |
 | **WP-09** | `StringBuilder` | `wp09-string-builder` | E0206 |
 | **WP-10** | a `stderr` stream | `wp10-stderr` | E0206 |
-| **WP-11** | arena or `weak` decision for the AST | design note, ADR 0038 | open |
+| **WP-11** | the AST is an arena (ADR 0042) | `wp11-arena` | **met** |
 | **WP-12** | streaming process output | `exec` on 10 MB without buffering | open |
 
 Order: WP-03 → WP-04 → WP-05 (one representation, then the two ways to take it
 apart), then WP-02, then WP-06 → WP-10 as the stage that needs them arrives.
-WP-07/WP-11 are decided in S2, before the AST is written rather than after.
+WP-11 is decided before the AST is written rather than after (ADR 0042); that decision
+takes WP-07 off the S2 path, so its probe stays red on purpose as the open language
+feature rather than a port blocker.
 
 Each packet lands with: its probe turning `met`, a `tests/run-pass/` program with
 `.out` (or a `tests/compile-fail/` pair for guard cases), the codes it needs in
@@ -116,7 +118,7 @@ output; `--format=json` stability (AGENTS.md 9) applies from day one.
 `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode` (~1,250 lines,
 each file under 500) plus `selfhost/spec/lexer_cases.kode`.
 
-`stage1` builds the port with Stage 0 and reports **208 of 208 token dumps
+`stage1` builds the port with Stage 0 and reports **209 of 209 token dumps
 byte-identical** (3.0 s / 6,736 KB for Stage 0 including trees, 2.3 s / 3,792 KB
 for Stage 1 tokens).
 
@@ -125,12 +127,12 @@ every offset is a byte offset; and there is no stderr stream (WP-10).
 
 ### S2 — parser and spans (branch `selfhost/s2-parser`)
 
-Opens when WP-03/04/05, WP-06 and (WP-07 or WP-11) are `met`.
+Opens when WP-03/04/05, WP-06 and WP-11 are `met` (ADR 0042).
 
 Files: `selfhost/ast.kode`, `selfhost/parser.kode` (~2,500 lines estimated).
 Acceptance: identical `kode ast` dumps on the corpus, including E01xx syntax
-errors (message, span, hint). The AST is freed as one arena or with `weak`
-parent links, and the compiler's own leak check runs from here on.
+errors (message, span, hint). The AST is one arena with `int?` links (ADR 0042), so
+freeing the tree frees every node, and the compiler's own leak check runs from here on.
 
 Risk: this is where a missing language feature becomes duplication. Stop and
 report rather than invent a workaround.
@@ -219,7 +221,7 @@ Size, to be replaced by real numbers as stages land:
 | a prerequisite lands late | the stage it blocks cannot start | packets are ordered by what they block; `gates` shows the queue |
 | the ported compiler is much slower | bootstrapping takes minutes | measure per stage; no optimization before S6 |
 | diagnostics wording is unreachable | S3 never closes | one family per commit, JSON diff names the field |
-| RC cycles in the AST | the compiler leaks | decide arena vs `weak` in S2, run the compiler's own leak check in CI |
+| RC cycles in the AST | the compiler leaks | closed by ADR 0042: nodes are one flat list and every edge is an `int?`, so no cycle is expressible; the port's leak check runs in CI |
 | platform-specific I/O (`/dev/stderr`, `exec`) | the port is Unix-only | WP-10, WP-12 |
 | the port drifts into feature work | scope creep | the only accepted change is parity; a feature needs its own ADR |
 
@@ -244,7 +246,7 @@ what was measured instead of widening the change.
 | B | Are `kode tokens` / `kode ast` permanent documented commands? | accepted (S0 shipped) |
 | C | Interpreter before backend (S4 before S5)? | accepted |
 | D | "Behaviour parity, byte parity where deterministic" as Stage 2's definition? | accepted |
-| E | Arena for the AST instead of `weak`, if measurements favour it? | open, decided in S2 |
+| E | Arena for the AST instead of `weak`, if measurements favour it? | accepted 2026-11-13 (ADR 0042): the AST is an arena; `weak` (ADR 0038) stays proposed and off the S2 path |
 
 Changing this plan means editing this file in the same commit as the code or
 probe that changes, so the script and the document never disagree.
