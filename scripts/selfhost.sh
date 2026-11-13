@@ -36,7 +36,9 @@ usage() {
 GATES_DIR="$ROOT/selfhost/spec/gates"
 # The order PLAN-self-hosting.md §6 builds in: what unblocks the most, first.
 # `readiness` names the next packet from this list, not from file order.
-PACKET_ORDER=(WP03 WP04 WP05 WP02 WP06 WP07 WP08 WP09 WP10)
+PACKET_ORDER=(WP03 WP04 WP05 WP02 WP06 WP08 WP09 WP10)
+# Red on purpose: the plan defers these, so `next` must not name them.
+DEFERRED=(WP07 WP08b)
 
 # Compile every work-packet probe and compare what Stage 0 does today with the
 # target the probe declares. Writes `target/selfhost/gates.txt` (packet, probe,
@@ -105,6 +107,9 @@ readiness() {
     next=""
     local packet
     for packet in "${PACKET_ORDER[@]}"; do
+        if [[ " ${DEFERRED[*]} " == *" $packet "* ]]; then
+            continue
+        fi
         if awk -F'\t' -v p="$packet" '$1 == p && $5 == "blocked" {found = 1} END {exit !found}' \
             "$OUT/gates.txt"; then
             next="$packet"

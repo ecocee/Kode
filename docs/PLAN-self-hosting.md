@@ -58,8 +58,8 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R5** | the front end interprets programs | every run-pass `.out` through the Kode evaluator |
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
-Measured today: **R1** — 209 token dumps byte-identical, including the twelve work
-packet probes. R2 is open: `gates` reports 8 met, 4 blocked.
+Measured today: **R1** — 213 token dumps byte-identical, including the twelve work
+packet probes. R2 is open: `gates` reports 9 met, 4 blocked.
 
 ## 3. Work packets
 
@@ -79,14 +79,15 @@ each probe with Stage 0, records the observed result, and prints `met` or
 | packet | goal | probe | today |
 |---|---|---|---|
 | **WP-01** | generic classes with inferred type arguments (ADR 0040) | `wp01-generic-classes` | **met** |
-| **WP-02** | generic methods: `fn id<T>(x: T) -> T` | `wp02-generic-methods` | E0252 |
+| **WP-02** | generic methods: `fn id<T>(x: T) -> T` | `wp02-generic-methods` | **met** |
 | **WP-03** | construct an enum payload variant (ADR 0039 slice 1) | `wp03-enum-payload-construct` | **met** |
 | **WP-04** | `match` a payload and bind its fields | `wp04-match-payload` | **met** |
 | **WP-05** | `is` on a payload variant, with narrowing | `wp05-is-narrow` | **met** |
 | **WP-06** | optional scalars as class fields (ADR 0041) | `wp06-optional-scalar-fields` | **met** |
 | **WP-06b** | optional scalars as parameters and returns (ADR 0041 §5) | `wp06b-opt-params` | **met** |
 | **WP-07** | `weak` back-edges (ADR 0038) | `wp07-weak` | E0114 — deferred by ADR 0042, not on the S2 path |
-| **WP-08** | byte buffers, `u8`/`i32` | `wp08-bytes` | E0006 |
+| **WP-08** | byte buffers and `0x`/`0b`/`0o` literals (ADR 0043) | `wp08-bytes` | **met** |
+| **WP-08b** | `u8`/`i32` as numeric types (ADR 0043 §4) | `wp08b-fixed-width` | E0303 — deferred by ADR 0043, not needed to read bytes |
 | **WP-09** | `StringBuilder` | `wp09-string-builder` | E0206 |
 | **WP-10** | a `stderr` stream | `wp10-stderr` | E0206 |
 | **WP-11** | the AST is an arena (ADR 0042) | `wp11-arena` | **met** |
@@ -96,7 +97,8 @@ Order: WP-03 → WP-04 → WP-05 (one representation, then the two ways to take 
 apart), then WP-02, then WP-06 → WP-10 as the stage that needs them arrives.
 WP-11 is decided before the AST is written rather than after (ADR 0042); that decision
 takes WP-07 off the S2 path, so its probe stays red on purpose as the open language
-feature rather than a port blocker.
+feature rather than a port blocker. WP-08b is red for the same reason: `u8`/`i32`
+are numeric types of their own and reading bytes does not need them (ADR 0043 §4).
 
 Each packet lands with: its probe turning `met`, a `tests/run-pass/` program with
 `.out` (or a `tests/compile-fail/` pair for guard cases), the codes it needs in
@@ -118,7 +120,7 @@ output; `--format=json` stability (AGENTS.md 9) applies from day one.
 `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode` (~1,250 lines,
 each file under 500) plus `selfhost/spec/lexer_cases.kode`.
 
-`stage1` builds the port with Stage 0 and reports **209 of 209 token dumps
+`stage1` builds the port with Stage 0 and reports **213 of 213 token dumps
 byte-identical** (3.0 s / 6,736 KB for Stage 0 including trees, 2.3 s / 3,792 KB
 for Stage 1 tokens).
 

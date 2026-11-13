@@ -103,6 +103,8 @@ pub enum RtFn {
     ListLen,
     /// Lists of `bool` use one byte per item.
     ListNewPacked,
+    BytesNew,
+    BytesSet,
     ListPush8,
     ListGet8,
     ListSet8,

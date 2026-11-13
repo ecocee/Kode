@@ -1,0 +1,6 @@
+// work packet: WP08b fixed-width numbers
+// target: ok
+// `u8`/`i32` are numeric types of their own. Reading bytes needs none of it
+// (ADR 0043 §4), so this probe stays red on purpose, like WP-07.
+x: u8 = 1
+print(x + 1)

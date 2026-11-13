@@ -754,6 +754,43 @@ impl<'a> Lowerer<'a> {
                 self.release_if_owned(ov);
                 self.owned(Operand::Local(t))
             }
+            (Type::Bytes, "size") => {
+                let t = self.new_temp(Ty::Int);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::ListLen),
+                    args: vec![ov.op.clone()],
+                });
+                self.release_if_owned(ov);
+                V::val(Operand::Local(t))
+            }
+            (Type::Bytes, "get") => {
+                let i = self.expr(&args[0].value);
+                let line = Operand::Int(self.line_of(e.span.start));
+                let t = self.new_temp(Ty::Int);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::ListGet8),
+                    args: vec![ov.op.clone(), i.op.clone(), line],
+                });
+                self.release_if_owned(i);
+                self.release_if_owned(ov);
+                V::val(Operand::Local(t))
+            }
+            (Type::Bytes, "set") => {
+                let i = self.expr(&args[0].value);
+                let v = self.expr(&args[1].value);
+                let line = Operand::Int(self.line_of(e.span.start));
+                self.emit(Inst::Call {
+                    dst: None,
+                    callee: Callee::Rt(RtFn::BytesSet),
+                    args: vec![ov.op.clone(), i.op.clone(), v.op.clone(), line],
+                });
+                self.release_if_owned(v);
+                self.release_if_owned(i);
+                self.release_if_owned(ov);
+                V::unit()
+            }
             (Type::Class(cn), m) => {
                 let checked = self.checked;
                 // `u.id(1)` resolved to one instance of a generic method

@@ -7,6 +7,11 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Docs
 
+- **ADR 0043: byte buffers and base-2/8/16 literals.** `bytes(n)` is a fixed-size
+  buffer of bytes backed by the packed-list object, so retain/release/drop and the
+  index accessors are the existing ones; `u8`/`i32` as numeric types stay out
+  (WP-08b) because reading bytes needs no new numeric type.
+
 - **ADR 0042: the AST is an arena.** The port's syntax tree is one list of nodes
   owned by the tree, with children and parents as `int?` ids, so no cycle is
   expressible and one release frees everything. `weak` (ADR 0038) stays proposed and
@@ -14,6 +19,17 @@ language: a patch release fixes bugs, a minor release may add syntax.
   shape on Stage 0.
 
 ### Added
+
+- **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
+  `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
+  outside `0..=255` instead of truncating them; the object is a packed list, so a
+  buffer is freed exactly like a list. `tests/run-pass/bytes_buffers.kode` covers an
+  empty buffer, a 100,000-byte buffer, and passing and returning one. The
+  `wp08-bytes` gate probe is `met`.
+
+- **Integer literals in bases 2, 8 and 16.** `0b1010`, `0o755` and `0x6b` are
+  `int` literals (prefix in either case, `_` between digits); a value that does not
+  fit an `int` is E0006. `tests/run-pass/hex_literals.kode`.
 
 - **Generic methods** (ADR 0040 slice 1c). A method may declare its own type
   parameters: `fn id<T>(x: T) -> T => x` inside `class Util` compiles one instance

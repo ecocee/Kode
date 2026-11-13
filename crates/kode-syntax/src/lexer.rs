@@ -271,6 +271,46 @@ impl<'a> Lexer<'a> {
 
     fn number(&mut self) {
         let start = self.i;
+        // `0x6b`, `0b1010` and `0o755`: an integer in another base (ADR 0043).
+        if self.peek() == Some('0') {
+            let radix = match self.peek_at(1) {
+                Some('x') | Some('X') => Some(16),
+                Some('b') | Some('B') => Some(2),
+                Some('o') | Some('O') => Some(8),
+                _ => None,
+            };
+            if let Some(radix) = radix {
+                self.i += 2;
+                let from = self.i;
+                while matches!(self.peek(), Some(c) if c == '_' || c.is_digit(radix)) {
+                    self.i += 1;
+                }
+                let text: String = self.src[from..self.i]
+                    .chars()
+                    .filter(|c| *c != '_')
+                    .collect();
+                if matches!(self.peek(), Some(c) if is_ident_part(c)) {
+                    while matches!(self.peek(), Some(c) if is_ident_part(c)) {
+                        self.i += 1;
+                    }
+                }
+                match i64::from_str_radix(&text, radix) {
+                    Ok(v) if self.i >= from => self.push(TokenKind::Int(v), start, self.i),
+                    _ => {
+                        let like = match radix {
+                            16 => "`0x6b`",
+                            2 => "`0b1010`",
+                            _ => "`0o755`",
+                        };
+                        self.error("E0006", "this is not a valid number", start, self.i)
+                            .help = Some(format!(
+                            "write a base-{radix} integer like {like}, up to 9223372036854775807"
+                        ));
+                    }
+                }
+                return;
+            }
+        }
         let mut is_float = false;
         self.eat_digits();
         // `1.5` is a float, but `1..5` is a range.

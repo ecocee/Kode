@@ -10,7 +10,7 @@ use crate::types::Type;
 /// The types a written annotation can name, in one place so every "unknown
 /// type" hint stays true.
 const AVAILABLE_TYPES: &str =
-    "The types are int, float, bool, string, your classes, interfaces and \
+    "The types are int, float, bool, string, bytes, your classes, interfaces and \
                               enums, [T] for a list, {string: T} for a map, T? for an optional, \
                               Task<T>, Channel<T> and fn(T) -> U";
 

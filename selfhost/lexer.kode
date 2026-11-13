@@ -34,6 +34,16 @@ const DOT = 46
 const SLASH = 47
 const ZERO = 48
 const NINE = 57
+const CAP_A = 65
+const CAP_B = 66
+const CAP_F = 70
+const CAP_O = 79
+const CAP_X = 88
+const LOW_A = 97
+const LOW_B = 98
+const LOW_F = 102
+const LOW_O = 111
+const LOW_X = 120
 const COLON = 58
 const SEMICOLON = 59
 const LT = 60
@@ -307,9 +317,89 @@ pub class Lexer {
         }
     }
 
-    /// `42`, `1_000`, `3.14`, `2.5e3`. `1..5` stays a range.
+    /// The base of a `0x` / `0b` / `0o` literal at the cursor, or 0 (ADR 0043).
+    fn radix_of_prefix() -> int {
+        if peek() != ZERO {
+            return 0
+        }
+        b = peek_at(1)
+        if b == LOW_X or b == CAP_X {
+            return 16
+        }
+        if b == LOW_B or b == CAP_B {
+            return 2
+        }
+        if b == LOW_O or b == CAP_O {
+            return 8
+        }
+        return 0
+    }
+
+    /// `0`..`9` is 0..9, `a`..`f` or `A`..`F` is 10..15, anything else -1.
+    fn digit_value(b: int) -> int {
+        if b >= ZERO and b <= NINE {
+            return b - ZERO
+        }
+        if b >= CAP_A and b <= CAP_F {
+            return b - CAP_A + 10
+        }
+        if b >= LOW_A and b <= LOW_F {
+            return b - LOW_A + 10
+        }
+        return -1
+    }
+
+    fn is_radix_digit(radix: int) -> bool {
+        b = peek()
+        if b == UNDERSCORE {
+            return true
+        }
+        return digit_value(b) >= 0 and digit_value(b) < radix
+    }
+
+    /// `42`, `1_000`, `3.14`, `2.5e3`, `0x6b`. `1..5` stays a range.
     fn number() {
         start = i
+        radix = radix_of_prefix()
+        if radix > 0 {
+            i += 2
+            digits_start = i
+            while is_radix_digit(radix) {
+                i += 1
+            }
+            // `0x6bz` is one bad literal, not `0x6b` then `z`.
+            if is_ident_part(peek()) {
+                while is_ident_part(peek()) {
+                    i += 1
+                }
+            }
+            digits = src.slice(digits_start, i)
+            ok = digits.size() > 0
+            k = 0
+            while ok and k < digits.size() {
+                b = digits.byte_at(k)
+                ok = b == UNDERSCORE or (digit_value(b) >= 0 and digit_value(b) < radix)
+                k += 1
+            }
+            if ok {
+                emit(TokenKind.Int, start, i)
+            } else {
+                like = "`0o755`"
+                if radix == 16 {
+                    like = "`0x6b`"
+                } else if radix == 2 {
+                    like = "`0b1010`"
+                }
+                fail(
+                    "E0006",
+                    "this is not a valid number",
+                    start,
+                    i,
+                    "write a base-${radix} integer like ${like}, up to 9223372036854775807",
+                )
+            }
+            return
+        }
         is_float = false
         eat_digits()
         if peek() == DOT and is_digit(peek_at(1)) {

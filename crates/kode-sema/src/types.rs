@@ -4,6 +4,8 @@ pub enum Type {
     Float,
     Bool,
     Str,
+    /// `bytes(n)`: a buffer of `n` bytes (ADR 0043).
+    Bytes,
     /// The result of a call that returns nothing, such as `print(...)`.
     Unit,
     List(Box<Type>),
@@ -32,6 +34,7 @@ impl Type {
             Type::Float => "float".into(),
             Type::Bool => "bool".into(),
             Type::Str => "string".into(),
+            Type::Bytes => "bytes".into(),
             Type::Unit => "nothing".into(),
             Type::List(t) => format!("[{}]", t.name()),
             Type::Map(t) => format!("{{string: {}}}", t.name()),
@@ -54,6 +57,7 @@ impl Type {
             Type::Float => "a float".into(),
             Type::Bool => "a bool".into(),
             Type::Str => "a string".into(),
+            Type::Bytes => "a bytes buffer".into(),
             Type::Unit => "nothing".into(),
             other => format!("`{}`", other.name()),
         }
@@ -64,6 +68,7 @@ impl Type {
         matches!(
             self,
             Type::Str
+                | Type::Bytes
                 | Type::List(_)
                 | Type::Map(_)
                 | Type::Class(_)
@@ -87,6 +92,7 @@ impl Type {
             "float" => Some(Type::Float),
             "bool" => Some(Type::Bool),
             "string" => Some(Type::Str),
+            "bytes" => Some(Type::Bytes),
             _ => None,
         }
     }

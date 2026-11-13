@@ -3,6 +3,13 @@
 All of these are runtime functions listed in one table (`crates/kode-sema/src/std_fns.rs`).
 Adding one means one table row and one `extern "C"` function in `crates/kode-rt/src/std_fns.rs`.
 
+| Byte buffers | |
+|---|---|
+| `bytes(n)` | a buffer of `n` zero bytes (ADR 0043); not printable |
+| `b.size()` | number of bytes |
+| `b.get(i)` | byte at `i` as an int, 0..=255; bounds-checked |
+| `b.set(i, v)` | store one byte; the index is checked and `v` must be 0..=255 |
+
 | Strings | |
 |---|---|
 | `s.size()` | bytes (`len(s)` counts characters) |

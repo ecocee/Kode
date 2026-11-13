@@ -3,6 +3,7 @@
 pub enum Builtin {
     Print,
     Len,
+    Bytes,
     Int,
     Float,
     Str,
@@ -14,13 +15,14 @@ pub enum Builtin {
 }
 
 pub const BUILTIN_NAMES: &[&str] = &[
-    "print", "len", "int", "float", "string", "assert", "channel", "send", "recv", "close",
+    "print", "len", "bytes", "int", "float", "string", "assert", "channel", "send", "recv", "close",
 ];
 
 pub fn lookup(name: &str) -> Option<Builtin> {
     Some(match name {
         "print" => Builtin::Print,
         "len" => Builtin::Len,
+        "bytes" => Builtin::Bytes,
         "int" => Builtin::Int,
         "float" => Builtin::Float,
         "string" => Builtin::Str,

@@ -11,10 +11,14 @@ f = 3.5                     # float (64-bit)
 ok = true                   # bool
 s = "hi ${n}"               # string, with ${} interpolation
 n: int = 0                  # a declared type, written once
+mask = 0xff                 # base 2, 8 and 16 literals: 0b1010, 0o755, 0x6b
+buf = bytes(4)              # a buffer of 4 zero bytes (ADR 0043)
 ```
 
-- Types are `int`, `float`, `bool`, `string`, `[T]`, `{string: T}`, classes,
+- Types are `int`, `float`, `bool`, `string`, `bytes`, `[T]`, `{string: T}`, classes,
   enums, interfaces, `Task<T>`, `Channel<T>`, `fn(T) -> R` and `T?`.
+- A `bytes` buffer has `size()`, `get(i)` and `set(i, v)`; it is not printable and
+  not a `[int]`.
 - Numbers never convert on their own: use `int(x)` or `float(x)`.
 
 ## Optionals

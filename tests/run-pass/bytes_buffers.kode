@@ -1,0 +1,27 @@
+b = bytes(4)
+print(b.size())
+print(b.get(0))
+b.set(0, 0x6b)
+b.set(3, 255)
+print(b.size(), b.get(0), b.get(3))
+
+fn fill(n: int, v: int) -> bytes {
+    out = bytes(n)
+    i = 0
+    while i < n {
+        out.set(i, v + i)
+        i = i + 1
+    }
+    return out
+}
+
+buf = fill(3, 10)
+print(buf.get(0), buf.get(1), buf.get(2))
+print(buf.size())
+
+empty = bytes(0)
+print(empty.size())
+
+big = bytes(100_000)
+big.set(99_999, 1)
+print(big.size(), big.get(99_999))

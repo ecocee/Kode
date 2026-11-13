@@ -1296,6 +1296,17 @@ impl<'a> Lowerer<'a> {
     fn builtin(&mut self, b: Builtin, args: &[Arg], e: &Expr) -> V {
         let a0 = args.first().map(|a| &a.value);
         match b {
+            Builtin::Bytes => {
+                let n = self.expr(a0.expect("the type checker checked the argument"));
+                let t = self.new_temp(Ty::Ref);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::BytesNew),
+                    args: vec![n.op.clone()],
+                });
+                self.release_if_owned(n);
+                self.owned(Operand::Local(t))
+            }
             Builtin::Print => {
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 {

@@ -49,6 +49,13 @@ const RT: &[(RtFn, &str, &[&str], Option<&str>)] = &[
     (RtFn::ListSet, "kode_list_set", &[I64, I64, I64, I64], None),
     (RtFn::ListLen, "kode_list_len", &[I64], Some(I64)),
     (RtFn::ListNewPacked, "kode_list_new_packed", &[], Some(I64)),
+    (RtFn::BytesNew, "kode_bytes_new", &[I64], Some(I64)),
+    (
+        RtFn::BytesSet,
+        "kode_bytes_set",
+        &[I64, I64, I64, I64],
+        None,
+    ),
     (RtFn::ListPush8, "kode_list_push8", &[I64, I64], None),
     (
         RtFn::ListGet8,

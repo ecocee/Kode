@@ -1760,6 +1760,31 @@ impl Checker {
                 );
                 None
             }
+            // A byte buffer: `size()`, `get(i)` and `set(i, v)` (ADR 0043).
+            Type::Bytes if name == "size" => {
+                arity(self, 0);
+                Some(Type::Int)
+            }
+            Type::Bytes if name == "get" || name == "set" => {
+                let n = if name == "get" { 1 } else { 2 };
+                if arity(self, n) {
+                    for (i, a) in args.iter().take(n).enumerate() {
+                        if let Some(Some(t)) = tys.get(i) {
+                            if *t != Type::Int {
+                                self.errors.push(Diagnostic::error(
+                                    "E0208",
+                                    format!(
+                                        "`{name}` expects int arguments, found {}",
+                                        t.article()
+                                    ),
+                                    a.value.span,
+                                ));
+                            }
+                        }
+                    }
+                }
+                Some(if name == "get" { Type::Int } else { Type::Unit })
+            }
             other => {
                 self.errors.push(
                     Diagnostic::error(
@@ -1767,7 +1792,10 @@ impl Checker {
                         format!("{} has no method `{name}`", other.article()),
                         name_span,
                     )
-                    .with_help("lists have add, len; maps have has, len, keys; strings have len"),
+                    .with_help(
+                        "lists have add, len; maps have has, len, keys; strings have len; \
+                         bytes have size, get, set",
+                    ),
                 );
                 None
             }
@@ -2063,6 +2091,7 @@ impl Checker {
 
         let (accepts, ret, expects): (Vec<Type>, Type, &str) = match b {
             Builtin::Len => (vec![Type::Str], Type::Int, "a string, a list or a map"),
+            Builtin::Bytes => (vec![Type::Int], Type::Bytes, "a length"),
             Builtin::Int => (
                 vec![Type::Int, Type::Float, Type::Bool],
                 Type::Int,
