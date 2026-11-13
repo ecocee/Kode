@@ -36,6 +36,7 @@ const RT: &[(RtFn, &str, &[&str], Option<&str>)] = &[
     (RtFn::PrintSep, "kode_print_sep", &[], None),
     (RtFn::PrintNl, "kode_print_nl", &[], None),
     (RtFn::StrConcat, "kode_str_concat", &[I64, I64], Some(I64)),
+    (RtFn::EnumTag, "kode_enum_tag", &[I64], Some(I64)),
     (RtFn::StrEq, "kode_str_eq", &[I64, I64], Some(I64)),
     (RtFn::IntToStr, "kode_int_to_str", &[I64], Some(I64)),
     (RtFn::FloatToStr, "kode_float_to_str", &[F64], Some(I64)),

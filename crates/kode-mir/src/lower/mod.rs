@@ -165,12 +165,12 @@ fn make_fnval(checked: &Checked, idx: usize) -> MirFunc {
     }];
     for (name, ty) in &sig.params {
         locals.push(LocalDecl {
-            ty: mir_ty(ty),
+            ty: mir_ty(checked, ty),
             name: Some(name.clone()),
         });
     }
     let args: Vec<Operand> = (1..=sig.params.len()).map(Operand::Local).collect();
-    let ret = mir_ty(&sig.ret);
+    let ret = mir_ty(checked, &sig.ret);
     let dst = if ret == Ty::Unit {
         None
     } else {
@@ -211,7 +211,7 @@ fn make_thunk(checked: &Checked, idx: usize) -> MirFunc {
     let mut insts = Vec::new();
     let mut args = Vec::new();
     for (i, (name, ty)) in sig.params.iter().enumerate() {
-        let t = mir_ty(ty);
+        let t = mir_ty(checked, ty);
         locals.push(LocalDecl {
             ty: t,
             name: Some(name.clone()),
@@ -225,7 +225,7 @@ fn make_thunk(checked: &Checked, idx: usize) -> MirFunc {
         });
         args.push(Operand::Local(id));
     }
-    let ret = mir_ty(&sig.ret);
+    let ret = mir_ty(checked, &sig.ret);
     let raw = if ret == Ty::Unit {
         insts.push(Inst::Call {
             dst: None,
@@ -298,26 +298,27 @@ fn plan_dispatches(
                 }
             }
             map.insert((iface.name.clone(), m.name.clone()), offset + out.len());
-            out.push(build_dispatch(iface, m, &impls, strings));
+            out.push(build_dispatch(checked, iface, m, &impls, strings));
         }
     }
     map
 }
 
 fn build_dispatch(
+    checked: &Checked,
     iface: &InterfaceInfo,
     m: &IfaceMethod,
     impls: &[(i64, usize)],
     strings: &mut Strings,
 ) -> MirFunc {
-    let ret = mir_ty(&m.ret);
+    let ret = mir_ty(checked, &m.ret);
     let mut locals = vec![LocalDecl {
         ty: Ty::Ref,
         name: Some("this".into()),
     }];
     for (name, ty) in &m.params {
         locals.push(LocalDecl {
-            ty: mir_ty(ty),
+            ty: mir_ty(checked, ty),
             name: Some(name.clone()),
         });
     }
@@ -408,10 +409,10 @@ fn lower_fn(
     dispatch: &HashMap<(String, String), usize>,
 ) -> MirFunc {
     let sig = &checked.fns[index];
-    let ret = mir_ty(&sig.ret);
+    let ret = mir_ty(checked, &sig.ret);
     let mut lw = Lowerer::new(checked, src, strings, dispatch, ret, false);
     for (name, ty) in &sig.params {
-        let id = lw.new_local(mir_ty(ty), Some(name.clone()));
+        let id = lw.new_local(mir_ty(checked, ty), Some(name.clone()));
         lw.declare(name, id);
     }
     lw.param_count = sig.params.len();
@@ -442,9 +443,15 @@ fn lower_fn(
     lw.finish(sig.name.clone())
 }
 
-pub(crate) fn mir_ty(t: &Type) -> Ty {
+pub(crate) fn mir_ty(checked: &Checked, t: &Type) -> Ty {
     match t {
-        Type::Int | Type::Enum(_) => Ty::Int,
+        // A tag-only enum stays an `int`; one with a payload variant is a heap
+        // object, and so is every value of that enum (ADR 0039 §2).
+        Type::Enum(n) => match checked.enum_index.get(n) {
+            Some(&ei) if checked.enums[ei].has_payloads() => Ty::Ref,
+            _ => Ty::Int,
+        },
+        Type::Int => Ty::Int,
         Type::Float => Ty::Float,
         Type::Bool => Ty::Bool,
         Type::Unit => Ty::Unit,
@@ -707,7 +714,12 @@ impl<'a> Lowerer<'a> {
     }
 
     pub fn ety(&self, e: &Expr) -> Ty {
-        mir_ty(self.expr_type(e))
+        mir_ty(self.checked, self.expr_type(e))
+    }
+
+    /// `mir_ty` with the enum declarations in reach.
+    pub fn mty(&self, t: &Type) -> Ty {
+        mir_ty(self.checked, t)
     }
 
     pub fn line_of(&self, offset: usize) -> i64 {

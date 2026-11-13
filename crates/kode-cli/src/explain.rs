@@ -32,10 +32,16 @@ const DETAILS: &[(&str, &str, &str, &str)] = &[
     ("E0224", "A `match` must handle every case. Add the missing cases or a `_ =>` arm.", "match x {\n    1 => print(1)\n}", "match x {\n    1 => print(1)\n    _ => print(0)\n}"),
     ("E0227", "A `catch` block must end with a value (when used as an expression) or leave with return, break, continue or throw.", "v = f() catch e {\n    print(e.message)\n}", "v = f() catch e {\n    print(e.message)\n    0\n}"),
     (
-        "E0253",
-        "An enum variant was given a value. Kode enums are a fixed set of names; a variant cannot carry a payload yet.",
-        "enum Shape {\n    Circle\n}\ns: Shape = Shape.Circle(1)",
-        "class Circle {\n    r: int\n}\nc = Circle(r: 1)",
+        "E0417",
+        "An enum variant with fields is a constructor: it is built with its fields, not used as a value.",
+        "enum Shape {\n    Circle(radius: float)\n}\ns = Shape.Circle",
+        "s = Shape.Circle(radius: 1.0)",
+    ),
+    (
+        "E0420",
+        "`==` on a payload enum would compare two heap addresses. Compare the variant with `match`.",
+        "print(a == b)",
+        "match a {\n    Shape.Circle => print(\"circle\")\n    Shape.Empty => print(\"empty\")\n}",
     ),
     (
         "E0303",

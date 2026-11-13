@@ -74,6 +74,21 @@ impl Checker {
                 for p in parts {
                     if let InterpPart::Expr(x) = p {
                         match self.expr(x) {
+                            Some(t) if self.unprintable_enum(&t).is_some() => {
+                                let why = self.unprintable_enum(&t).unwrap_or_default();
+                                self.errors.push(
+                                    Diagnostic::error(
+                                        "E0203",
+                                        format!(
+                                            "cannot put {} inside a string yet: {why}",
+                                            t.article()
+                                        ),
+                                        x.span,
+                                    )
+                                    .with_help("print its scalar fields instead"),
+                                );
+                                ok = false;
+                            }
                             Some(
                                 Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_),
                             ) => {}
@@ -513,7 +528,24 @@ impl Checker {
                 && self.field_of_current_class(n).is_none()
             {
                 if let Some(&ei) = self.enum_index.get(n) {
-                    if self.enums[ei].variants.iter().any(|v| v == name) {
+                    if let Some(vi) = self.enums[ei].variant_index(name) {
+                        let fields = self.enums[ei].fields[vi].clone();
+                        if !fields.is_empty() {
+                            let args = fields
+                                .iter()
+                                .map(|(f, _)| format!("{f}: ..."))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            self.errors.push(
+                                Diagnostic::error(
+                                    "E0417",
+                                    format!("`{n}.{name}` is a constructor, not a value"),
+                                    name_span,
+                                )
+                                .with_help(format!("write `{n}.{name}({args})`")),
+                            );
+                            return None;
+                        }
                         return Some(Type::Enum(n.clone()));
                     }
                     let vs = self.enums[ei].variants.clone();
@@ -752,6 +784,21 @@ impl Checker {
                 ),
             },
             BinOp::Eq | BinOp::Ne => {
+                // A payload enum is a reference to a heap value; `==` would
+                // compare addresses (ADR 0039 §2).
+                if let Type::Enum(n) = &l {
+                    if self.enums[self.enum_index[n]].has_payloads() {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0420",
+                                format!("`==` does not work on `{n}`, which has payloads"),
+                                span,
+                            )
+                            .with_help("use `match`, or `is` to compare the variant"),
+                        );
+                        return Some(Type::Bool);
+                    }
+                }
                 let ok = (l == r && l != Type::Unit)
                     || (l == Type::NoneT && matches!(r, Type::Opt(_)))
                     || (r == Type::NoneT && matches!(l, Type::Opt(_)));
@@ -1284,9 +1331,8 @@ impl Checker {
         args: &[Arg],
         span: Span,
     ) -> Option<Type> {
-        // `Color.Red(1)`: a variant carrying a payload. The language has no enum
-        // payloads yet, and without this the reader gets "unknown variable
-        // `Color`" for what is a recognizable shape from other languages.
+        // `Shape.Circle(radius: 1.5)`: a variant carrying a payload is built like
+        // a class instance, with the fields the declaration names (ADR 0039).
         if let ExprKind::Ident(n) = &obj.kind {
             let is_plain_name = self.scopes.peek_var(n).is_none()
                 && !self.consts.contains_key(n)
@@ -1294,19 +1340,27 @@ impl Checker {
                 && self.module_alias(n).is_none();
             if is_plain_name {
                 if let Some(&ei) = self.enum_index.get(n.as_str()) {
-                    if self.enums[ei].variants.iter().any(|v| v == name) {
-                        self.errors.push(
-                            Diagnostic::error(
-                                "E0253",
-                                format!("`{n}.{name}(...)`: enum payloads are not supported yet"),
-                                span,
-                            )
-                            .with_help(
-                                "give the value fields with a class instead, or drop the payload; \
-                                 payloads are planned in docs/ROADMAP.md",
-                            ),
-                        );
-                        return None;
+                    if let Some(vi) = self.enums[ei].variant_index(name) {
+                        let fields = self.enums[ei].fields[vi].clone();
+                        if fields.is_empty() {
+                            self.errors.push(
+                                Diagnostic::error(
+                                    "E0217",
+                                    format!("`{n}.{name}` takes no fields"),
+                                    span,
+                                )
+                                .with_help(format!("write `{n}.{name}` without `()`")),
+                            );
+                        }
+                        let mut arg_tys = Vec::new();
+                        for a in args {
+                            arg_tys.push(self.expr(&a.value));
+                        }
+                        let defaults = vec![false; fields.len()];
+                        let who = format!("{n}.{name}");
+                        self.check_call_args(id, &fields, args, &arg_tys, &defaults, span, &who);
+                        self.enum_ctor_calls.insert(id, (ei, vi));
+                        return Some(Type::Enum(n.clone()));
                     }
                 }
             }
@@ -1766,6 +1820,29 @@ impl Checker {
         None
     }
 
+    /// A payload enum prints when every field prints (ADR 0039 §4.5, slice 1).
+    /// Names the first field that does not, so the reader can fix it.
+    fn unprintable_enum(&self, t: &Type) -> Option<String> {
+        let Type::Enum(n) = t else {
+            return None;
+        };
+        let ei = *self.enum_index.get(n)?;
+        let info = &self.enums[ei];
+        for (vi, fields) in info.fields.iter().enumerate() {
+            for (fname, fty) in fields {
+                if !matches!(fty, Type::Int | Type::Float | Type::Bool | Type::Str) {
+                    return Some(format!(
+                        "`{}.{}` has a field `{fname}` of type {}",
+                        info.name,
+                        info.variants[vi],
+                        fty.article()
+                    ));
+                }
+            }
+        }
+        None
+    }
+
     fn builtin_call(
         &mut self,
         b: Builtin,
@@ -1777,6 +1854,17 @@ impl Checker {
         if b == Builtin::Print {
             for (i, t) in tys.iter().enumerate() {
                 match t {
+                    Some(t) if self.unprintable_enum(t).is_some() => {
+                        let why = self.unprintable_enum(t).unwrap_or_default();
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0203",
+                                format!("cannot print {} yet: {why}", t.article()),
+                                args[i].value.span,
+                            )
+                            .with_help("print its scalar fields instead"),
+                        );
+                    }
                     Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_))
                     | None => {}
                     Some(t) if crate::types::is_opt_scalar(t).is_some() => {}

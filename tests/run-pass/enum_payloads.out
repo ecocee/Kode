@@ -1,0 +1,9 @@
+Shape.Circle(radius: 1.5)
+Shape.Rect(width: 2.0, height: 3.0)
+Shape.Empty
+Shape.Rect(width: 2.5, height: 4.0)
+circle rect
+empty
+circle
+empty
+Color.Green

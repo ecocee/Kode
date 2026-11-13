@@ -7,6 +7,16 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Payload enums are values** (ADR 0039, slice 1). `enum Shape { Circle(radius: float) }`
+  builds with `Shape.Circle(radius: 1.5)`, prints as it is written
+  (`Shape.Circle(radius: 1.5)`, `Shape.Empty`), and `match` compares the variant
+  tag. An enum with any payload variant stores every variant in the class layout
+  (tag in the object header), so tag-only enums keep the `int` representation and
+  the ABI is unchanged; `kode_enum_tag` is the one new runtime symbol. `E0417`
+  refuses a payload variant used as a value, `E0420` refuses `==`, and `E0253` is
+  gone. Binding fields in a pattern (`Shape.Circle(r)`) and `is` narrowing are the
+  next slices.
+
 - **The self-host plan is executable.** `./scripts/selfhost.sh gates` compiles one
   probe per work packet (`selfhost/spec/gates/`) and prints `met`/`blocked` against
   the target each probe declares; `readiness` turns that into the R0-R6 level and
@@ -25,8 +35,9 @@ language: a patch release fixes bugs, a minor release may add syntax.
   push and pull request, uploading both measurement files (`.github/workflows/ci.yml`).
 - **Enum payload variants parse.** A variant may declare fields,
   `Circle(radius: float)` (ADR 0039, slice 1a): the AST, `kode ast` (text and
-  JSON) and the nesting-limit walker carry them. Constructing one is still
-  `E0253` — the representation, `match` destructuring and `is` are later slices.
+  JSON) and the nesting-limit walker carry them. Construction, printing and
+  tag-based `match` follow in slice 1 (see the bullet above); destructuring and
+  `is` are later slices.
 - **Designs for the two language features S2 needs** (ADRs 0039 and 0040): enum
   payloads with `match` destructuring, `is` and narrowing, plus generic classes by
   monomorphization. Design and slice order only — no compiler or runtime change

@@ -97,7 +97,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 
 | Item | State | Evidence |
 |---|---|---|
-| 1.1 Enum payloads, `match` destructuring, `is`, safe downcast | **partial** (ADR 0039) | slice 1a: `Circle(radius: float)` parses and appears in `kode ast` (`EnumVariant`, dump test, depth limit). Constructing one is still `E0253` (`tests/compile-fail/e0253_enum_payload`); representation, `match` and `is` are pending, codes `E0417`-`E0420` reserved |
+| 1.1 Enum payloads, `match` destructuring, `is`, safe downcast | **partial** (ADR 0039) | slice 1: `Circle(radius: float)` constructs (`Shape.Circle(radius: 1.5)`), prints with field names, matches by tag, and lives in lists; payload variants are class-layout objects whose tag is the class id, tag-only enums stay `int` (`kode_enum_tag` is the only new symbol). Evidence: `tests/run-pass/enum_payloads` (0 leaks), `compile-fail/e0417_payload_value`, `e0420_enum_eq`; `E0253` is gone. Pattern bindings and `is`/narrowing are the remaining slices |
 | 1.2 Generic classes, generic methods, constraints, explicit type args | **partial** (ADR 0040) | slices 1a+1b: `class Box<T>` instantiates per type-argument tuple (`Box.int`), fields and methods substitute, constructor inferes; `tests/run-pass/generic_classes` (two instances, two parameters), `compile-fail/e0421`-`e0423`. Generic methods, constraints and explicit type args still missing |
 | 1.3 `weak` references / cycle safety | **designed, not implemented** | ADR 0038 (`docs/adr/0038-weak-references.md`) with measured leak evidence in `benchmarks/leaks/report.md`; no `weak` token in the lexer yet |
 | 1.4 Fixed-width ints, byte buffers, binary encode/decode | **missing** | probed: `x: u8 = 1` → `E0303 unknown type u8`; only `int` (64-bit) |

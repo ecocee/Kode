@@ -54,11 +54,19 @@ match c {
 ```
 
 - `match` works on `int`, `string`, `bool` and enums. It must cover every case or end with `_ =>` (E0224).
-- Enum values are compared with `==`: they are plain ints with a name.
-- A variant may declare fields, `Circle(radius: float)`, which is the syntax
-  payload enums will use (ADR 0039). The parser and `kode ast` accept it today;
-  constructing one is still `E0253`, because payloads have no representation
-  yet.
+- A tag-only enum value is compared with `==`: it is a plain int with a name.
+- A variant may declare fields, and `Shape.Circle(radius: 1.5)` builds it
+  (ADR 0039). **One rule decides the representation:** if every variant has no
+  fields the enum stays an `int` with no allocation; if any variant has fields,
+  every value of that enum is a heap object with the tag in the object header.
+- `print(s)` writes `Shape.Circle(radius: 1.5)`, field names included, for
+  `int`, `float`, `bool` and `string` fields; a payload enum with any other field
+  type is not printable yet (E0203).
+- `match` on a payload enum compares the variant tag, not the pointer. Binding
+  the fields (`Shape.Circle(r)`) and `is` narrowing are the next slices, so a
+  pattern names a whole variant today.
+- `==` on a payload enum is E0420: it would compare two heap addresses. Use the
+  variant, or compare the fields.
 - `print(c)` and `"${c}"` write the value the way it is written in source,
   `Color.Green`. The text is chosen from static strings, so printing allocates
   nothing and the representation does not change (ADR 0027).

@@ -2,7 +2,7 @@ use kode_sema::Type;
 use kode_syntax::ast::{Arm, Expr, ExprKind, Pattern, Stmt, Target};
 
 use super::data::list_rt;
-use super::{default_operand, mir_ty, Lowerer, V};
+use super::{default_operand, Lowerer, V};
 use crate::ir::*;
 
 impl<'a> Lowerer<'a> {
@@ -303,7 +303,7 @@ impl<'a> Lowerer<'a> {
                     .and_then(|a| kode_sema::types::ann_type(a, self.checked))
                     .and_then(|t| kode_sema::types::is_opt_scalar(&t))
                 {
-                    let scalar = mir_ty(&inner);
+                    let scalar = self.mty(&inner);
                     let v = self.expr(value);
                     let id = self.declare_var_opt(name, scalar);
                     let flag = self.opt_flags[&id];
@@ -311,13 +311,13 @@ impl<'a> Lowerer<'a> {
                     return;
                 }
                 let vty = self.expr_type(value).clone();
-                let ty = mir_ty(&vty);
+                let ty = self.mty(&vty);
                 let v = self.expr(value);
                 if let Some(id) = self.lookup(name) {
                     self.store_local(id, v, ty);
                 } else if let Some((offset, fty)) = self.this_field(name) {
                     let this = Operand::Local(self.this_local.unwrap());
-                    self.store_field(this, offset, mir_ty(&fty), v);
+                    self.store_field(this, offset, self.mty(&fty), v);
                 } else {
                     let id = self.declare_var(name, ty);
                     self.store_local(id, v, ty);
@@ -336,7 +336,7 @@ impl<'a> Lowerer<'a> {
                     Type::List(el) => (el, list_rt(el, RtFn::ListSet)),
                     _ => unreachable!("checked: a list or map"),
                 };
-                let op = if mir_ty(el) == Ty::Ref {
+                let op = if self.mty(el) == Ty::Ref {
                     self.own(v)
                 } else {
                     v.op
@@ -362,7 +362,7 @@ impl<'a> Lowerer<'a> {
                 };
                 let class = &self.checked.classes[self.checked.class_index[cn]];
                 let fi = class.fields.iter().position(|f| f.name == *name).unwrap();
-                let fty = mir_ty(&class.fields[fi].ty);
+                let fty = self.mty(&class.fields[fi].ty);
                 let ov = self.expr(obj);
                 let v = self.expr(value);
                 self.store_field(ov.op.clone(), 24 + 8 * fi as i32, fty, v);
@@ -495,7 +495,7 @@ impl<'a> Lowerer<'a> {
                     });
                 }
                 let name = &vars[vars.len() - 1].0;
-                let ety = mir_ty(el);
+                let ety = self.mty(el);
                 let var = self.declare_var(name, ety);
                 self.store_local(var, V::val(item), ety);
             }
@@ -511,7 +511,7 @@ impl<'a> Lowerer<'a> {
                 if vars.len() == 2 {
                     let val =
                         self.call_raw(RtFn::MapValAt, vec![h.clone(), Operand::Local(idx)], el);
-                    let ety = mir_ty(el);
+                    let ety = self.mty(el);
                     let vv = self.declare_var(&vars[1].0, ety);
                     self.store_local(vv, V::val(val), ety);
                 }
@@ -535,9 +535,33 @@ impl<'a> Lowerer<'a> {
         self.switch(exit);
     }
 
+    /// `Shape.Circle` in a pattern position: the tag, not a value.
+    fn pattern_tag(&self, e: &Expr, ei: usize) -> Option<Operand> {
+        let ExprKind::Member { obj, name, .. } = &e.kind else {
+            return None;
+        };
+        let ExprKind::Ident(n) = &obj.kind else {
+            return None;
+        };
+        if self.checked.enum_index.get(n) != Some(&ei) {
+            return None;
+        }
+        self.checked.enums[ei]
+            .variant_index(name)
+            .map(|v| Operand::Int(v as i64))
+    }
+
     fn lower_match(&mut self, scrutinee: &Expr, arms: &[Arm]) {
         let st = self.expr_type(scrutinee);
         let sv = self.expr(scrutinee);
+        // A payload enum is a heap object, so a `match` on one compares tags.
+        let payload_ei = match st {
+            Type::Enum(n) => {
+                let ei = self.checked.enum_index[n];
+                self.checked.enums[ei].has_payloads().then_some(ei)
+            }
+            _ => None,
+        };
         // A string scrutinee is kept alive in a hidden variable.
         let sop = if *st == Type::Str {
             let holder = self.hidden_ref();
@@ -548,6 +572,15 @@ impl<'a> Lowerer<'a> {
                 rv: Rvalue::Use(op),
             });
             Operand::Local(holder)
+        } else if payload_ei.is_some() {
+            let tag = self.new_temp(Ty::Int);
+            self.emit(Inst::Call {
+                dst: Some(tag),
+                callee: Callee::Rt(RtFn::EnumTag),
+                args: vec![sv.op.clone()],
+            });
+            self.release_if_owned(sv);
+            Operand::Local(tag)
         } else {
             sv.op
         };
@@ -562,7 +595,12 @@ impl<'a> Lowerer<'a> {
                     return;
                 }
                 Pattern::Value(p) => {
-                    let pv = self.expr(p);
+                    // A variant pattern names a tag; constructing the variant
+                    // here would compare a pointer with an int.
+                    let pv = match payload_ei.and_then(|ei| self.pattern_tag(p, ei)) {
+                        Some(tag) => V::val(tag),
+                        None => self.expr(p),
+                    };
                     let cond = self.new_temp(Ty::Bool);
                     if *st == Type::Str {
                         self.emit(Inst::Call {

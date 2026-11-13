@@ -81,7 +81,6 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0250 | cannot infer a type parameter of a generic function |
 | E0251 | a generic function cannot be used as a value |
 | E0252 | a method cannot have type parameters yet |
-| E0253 | enum payloads are not supported yet (`Shape.Circle(1)`) |
 
 ## Declarations and statements (E03xx)
 
@@ -121,6 +120,8 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0421 | wrong number of type arguments (ADR 0040) |
 | E0422 | a generic class constructor cannot infer a type argument |
 | E0423 | a generic class needs type arguments, `Box<int>` |
+| E0417 | a payload variant used as a value, without its fields |
+| E0420 | `==` on an enum with payloads (ADR 0039) |
 
 ## Warnings
 

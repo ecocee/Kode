@@ -179,6 +179,8 @@ impl Checker {
                         self.enums.push(EnumInfo {
                             name: e.name.clone(),
                             variants: e.variants.iter().map(|v| v.name.clone()).collect(),
+                            // Filled by 1c, once every declared name is known.
+                            fields: vec![Vec::new(); e.variants.len()],
                         });
                     }
                 }
@@ -242,6 +244,31 @@ impl Checker {
                 });
             }
             self.interfaces[ii].methods = methods;
+        }
+        // 1c. enum variant fields (ADR 0039): resolved once every name exists,
+        // so a variant may carry a class or another enum declared later.
+        for item in &program.items {
+            let Item::Enum(e) = item else { continue };
+            let Some(&ei) = self.enum_index.get(&e.name) else {
+                continue;
+            };
+            let mut fields: Vec<Vec<(String, Type)>> = Vec::new();
+            for v in &e.variants {
+                let mut f: Vec<(String, Type)> = Vec::new();
+                for p in &v.fields {
+                    if f.iter().any(|(n, _)| *n == p.name) {
+                        self.errors.push(Diagnostic::error(
+                            "E0306",
+                            format!("the field `{}` appears twice in this variant", p.name),
+                            p.name_span,
+                        ));
+                    }
+                    let ty = self.resolve_type(&p.ty).unwrap_or(Type::Int);
+                    f.push((p.name.clone(), ty));
+                }
+                fields.push(f);
+            }
+            self.enums[ei].fields = fields;
         }
         // 2. class fields
         let mut done = HashSet::new();

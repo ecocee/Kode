@@ -1,10 +1,12 @@
 // work packet: WP03 enum payload construction
 // target: ok
-// A variant with fields is a value, not just a tag (ADR 0039, slice 1b).
+// A variant with fields is a value, printed the way it is written (ADR 0039).
 enum Shape {
     Circle(radius: float)
+    Rect(width: float, height: float)
     Empty
 }
 
-s = Shape.Circle(radius: 1.5)
-print(s is Shape.Circle)
+print(Shape.Circle(radius: 1.5))
+print(Shape.Rect(width: 2.0, height: 3.0))
+print(Shape.Empty)

@@ -226,6 +226,20 @@ pub extern "C" fn kode_obj_class(p: *mut Header) -> i64 {
     unsafe { ((*p).kind >> 8) & 0xff }
 }
 
+/// The enum variant tag. An enum object stores it where a class id goes, so
+/// `match` and `is` read it from the same bits (ADR 0039 §3).
+///
+/// # Safety
+/// `p` must be null or an enum object built by `kode_obj_new_class`.
+#[no_mangle]
+pub unsafe extern "C" fn kode_enum_tag(p: *mut Header) -> i64 {
+    if p.is_null() {
+        return -1;
+    }
+
+    ((*p).kind >> 8) & 0xff
+}
+
 /// Release all referenced fields and free a class instance.
 unsafe fn drop_obj(p: *mut Header) {
     let nfields = ((*p).kind >> 16) as usize;

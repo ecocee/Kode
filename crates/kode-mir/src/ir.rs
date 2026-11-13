@@ -122,6 +122,8 @@ pub enum RtFn {
     /// Like `ObjNew`, but records the class id in the object header for
     /// interface dispatch.
     ObjNewClass,
+    /// The variant tag of an enum object (ADR 0039).
+    EnumTag,
     ErrThrow,
     ErrPending,
     ErrTake,

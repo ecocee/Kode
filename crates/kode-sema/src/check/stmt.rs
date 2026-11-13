@@ -497,6 +497,25 @@ impl Checker {
         self.pop_scope();
     }
 
+    /// The variant a pattern names, when the pattern is `Enum.Variant` and the
+    /// scrutinee is that enum.
+    fn pattern_variant(&self, st: &Option<Type>, p: &Expr) -> Option<String> {
+        let Some(Type::Enum(en)) = st else {
+            return None;
+        };
+        let ExprKind::Member { obj, name, .. } = &p.kind else {
+            return None;
+        };
+        let ExprKind::Ident(vn) = &obj.kind else {
+            return None;
+        };
+        if vn != en {
+            return None;
+        }
+        let info = &self.enums[self.enum_index[en]];
+        info.variants.contains(name).then(|| name.clone())
+    }
+
     fn match_stmt(&mut self, scrutinee: &Expr, arms: &[Arm], span: Span) {
         let st = self.expr(scrutinee);
         let mut has_wild = false;
@@ -518,6 +537,14 @@ impl Checker {
             match &arm.pattern {
                 Pattern::Wildcard => has_wild = true,
                 Pattern::Value(p) => {
+                    // `Shape.Circle` in a pattern names a tag; the same
+                    // expression in value position is a constructor, so it is
+                    // resolved here rather than through `self.expr` (ADR 0039).
+                    if let Some(name) = self.pattern_variant(&st, p) {
+                        variants.push(name);
+                        self.block(&arm.body);
+                        continue;
+                    }
                     let pt = self.expr(p);
                     if let (Some(s), Some(pt)) = (&st, &pt) {
                         if s != pt {

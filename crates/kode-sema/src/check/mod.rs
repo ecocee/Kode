@@ -68,6 +68,21 @@ pub struct ModuleInfo {
 pub struct EnumInfo {
     pub name: String,
     pub variants: Vec<String>,
+    /// The fields of each variant, parallel to `variants` (ADR 0039).
+    pub fields: Vec<Vec<(String, Type)>>,
+}
+
+impl EnumInfo {
+    /// Any variant with a field makes every value of this enum a heap object
+    /// (ADR 0039 §2); a tag-only enum stays an `int`.
+    pub fn has_payloads(&self) -> bool {
+        self.fields.iter().any(|f| !f.is_empty())
+    }
+
+    /// The tag of a variant: its index in declaration order.
+    pub fn variant_index(&self, name: &str) -> Option<usize> {
+        self.variants.iter().position(|v| v == name)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,6 +135,8 @@ pub struct Checked {
     pub generic_calls: HashMap<ExprId, usize>,
     /// For a constructor call on a generic class: the instance it built.
     pub class_ctor_calls: HashMap<ExprId, usize>,
+    /// For `Shape.Circle(..)`: (enum, variant).
+    pub enum_ctor_calls: HashMap<ExprId, (usize, usize)>,
     pub warnings: Vec<Diagnostic>,
 }
 
@@ -156,6 +173,8 @@ pub(crate) struct Checker {
     /// Constructor calls that resolved to a generic class instance, and which
     /// class instance each one is (ADR 0040).
     pub class_ctor_calls: HashMap<ExprId, usize>,
+    /// `Shape.Circle(..)` calls, by expression: (enum, variant).
+    pub enum_ctor_calls: HashMap<ExprId, (usize, usize)>,
     /// Generic class declarations, by name. They are never instantiated
     /// themselves and never lowered; the source name is not a class in
     /// `class_index`, which is what makes a bare `Box` an E0423.
@@ -398,6 +417,7 @@ impl Checker {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            fields: vec![Vec::new(); 7],
         };
         let mut enum_index = HashMap::new();
         enum_index.insert("JsonKind".to_string(), 0);
@@ -431,6 +451,7 @@ impl Checker {
             generic_index: HashMap::new(),
             generic_decls: Vec::new(),
             class_ctor_calls: HashMap::new(),
+            enum_ctor_calls: HashMap::new(),
             generic_class_index: HashMap::new(),
             generic_classes: Vec::new(),
             instances: Vec::new(),
@@ -574,6 +595,7 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         bodies: c.bodies,
         generic_calls: c.generic_calls,
         class_ctor_calls: c.class_ctor_calls,
+        enum_ctor_calls: c.enum_ctor_calls,
         throws,
         warnings: c.warnings,
     })

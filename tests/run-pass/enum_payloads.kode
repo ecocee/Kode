@@ -1,0 +1,39 @@
+// Payload enums (ADR 0039, slice 1): construct, print, and match by tag.
+enum Shape {
+    Circle(radius: float)
+    Rect(width: float, height: float)
+    Empty
+}
+
+print(Shape.Circle(radius: 1.5))
+print(Shape.Rect(width: 2.0, height: 3.0))
+print(Shape.Empty)
+
+// Field names are checked, and named arguments may come in any order.
+r = Shape.Rect(height: 4.0, width: 2.5)
+print(r)
+
+// Matching compares the variant tag, not the pointer.
+fn name_of(s: Shape) -> string {
+    match s {
+        Shape.Circle => return "circle"
+        Shape.Rect => return "rect"
+        Shape.Empty => return "empty"
+    }
+}
+print(name_of(Shape.Circle(radius: 1.0)), name_of(Shape.Rect(width: 1.0, height: 1.0)))
+print(name_of(Shape.Empty))
+
+// A payload enum works as a value inside a list, and is matched on the way out.
+shapes = [Shape.Circle(radius: 2.0), Shape.Empty]
+for s in shapes {
+    print(name_of(s))
+}
+
+// A tag-only enum keeps the int representation and prints as before.
+enum Color {
+    Red
+    Green
+    Blue
+}
+print(Color.Green)

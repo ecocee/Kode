@@ -1,11 +1,14 @@
 # ADR 0039: Enum payloads
 
-Status: **proposed** — design, with slice 1a landed. The syntax, AST and
-`kode ast` tree for payload variants now exist (`crates/kode-syntax`: `EnumVariant`,
-parser, dump, depth limit); construction still reports `E0253` and nothing in
-`kode-sema` or the runtime has changed. The remaining slices in §9 are separate,
-test-first changes and need the maintainer's approval, because they change a
-value representation (AGENTS.md "Ask the maintainer first").
+Status: **accepted in part** — slice 1 landed. Payload variants parse and appear
+in `kode ast`, are constructed (`Shape.Circle(radius: 1.5)`), print with their
+field names, and a `match` compares the tag; the object layout is the class
+layout with the variant tag in the class-id bits, and `kode_enum_tag` is the one
+new runtime symbol. The representation rule of §2 is exactly as written: tag-only
+enums stay `int`, one payload variant makes every variant a heap object. `E0253`
+is gone; `E0417` and `E0420` landed with their rows. Slices 2 (pattern bindings)
+and 3 (`is` and narrowing) remain, plus `E0418` if a variant constructor's field
+names need their own code (it reuses E0208/E0216 for now).
 Date: 2026-11-11.
 Plan item: `docs/PLAN-v1.md` 9.7, `docs/STATUS.md` 1.1. Blocks S2 of
 `docs/PLAN-self-hosting.md`.

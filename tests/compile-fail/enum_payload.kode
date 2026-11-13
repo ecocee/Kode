@@ -1,9 +1,0 @@
-enum Shape {
-    Circle
-    Square
-}
-
-// Enum variants cannot carry a payload yet: this is E0253, not "unknown
-// variable Shape".
-shape: Shape = Shape.Circle(1)
-print(shape)
