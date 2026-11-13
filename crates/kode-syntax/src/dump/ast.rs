@@ -307,6 +307,16 @@ fn expr(e: &Expr) -> Node {
                 None => n,
             }
         }
+        ExprKind::Is {
+            obj,
+            enum_name,
+            variant,
+            name_span,
+        } => Node::new("Is")
+            .text("enum", enum_name)
+            .text("variant", variant)
+            .span("name_span", *name_span)
+            .child(expr(obj)),
         ExprKind::Member {
             obj,
             name,

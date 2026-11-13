@@ -66,7 +66,13 @@ impl<'a> Lowerer<'a> {
             } => self.slice(obj, start.as_deref(), end.as_deref(), *inclusive),
             ExprKind::Member {
                 obj, name, safe, ..
-            } => self.member(obj, name, *safe),
+            } => self.member(e, obj, name, *safe),
+            ExprKind::Is {
+                obj,
+                enum_name,
+                variant,
+                ..
+            } => self.is_test(obj, enum_name, variant),
             ExprKind::MethodCall {
                 obj, name, args, ..
             } => self.method_call(e, obj, name, args),
@@ -455,6 +461,32 @@ impl<'a> Lowerer<'a> {
         self.term(Terminator::Unreachable);
         self.switch(ok);
         v
+    }
+
+    /// `s is Shape.Circle`: one tag read and one compare (ADR 0039 §4.4).
+    fn is_test(&mut self, obj: &Expr, enum_name: &str, variant: &str) -> V {
+        let ei = self.checked.enum_index[enum_name];
+        let vi = self.checked.enums[ei].variant_index(variant).unwrap();
+        let payload = self.checked.enums[ei].has_payloads();
+        let v = self.expr(obj);
+        let tag = if payload {
+            let t = self.new_temp(Ty::Int);
+            self.emit(Inst::Call {
+                dst: Some(t),
+                callee: Callee::Rt(RtFn::EnumTag),
+                args: vec![v.op.clone()],
+            });
+            Operand::Local(t)
+        } else {
+            v.op.clone()
+        };
+        let cond = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: cond,
+            rv: Rvalue::Binary(BinOp::Eq, tag, Operand::Int(vi as i64)),
+        });
+        self.release_if_owned(v);
+        V::val(Operand::Local(cond))
     }
 
     /// The text of an enum value, written the way it is written in source:

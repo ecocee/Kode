@@ -38,6 +38,12 @@ const DETAILS: &[(&str, &str, &str, &str)] = &[
         "s = Shape.Circle(radius: 1.0)",
     ),
     (
+        "E0419",
+        "A payload enum may hold another variant than the fields you asked for, so read them after `is` narrowed the value.",
+        "print(s.radius)",
+        "if s is Shape.Circle {\n    print(s.radius)\n}",
+    ),
+    (
         "E0420",
         "`==` on a payload enum would compare two heap addresses. Compare the variant with `match`.",
         "print(a == b)",

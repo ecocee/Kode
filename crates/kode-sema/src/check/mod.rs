@@ -135,6 +135,8 @@ pub struct Checked {
     pub generic_calls: HashMap<ExprId, usize>,
     /// For a constructor call on a generic class: the instance it built.
     pub class_ctor_calls: HashMap<ExprId, usize>,
+    /// For `s.radius` on a narrowed enum: (enum, variant, field).
+    pub enum_field_reads: HashMap<ExprId, (usize, usize, usize)>,
     /// For `Shape.Circle(..)`: (enum, variant).
     pub enum_ctor_calls: HashMap<ExprId, (usize, usize)>,
     pub warnings: Vec<Diagnostic>,
@@ -175,6 +177,8 @@ pub(crate) struct Checker {
     pub class_ctor_calls: HashMap<ExprId, usize>,
     /// `Shape.Circle(..)` calls, by expression: (enum, variant).
     pub enum_ctor_calls: HashMap<ExprId, (usize, usize)>,
+    /// `s.radius` reads that a narrowing made safe.
+    pub enum_field_reads: HashMap<ExprId, (usize, usize, usize)>,
     /// Generic class declarations, by name. They are never instantiated
     /// themselves and never lowered; the source name is not a class in
     /// `class_index`, which is what makes a bare `Box` an E0423.
@@ -187,6 +191,8 @@ pub(crate) struct Checker {
     pub scopes: Scopes,
     /// Locals proven not to be `none` in this block: (scope depth, name, type).
     narrowed: Vec<(usize, String, Type)>,
+    /// Locals narrowed to one variant: (depth, name, enum, variant).
+    narrowed_variants: Vec<(usize, String, String, usize)>,
     pub ret_type: Type,
     pub in_fn: bool,
     pub loop_depth: usize,
@@ -452,6 +458,7 @@ impl Checker {
             generic_decls: Vec::new(),
             class_ctor_calls: HashMap::new(),
             enum_ctor_calls: HashMap::new(),
+            enum_field_reads: HashMap::new(),
             generic_class_index: HashMap::new(),
             generic_classes: Vec::new(),
             instances: Vec::new(),
@@ -463,6 +470,7 @@ impl Checker {
             calls: Vec::new(),
             scopes: Scopes::new(),
             narrowed: Vec::new(),
+            narrowed_variants: Vec::new(),
             ret_type: Type::Unit,
             in_fn: false,
             loop_depth: 0,
@@ -477,6 +485,7 @@ impl Checker {
         self.warnings = warnings;
         let depth = self.scopes.depth();
         self.narrowed.retain(|(d, _, _)| *d <= depth);
+        self.narrowed_variants.retain(|(d, _, _, _)| *d <= depth);
     }
 
     /// Remember that `name` is a `ty` (not `none`) until this block ends or the
@@ -486,6 +495,25 @@ impl Checker {
         self.narrowed
             .retain(|(d, n, _)| !(*d == depth && n == name));
         self.narrowed.push((depth, name.to_string(), ty));
+    }
+
+    /// Remember that `name` holds `variant` of `enum_name` until this block ends
+    /// or the variable is assigned.
+    pub(crate) fn narrow_variant(&mut self, name: &str, enum_name: &str, vi: usize) {
+        let depth = self.scopes.depth();
+        self.narrowed_variants
+            .retain(|(d, n, _, _)| !(*d == depth && n == name));
+        self.narrowed_variants
+            .push((depth, name.to_string(), enum_name.to_string(), vi));
+    }
+
+    /// The variant a local was narrowed to, if any.
+    pub(crate) fn narrowed_variant(&self, name: &str) -> Option<(String, usize)> {
+        self.narrowed_variants
+            .iter()
+            .rev()
+            .find(|(_, n, _, _)| n == name)
+            .map(|(_, _, e, vi)| (e.clone(), *vi))
     }
 
     /// The narrowed type of a local, if a check proved it is not `none`.
@@ -595,6 +623,7 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         bodies: c.bodies,
         generic_calls: c.generic_calls,
         class_ctor_calls: c.class_ctor_calls,
+        enum_field_reads: c.enum_field_reads,
         enum_ctor_calls: c.enum_ctor_calls,
         throws,
         warnings: c.warnings,

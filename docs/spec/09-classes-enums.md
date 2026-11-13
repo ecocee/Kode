@@ -66,7 +66,10 @@ match c {
   pattern binds the fields in declaration order: `Shape.Rect(w, h)`. The names
   are ordinary locals inside the arm. Binding the wrong number of names is E0207,
   a non-name in a binding position is E0201, and a name bound twice is E0306.
-  `is` narrowing is the next slice.
+- `s is Shape.Circle` is a bool: one tag compare, also usable in `and`/`not`.
+  Inside `if s is Shape.Circle { ... }` the value is narrowed to that variant, so
+  `s.radius` may be read there; reading it without a narrowing is E0419, not a
+  runtime check. `is` works on tag-only enums too.
 - `==` on a payload enum is E0420: it would compare two heap addresses. Use the
   variant, or compare the fields.
 - `print(c)` and `"${c}"` write the value the way it is written in source,

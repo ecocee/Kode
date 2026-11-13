@@ -152,7 +152,13 @@ impl Checker {
                 name,
                 name_span,
                 safe,
-            } => self.member(obj, name, *name_span, *safe),
+            } => self.member(e.id, obj, name, *name_span, *safe),
+            ExprKind::Is {
+                obj,
+                enum_name,
+                variant,
+                name_span,
+            } => self.is_expr(obj, enum_name, variant, *name_span),
             ExprKind::MethodCall {
                 obj,
                 name,
@@ -520,7 +526,128 @@ impl Checker {
         }
     }
 
-    fn member(&mut self, obj: &Expr, name: &str, name_span: Span, safe: bool) -> Option<Type> {
+    /// `s is Shape.Circle`: a bool, and the checker's cue to narrow `s` inside
+    /// the branch it guards (ADR 0039 §4.4).
+    fn is_expr(
+        &mut self,
+        obj: &Expr,
+        enum_name: &str,
+        variant: &str,
+        name_span: Span,
+    ) -> Option<Type> {
+        let t = self.expr(obj);
+        match &t {
+            Some(Type::Enum(n)) if n != enum_name => {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0223",
+                        format!("this value is `{n}`, not `{enum_name}`"),
+                        name_span,
+                    )
+                    .with_help("`is` tests the variant of the value's own enum"),
+                );
+                return Some(Type::Bool);
+            }
+            Some(Type::Enum(_)) => {}
+            Some(other) => {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0223",
+                        format!("`is` needs an enum value, found {}", other.article()),
+                        name_span,
+                    )
+                    .with_help("use `match` on enums, and `== none` on optionals"),
+                );
+                return Some(Type::Bool);
+            }
+            None => return Some(Type::Bool),
+        }
+        let ei = self.enum_index[enum_name];
+        if self.enums[ei].variant_index(variant).is_none() {
+            let vs = self.enums[ei].variants.clone();
+            let mut d = Diagnostic::error(
+                "E0225",
+                format!("`{enum_name}` has no variant `{variant}`"),
+                name_span,
+            );
+            if let Some(s) = closest(variant, vs.iter().map(|s| s.as_str())) {
+                d = d.with_help(format!("did you mean `{s}`?"));
+            }
+            self.errors.push(d);
+        }
+        Some(Type::Bool)
+    }
+
+    fn member(
+        &mut self,
+        id: ExprId,
+        obj: &Expr,
+        name: &str,
+        name_span: Span,
+        safe: bool,
+    ) -> Option<Type> {
+        // `if s is Shape.Circle { s.radius }`: a field read the narrowing made
+        // safe. The variant and field are recorded for MIR (ADR 0039 §4.4).
+        if let ExprKind::Ident(vn) = &obj.kind {
+            if let Some((en, vi)) = self.narrowed_variant(vn) {
+                let ei = self.enum_index[&en];
+                let fields = self.enums[ei].fields[vi].clone();
+                if let Some(fi) = fields.iter().position(|(f, _)| f == name) {
+                    let ty = fields[fi].1.clone();
+                    self.enum_field_reads.insert(id, (ei, vi, fi));
+                    return Some(ty);
+                }
+                let names = fields
+                    .iter()
+                    .map(|(f, _)| f.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0217",
+                        format!(
+                            "`{en}.{}` has no field `{name}`",
+                            self.enums[ei].variants[vi]
+                        ),
+                        name_span,
+                    )
+                    .with_help(format!("it has: {names}")),
+                );
+                return None;
+            }
+        }
+        // A field of a payload enum read without narrowing is not safe: the
+        // value may hold another variant (E0419).
+        if let ExprKind::Ident(vn) = &obj.kind {
+            if self.scopes.peek_var(vn).is_none() {
+                // A type name, handled below (`Color.Red`).
+            } else if let Some(Type::Enum(en)) = self.scopes.peek_var(vn) {
+                let ei = self.enum_index[&en];
+                let info = self.enums[ei].clone();
+                if info.has_payloads() {
+                    if let Some(vi) = info
+                        .fields
+                        .iter()
+                        .position(|f| f.iter().any(|(fname, _)| fname == name))
+                    {
+                        let variant = info.variants[vi].clone();
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0419",
+                                format!(
+                                    "`{vn}.{name}` is only valid when `{vn}` holds `{en}.{variant}`"
+                                ),
+                                name_span,
+                            )
+                            .with_help(format!(
+                                "narrow first: `if {vn} is {en}.{variant} {{ ... }}`"
+                            )),
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
         // `Color.Red`
         if let ExprKind::Ident(n) = &obj.kind {
             if self.scopes.peek_var(n).is_none()

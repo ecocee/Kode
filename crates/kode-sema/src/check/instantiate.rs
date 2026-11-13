@@ -614,7 +614,7 @@ fn renumber_expr(e: &mut Expr, next: &mut u32) {
                 renumber_expr(bound, next);
             }
         }
-        ExprKind::Member { obj, .. } => renumber_expr(obj, next),
+        ExprKind::Member { obj, .. } | ExprKind::Is { obj, .. } => renumber_expr(obj, next),
         ExprKind::MethodCall { obj, args, .. } => {
             renumber_expr(obj, next);
             for a in args {

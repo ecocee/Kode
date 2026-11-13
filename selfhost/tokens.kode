@@ -19,6 +19,7 @@ pub enum TokenKind {
         While,
         For,
         In,
+        Is,
         Break,
         Continue,
         Return,
@@ -159,6 +160,9 @@ pub fn token_name(kind: TokenKind) -> string {
         }
         TokenKind.In => {
             name = "In"
+        }
+        TokenKind.Is => {
+            name = "Is"
         }
         TokenKind.Break => {
             name = "Break"

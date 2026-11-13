@@ -1,0 +1,8 @@
+// A payload enum field needs a narrowing first.
+enum Shape {
+    Circle(radius: float)
+    Square(side: float)
+}
+
+s = Shape.Circle(radius: 1.0)
+print(s.radius)

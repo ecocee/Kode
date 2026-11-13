@@ -419,7 +419,22 @@ impl<'a> Lowerer<'a> {
         self.borrow_result(ov, result, res_ty)
     }
 
-    pub(crate) fn member(&mut self, obj: &Expr, name: &str, safe: bool) -> V {
+    pub(crate) fn member(&mut self, e: &Expr, obj: &Expr, name: &str, safe: bool) -> V {
+        // `if s is Shape.Circle { s.radius }`: the checker resolved the field
+        // and proved the variant (ADR 0039 §4.4).
+        if let Some(&(ei, vi, fi)) = self.checked.enum_field_reads.get(&e.id) {
+            let fty = self.checked.enums[ei].fields[vi][fi].1.clone();
+            let ov = self.expr(obj);
+            let ty = self.mty(&fty);
+            let dst = self.new_temp(ty);
+            self.emit(Inst::Load {
+                dst,
+                base: ov.op.clone(),
+                offset: 24 + 8 * fi as i32,
+                ty,
+            });
+            return self.borrow_result(ov, Operand::Local(dst), &fty);
+        }
         // `util.TAX`: a public constant from an imported module.
         if let ExprKind::Ident(n) = &obj.kind {
             if self.lookup(n).is_none()

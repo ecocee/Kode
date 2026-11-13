@@ -152,6 +152,7 @@ pub(crate) fn too_deep(program: &Program) -> Option<Span> {
                     }
                 }
                 ExprKind::Member { obj, .. } => stack.push(Node::Expr(obj, next)),
+                ExprKind::Is { obj, .. } => stack.push(Node::Expr(obj, next)),
                 ExprKind::MethodCall { obj, args, .. } => {
                     stack.push(Node::Expr(obj, next));
                     push_args(args, next, &mut stack);

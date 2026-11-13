@@ -121,6 +121,7 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0422 | a generic class constructor cannot infer a type argument |
 | E0423 | a generic class needs type arguments, `Box<int>` |
 | E0417 | a payload variant used as a value, without its fields |
+| E0419 | a field read on an enum variant without narrowing |
 | E0420 | `==` on an enum with payloads (ADR 0039) |
 
 ## Warnings

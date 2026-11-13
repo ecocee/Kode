@@ -58,8 +58,8 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R5** | the front end interprets programs | every run-pass `.out` through the Kode evaluator |
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
-Measured today: **R1** — 201 token dumps byte-identical, including the ten work
-packet probes. R2 is open: `gates` reports 3 met, 7 blocked.
+Measured today: **R1** — 203 token dumps byte-identical, including the ten work
+packet probes. R2 is open: `gates` reports 4 met, 6 blocked.
 
 ## 3. Work packets
 
@@ -82,7 +82,7 @@ each probe with Stage 0, records the observed result, and prints `met` or
 | **WP-02** | generic methods: `fn id<T>(x: T) -> T` | `wp02-generic-methods` | E0252 |
 | **WP-03** | construct an enum payload variant (ADR 0039 slice 1) | `wp03-enum-payload-construct` | **met** |
 | **WP-04** | `match` a payload and bind its fields | `wp04-match-payload` | **met** |
-| **WP-05** | `is` on a payload variant | `wp05-is-narrow` | E0103 |
+| **WP-05** | `is` on a payload variant, with narrowing | `wp05-is-narrow` | **met** |
 | **WP-06** | optional scalars as fields and parameters | `wp06-optional-scalar-fields` | E0219 |
 | **WP-07** | `weak` back-edges (ADR 0038) | `wp07-weak` | E0114 |
 | **WP-08** | byte buffers, `u8`/`i32` | `wp08-bytes` | E0006 |
@@ -115,7 +115,7 @@ output; `--format=json` stability (AGENTS.md 9) applies from day one.
 `selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode` (~1,250 lines,
 each file under 500) plus `selfhost/spec/lexer_cases.kode`.
 
-`stage1` builds the port with Stage 0 and reports **200 of 200 token dumps
+`stage1` builds the port with Stage 0 and reports **203 of 203 token dumps
 byte-identical** (3.0 s / 6,736 KB for Stage 0 including trees, 2.3 s / 3,792 KB
 for Stage 1 tokens).
 

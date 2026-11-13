@@ -32,6 +32,9 @@ pub fn keyword_of(word: string) -> TokenKind {
         "in" => {
             kind = TokenKind.In
         }
+        "is" => {
+            kind = TokenKind.Is
+        }
         "break" => {
             kind = TokenKind.Break
         }

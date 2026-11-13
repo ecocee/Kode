@@ -56,6 +56,13 @@ pub enum ExprKind {
         name_span: Span,
         args: Vec<Arg>,
     },
+    /// `s is Shape.Circle`: does this value hold that variant? (ADR 0039 §4.4)
+    Is {
+        obj: Box<Expr>,
+        enum_name: String,
+        variant: String,
+        name_span: Span,
+    },
     Unary {
         op: UnOp,
         expr: Box<Expr>,

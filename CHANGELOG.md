@@ -7,6 +7,12 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`is` and narrowing** (ADR 0039 §4.4). `s is Shape.Circle` is one tag compare
+  and a bool, so it composes with `and`/`not`; inside `if s is Shape.Circle { ... }`
+  the value is narrowed and `s.radius` may be read, while an unnarrowed field read
+  is `E0419` with the narrowing to write. That closes ADR 0039: payload enums
+  construct, print, destructure and narrow, with `E0253` long gone.
+
 - **Pattern bindings on payload enums** (ADR 0039 §4.3). `Shape.Circle(r)` binds
   the variant's fields in declaration order, positionally, as ordinary locals
   inside the arm: `match v { Value.Pair(l, r) => ... }` handles a recursive tree

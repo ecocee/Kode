@@ -1,0 +1,46 @@
+// `is` on a payload enum, and the narrowing it gives the true branch
+// (ADR 0039 §4.4).
+enum Shape {
+    Circle(radius: float)
+    Square(side: float)
+}
+
+fn area(s: Shape) -> float {
+    if s is Shape.Circle {
+        return 3.14159 * s.radius * s.radius
+    }
+    if s is Shape.Square {
+        return s.side * s.side
+    }
+    return 0.0
+}
+
+print(area(Shape.Square(side: 2.0)))
+print(area(Shape.Circle(radius: 1.0)))
+
+// `is` is a bool, so it composes with `and`, `not` and if/else.
+s = Shape.Circle(radius: 2.0)
+print(s is Shape.Circle, s is Shape.Square)
+circle = s is Shape.Circle
+if circle and not (s is Shape.Square) {
+    print("circle only")
+}
+
+// The narrowed field can be printed and used through the whole branch.
+fn label(s: Shape) -> string {
+    if s is Shape.Circle {
+        print("radius", s.radius)
+        return "circle"
+    }
+    return "square"
+}
+print(label(Shape.Circle(radius: 0.5)))
+print(label(Shape.Square(side: 3.0)))
+
+// A tag-only enum answers `is` too.
+enum Color {
+    Red
+    Green
+}
+c = Color.Green
+print(c is Color.Green)

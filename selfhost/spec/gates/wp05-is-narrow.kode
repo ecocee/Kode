@@ -1,13 +1,20 @@
 // work packet: WP05 is narrow
 // target: ok
-// `is` answers "this value is that variant", which is how AST dispatch replaces
-// a parallel field per node kind (ADR 0039).
+// `is` answers "this value is that variant", and narrows the true branch so its
+// fields can be read (ADR 0039 §4.4).
 enum Shape {
     Circle(radius: float)
     Square(side: float)
 }
 
-s = Shape.Square(side: 2.0)
-if s is Shape.Square {
-    print("square")
+fn area(s: Shape) -> float {
+    if s is Shape.Circle {
+        return 3.14159 * s.radius * s.radius
+    }
+    if s is Shape.Square {
+        return s.side * s.side
+    }
+    return 0.0
 }
+
+print(area(Shape.Square(side: 2.0)))
