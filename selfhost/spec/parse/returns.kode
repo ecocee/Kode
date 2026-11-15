@@ -1,0 +1,19 @@
+return
+return 1
+return a + b
+return xs[0]
+return [1, {k: 2}]
+fn early(n: int) -> int {
+    if n < 0 {
+        return 0
+    }
+    return n
+}
+fn loop(m: map) {
+    while true {
+        if m {
+            return
+        }
+        break
+    }
+}
