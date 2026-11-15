@@ -1,0 +1,457 @@
+// The expression grammar of the self-hosted compiler: S2 slice 2.
+//
+// Precedence is the oracle's (`crates/kode-syntax/src/parser/expr.rs`): `or` 2,
+// `and` 4, `|` 6, `^` 7, `&` 8, comparisons and `in` 10, `<< >>` 12, `+ -` 16,
+// `* / %` 20, unary `-` and `~` 30, and `not` 9. Grouping leaves no node: `(1 + 2)`
+// *is* the `Binary`, with its own span.
+//
+// A postfix chain (`.name`, `.name(args)`, `?.name`, `[i]`, `[a..b]`, `!`) wraps
+// what came before it, so `xs[0].name!` is nested innermost-first, as dumped.
+//
+// The cursor and the error list are shared with the statement parser: one
+// position, one report.
+
+from "./ast" import Ast
+from "./cursor" import Cursor
+from "./infix" import BP_NOT, BP_UNARY, infix_of
+from "./lexer" import lex
+from "./literals" import float_text, parse_int, string_parts
+from "./tokens" import TokenKind
+
+pub class Exprs {
+    c: Cursor
+    ast: Ast
+
+    fn fail(code: string, message: string, start: int, end: int, help: string) {
+        c.fail(code, message, start, end, help)
+    }
+
+    // ---- expressions ----
+
+    fn expr() -> int {
+        return expr_bp(0)
+    }
+
+    fn expr_bp(min_bp: int) -> int {
+        lhs = prefix()
+        if lhs < 0 {
+            return lhs
+        }
+        while true {
+            f = infix_of(c.peek())
+            if f.op.len() == 0 or f.left < min_bp {
+                break
+            }
+            c.advance()
+            // A line may end after an operator.
+            c.skip_newlines()
+            rhs = expr_bp(f.right)
+            if rhs < 0 {
+                return lhs
+            }
+            id = ast.counted("Binary")
+            ast.raw(id, "op", f.op)
+            ast.kid(id, lhs)
+            ast.kid(id, rhs)
+            ast.span(id, "span", ast.nodes[lhs].start, ast.nodes[rhs].end)
+            lhs = id
+        }
+        return lhs
+    }
+
+    /// A prefix operator (`-`, `~`, `not`) or a postfix chain.
+    fn prefix() -> int {
+        kind = c.peek()
+        if kind == TokenKind.Minus or kind == TokenKind.Tilde or kind == TokenKind.Not {
+            op = "-"
+            bp = BP_UNARY
+            if kind == TokenKind.Tilde {
+                op = "~"
+            } else if kind == TokenKind.Not {
+                op = "not"
+                bp = BP_NOT
+            }
+            open_at = c.at
+            c.advance()
+            operand = expr_bp(bp)
+            if operand < 0 {
+                return operand
+            }
+            id = ast.counted("Unary")
+            ast.raw(id, "op", op)
+            ast.kid(id, operand)
+            ast.span(id, "span", c.token_start(open_at), ast.nodes[operand].end)
+            return id
+        }
+        return postfix(primary())
+    }
+
+    fn primary() -> int {
+        kind = c.peek()
+        if kind == TokenKind.Int {
+            token = c.at
+            c.advance()
+            id = ast.counted("Int")
+            ast.num(id, "value", parse_int(c.text_of(token)))
+            span_of(id, token)
+            return id
+        }
+        if kind == TokenKind.Float {
+            token = c.at
+            c.advance()
+            id = ast.counted("Float")
+            ast.text(id, "value", float_text(c.text_of(token)))
+            span_of(id, token)
+            return id
+        }
+        if kind == TokenKind.Str {
+            token = c.at
+            c.advance()
+            return string_expr(token)
+        }
+        if kind == TokenKind.True or kind == TokenKind.False {
+            token = c.at
+            c.advance()
+            id = ast.counted("Bool")
+            ast.flag(id, "value", kind == TokenKind.True)
+            span_of(id, token)
+            return id
+        }
+        if kind == TokenKind.None {
+            token = c.at
+            c.advance()
+            id = ast.counted("None")
+            span_of(id, token)
+            return id
+        }
+        if kind == TokenKind.Ident {
+            return ident_or_call()
+        }
+        if kind == TokenKind.LParen {
+            c.advance()
+            c.skip_newlines()
+            inner = expr()
+            if inner < 0 {
+                return inner
+            }
+            c.skip_newlines()
+            expect_close(TokenKind.RParen, "`)` to close the group")
+            return inner
+        }
+        if kind == TokenKind.LBracket {
+            return list_expr()
+        }
+        if kind == TokenKind.LBrace {
+            return map_expr()
+        }
+        token = c.at
+        fail(
+            "E0102",
+            "expected a value, found `${c.text_of(token)}`",
+            c.token_start(token),
+            c.token_end(token),
+            "values are numbers, strings, bools, none, names, calls, groups, [lists] and {maps}",
+        )
+        skip_to_newline()
+        return -1
+    }
+
+    /// `.name`, `.name(args)`, `?.name`, `[i]`, `[a..b]` and `!`, applied in order.
+    fn postfix(obj: int) -> int {
+        e = obj
+        while e >= 0 {
+            kind = c.peek()
+            if kind == TokenKind.Dot {
+                c.advance()
+                name_at = c.at
+                c.advance()
+                if c.peek() == TokenKind.LParen {
+                    args = arg_list()
+                    id = ast.counted("MethodCall")
+                    ast.text(id, "name", c.text_of(name_at))
+                    ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
+                    ast.kid(id, e)
+                    kids(id, args)
+                    ast.span(id, "span", ast.nodes[e].start, c.last_end)
+                    e = id
+                } else {
+                    e = member(e, name_at, false)
+                }
+            } else if kind == TokenKind.QuestionDot {
+                c.advance()
+                name_at = c.at
+                c.advance()
+                e = member(e, name_at, true)
+            } else if kind == TokenKind.LBracket {
+                e = index_or_slice(e)
+            } else if kind == TokenKind.Bang {
+                c.advance()
+                id = ast.counted("Unwrap")
+                ast.kid(id, e)
+                ast.span(id, "span", ast.nodes[e].start, c.last_end)
+                e = id
+            } else {
+                break
+            }
+        }
+        return e
+    }
+
+    fn member(obj: int, name_at: int, safe: bool) -> int {
+        id = ast.counted("Member")
+        ast.text(id, "name", c.text_of(name_at))
+        ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.flag(id, "safe", safe)
+        ast.kid(id, obj)
+        ast.span(id, "span", ast.nodes[obj].start, c.token_end(name_at))
+        return id
+    }
+
+    fn index_or_slice(obj: int) -> int {
+        c.advance()
+        c.skip_newlines()
+        start_at = -1
+        if c.peek() != TokenKind.DotDot and c.peek() != TokenKind.DotDotEq {
+            start_at = expr()
+        }
+        inclusive = c.peek() == TokenKind.DotDotEq
+        if c.peek() == TokenKind.DotDot or c.peek() == TokenKind.DotDotEq {
+            c.advance()
+            c.skip_newlines()
+            end_at = -1
+            if c.peek() != TokenKind.RBracket {
+                end_at = expr()
+            }
+            c.skip_newlines()
+            expect_close(TokenKind.RBracket, "`]`")
+            id = ast.counted("Slice")
+            ast.flag(id, "inclusive", inclusive)
+            ast.kid(id, obj)
+            if start_at >= 0 {
+                w = ast.add("Start")
+                ast.kid(w, start_at)
+                ast.kid(id, w)
+            }
+            if end_at >= 0 {
+                w = ast.add("End")
+                ast.kid(w, end_at)
+                ast.kid(id, w)
+            }
+            ast.span(id, "span", ast.nodes[obj].start, c.last_end)
+            return id
+        }
+        c.skip_newlines()
+        expect_close(TokenKind.RBracket, "`]`")
+        id = ast.counted("Index")
+        ast.kid(id, obj)
+        if start_at >= 0 {
+            ast.kid(id, start_at)
+        }
+        ast.span(id, "span", ast.nodes[obj].start, c.last_end)
+        return id
+    }
+
+    fn ident_or_call() -> int {
+        callee = c.at
+        c.advance()
+        if c.peek() != TokenKind.LParen {
+            id = ast.counted("Ident")
+            ast.text(id, "name", c.text_of(callee))
+            span_of(id, callee)
+            return id
+        }
+        args = arg_list()
+        id = ast.counted("Call")
+        ast.text(id, "callee", c.text_of(callee))
+        ast.span(id, "callee_span", c.token_start(callee), c.token_end(callee))
+        kids(id, args)
+        ast.span(id, "span", c.token_start(callee), c.last_end)
+        return id
+    }
+
+    /// `( arg, name: arg, ... )`: the `Arg` nodes, in order. The caller reads
+    /// `c.last_end` for the span of `)`.
+    fn arg_list() -> [int] {
+        args: [int] = []
+        c.advance()
+        c.skip_newlines()
+        while not c.done() and c.peek() != TokenKind.RParen {
+            arg = ast.add("Arg")
+            if c.peek() == TokenKind.Ident and c.peek_at(1) == TokenKind.Colon {
+                ast.text(arg, "name", c.text_of(c.at))
+                ast.span(arg, "name_span", c.token_start(c.at), c.token_end(c.at))
+                c.advance()
+                c.advance()
+                c.skip_newlines()
+            }
+            value = expr()
+            if value >= 0 {
+                ast.kid(arg, value)
+            }
+            args.add(arg)
+            c.skip_newlines()
+            if c.peek() == TokenKind.Comma {
+                c.advance()
+                c.skip_newlines()
+            } else {
+                break
+            }
+        }
+        if c.peek() != TokenKind.RParen {
+            fail(
+                "E0103",
+                "expected `)` or `,` to close the arguments",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "every `(` needs a `)`",
+            )
+            return args
+        }
+        expect_close(TokenKind.RParen, "`)`")
+        return args
+    }
+
+    fn list_expr() -> int {
+        open_at = c.at
+        c.advance()
+        c.skip_newlines()
+        id = ast.counted("List")
+        while not c.done() and c.peek() != TokenKind.RBracket {
+            item = expr()
+            if item >= 0 {
+                ast.kid(id, item)
+            }
+            c.skip_newlines()
+            if c.peek() == TokenKind.Comma {
+                c.advance()
+                c.skip_newlines()
+            } else {
+                break
+            }
+        }
+        expect_close(TokenKind.RBracket, "`]` or `,`")
+        ast.span(id, "span", c.token_start(open_at), c.last_end)
+        return id
+    }
+
+    fn map_expr() -> int {
+        open_at = c.at
+        c.advance()
+        c.skip_newlines()
+        id = ast.counted("Map")
+        while not c.done() and c.peek() != TokenKind.RBrace {
+            entry = ast.add("Entry")
+            key = expr()
+            if key >= 0 {
+                ast.kid(entry, key)
+            }
+            if c.peek() == TokenKind.Colon {
+                c.advance()
+            } else {
+                fail(
+                    "E0103",
+                    "expected `:` between a key and its value",
+                    c.token_start(c.at),
+                    c.token_end(c.at),
+                    "write an entry like `name: 1`",
+                )
+            }
+            c.skip_newlines()
+            value = expr()
+            if value >= 0 {
+                ast.kid(entry, value)
+            }
+            ast.kid(id, entry)
+            c.skip_newlines()
+            if c.peek() == TokenKind.Comma {
+                c.advance()
+                c.skip_newlines()
+            } else {
+                break
+            }
+        }
+        expect_close(TokenKind.RBrace, "`}` or `,`")
+        ast.span(id, "span", c.token_start(open_at), c.last_end)
+        return id
+    }
+
+    /// A string literal: plain text is a `Str`, anything with a hole is an
+    /// `Interp` of `Lit` text and `Hole` expressions, as the oracle dumps it.
+    fn string_expr(token: int) -> int {
+        body_from = c.token_start(token) + 1
+        body_to = c.token_end(token) - 1
+        parts = string_parts(c.src, body_from, body_to)
+        if parts.len() == 1 and not parts[0].is_hole {
+            id = ast.counted("Str")
+            ast.text(id, "value", parts[0].lit)
+            span_of(id, token)
+            return id
+        }
+        id = ast.counted("Interp")
+        for part in parts {
+            if part.is_hole {
+                inner = hole_expr(part.start_at, part.end_at)
+                if inner >= 0 {
+                    w = ast.add("Hole")
+                    ast.kid(w, inner)
+                    ast.kid(id, w)
+                }
+            } else {
+                lit = ast.add("Lit")
+                ast.text(lit, "text", part.lit)
+                ast.kid(id, lit)
+            }
+        }
+        span_of(id, token)
+        return id
+    }
+
+    /// The expression inside `${...}`. Its tokens are lexed from the hole's own
+    /// text and shifted by the hole's offset, so every span stays absolute.
+    fn hole_expr(hole_from: int, hole_to: int) -> int {
+        lx = lex(c.src.slice(hole_from, hole_to))
+        for err in lx.errors {
+            fail(err.code, err.message, err.start + hole_from, err.end + hole_from, err.help)
+        }
+        for t in lx.tokens {
+            t.start += hole_from
+            t.end += hole_from
+        }
+        sub = Exprs(c: Cursor(src: c.src, tokens: lx.tokens), ast: ast)
+        inner = sub.expr()
+        return inner
+    }
+
+    // ---- helpers ----
+
+    fn span_of(id: int, token: int) {
+        ast.span(id, "span", c.token_start(token), c.token_end(token))
+    }
+
+    fn kids(id: int, children: [int]) {
+        for child in children {
+            ast.kid(id, child)
+        }
+    }
+
+    fn expect_close(kind: TokenKind, what: string) {
+        if c.peek() == kind {
+            c.advance()
+            return
+        }
+        fail(
+            "E0102",
+            "expected ${what}, found `${c.text_of(c.at)}`",
+            c.token_start(c.at),
+            c.token_end(c.at),
+            "every bracket needs its closing partner",
+        )
+        skip_to_newline()
+    }
+
+    fn skip_to_newline() {
+        while not c.done() and c.peek() != TokenKind.Newline {
+            c.advance()
+        }
+    }
+}

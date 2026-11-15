@@ -6,6 +6,8 @@
 // `crates/kode-syntax/src/dump/ast.rs` defines and the harness compares: kind,
 // then `attr=value` pairs in a fixed order, then children indented two spaces.
 
+from "./bytes" import utf8_len
+
 /// One node: the dump kind, attributes already rendered in dump order, children.
 pub class Node {
     kind: string
@@ -95,6 +97,8 @@ fn walk(ast: Ast, id: int, depth: int, out: [string]) {
 }
 
 /// Escape what would break the one-line rule, exactly as the Rust dump does.
+/// Characters are copied whole (`utf8_len`), so a multibyte character survives
+/// and a control character becomes `\u{..}`.
 fn escape(s: string) -> string {
     out = ""
     at = 0
@@ -102,18 +106,35 @@ fn escape(s: string) -> string {
         b = s.byte_at(at)
         if b == 9 {
             out += "\\t"
+            at += 1
         } else if b == 10 {
             out += "\\n"
+            at += 1
         } else if b == 13 {
             out += "\\r"
+            at += 1
         } else if b == 34 {
             out += "\\\""
+            at += 1
         } else if b == 92 {
             out += "\\\\"
+            at += 1
+        } else if b < 32 or b == 127 {
+            out += "\\u{${escape_hex(b)}}"
+            at += 1
         } else {
-            out += s.slice(at, at + 1)
+            width = utf8_len(b)
+            out += s.slice(at, at + width)
+            at += width
         }
-        at += 1
     }
     return out
+}
+
+fn escape_hex(value: int) -> string {
+    digits = "0123456789abcdef"
+    if value < 16 {
+        return digits.char_at(value)
+    }
+    return digits.char_at(value / 16) + digits.char_at(value % 16)
 }

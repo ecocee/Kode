@@ -1,0 +1,81 @@
+// The token cursor the statement parser and the expression parser share.
+//
+// There is one `Cursor` per file and both parsers hold the same object, so a
+// position advanced in an expression is the position the statement loop sees
+// next. Errors go to one list for the same reason: the parse produces one report.
+
+from "./tokens" import Token, TokenKind
+
+/// A parse error, in the shape the lexer's errors already use.
+pub class ParseError {
+    code: string
+    message: string
+    start: int
+    end: int
+    help: string
+}
+
+pub class Cursor {
+    src: string
+    tokens: [Token]
+    at: int = 0
+    /// The end offset of the token that was consumed last, for spans that end at
+    /// a closing token.
+    last_end: int = 0
+    errors: [ParseError] = []
+
+    fn peek() -> TokenKind {
+        if at < tokens.len() {
+            return tokens[at].kind
+        }
+        return TokenKind.Eof
+    }
+
+    fn peek_at(n: int) -> TokenKind {
+        if at + n < tokens.len() {
+            return tokens[at + n].kind
+        }
+        return TokenKind.Eof
+    }
+
+    fn done() -> bool {
+        return peek() == TokenKind.Eof
+    }
+
+    fn advance() {
+        if at < tokens.len() {
+            last_end = tokens[at].end
+            at += 1
+        }
+    }
+
+    fn skip_newlines() {
+        while peek() == TokenKind.Newline {
+            advance()
+        }
+    }
+
+    fn text_of(token: int) -> string {
+        return src.slice(token_start(token), token_end(token))
+    }
+
+    fn token_start(token: int) -> int {
+        if token < tokens.len() {
+            return tokens[token].start
+        }
+        return src.size()
+    }
+
+    fn token_end(token: int) -> int {
+        if token < tokens.len() {
+            return tokens[token].end
+        }
+        return src.size()
+    }
+
+    fn fail(code: string, message: string, start: int, end: int, help: string) {
+        errors.add(
+            ParseError(code: code, message: message, start: start, end: end, help: help)
+        )
+    }
+}

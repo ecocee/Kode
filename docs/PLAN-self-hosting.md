@@ -142,7 +142,7 @@ with children as ids, no parent links, and `ast_lines` printing the oracle's for
 statements whose arguments are literals or names, with `Int`/`Float`/`Str`/`Bool`/
 `Ident`/`Call`/`Arg`/`Assign`/`TargetVar`/`ExprStmt` nodes. `kode-stage1 ast` prints
 it, and `./scripts/selfhost.sh parse` diffs it with `kode ast` over
-`selfhost/spec/parse` (7/7 trees byte-identical, `expr_count` included).
+`selfhost/spec/parse` (10/10 trees byte-identical, `expr_count` included).
 
 Slice 1b adds the expression grammar: every infix operator at the oracle's
 binding powers (`or` 2, `and` 4, `|` 6, `^` 7, `&` 8, comparisons and `in` 10,
@@ -151,10 +151,18 @@ binding powers (`or` 2, `and` 4, `|` 6, `^` 7, `&` 8, comparisons and `in` 10,
 ends after an operator. Floats are re-read as values and printed the way Rust's
 `{:?}` does, so `2.50` is `2.5` and `1e6` is `1000000.0`.
 
-Not yet: statements other than assignment and calls, postfix expressions
-(index, member, method call, `!`), literals that are lists, maps, `none` and
-interpolated strings, `is`, `??`, `catch`, closures, `await`, `E01xx` parity, and
-the `int?` parent edges ADR 0042 allows. Those are the rest of S2's slices, and each adds
+Slice 2 adds postfix expressions and the literals that hold other values:
+`.name`, `.name(args)` with named and trailing-comma arguments, `?.name`, `[i]`,
+`[a..b]`/`[..b]`/`[a..=b]`/`[..]`, `obj!`, `[lists]`, `{maps}` with `Entry` nodes,
+`none`, and string interpolation (`Interp` of `Lit` text and `Hole` expressions,
+the hole re-lexed with its absolute offset so inner spans stay true). It also
+made the parser a set of modules rather than one file: `cursor.kode` (the shared
+position and error list), `infix.kode` (the binding-power table), `expr.kode`
+(expressions), `literals.kode` (values) and `parser.kode` (statements).
+
+Not yet: statements other than assignment and expressions, blocks, `if`/`while`/
+`for`/`fn`/`class`/`match`/`try`, `is`, `??`, `catch`, closures, `await`, `E01xx`
+parity, and the `int?` parent edges ADR 0042 allows. Those are the rest of S2's slices, and each adds
 cases to `selfhost/spec/parse` rather than rewriting this one.
 
 Risk: this is where a missing language feature becomes duplication. Stop and

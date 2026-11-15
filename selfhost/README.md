@@ -18,8 +18,11 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `lexer.kode` | the scanner: same tokens, spans, error codes and recovery as `lexer.rs` |
 | `dump.kode` | the `kode tokens` line format, escaping and line/column |
 | `ast.kode` | the syntax tree: one arena of nodes with `int` child ids (ADR 0042), and the `kode ast` line format |
-| `parser.kode` | S2 slices 1 and 1b: `name = value` and `name(args)`, every infix/prefix operator at the oracle's binding powers, grouping, and a line that ends after an operator |
-| `literals.kode` | what a literal means: base-2/8/16 ints, floats shaped like `{:?}`, strings with escapes undone |
+| `cursor.kode` | the token cursor, the parse error type and the shared error list |
+| `infix.kode` | the infix table: operator symbols and their binding powers |
+| `expr.kode` | expressions: prefix, postfix chains, `[lists]`, `{maps}`, interpolation |
+| `parser.kode` | statements: `name = value`, an expression on its own line, and error recovery |
+| `literals.kode` | what a literal means: base-2/8/16 ints, floats shaped like `{:?}`, strings split into text and `${...}` holes |
 | `main.kode` | the entry point: `kode-stage1 tokens <file>` / `kode-stage1 ast <file>` |
 | `spec/lexer_cases.kode` | escapes, a 4-byte character, a brace inside a hole |
 | `spec/parse/` | the cases `parse` compares tree by tree |

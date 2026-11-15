@@ -36,6 +36,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
   is `2.5`. Cases: `selfhost/spec/parse/{binary,parens,unary,line_break}.kode`,
   all byte-identical to `kode ast`.
 
+- **Postfix expressions and value literals in the port's parser (S2 slice 2).**
+  `.name`, `.name(args)` (named and trailing-comma arguments), `?.name`, `[i]`,
+  every slice form, `obj!`, `[lists]`, `{maps}`, `none`, and string interpolation:
+  `Interp` of `Lit` text and `Hole` expressions whose inner tokens are re-lexed
+  with the hole's absolute offset, so inner spans match the oracle. The parser is
+  now five modules (`cursor`, `infix`, `expr`, `literals`, `parser`) so each stays
+  under the size rule. Cases: `selfhost/spec/parse/{postfix,collections,interp}.kode`,
+  **10/10 trees byte-identical**.
+
 - **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
   `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
   outside `0..=255` instead of truncating them; the object is a packed list, so a

@@ -1,0 +1,15 @@
+a = p.q
+b = p.q.r
+c = p.q(1, two: 2)
+d = xs.add(1)
+e = xs[0]
+f = xs[0][1]
+g = xs[i + 1]
+h = xs[1..2]
+i = xs[..2]
+j = xs[1..=2]
+k = xs[..]
+l = maybe!
+m = p?.q
+n = call(1).field
+o = xs[0].name!
