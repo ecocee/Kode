@@ -25,9 +25,16 @@ language: a patch release fixes bugs, a minor release may add syntax.
   assignments of a literal or a name and call statements whose arguments are
   literals or names. `kode-stage1 ast` prints the oracle's format;
   `./scripts/selfhost.sh parse` diffs it with `kode ast` over
-  `selfhost/spec/parse` and reports 3/3 trees byte-identical, `expr_count`
+  `selfhost/spec/parse` and reports 7/7 trees byte-identical, `expr_count`
   included. Every other statement and expression is an `E0102` error until its
   slice lands.
+
+- **Operators in the port's parser (S2 slice 1b).** Every infix operator at the
+  oracle's binding powers (`or` 2 … `* / %` 20), prefix `-`, `~` and `not`,
+  grouping (parentheses add no node), and a line that ends after an operator.
+  Float literals are re-read as values and printed like Rust's `{:?}`, so `2.50`
+  is `2.5`. Cases: `selfhost/spec/parse/{binary,parens,unary,line_break}.kode`,
+  all byte-identical to `kode ast`.
 
 - **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
   `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values

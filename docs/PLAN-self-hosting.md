@@ -142,9 +142,19 @@ with children as ids, no parent links, and `ast_lines` printing the oracle's for
 statements whose arguments are literals or names, with `Int`/`Float`/`Str`/`Bool`/
 `Ident`/`Call`/`Arg`/`Assign`/`TargetVar`/`ExprStmt` nodes. `kode-stage1 ast` prints
 it, and `./scripts/selfhost.sh parse` diffs it with `kode ast` over
-`selfhost/spec/parse` (3/3 trees byte-identical, `expr_count` included).
-Not yet: every other statement and expression, `E01xx` parity, and the `int?`
-parent edges ADR 0042 allows. Those are the rest of S2's slices, and each adds
+`selfhost/spec/parse` (7/7 trees byte-identical, `expr_count` included).
+
+Slice 1b adds the expression grammar: every infix operator at the oracle's
+binding powers (`or` 2, `and` 4, `|` 6, `^` 7, `&` 8, comparisons and `in` 10,
+`<< >>` 12, `+ -` 16, `* / %` 20), prefix `-`, `~` and `not` (9), grouping
+(parentheses leave no node, only the inner expression's span), and a line that
+ends after an operator. Floats are re-read as values and printed the way Rust's
+`{:?}` does, so `2.50` is `2.5` and `1e6` is `1000000.0`.
+
+Not yet: statements other than assignment and calls, postfix expressions
+(index, member, method call, `!`), literals that are lists, maps, `none` and
+interpolated strings, `is`, `??`, `catch`, closures, `await`, `E01xx` parity, and
+the `int?` parent edges ADR 0042 allows. Those are the rest of S2's slices, and each adds
 cases to `selfhost/spec/parse` rather than rewriting this one.
 
 Risk: this is where a missing language feature becomes duplication. Stop and

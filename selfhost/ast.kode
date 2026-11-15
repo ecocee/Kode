@@ -11,6 +11,9 @@ pub class Node {
     kind: string
     attrs: [string] = []
     kids: [int] = []
+    /// The node's own extent, for a parent that has to span it.
+    start: int = 0
+    end: int = 0
 }
 
 pub class Ast {
@@ -46,8 +49,19 @@ pub class Ast {
         nodes[id].attrs.add("${name}=${shown}")
     }
 
+    /// `name=a..b`, unquoted. The `span` attribute is also the node's extent,
+    /// which is what a parent reads when it has to end where its child ended.
     fn span(id: int, name: string, start: int, end: int) {
         nodes[id].attrs.add("${name}=${start}..${end}")
+        if name == "span" {
+            nodes[id].start = start
+            nodes[id].end = end
+        }
+    }
+
+    /// An attribute printed without quotes, such as an operator.
+    fn raw(id: int, name: string, value: string) {
+        nodes[id].attrs.add("${name}=${value}")
     }
 
     fn kid(id: int, child: int) {

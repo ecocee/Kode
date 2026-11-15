@@ -9,6 +9,80 @@
 from "./ast" import Ast
 from "./tokens" import Lexed, Token, TokenKind
 
+/// Binding powers: higher binds tighter (see the expression section below).
+const BP_NOT = 9
+const BP_UNARY = 30
+
+/// One row of the infix table: the operator's dump symbol and its binding powers.
+pub class Infix {
+    op: string
+    left: int
+    right: int
+}
+
+/// The infix operators, at the precedence `parser/expr.rs` gives them. An empty
+/// `op` means the token does not continue an expression.
+fn infix_of(kind: TokenKind) -> Infix {
+    if kind == TokenKind.Or {
+        return Infix(op: "or", left: 2, right: 3)
+    }
+    if kind == TokenKind.And {
+        return Infix(op: "and", left: 4, right: 5)
+    }
+    if kind == TokenKind.Pipe {
+        return Infix(op: "|", left: 6, right: 7)
+    }
+    if kind == TokenKind.Caret {
+        return Infix(op: "^", left: 7, right: 8)
+    }
+    if kind == TokenKind.Amp {
+        return Infix(op: "&", left: 8, right: 9)
+    }
+    if kind == TokenKind.EqEq {
+        return Infix(op: "==", left: 10, right: 11)
+    }
+    if kind == TokenKind.NotEq {
+        return Infix(op: "!=", left: 10, right: 11)
+    }
+    if kind == TokenKind.Lt {
+        return Infix(op: "<", left: 10, right: 11)
+    }
+    if kind == TokenKind.Le {
+        return Infix(op: "<=", left: 10, right: 11)
+    }
+    if kind == TokenKind.Gt {
+        return Infix(op: ">", left: 10, right: 11)
+    }
+    if kind == TokenKind.Ge {
+        return Infix(op: ">=", left: 10, right: 11)
+    }
+    if kind == TokenKind.In {
+        return Infix(op: "in", left: 10, right: 11)
+    }
+    if kind == TokenKind.Shl {
+        return Infix(op: "<<", left: 12, right: 13)
+    }
+    if kind == TokenKind.Shr {
+        return Infix(op: ">>", left: 12, right: 13)
+    }
+    if kind == TokenKind.Plus {
+        return Infix(op: "+", left: 16, right: 17)
+    }
+    if kind == TokenKind.Minus {
+        return Infix(op: "-", left: 16, right: 17)
+    }
+    if kind == TokenKind.Star {
+        return Infix(op: "*", left: 20, right: 21)
+    }
+    if kind == TokenKind.Slash {
+        return Infix(op: "/", left: 20, right: 21)
+    }
+    if kind == TokenKind.Percent {
+        return Infix(op: "%", left: 20, right: 21)
+    }
+    return Infix(op: "", left: 0, right: 0)
+}
+
 /// A parse error, in the shape the lexer's errors already use.
 pub class ParseError {
     code: string
@@ -134,7 +208,9 @@ pub class Parser {
         out.ast.kid(id, target)
         if value >= 0 {
             out.ast.kid(id, value)
-            out.ast.span(id, "span", tokens[name_id].start, last_end)
+            // The assignment spans its target and its value, so `x = (1)` ends
+            // where the `1` ends, not where the `)` is.
+            out.ast.span(id, "span", token_start(name_id), out.ast.nodes[value].end)
         } else {
             out.ast.span(id, "span", tokens[name_id].start, tokens[name_id].end)
         }
@@ -174,10 +250,81 @@ pub class Parser {
     }
 
     // ---- expressions ----
+    //
+    // Precedence follows `crates/kode-syntax/src/parser/expr.rs`: `or` 2, `and` 4,
+    // `|` 6, `^` 7, `&` 8, comparisons and `in` 10, `<< >>` 12, `+ -` 16,
+    // `* / %` 20, unary `-` and `~` 30, and `not` 9, so `not a == b` is
+    // `not (a == b)`. A parenthesized expression adds no node: `(1 + 2)` *is* the
+    // `Binary`, with its own span, which is what the oracle dumps.
+    //
+    // Slice 1 of the expression grammar ends at the operators: a name, a literal,
+    // a call and a group. Indexing, members, method calls, lists, maps, `is`,
+    // `??`, `catch`, closures and `await` are the next slice.
 
-    /// Slice 1 expressions: a literal, a name, or a call of names and literals.
-    /// Returns -1 after an error, so the caller can still record the node.
     fn expr() -> int {
+        return expr_bp(0)
+    }
+
+    fn expr_bp(min_bp: int) -> int {
+        lhs = prefix()
+        if lhs < 0 {
+            return lhs
+        }
+        while true {
+            f = infix_of(peek())
+            if f.op.len() == 0 or f.left < min_bp {
+                break
+            }
+            advance()
+            // A line may end after an operator.
+            skip_newlines()
+            rhs = expr_bp(f.right)
+            if rhs < 0 {
+                return lhs
+            }
+            id = out.ast.counted("Binary")
+            out.ast.raw(id, "op", f.op)
+            out.ast.kid(id, lhs)
+            out.ast.kid(id, rhs)
+            out.ast.span(id, "span", out.ast.nodes[lhs].start, out.ast.nodes[rhs].end)
+            lhs = id
+        }
+        return lhs
+    }
+
+    /// A prefix operator (`-`, `~`, `not`) or a primary expression.
+    fn prefix() -> int {
+        kind = peek()
+        if kind == TokenKind.Minus or kind == TokenKind.Tilde or kind == TokenKind.Not {
+            op = "-"
+            bp = BP_UNARY
+            if kind == TokenKind.Tilde {
+                op = "~"
+            } else if kind == TokenKind.Not {
+                op = "not"
+                bp = BP_NOT
+            }
+            open_at = at
+            advance()
+            operand = expr_bp(bp)
+            if operand < 0 {
+                return operand
+            }
+            id = out.ast.counted("Unary")
+            out.ast.raw(id, "op", op)
+            out.ast.kid(id, operand)
+            out.ast.span(
+                id,
+                "span",
+                token_start(open_at),
+                out.ast.nodes[operand].end,
+            )
+            return id
+        }
+        return primary()
+    }
+
+    fn primary() -> int {
         kind = peek()
         if kind == TokenKind.Int {
             token = at
@@ -191,7 +338,7 @@ pub class Parser {
             token = at
             advance()
             id = out.ast.counted("Float")
-            out.ast.text(id, "value", text_of(token))
+            out.ast.text(id, "value", float_text(text_of(token)))
             spans(id, token)
             return id
         }
@@ -214,13 +361,36 @@ pub class Parser {
         if kind == TokenKind.Ident {
             return call_or_name()
         }
+        // `(1 + 2)`: the parentheses group and leave no node, only the inner
+        // expression's own span.
+        if kind == TokenKind.LParen {
+            advance()
+            skip_newlines()
+            inner = expr()
+            if inner < 0 {
+                return inner
+            }
+            skip_newlines()
+            if peek() == TokenKind.RParen {
+                advance()
+            } else {
+                fail(
+                    "E0102",
+                    "expected `)` to close the group",
+                    token_start(at),
+                    token_end(at),
+                    "every `(` needs a `)`",
+                )
+            }
+            return inner
+        }
         token = at
         fail(
             "E0102",
-            "expected a value",
-            tokens[token].start,
-            tokens[token].end,
-            "slice 1 values are numbers, strings, bools, names and calls",
+            "expected a value, found `${text_of(token)}`",
+            token_start(token),
+            token_end(token),
+            "values are numbers, strings, bools, names, calls and groups",
         )
         recover()
         return -1
@@ -235,7 +405,7 @@ pub class Parser {
             spans(id, callee)
             return id
         }
-        open = at
+        open_at = at
         advance()
         args: [int] = []
         while not done() and peek() != TokenKind.RParen {
@@ -252,14 +422,14 @@ pub class Parser {
             fail(
                 "E0102",
                 "expected `)` to close the call",
-                tokens[open].start,
-                tokens[open].end,
+                token_start(open_at),
+                token_end(open_at),
                 "every `(` needs a `)`",
             )
         }
         id = out.ast.counted("Call")
         out.ast.text(id, "callee", text_of(callee))
-        out.ast.span(id, "callee_span", tokens[callee].start, tokens[callee].end)
+        out.ast.span(id, "callee_span", token_start(callee), token_end(callee))
         for arg in args {
             if arg >= 0 {
                 node = out.ast.add("Arg")
@@ -267,13 +437,33 @@ pub class Parser {
                 out.ast.kid(id, node)
             }
         }
-        out.ast.span(id, "span", tokens[callee].start, last_end)
+        out.ast.span(id, "span", token_start(callee), last_end)
         return id
+    }
+
+    fn skip_newlines() {
+        while peek() == TokenKind.Newline {
+            advance()
+        }
     }
 
     /// `span=a..b` for a one-token node.
     fn spans(id: int, token: int) {
-        out.ast.span(id, "span", tokens[token].start, tokens[token].end)
+        out.ast.span(id, "span", token_start(token), token_end(token))
+    }
+
+    fn token_start(token: int) -> int {
+        if token < tokens.len() {
+            return tokens[token].start
+        }
+        return src.size()
+    }
+
+    fn token_end(token: int) -> int {
+        if token < tokens.len() {
+            return tokens[token].end
+        }
+        return src.size()
     }
 }
 
@@ -315,6 +505,16 @@ fn parse_digit(b: int) -> int {
         return b - 65 + 10
     }
     return 0
+}
+
+/// A float the way the dump prints it: the shortest form of the value, so `2.50`
+/// is `2.5` and `1e6` is `1000000.0` (`format!("{v:?}")` in `dump/ast.rs`).
+fn float_text(text: string) -> string {
+    value = 0.0
+    value = text.replace("_", "").to_float() catch e {
+        0.0
+    }
+    return "${value}"
 }
 
 /// The text a string literal holds, with the escapes the lexer accepts undone.

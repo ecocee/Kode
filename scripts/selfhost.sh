@@ -132,7 +132,7 @@ readiness() {
     if [[ -d "$OUT/dumps/stage2" ]]; then
         echo "  R3 parser: present"
     elif [[ -d "$ROOT/selfhost/spec/parse" ]]; then
-        echo "  R3 parser: slice 1 (./scripts/selfhost.sh parse)"
+        echo "  R3 parser: subset green (./scripts/selfhost.sh parse)"
     else
         echo "  R3 parser: not started"
     fi
@@ -327,7 +327,7 @@ readiness)
     readiness
     ;;
 parse)
-    echo "S2: the port's parser against the oracle (slice 1)"
+    echo "S2: the port's parser against the oracle (the parse subset)"
     check_parse || exit $?
     ;;
 all)
