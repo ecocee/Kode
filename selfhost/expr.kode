@@ -38,23 +38,58 @@ pub class Exprs {
             return lhs
         }
         while true {
-            f = infix_of(c.peek())
-            if f.op.len() == 0 or f.left < min_bp {
-                break
+            // `a ?? b` binds loosest of the operators.
+            if c.peek() == TokenKind.QuestionQuestion and min_bp <= 1 {
+                c.advance()
+                c.skip_newlines()
+                rhs = expr_bp(2)
+                if rhs < 0 {
+                    return lhs
+                }
+                id = ast.counted("Coalesce")
+                ast.kid(id, lhs)
+                ast.kid(id, rhs)
+                ast.span(id, "span", ast.nodes[lhs].start, ast.nodes[rhs].end)
+                lhs = id
+            } else if c.peek() == TokenKind.Is and min_bp <= 10 {
+                // `s is Shape.Circle` names a variant, so it is not an infix row.
+                c.advance()
+                c.skip_newlines()
+                enum_at = c.at
+                c.advance()
+                if c.peek() == TokenKind.Dot {
+                    c.advance()
+                } else {
+                    c.fail("E0102", "expected a `.` and a variant name after the enum name", c.token_start(c.at), c.token_end(c.at), "write `x is Shape.Circle`")
+                }
+                variant_at = c.at
+                c.advance()
+                id = ast.counted("Is")
+                ast.text(id, "enum", c.text_of(enum_at))
+                ast.text(id, "variant", c.text_of(variant_at))
+                ast.span(id, "name_span", c.token_start(variant_at), c.token_end(variant_at))
+                ast.kid(id, lhs)
+                ast.span(id, "span", ast.nodes[lhs].start, c.token_end(variant_at))
+                lhs = id
+            } else {
+                f = infix_of(c.peek())
+                if f.op.len() == 0 or f.left < min_bp {
+                    break
+                }
+                c.advance()
+                // A line may end after an operator.
+                c.skip_newlines()
+                rhs = expr_bp(f.right)
+                if rhs < 0 {
+                    return lhs
+                }
+                id = ast.counted("Binary")
+                ast.raw(id, "op", f.op)
+                ast.kid(id, lhs)
+                ast.kid(id, rhs)
+                ast.span(id, "span", ast.nodes[lhs].start, ast.nodes[rhs].end)
+                lhs = id
             }
-            c.advance()
-            // A line may end after an operator.
-            c.skip_newlines()
-            rhs = expr_bp(f.right)
-            if rhs < 0 {
-                return lhs
-            }
-            id = ast.counted("Binary")
-            ast.raw(id, "op", f.op)
-            ast.kid(id, lhs)
-            ast.kid(id, rhs)
-            ast.span(id, "span", ast.nodes[lhs].start, ast.nodes[rhs].end)
-            lhs = id
         }
         return lhs
     }

@@ -20,8 +20,8 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `ast.kode` | the syntax tree: one arena of nodes with `int` child ids (ADR 0042), and the `kode ast` line format |
 | `cursor.kode` | the token cursor, the parse error type and the shared error list |
 | `infix.kode` | the infix table: operator symbols and their binding powers |
-| `expr.kode` | expressions: prefix, postfix chains, `[lists]`, `{maps}`, interpolation |
-| `stmt.kode` | statements: `name = value`, an expression on its own line, blocks, `if`/`while`/`for`, `match`, `break`/`continue`, `return`, and error recovery |
+| `expr.kode` | expressions: prefix, postfix chains, `??`, `is`, `[lists]`, `{maps}`, interpolation |
+| `stmt.kode` | statements: `name = value`, an expression on its own line, blocks, `if`/`while`/`for`, `match`, `try`/`throw`, `break`/`continue`, `return`, the `catch` expression, and error recovery |
 | `types.kode` | type annotations (`T`, `[T]`, `{string: T}`, `Box<T>`, `T?`) and `Param` nodes |
 | `decls.kode` | items: `pub`/`fn`, `class`, `const` and `import` |
 | `enums.kode` | `enum` declarations with payload variants, and `interface` signatures |

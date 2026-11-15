@@ -142,7 +142,7 @@ with children as ids, no parent links, and `ast_lines` printing the oracle's for
 statements whose arguments are literals or names, with `Int`/`Float`/`Str`/`Bool`/
 `Ident`/`Call`/`Arg`/`Assign`/`TargetVar`/`ExprStmt` nodes. `kode-stage1 ast` prints
 it, and `./scripts/selfhost.sh parse` diffs it with `kode ast` over
-`selfhost/spec/parse` (19/19 trees byte-identical, `expr_count` included).
+`selfhost/spec/parse` (22/22 trees byte-identical, `expr_count` included).
 
 Slice 1b adds the expression grammar: every infix operator at the oracle's
 binding powers (`or` 2, `and` 4, `|` 6, `^` 7, `&` 8, comparisons and `in` 10,
@@ -190,8 +190,23 @@ value). Enums carry no type parameters — `enum Maybe<T>` is `E0103` in the ora
 which is left alone. An `import` only records its path; the file it names is not
 read, because S2 parses one source at a time.
 
-Not yet: `try`, `throw`, `is`, `??`, `catch`, closures, `await`, `E01xx` parity,
-and the `int?` parent edges ADR 0042 allows. Those are the rest of S2's slices, and each adds
+Slice 7 adds errors and the optional operators: `throw`, `try { } catch err { }
+finally { }` (a `Try` node with a body `Block`, an optional `CatchVar` and `Handler`
+and an optional `Finally`, and no span of its own), `a ?? b` at the loosest binding
+power, `x is Shape.Circle` at comparison precedence, and `expr catch err { ... }`.
+
+One deliberate gap: the oracle attaches `catch` at binding power 0, so it also
+appears inside parentheses, argument lists, collections and interpolation holes.
+The port parses it only where an expression starts a statement — a bare expression,
+an assignment value, `return`, `throw`, a condition, a `for` bound, a `match`
+scrutinee, a function body and a field or constant value — because a `catch` body is
+a block of statements and the statement grammar already imports the expression
+grammar (module cycles are `E0402`). Everywhere else the port reports a parse error
+where the oracle would accept the source.
+
+Not yet: `catch` inside parentheses, argument lists, collections or interpolation
+holes; closures; `await`; `E01xx` parity; and the `int?` parent edges ADR 0042
+allows. Those are the rest of S2's slices, and each adds
 cases to `selfhost/spec/parse` rather than rewriting this one.
 
 Risk: this is where a missing language feature becomes duplication. Stop and

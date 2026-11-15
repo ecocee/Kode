@@ -1,0 +1,17 @@
+a ?? b
+a ?? b ?? c
+x = a ?? 0
+return a ?? b
+map.get(k) ?? "missing"
+xs.first()?.name ?? "none"
+if a ?? b {
+}
+while x is Shape.Circle {
+}
+if v is Shape.Circle and ok {
+}
+u is User.Admin
+x = u is Maybe.Some
+fn f(v: Value?) -> Value? {
+    return v ?? none
+}

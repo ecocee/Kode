@@ -80,6 +80,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `selfhost/spec/parse/{enums,interfaces,imports}.kode`, **19/19 trees
   byte-identical**.
 
+- **Errors and optionals in the port's parser (S2 slice 7).** `throw`,
+  `try`/`catch`/`finally`, `a ?? b`, `x is Shape.Circle` and `expr catch err { }`.
+  One documented gap: the oracle attaches `catch` at binding power 0, so it can sit
+  inside parentheses or an argument list; a `catch` body is a block of statements and
+  the statement grammar already imports the expression grammar (module cycles are
+  `E0402`), so the port parses `catch` only where a statement's expression starts.
+  Cases: `selfhost/spec/parse/{try_catch,optionals,catch_expr}.kode`, **22/22 trees
+  byte-identical**.
+
 - **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
   `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
   outside `0..=255` instead of truncating them; the object is a packed list, so a

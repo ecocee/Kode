@@ -42,6 +42,12 @@ pub class Stmts {
         if kind == TokenKind.Match {
             return match_stmt()
         }
+        if kind == TokenKind.Throw {
+            return throw_stmt()
+        }
+        if kind == TokenKind.Try {
+            return try_stmt()
+        }
         if kind == TokenKind.Break or kind == TokenKind.Continue {
             token = c.at
             c.advance()
@@ -78,7 +84,7 @@ pub class Stmts {
         name_at = c.at
         c.advance()
         c.advance()
-        value = ex().expr()
+        value = expression()
         id = ast.add("Assign")
         target = ast.counted("TargetVar")
         ast.text(target, "name", c.text_of(name_at))
@@ -96,7 +102,7 @@ pub class Stmts {
 
     /// `print(x)`, `xs.add(1)`: an expression statement.
     fn expression_stmt() -> int {
-        value = ex().expr()
+        value = expression()
         stmt = ast.add("ExprStmt")
         if value >= 0 {
             ast.kid(stmt, value)
@@ -148,7 +154,7 @@ pub class Stmts {
     /// `if cond { } else { }`, and `else if` nesting through an `Else` block.
     fn if_stmt() -> int {
         c.advance()
-        cond = ex().expr()
+        cond = expression()
         then = block()
         id = ast.add("If")
         if cond >= 0 {
@@ -183,7 +189,7 @@ pub class Stmts {
 
     fn while_stmt() -> int {
         c.advance()
-        cond = ex().expr()
+        cond = expression()
         body = block()
         id = ast.add("While")
         if cond >= 0 {
@@ -295,7 +301,7 @@ pub class Stmts {
         id = ast.add("Return")
         ast.span(id, "span", c.token_start(token), c.token_end(token))
         if not ends_statement() {
-            value = ex().expr()
+            value = expression()
             if value >= 0 {
                 ast.kid(id, value)
             }
@@ -321,7 +327,7 @@ pub class Stmts {
     fn match_stmt() -> int {
         span_at = c.at
         c.advance()
-        scrutinee = ex().expr()
+        scrutinee = expression()
         id = ast.add("Match")
         ast.span(id, "span", c.token_start(span_at), c.token_end(span_at))
         seen = ast.add("Scrutinee")
@@ -388,6 +394,87 @@ pub class Stmts {
             }
             ast.kid(a, body)
         }
+    }
+
+    /// An expression where a statement starts, including `expr catch err { ... }`.
+    /// The oracle attaches `catch` at binding power 0 only, which is exactly the
+    /// positions this helper is called from; `catch` inside parentheses, argument
+    /// lists, collections or an interpolation hole is not parsed yet.
+    fn expression() -> int {
+        lhs = ex().expr()
+        if c.peek() != TokenKind.Catch {
+            return lhs
+        }
+        c.advance()
+        var_at = c.at
+        c.advance()
+        id = ast.counted("Catch")
+        ast.text(id, "var", c.text_of(var_at))
+        ast.span(id, "var_span", c.token_start(var_at), c.token_end(var_at))
+        if lhs >= 0 {
+            ast.kid(id, lhs)
+        }
+        body = block()
+        if body >= 0 {
+            ast.kid(id, body)
+        }
+        ast.span(id, "span", ast.nodes[lhs].start, c.token_end(var_at))
+        return id
+    }
+
+    /// `throw "boom"`: the keyword's span, then the value.
+    fn throw_stmt() -> int {
+        token = c.at
+        c.advance()
+        value = expression()
+        id = ast.add("Throw")
+        ast.span(id, "span", c.token_start(token), c.token_end(token))
+        if value >= 0 {
+            ast.kid(id, value)
+        }
+        return id
+    }
+
+    /// `try { } catch err { } finally { }`. The node has no span; its children are
+    /// the body `Block`, an optional `CatchVar`, an optional `Handler` and an
+    /// optional `Finally`. At least one of `catch`/`finally` has to follow.
+    fn try_stmt() -> int {
+        c.advance()
+        id = ast.add("Try")
+        body = block()
+        if body >= 0 {
+            ast.kid(id, body)
+        }
+        has_catch = c.peek() == TokenKind.Catch
+        has_finally = c.peek() == TokenKind.Finally
+        if not has_catch and not has_finally {
+            c.fail("E0102", "expected `catch` or `finally` after the `try` block", c.token_start(c.at), c.token_end(c.at), "write `try { } catch err { }`")
+        }
+        if has_catch {
+            c.advance()
+            var_at = c.at
+            c.advance()
+            catch_var = ast.add("CatchVar")
+            ast.text(catch_var, "name", c.text_of(var_at))
+            ast.span(catch_var, "span", c.token_start(var_at), c.token_end(var_at))
+            ast.kid(id, catch_var)
+            handler = ast.add("Handler")
+            handled = block()
+            if handled >= 0 {
+                ast.kid(handler, handled)
+            }
+            ast.kid(id, handler)
+        }
+        if c.peek() == TokenKind.Finally {
+            c.advance()
+            cleanup = ast.add("Finally")
+            cleaned = block()
+            if cleaned >= 0 {
+                ast.kid(cleanup, cleaned)
+            }
+            ast.kid(id, cleanup)
+        }
+        return id
     }
 }
 

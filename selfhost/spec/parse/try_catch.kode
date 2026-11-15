@@ -1,0 +1,43 @@
+try {
+    work()
+} catch err {
+    print(err)
+}
+try {
+    work()
+} finally {
+    clean()
+}
+try {
+    work()
+} catch e {
+    log(e)
+} finally {
+    clean()
+}
+try {
+    try {
+        inner()
+    } catch first {
+        print(first)
+    }
+    outer()
+} catch second {
+    throw second
+}
+fn risky(n: int) -> int {
+    try {
+        if n < 0 {
+            throw "negative"
+        }
+        return n
+    } catch err {
+        return 0
+    }
+}
+try {
+} catch nothing {
+}
+throw "boom"
+throw MyError(1)
+throw err

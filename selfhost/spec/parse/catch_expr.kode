@@ -1,0 +1,17 @@
+value catch err {
+    print(err)
+    return
+}
+x = parse(s) catch err {
+    return 0
+}
+return read(path) catch e {
+    throw e
+}
+fn load(p: string) -> Data {
+    data = read(p) catch err {
+        log(err)
+        return none
+    }
+    return data
+}
