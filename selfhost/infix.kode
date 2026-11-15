@@ -9,6 +9,8 @@ from "./tokens" import TokenKind
 /// Binding powers: higher binds tighter.
 pub const BP_NOT = 9
 pub const BP_UNARY = 30
+/// Used by `for`: `0..n` and the body's `{` must not be swallowed.
+pub const BP_ARITH = 16
 
 /// One row of the infix table: the operator's dump symbol and its binding powers.
 pub class Infix {

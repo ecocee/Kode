@@ -142,7 +142,7 @@ with children as ids, no parent links, and `ast_lines` printing the oracle's for
 statements whose arguments are literals or names, with `Int`/`Float`/`Str`/`Bool`/
 `Ident`/`Call`/`Arg`/`Assign`/`TargetVar`/`ExprStmt` nodes. `kode-stage1 ast` prints
 it, and `./scripts/selfhost.sh parse` diffs it with `kode ast` over
-`selfhost/spec/parse` (10/10 trees byte-identical, `expr_count` included).
+`selfhost/spec/parse` (12/12 trees byte-identical, `expr_count` included).
 
 Slice 1b adds the expression grammar: every infix operator at the oracle's
 binding powers (`or` 2, `and` 4, `|` 6, `^` 7, `&` 8, comparisons and `in` 10,
@@ -160,9 +160,16 @@ made the parser a set of modules rather than one file: `cursor.kode` (the shared
 position and error list), `infix.kode` (the binding-power table), `expr.kode`
 (expressions), `literals.kode` (values) and `parser.kode` (statements).
 
-Not yet: statements other than assignment and expressions, blocks, `if`/`while`/
-`for`/`fn`/`class`/`match`/`try`, `is`, `??`, `catch`, closures, `await`, `E01xx`
-parity, and the `int?` parent edges ADR 0042 allows. Those are the rest of S2's slices, and each adds
+Slice 3 adds blocks and control flow: `{ one statement per line }` as a body,
+`if`/`else`/`else if` (`Then`/`Else` wrappers, `else if` nested through an `Else`
+block), `while`, both forms of `for` (a range with `..`/`..=` at `BP_ARITH`, and an
+iteration with one or two variables), and `break`/`continue`. A statement ends at a
+newline, the end of the file, or the `}` that closes its block — the oracle's rule,
+which is why `else` has to follow `}` on the same line.
+
+Not yet: `fn`, `class`, `enum`, `interface`, `import`, `const`, `match`, `try`,
+`throw`, `return`, `is`, `??`, `catch`, closures, `await`, `E01xx` parity, and the
+`int?` parent edges ADR 0042 allows. Those are the rest of S2's slices, and each adds
 cases to `selfhost/spec/parse` rather than rewriting this one.
 
 Risk: this is where a missing language feature becomes duplication. Stop and

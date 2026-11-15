@@ -1,13 +1,17 @@
-// The statement parser of the self-hosted compiler: S2 slice 2.
+// The statement parser of the self-hosted compiler: S2 slice 3.
 //
-// Statements are `name = value` and an expression on its own line. The
-// expression grammar lives in `expr.kode`; this file owns the statement loop, the
-// error recovery and the arena's root. Both parsers hold one `Cursor`, so the
-// position and the error report are shared (ADR 0042 for the tree shape).
+// Statements are `name = value`, an expression on its own line, `if`/`else`,
+// `while`, `for` (a range or an iteration) and `break`/`continue`. A block is
+// `{ one statement per line }` and is the body of every control-flow statement;
+// `Block` nodes carry no span, exactly as the oracle dumps them.
+//
+// The expression grammar lives in `expr.kode`. Both parsers hold one `Cursor`, so
+// the position and the error report are shared (ADR 0042 for the tree shape).
 
 from "./ast" import Ast
 from "./cursor" import Cursor, ParseError
 from "./expr" import Exprs
+from "./infix" import BP_ARITH
 from "./tokens" import Lexed, TokenKind
 
 pub class Parsed {
@@ -30,7 +34,15 @@ pub class Parser {
     fn run() -> Parsed {
         ast.add("Program")
         while not c.done() {
-            step()
+            c.skip_newlines()
+            if c.done() {
+                break
+            }
+            node = statement()
+            if node >= 0 {
+                ast.nodes[0].kids.add(node)
+            }
+            expect_end()
         }
         return Parsed(ast: ast, errors: c.errors)
     }
@@ -42,18 +54,34 @@ pub class Parser {
 
     // ---- statements ----
 
-    fn step() {
-        if c.peek() == TokenKind.Newline {
+    /// One statement, without consuming the end of the line.
+    fn statement() -> int {
+        kind = c.peek()
+        if kind == TokenKind.If {
+            return if_stmt()
+        }
+        if kind == TokenKind.While {
+            return while_stmt()
+        }
+        if kind == TokenKind.For {
+            return for_stmt()
+        }
+        if kind == TokenKind.Break or kind == TokenKind.Continue {
+            token = c.at
             c.advance()
-            return
+            name = "Break"
+            if kind == TokenKind.Continue {
+                name = "Continue"
+            }
+            id = ast.add(name)
+            ast.span(id, "span", c.token_start(token), c.token_end(token))
+            return id
         }
-        if c.peek() == TokenKind.Ident and c.peek_at(1) == TokenKind.Assign {
-            assign()
-            return
+        if kind == TokenKind.Ident and c.peek_at(1) == TokenKind.Assign {
+            return assign()
         }
-        if starts_value(c.peek()) {
-            expression_stmt()
-            return
+        if starts_value(kind) {
+            return expression_stmt()
         }
         token = c.at
         c.advance()
@@ -62,14 +90,15 @@ pub class Parser {
             "expected a statement, found `${c.text_of(token)}`",
             c.token_start(token),
             c.token_end(token),
-            "a statement is `name = value` or an expression; the rest arrive next",
+            "a statement is an assignment, an expression, `if`, `while`, `for`, `break` or `continue`",
         )
         recover()
+        return -1
     }
 
     /// `x = 1`: the target is a `TargetVar`, its span the name's, and the whole
     /// statement spans the target and the value.
-    fn assign() {
+    fn assign() -> int {
         name_at = c.at
         c.advance()
         c.advance()
@@ -86,36 +115,190 @@ pub class Parser {
         } else {
             ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
         }
-        ast.nodes[0].kids.add(id)
-        end_line()
+        return id
     }
 
     /// `print(x)`, `xs.add(1)`: an expression statement.
-    fn expression_stmt() {
+    fn expression_stmt() -> int {
         value = ex().expr()
         stmt = ast.add("ExprStmt")
         if value >= 0 {
             ast.kid(stmt, value)
         }
-        ast.nodes[0].kids.add(stmt)
-        end_line()
+        return stmt
     }
 
-    /// A statement ends at a newline. Anything else is a parse error.
-    fn end_line() {
+    /// `{ ... }` with one statement per line. Returns the `Block` node.
+    fn block() -> int {
+        open_at = c.at
+        id = ast.add("Block")
+        if c.peek() != TokenKind.LBrace {
+            c.fail(
+                "E0102",
+                "expected `{` to open a block, found `${c.text_of(c.at)}`",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "a body is written as `{ ... }`",
+            )
+            return id
+        }
+        c.advance()
+        closed = false
+        while not closed {
+            c.skip_newlines()
+            if c.peek() == TokenKind.RBrace {
+                c.advance()
+                closed = true
+            } else if c.done() {
+                c.fail(
+                    "E0106",
+                    "this block is never closed",
+                    c.token_start(open_at),
+                    c.token_end(open_at),
+                    "add a matching `}`",
+                )
+                closed = true
+            } else {
+                node = statement()
+                if node >= 0 {
+                    ast.kid(id, node)
+                }
+                expect_end()
+            }
+        }
+        return id
+    }
+
+    /// `if cond { } else { }`, and `else if` nesting through an `Else` block.
+    fn if_stmt() -> int {
+        c.advance()
+        cond = ex().expr()
+        then = block()
+        id = ast.add("If")
+        if cond >= 0 {
+            ast.kid(id, cond)
+        }
+        then_node = ast.add("Then")
+        if then >= 0 {
+            ast.kid(then_node, then)
+        }
+        ast.kid(id, then_node)
+        // `} else {` — the `else` has to follow the closing brace on its line.
+        if c.peek() == TokenKind.Else {
+            c.advance()
+            else_node = ast.add("Else")
+            if c.peek() == TokenKind.If {
+                inner = if_stmt()
+                b = ast.add("Block")
+                if inner >= 0 {
+                    ast.kid(b, inner)
+                }
+                ast.kid(else_node, b)
+            } else {
+                other = block()
+                if other >= 0 {
+                    ast.kid(else_node, other)
+                }
+            }
+            ast.kid(id, else_node)
+        }
+        return id
+    }
+
+    fn while_stmt() -> int {
+        c.advance()
+        cond = ex().expr()
+        body = block()
+        id = ast.add("While")
+        if cond >= 0 {
+            ast.kid(id, cond)
+        }
+        if body >= 0 {
+            ast.kid(id, body)
+        }
+        return id
+    }
+
+    /// `for i in 0..10 { }` and `for x in xs { }` — a range binds looser than an
+    /// operator, so `..` is not swallowed (`BP_ARITH`).
+    fn for_stmt() -> int {
+        c.advance()
+        names: [int] = []
+        names.add(c.at)
+        c.advance()
+        if c.peek() == TokenKind.Comma {
+            c.advance()
+            names.add(c.at)
+            c.advance()
+        }
+        if c.peek() == TokenKind.In {
+            c.advance()
+        } else {
+            c.fail(
+                "E0102",
+                "expected `in` after the loop variable, found `${c.text_of(c.at)}`",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "write `for x in xs` or `for i in 0..10`",
+            )
+        }
+        first = ex().expr_bp(BP_ARITH)
+        is_range = c.peek() == TokenKind.DotDot or c.peek() == TokenKind.DotDotEq
+        inclusive = c.peek() == TokenKind.DotDotEq
+        if is_range {
+            c.advance()
+            last = ex().expr_bp(BP_ARITH)
+            body = block()
+            id = ast.add("For")
+            ast.text(id, "var", c.text_of(names[0]))
+            ast.span(id, "var_span", c.token_start(names[0]), c.token_end(names[0]))
+            ast.flag(id, "inclusive", inclusive)
+            if first >= 0 {
+                ast.kid(id, first)
+            }
+            if last >= 0 {
+                ast.kid(id, last)
+            }
+            if body >= 0 {
+                ast.kid(id, body)
+            }
+            return id
+        }
+        body = block()
+        id = ast.add("ForIn")
+        for name in names {
+            v = ast.add("Var")
+            ast.text(v, "name", c.text_of(name))
+            ast.span(v, "span", c.token_start(name), c.token_end(name))
+            ast.kid(id, v)
+        }
+        iter = ast.add("Iter")
+        if first >= 0 {
+            ast.kid(iter, first)
+        }
+        ast.kid(id, iter)
+        if body >= 0 {
+            ast.kid(id, body)
+        }
+        return id
+    }
+
+    /// The oracle's end of statement: a newline, the end of the file, or the `}`
+    /// that closes the block. None of them is consumed here.
+    fn expect_end() {
         if c.peek() == TokenKind.Newline {
             c.advance()
             return
         }
-        if c.done() {
+        if c.done() or c.peek() == TokenKind.RBrace {
             return
         }
         c.fail(
-            "E0102",
-            "expected the end of the statement, found `${c.text_of(c.at)}`",
+            "E0101",
+            "expected the end of the line, found `${c.text_of(c.at)}`",
             c.token_start(c.at),
             c.token_end(c.at),
-            "one statement per line",
+            "put each statement on its own line",
         )
         recover()
     }

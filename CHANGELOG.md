@@ -45,6 +45,14 @@ language: a patch release fixes bugs, a minor release may add syntax.
   under the size rule. Cases: `selfhost/spec/parse/{postfix,collections,interp}.kode`,
   **10/10 trees byte-identical**.
 
+- **Blocks and control flow in the port's parser (S2 slice 3).** `if`/`else`/
+  `else if`, `while`, both `for` forms (`0..n`, `0..=n`, `for x in xs`,
+  `for k, v in m`), `break`/`continue`, and a block as the body of each: one
+  statement per line, ending at a newline, the end of the file, or the closing
+  `}` — the oracle's rule, so `else` must follow `}` on its line. Cases:
+  `selfhost/spec/parse/{control_flow,blocks}.kode`, **12/12 trees
+  byte-identical**.
+
 - **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
   `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
   outside `0..=255` instead of truncating them; the object is a packed list, so a
