@@ -21,8 +21,8 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `cursor.kode` | the token cursor, the parse error type and the shared error list |
 | `infix.kode` | the infix table: operator symbols and their binding powers |
 | `expr.kode` | expressions: prefix, postfix chains, `[lists]`, `{maps}`, interpolation |
-| `stmt.kode` | statements: `name = value`, an expression on its own line, blocks, `if`/`while`/`for`, `break`/`continue`, `return`, and error recovery |
-| `parser.kode` | items: `pub`/`fn` declarations with their parameters, return type, block or `=> expr`, and type annotations |
+| `stmt.kode` | statements: `name = value`, an expression on its own line, blocks, `if`/`while`/`for`, `match`, `break`/`continue`, `return`, and error recovery |
+| `parser.kode` | items: `pub`/`fn` declarations with their parameters, return type, block or `=> expr`, `class` declarations, and type annotations |
 | `literals.kode` | what a literal means: base-2/8/16 ints, floats shaped like `{:?}`, strings split into text and `${...}` holes |
 | `main.kode` | the entry point: `kode-stage1 tokens <file>` / `kode-stage1 ast <file>` |
 | `spec/lexer_cases.kode` | escapes, a 4-byte character, a brace inside a hole |

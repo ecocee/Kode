@@ -39,6 +39,9 @@ pub class Stmts {
         if kind == TokenKind.Return {
             return return_stmt()
         }
+        if kind == TokenKind.Match {
+            return match_stmt()
+        }
         if kind == TokenKind.Break or kind == TokenKind.Continue {
             token = c.at
             c.advance()
@@ -313,6 +316,79 @@ pub class Stmts {
         return c.done()
     }
 
+    /// `match x { 1 => a, _ => b }`. An arm's body is a block or one statement,
+    /// and either way the arm dumps a `Block`.
+    fn match_stmt() -> int {
+        span_at = c.at
+        c.advance()
+        scrutinee = ex().expr()
+        id = ast.add("Match")
+        ast.span(id, "span", c.token_start(span_at), c.token_end(span_at))
+        seen = ast.add("Scrutinee")
+        if scrutinee >= 0 {
+            ast.kid(seen, scrutinee)
+        }
+        ast.kid(id, seen)
+        open_at = c.at
+        if c.peek() != TokenKind.LBrace {
+            c.fail("E0102", "expected `{` to open the arms of `match`", c.token_start(c.at), c.token_end(c.at), "write `match x { 1 => print(1) }`")
+            return id
+        }
+        c.advance()
+        closed = false
+        while not closed {
+            c.skip_newlines()
+            if c.peek() == TokenKind.RBrace {
+                c.advance()
+                closed = true
+            } else if c.done() {
+                c.fail("E0106", "this `match` is never closed", c.token_start(open_at), c.token_end(open_at), "add a matching `}`")
+                closed = true
+            } else {
+                arm(id)
+                expect_end()
+            }
+        }
+        return id
+    }
+
+    /// One arm: `_` or a value at `BP_ARITH`, `=>`, then a block or a statement.
+    fn arm(match_id: int) {
+        start = c.at
+        a = ast.add("Arm")
+        ast.span(a, "pattern_span", c.token_start(start), c.token_end(start))
+        ast.kid(match_id, a)
+        wildcard = c.peek() == TokenKind.Ident and c.text_of(c.at) == "_" and c.peek_at(1) == TokenKind.FatArrow
+        if wildcard {
+            c.advance()
+            ast.kid(a, ast.add("Wildcard"))
+        } else {
+            value = ex().expr_bp(BP_ARITH)
+            pattern = ast.add("PatternValue")
+            if value >= 0 {
+                ast.kid(pattern, value)
+            }
+            ast.kid(a, pattern)
+        }
+        if c.peek() == TokenKind.FatArrow {
+            c.advance()
+        } else {
+            c.fail("E0102", "expected `=>` after the pattern", c.token_start(c.at), c.token_end(c.at), "write `1 => print(1)`")
+        }
+        if c.peek() == TokenKind.LBrace {
+            body = block()
+            if body >= 0 {
+                ast.kid(a, body)
+            }
+        } else {
+            body = ast.add("Block")
+            node = statement()
+            if node >= 0 {
+                ast.kid(body, node)
+            }
+            ast.kid(a, body)
+        }
+    }
 }
 
 /// A token that can start a value. Anything else is a statement this slice does

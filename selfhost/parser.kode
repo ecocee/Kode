@@ -64,7 +64,10 @@ pub class Parser {
             c.advance()
         }
         if c.peek() == TokenKind.Fn {
-            return fn_decl(c.at, is_pub)
+            return fn_decl(c.at, is_pub, "Fn")
+        }
+        if c.peek() == TokenKind.Class {
+            return class_decl(is_pub)
         }
         if is_pub {
             c.fail(
@@ -80,11 +83,11 @@ pub class Parser {
     }
 
     /// `fn first<T>(a: int) -> int { ... }` and its `=> expr` form.
-    fn fn_decl(fn_at: int, is_pub: bool) -> int {
+    fn fn_decl(fn_at: int, is_pub: bool, kind: string) -> int {
         c.advance()
         name_at = c.at
         c.advance()
-        id = ast.add("Fn")
+        id = ast.add(kind)
         ast.text(id, "name", c.text_of(name_at))
         ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
         ast.flag(id, "pub", is_pub)
@@ -275,5 +278,120 @@ pub class Parser {
             return
         }
         c.fail("E0102", "expected ${what} to close the type", c.token_start(c.at), c.token_end(c.at), "check the type annotation")
+    }
+
+    /// `class Point { x: int, ... }`: type parameters, `implements`, fields with
+    /// their defaults, and methods. Methods dump `pub=false` even when the source
+    /// says `pub fn`, because the oracle's `parse_fn` never sees that flag.
+    fn class_decl(is_pub: bool) -> int {
+        c.advance()
+        name_at = c.at
+        c.advance()
+        id = ast.add("Class")
+        ast.text(id, "name", c.text_of(name_at))
+        ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.flag(id, "pub", is_pub)
+        if c.peek() == TokenKind.Lt {
+            c.advance()
+            more = true
+            while more {
+                param_at = c.at
+                c.advance()
+                tp = ast.add("TypeParam")
+                ast.text(tp, "name", c.text_of(param_at))
+                ast.span(tp, "span", c.token_start(param_at), c.token_end(param_at))
+                ast.kid(id, tp)
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                } else {
+                    more = false
+                }
+            }
+            if c.peek() == TokenKind.Gt {
+                c.advance()
+            } else {
+                c.fail("E0102", "expected `>` to close the type parameters", c.token_start(c.at), c.token_end(c.at), "write `class Box<T>`")
+            }
+        }
+        if c.peek() == TokenKind.Implements {
+            c.advance()
+            more = true
+            while more {
+                name_at = c.at
+                c.advance()
+                im = ast.add("Implements")
+                ast.text(im, "name", c.text_of(name_at))
+                ast.span(im, "span", c.token_start(name_at), c.token_end(name_at))
+                ast.kid(id, im)
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                } else {
+                    more = false
+                }
+            }
+        }
+        open_at = c.at
+        if c.peek() != TokenKind.LBrace {
+            c.fail("E0102", "expected `{` to open the class body", c.token_start(c.at), c.token_end(c.at), "write `class Point { x: int }`")
+            return id
+        }
+        c.advance()
+        closed = false
+        while not closed {
+            c.skip_newlines()
+            if c.peek() == TokenKind.RBrace {
+                c.advance()
+                closed = true
+            } else if c.done() {
+                c.fail("E0106", "this class is never closed", c.token_start(open_at), c.token_end(open_at), "add a matching `}`")
+                closed = true
+            } else {
+                // A `pub` on a method is accepted and dropped, as in the oracle.
+                if c.peek() == TokenKind.Pub {
+                    c.advance()
+                }
+                if c.peek() == TokenKind.Fn {
+                    m = fn_decl(c.at, false, "Method")
+                    ast.kid(id, m)
+                } else if c.peek() == TokenKind.Ident and c.peek_at(1) == TokenKind.Colon {
+                    field(id)
+                } else {
+                    c.fail(
+                        "E0114",
+                        "expected a field or a method, found `${c.text_of(c.at)}`",
+                        c.token_start(c.at),
+                        c.token_end(c.at),
+                        "fields look like `name: string`, methods like `fn show() { ... }`",
+                    )
+                    st().recover()
+                }
+                st().expect_end()
+            }
+        }
+        return id
+    }
+
+    /// `x: int` and `y: int = 0` in a class body.
+    fn field(class_id: int) {
+        name_at = c.at
+        c.advance()
+        c.advance()
+        f = ast.add("Field")
+        ast.text(f, "name", c.text_of(name_at))
+        ast.span(f, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.kid(class_id, f)
+        ty = type_ann()
+        if ty >= 0 {
+            ast.kid(f, ty)
+        }
+        if c.peek() == TokenKind.Assign {
+            c.advance()
+            value = st().ex().expr()
+            default = ast.add("Default")
+            if value >= 0 {
+                ast.kid(default, value)
+            }
+            ast.kid(f, default)
+        }
     }
 }

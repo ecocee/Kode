@@ -62,6 +62,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `TypeMap`/`TypeGeneric` spans only its opening token. Cases:
   `selfhost/spec/parse/{functions,returns}.kode`, **14/14 trees byte-identical**.
 
+- **Classes and `match` in the port's parser (S2 slice 5).** `class` declarations
+  with an optional `pub`, type parameters, `implements` names, fields with their
+  type and an optional `= default`, and methods; and `match` statements with
+  `Wildcard` or value arms (`PatternValue`, parsed at `BP_ARITH`) whose body is
+  always a `Block`. Two oracle quirks are reproduced: a method dumps as `Method`
+  with `pub=false` even when the source says `pub fn`, and a `Class` node carries
+  no `span`. Cases: `selfhost/spec/parse/{classes,matches}.kode`, **16/16 trees
+  byte-identical**.
+
 - **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
   `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
   outside `0..=255` instead of truncating them; the object is a packed list, so a

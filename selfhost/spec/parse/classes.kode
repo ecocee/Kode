@@ -1,0 +1,29 @@
+class Empty {
+}
+pub class Point {
+    x: int
+    y: int = 0
+    name: string = "p"
+    tags: [string] = []
+    labels: {string: int} = {a: 1}
+    maybe: User?
+
+    pub fn show() -> string {
+        return self.name
+    }
+    fn zero() -> Point => Point(0, 0)
+    fn moved(dx: int, dy: int) -> Point {
+        return Point(self.x + dx, self.y + dy)
+    }
+}
+class Box<T> {
+    value: T
+}
+class Named implements Show, Debug {
+    n: int
+}
+class OnlyMethods {
+    fn run() {
+        return
+    }
+}
