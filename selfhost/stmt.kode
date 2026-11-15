@@ -11,7 +11,7 @@ from "./ast" import Ast
 from "./cursor" import Cursor
 from "./expr" import Exprs
 from "./infix" import BP_ARITH
-from "./tokens" import TokenKind
+from "./tokens" import TokenKind, starts_value
 
 pub class Stmts {
     c: Cursor
@@ -74,7 +74,7 @@ pub class Stmts {
             c.token_end(token),
             "a statement is an assignment, an expression, `if`, `while`, `for`, `break` or `continue`",
         )
-        recover()
+        c.recover_line()
         return -1
     }
 
@@ -145,7 +145,7 @@ pub class Stmts {
                 if node >= 0 {
                     ast.kid(id, node)
                 }
-                expect_end()
+                c.end_statement()
             }
         }
         return id
@@ -265,61 +265,19 @@ pub class Stmts {
         return id
     }
 
-    /// The oracle's end of statement: a newline, the end of the file, or the `}`
-    /// that closes the block. None of them is consumed here.
-    fn expect_end() {
-        if c.peek() == TokenKind.Newline {
-            c.advance()
-            return
-        }
-        if c.done() or c.peek() == TokenKind.RBrace {
-            return
-        }
-        c.fail(
-            "E0101",
-            "expected the end of the line, found `${c.text_of(c.at)}`",
-            c.token_start(c.at),
-            c.token_end(c.at),
-            "put each statement on its own line",
-        )
-        recover()
-    }
-
-    fn recover() {
-        while not c.done() and c.peek() != TokenKind.Newline {
-            c.advance()
-        }
-        if c.peek() == TokenKind.Newline {
-            c.advance()
-        }
-    }
-
     /// `return` and `return value`. The keyword's span, then the value.
     fn return_stmt() -> int {
         token = c.at
         c.advance()
         id = ast.add("Return")
         ast.span(id, "span", c.token_start(token), c.token_end(token))
-        if not ends_statement() {
+        if not c.at_statement_end() {
             value = expression()
             if value >= 0 {
                 ast.kid(id, value)
             }
         }
         return id
-    }
-
-    /// True at a newline, the end of the file or the `}` that closes the block:
-    /// the places where a statement stops.
-    fn ends_statement() -> bool {
-        kind = c.peek()
-        if kind == TokenKind.Newline {
-            return true
-        }
-        if kind == TokenKind.RBrace {
-            return true
-        }
-        return c.done()
     }
 
     /// `match x { 1 => a, _ => b }`. An arm's body is a block or one statement,
@@ -352,7 +310,7 @@ pub class Stmts {
                 closed = true
             } else {
                 arm(id)
-                expect_end()
+                c.end_statement()
             }
         }
         return id
@@ -476,31 +434,4 @@ pub class Stmts {
         }
         return id
     }
-}
-
-/// A token that can start a value. Anything else is a statement this slice does
-/// not know, so it is reported rather than skipped silently.
-fn starts_value(kind: TokenKind) -> bool {
-    if kind == TokenKind.Int {
-        return true
-    }
-    if kind == TokenKind.Float {
-        return true
-    }
-    if kind == TokenKind.Str {
-        return true
-    }
-    if kind == TokenKind.True or kind == TokenKind.False or kind == TokenKind.None {
-        return true
-    }
-    if kind == TokenKind.Ident {
-        return true
-    }
-    if kind == TokenKind.LParen or kind == TokenKind.LBracket or kind == TokenKind.LBrace {
-        return true
-    }
-    if kind == TokenKind.Minus or kind == TokenKind.Tilde or kind == TokenKind.Not {
-        return true
-    }
-    return false
 }

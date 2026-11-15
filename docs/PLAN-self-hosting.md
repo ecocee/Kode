@@ -204,6 +204,12 @@ a block of statements and the statement grammar already imports the expression
 grammar (module cycles are `E0402`). Everywhere else the port reports a parse error
 where the oracle would accept the source.
 
+Slice 7 pushed `stmt.kode` just over the size rule, so the line-end handling moved
+to where it belongs: `Cursor.end_statement`, `Cursor.at_statement_end` and
+`Cursor.recover_line` in `cursor.kode`, and `starts_value` next to the token set in
+`tokens.kode`. No grammar changed and no tree moved — the 22 cases stayed
+byte-identical, and the `E0101` report keeps its code, position and text.
+
 Not yet: `catch` inside parentheses, argument lists, collections or interpolation
 holes; closures; `await`; `E01xx` parity; and the `int?` parent edges ADR 0042
 allows. Those are the rest of S2's slices, and each adds

@@ -73,6 +73,50 @@ pub class Cursor {
         return src.size()
     }
 
+    /// True at a newline, the end of the file or the `}` that closes a block: the
+    /// places where a statement stops.
+    fn at_statement_end() -> bool {
+        kind = peek()
+        if kind == TokenKind.Newline {
+            return true
+        }
+        if kind == TokenKind.RBrace {
+            return true
+        }
+        return done()
+    }
+
+    /// The oracle's end of statement: a newline, the end of the file, or the `}`
+    /// that closes the block. A newline is consumed; neither of the others is.
+    fn end_statement() {
+        if peek() == TokenKind.Newline {
+            advance()
+            return
+        }
+        if done() or peek() == TokenKind.RBrace {
+            return
+        }
+        fail(
+            "E0101",
+            "expected the end of the line, found `${text_of(at)}`",
+            token_start(at),
+            token_end(at),
+            "put each statement on its own line",
+        )
+        recover_line()
+    }
+
+    /// Skip to the end of the line after an error, so the next statement can be
+    /// reported instead of the same one twice.
+    fn recover_line() {
+        while not done() and peek() != TokenKind.Newline {
+            advance()
+        }
+        if peek() == TokenKind.Newline {
+            advance()
+        }
+    }
+
     fn fail(code: string, message: string, start: int, end: int, help: string) {
         errors.add(
             ParseError(code: code, message: message, start: start, end: end, help: help)

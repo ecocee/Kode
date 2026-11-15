@@ -41,7 +41,7 @@ pub class Parser {
             if node >= 0 {
                 ast.nodes[0].kids.add(node)
             }
-            d.st().expect_end()
+            d.c.end_statement()
         }
         return Parsed(ast: ast, errors: c.errors)
     }

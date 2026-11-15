@@ -238,9 +238,9 @@ pub class Decls {
                         c.token_end(c.at),
                         "fields look like `name: string`, methods like `fn show() { ... }`",
                     )
-                    st().recover()
+                    c.recover_line()
                 }
-                st().expect_end()
+                c.end_statement()
             }
         }
         return id

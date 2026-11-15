@@ -89,6 +89,12 @@ language: a patch release fixes bugs, a minor release may add syntax.
   Cases: `selfhost/spec/parse/{try_catch,optionals,catch_expr}.kode`, **22/22 trees
   byte-identical**.
 
+- **`selfhost/stmt.kode` back under the size rule (437 lines).** The statement-end
+  handling moved to the cursor (`end_statement`, `at_statement_end`,
+  `recover_line`) and `starts_value` next to the token set, since a statement's end
+  is a property of the token stream. No grammar changed: all 22 parse cases stayed
+  byte-identical and the `E0101` report keeps its code, position and text.
+
 - **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
   `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
   outside `0..=255` instead of truncating them; the object is a packed list, so a

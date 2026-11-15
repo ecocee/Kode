@@ -11,17 +11,17 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 
 | file | what it is |
 |---|---|
-| `tokens.kode` | the token set, the error type, and the names the dump prints |
+| `tokens.kode` | the token set, the error type, the names the dump prints, and which tokens can start a value |
 | `keywords.kode` | the keyword table |
 | `bytes.kode` | UTF-8 width and the character-class predicates |
 | `strings.kode` | the `${...}` hole scanner |
 | `lexer.kode` | the scanner: same tokens, spans, error codes and recovery as `lexer.rs` |
 | `dump.kode` | the `kode tokens` line format, escaping and line/column |
 | `ast.kode` | the syntax tree: one arena of nodes with `int` child ids (ADR 0042), and the `kode ast` line format |
-| `cursor.kode` | the token cursor, the parse error type and the shared error list |
+| `cursor.kode` | the token cursor, the parse error type and the shared error list, plus where a statement ends (`end_statement`, `at_statement_end`) and how a bad line is skipped (`recover_line`) |
 | `infix.kode` | the infix table: operator symbols and their binding powers |
 | `expr.kode` | expressions: prefix, postfix chains, `??`, `is`, `[lists]`, `{maps}`, interpolation |
-| `stmt.kode` | statements: `name = value`, an expression on its own line, blocks, `if`/`while`/`for`, `match`, `try`/`throw`, `break`/`continue`, `return`, the `catch` expression, and error recovery |
+| `stmt.kode` | statements: `name = value`, an expression on its own line, blocks, `if`/`while`/`for`, `match`, `try`/`throw`, `break`/`continue`, `return`, and the `catch` expression |
 | `types.kode` | type annotations (`T`, `[T]`, `{string: T}`, `Box<T>`, `T?`) and `Param` nodes |
 | `decls.kode` | items: `pub`/`fn`, `class`, `const` and `import` |
 | `enums.kode` | `enum` declarations with payload variants, and `interface` signatures |

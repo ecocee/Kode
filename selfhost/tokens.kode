@@ -383,3 +383,30 @@ pub fn token_name(kind: TokenKind) -> string {
     }
     return name
 }
+
+/// A token that can start a value. Anything else starts no expression, so the
+/// statement parser reports it rather than skipping it silently.
+pub fn starts_value(kind: TokenKind) -> bool {
+    if kind == TokenKind.Int {
+        return true
+    }
+    if kind == TokenKind.Float {
+        return true
+    }
+    if kind == TokenKind.Str {
+        return true
+    }
+    if kind == TokenKind.True or kind == TokenKind.False or kind == TokenKind.None {
+        return true
+    }
+    if kind == TokenKind.Ident {
+        return true
+    }
+    if kind == TokenKind.LParen or kind == TokenKind.LBracket or kind == TokenKind.LBrace {
+        return true
+    }
+    if kind == TokenKind.Minus or kind == TokenKind.Tilde or kind == TokenKind.Not {
+        return true
+    }
+    return false
+}

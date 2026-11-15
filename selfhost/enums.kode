@@ -9,17 +9,12 @@
 
 from "./ast" import Ast
 from "./cursor" import Cursor
-from "./stmt" import Stmts
 from "./tokens" import TokenKind
 from "./types" import Types
 
 pub class Enums {
     c: Cursor
     ast: Ast
-
-    fn st() -> Stmts {
-        return Stmts(c: c, ast: ast)
-    }
 
     fn ty() -> Types {
         return Types(c: c, ast: ast)
@@ -132,9 +127,9 @@ pub class Enums {
                         c.token_end(c.at),
                         "method signatures look like `fn area() -> float`",
                     )
-                    st().recover()
+                    c.recover_line()
                 }
-                st().expect_end()
+                c.end_statement()
             }
         }
         return id
