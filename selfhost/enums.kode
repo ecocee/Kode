@@ -1,0 +1,192 @@
+// Enums and interfaces: two closed lists that hold no statements.
+//
+// An enum is a list of variants, each with an optional `(name: type, ...)` payload
+// (ADR 0039 — the syntax carries it, the checker still refuses construction). An
+// interface is a list of signatures with no body at all.
+//
+// Both dump without a `span` on the declaration itself: the name and its span are
+// the only position information, and a signature's `span` covers `fn` and the name.
+
+from "./ast" import Ast
+from "./cursor" import Cursor
+from "./stmt" import Stmts
+from "./tokens" import TokenKind
+from "./types" import Types
+
+pub class Enums {
+    c: Cursor
+    ast: Ast
+
+    fn st() -> Stmts {
+        return Stmts(c: c, ast: ast)
+    }
+
+    fn ty() -> Types {
+        return Types(c: c, ast: ast)
+    }
+
+    /// `enum Color { Red, Green, Blue }` and `Circle(radius: float)` payloads.
+    /// Variants are separated by a comma or a newline, and neither is required
+    /// after the last one.
+    fn enum_decl(is_pub: bool) -> int {
+        c.advance()
+        name_at = c.at
+        c.advance()
+        id = ast.add("Enum")
+        ast.text(id, "name", c.text_of(name_at))
+        ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.flag(id, "pub", is_pub)
+        open_at = c.at
+        if c.peek() != TokenKind.LBrace {
+            c.fail("E0102", "expected `{` to open the enum", c.token_start(c.at), c.token_end(c.at), "write `enum Color { Red }`")
+            return id
+        }
+        c.advance()
+        closed = false
+        while not closed {
+            c.skip_newlines()
+            if c.peek() == TokenKind.RBrace {
+                c.advance()
+                closed = true
+            } else if c.done() {
+                c.fail("E0106", "this enum is never closed", c.token_start(open_at), c.token_end(open_at), "add a matching `}`")
+                closed = true
+            } else {
+                variant(id)
+                c.skip_newlines()
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                }
+            }
+        }
+        return id
+    }
+
+    /// One variant: a name, then an optional payload of annotated fields.
+    fn variant(enum_id: int) {
+        name_at = c.at
+        c.advance()
+        v = ast.add("Variant")
+        ast.text(v, "name", c.text_of(name_at))
+        ast.span(v, "span", c.token_start(name_at), c.token_end(name_at))
+        ast.kid(enum_id, v)
+        if c.peek() != TokenKind.LParen {
+            return
+        }
+        c.advance()
+        if c.peek() != TokenKind.RParen {
+            more = true
+            while more {
+                ty().param(v)
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                    c.skip_newlines()
+                } else {
+                    more = false
+                }
+            }
+        }
+        if c.peek() == TokenKind.RParen {
+            c.advance()
+        } else {
+            c.fail("E0102", "expected `)` to close the payload", c.token_start(c.at), c.token_end(c.at), "write `Circle(radius: float)`")
+        }
+    }
+
+    /// `interface Show { fn show() -> string }`. A `pub` on a signature is
+    /// accepted and dropped, as in the oracle.
+    fn interface_decl(is_pub: bool) -> int {
+        c.advance()
+        name_at = c.at
+        c.advance()
+        id = ast.add("Interface")
+        ast.text(id, "name", c.text_of(name_at))
+        ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.flag(id, "pub", is_pub)
+        open_at = c.at
+        if c.peek() != TokenKind.LBrace {
+            c.fail("E0102", "expected `{` to open the interface", c.token_start(c.at), c.token_end(c.at), "write `interface Show { fn show() -> string }`")
+            return id
+        }
+        c.advance()
+        closed = false
+        while not closed {
+            c.skip_newlines()
+            if c.peek() == TokenKind.RBrace {
+                c.advance()
+                closed = true
+            } else if c.done() {
+                c.fail("E0106", "this interface is never closed", c.token_start(open_at), c.token_end(open_at), "add a matching `}`")
+                closed = true
+            } else {
+                if c.peek() == TokenKind.Pub {
+                    c.advance()
+                }
+                if c.peek() == TokenKind.Fn {
+                    iface_method(id)
+                } else {
+                    c.fail(
+                        "E0114",
+                        "expected a method signature, found `${c.text_of(c.at)}`",
+                        c.token_start(c.at),
+                        c.token_end(c.at),
+                        "method signatures look like `fn area() -> float`",
+                    )
+                    st().recover()
+                }
+                st().expect_end()
+            }
+        }
+        return id
+    }
+
+    /// `fn area() -> float`: parameters and an optional return type, no body.
+    fn iface_method(iface_id: int) {
+        fn_at = c.at
+        c.advance()
+        name_at = c.at
+        c.advance()
+        m = ast.add("IfaceMethod")
+        ast.text(m, "name", c.text_of(name_at))
+        ast.span(m, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.span(m, "span", c.token_start(fn_at), c.token_end(name_at))
+        ast.kid(iface_id, m)
+        if c.peek() != TokenKind.LParen {
+            c.fail("E0102", "expected `(` to open the parameter list", c.token_start(c.at), c.token_end(c.at), "write `fn area() -> float`")
+            return
+        }
+        c.advance()
+        c.skip_newlines()
+        while c.peek() != TokenKind.RParen and not c.done() {
+            ty().param(m)
+            c.skip_newlines()
+            if c.peek() == TokenKind.Comma {
+                c.advance()
+                c.skip_newlines()
+            } else {
+                break
+            }
+        }
+        if c.peek() == TokenKind.RParen {
+            c.advance()
+        } else {
+            c.fail("E0102", "expected `)` to close the parameter list", c.token_start(c.at), c.token_end(c.at), "write `fn area() -> float`")
+        }
+        if c.peek() == TokenKind.Arrow {
+            c.advance()
+            ret = ty().type_ann()
+            if ret >= 0 {
+                ast.kid(m, ret)
+            }
+        }
+        if c.peek() == TokenKind.LBrace or c.peek() == TokenKind.FatArrow {
+            c.fail(
+                "E0236",
+                "an interface method has no body",
+                c.token_start(fn_at),
+                c.token_end(name_at),
+                "write only the signature; the implementing class writes the body",
+            )
+        }
+    }
+}

@@ -1,22 +1,16 @@
-// The item parser of the self-hosted compiler: S2 slice 4.
+// The program loop of the self-hosted compiler's parser.
 //
-// An item is an optional `pub`, then a `fn` declaration or a statement. A `fn`
-// carries its type parameters, its parameters with their annotations, an optional
-// return type, and either a block or `=> expr`. Annotations cover names, `[T]`,
-// `{string: T}`, `Box<T>` and the `T?` suffix.
-//
-// Two spans are the oracle's and look odd on purpose: a `Fn` spans the `fn`
-// keyword and its name only, and a `TypeList`/`TypeMap`/`TypeGeneric` spans its
-// opening token only (`[T]` starts at `[` and ends there), while `T?` does box the
-// whole annotation.
-//
-// The statement grammar lives in `stmt.kode`, the expression grammar in
-// `expr.kode`; all of them share one `Cursor` and one arena.
+// A program is a list of items, one per line: declarations (`decls.kode` for `fn`,
+// `class`, `const` and `import`; `enums.kode` for enums and interfaces) and plain
+// statements wherever a declaration is not expected. The statement grammar lives in
+// `stmt.kode`, the expression grammar in `expr.kode`, type annotations in
+// `types.kode`; all of them share one `Cursor` and one arena, so a position and an
+// error list are common to the whole parse.
 
 from "./ast" import Ast
 from "./cursor" import Cursor, ParseError
-from "./stmt" import Stmts
-from "./tokens" import Lexed, TokenKind
+from "./decls" import Decls
+from "./tokens" import Lexed
 
 pub class Parsed {
     ast: Ast
@@ -37,361 +31,22 @@ pub class Parser {
 
     fn run() -> Parsed {
         ast.add("Program")
+        d = decls()
         while not c.done() {
             c.skip_newlines()
             if c.done() {
                 break
             }
-            node = item()
+            node = d.item()
             if node >= 0 {
                 ast.nodes[0].kids.add(node)
             }
-            st().expect_end()
+            d.st().expect_end()
         }
         return Parsed(ast: ast, errors: c.errors)
     }
 
-    /// The statement parser over the same cursor and arena.
-    fn st() -> Stmts {
-        return Stmts(c: c, ast: ast)
-    }
-
-    /// `pub fn f(...)`, or a statement at item level.
-    fn item() -> int {
-        is_pub = false
-        if c.peek() == TokenKind.Pub {
-            is_pub = true
-            c.advance()
-        }
-        if c.peek() == TokenKind.Fn {
-            return fn_decl(c.at, is_pub, "Fn")
-        }
-        if c.peek() == TokenKind.Class {
-            return class_decl(is_pub)
-        }
-        if is_pub {
-            c.fail(
-                "E0102",
-                "`pub` here has to be followed by `fn`, found `${c.text_of(c.at)}`",
-                c.token_start(c.at),
-                c.token_end(c.at),
-                "this slice knows `pub fn`, not other public items",
-            )
-            return -1
-        }
-        return st().statement()
-    }
-
-    /// `fn first<T>(a: int) -> int { ... }` and its `=> expr` form.
-    fn fn_decl(fn_at: int, is_pub: bool, kind: string) -> int {
-        c.advance()
-        name_at = c.at
-        c.advance()
-        id = ast.add(kind)
-        ast.text(id, "name", c.text_of(name_at))
-        ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
-        ast.flag(id, "pub", is_pub)
-        ast.span(id, "span", c.token_start(fn_at), c.token_end(name_at))
-        if c.peek() == TokenKind.Lt {
-            c.advance()
-            more = true
-            while more {
-                param_at = c.at
-                c.advance()
-                tp = ast.add("TypeParam")
-                ast.text(tp, "name", c.text_of(param_at))
-                ast.span(tp, "span", c.token_start(param_at), c.token_end(param_at))
-                ast.kid(id, tp)
-                if c.peek() == TokenKind.Comma {
-                    c.advance()
-                    c.skip_newlines()
-                } else {
-                    more = false
-                }
-            }
-            if c.peek() == TokenKind.Gt {
-                c.advance()
-            } else {
-                c.fail("E0102", "expected `>` to close the type parameters", c.token_start(c.at), c.token_end(c.at), "write `fn id<T>(x: T)`")
-            }
-        }
-        if c.peek() == TokenKind.LParen {
-            c.advance()
-        } else {
-            c.fail("E0102", "expected `(` to open the parameter list", c.token_start(c.at), c.token_end(c.at), "write `fn name(a: int)`")
-            return id
-        }
-        c.skip_newlines()
-        while c.peek() != TokenKind.RParen and not c.done() {
-            param(id)
-            c.skip_newlines()
-            if c.peek() == TokenKind.Comma {
-                c.advance()
-                c.skip_newlines()
-            } else {
-                break
-            }
-        }
-        if c.peek() == TokenKind.RParen {
-            c.advance()
-        } else {
-            c.fail("E0102", "expected `)` to close the parameter list", c.token_start(c.at), c.token_end(c.at), "write `fn name(a: int)`")
-        }
-        if c.peek() == TokenKind.Arrow {
-            c.advance()
-            ret = type_ann()
-            if ret >= 0 {
-                ast.kid(id, ret)
-            }
-        }
-        if c.peek() == TokenKind.FatArrow {
-            c.advance()
-            c.skip_newlines()
-            value = st().ex().expr()
-            body = ast.add("ExprBody")
-            if value >= 0 {
-                ast.kid(body, value)
-            }
-            ast.kid(id, body)
-        } else {
-            block = st().block()
-            if block >= 0 {
-                ast.kid(id, block)
-            }
-        }
-        return id
-    }
-
-    /// `a: int` — a `Param` holds the name and its annotation.
-    fn param(fn_id: int) {
-        name_at = c.at
-        c.advance()
-        p = ast.add("Param")
-        ast.text(p, "name", c.text_of(name_at))
-        ast.span(p, "name_span", c.token_start(name_at), c.token_end(name_at))
-        ast.kid(fn_id, p)
-        if c.peek() == TokenKind.Colon {
-            c.advance()
-        } else {
-            c.fail(
-                "E0111",
-                "parameter `${c.text_of(name_at)}` needs a type",
-                c.token_start(name_at),
-                c.token_end(name_at),
-                "write it like `${c.text_of(name_at)}: int`",
-            )
-            return
-        }
-        ty = type_ann()
-        if ty >= 0 {
-            ast.kid(p, ty)
-        }
-    }
-
-    /// A type annotation, with the `?` suffix wrapping the whole thing.
-    fn type_ann() -> int {
-        start = c.at
-        kind = c.peek()
-        if kind == TokenKind.LBracket {
-            c.advance()
-            id = ast.add("TypeList")
-            ast.span(id, "span", c.token_start(start), c.token_end(start))
-            inner = type_ann()
-            if inner >= 0 {
-                ast.kid(id, inner)
-            }
-            expect_bracket(TokenKind.RBracket, "`]`")
-            return with_opt(id, start)
-        }
-        if kind == TokenKind.LBrace {
-            c.advance()
-            id = ast.add("TypeMap")
-            ast.span(id, "span", c.token_start(start), c.token_end(start))
-            // The key parses into the arena unattached: only the value is dumped.
-            type_ann()
-            if c.peek() == TokenKind.Colon {
-                c.advance()
-            } else {
-                c.fail("E0102", "expected `:` between a map key and its value", c.token_start(c.at), c.token_end(c.at), "write `{string: int}`")
-            }
-            value = type_ann()
-            if value >= 0 {
-                ast.kid(id, value)
-            }
-            expect_bracket(TokenKind.RBrace, "`}`")
-            return with_opt(id, start)
-        }
-        if kind == TokenKind.Ident {
-            name_at = c.at
-            c.advance()
-            if c.peek() == TokenKind.Lt {
-                c.advance()
-                id = ast.add("TypeGeneric")
-                ast.text(id, "name", c.text_of(name_at))
-                ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
-                more = true
-                while more and not c.done() {
-                    arg = type_ann()
-                    if arg >= 0 {
-                        ast.kid(id, arg)
-                    }
-                    if c.peek() == TokenKind.Comma {
-                        c.advance()
-                    } else {
-                        more = false
-                    }
-                }
-                expect_bracket(TokenKind.Gt, "`>`")
-                return with_opt(id, start)
-            }
-            id = ast.add("TypeName")
-            ast.text(id, "name", c.text_of(name_at))
-            ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
-            return with_opt(id, start)
-        }
-        c.fail(
-            "E0111",
-            "expected a type name, found `${c.text_of(c.at)}`",
-            c.token_start(c.at),
-            c.token_end(c.at),
-            "types look like int, [int], {string: int} or User?",
-        )
-        return -1
-    }
-
-    /// `T?`: the annotation keeps the node, a `TypeOpt` boxes it.
-    fn with_opt(inner: int, start: int) -> int {
-        if c.peek() != TokenKind.Question {
-            return inner
-        }
-        q = c.at
-        c.advance()
-        id = ast.add("TypeOpt")
-        ast.span(id, "span", c.token_start(start), c.token_end(q))
-        ast.kid(id, inner)
-        return id
-    }
-
-    fn expect_bracket(kind: TokenKind, what: string) {
-        if c.peek() == kind {
-            c.advance()
-            return
-        }
-        c.fail("E0102", "expected ${what} to close the type", c.token_start(c.at), c.token_end(c.at), "check the type annotation")
-    }
-
-    /// `class Point { x: int, ... }`: type parameters, `implements`, fields with
-    /// their defaults, and methods. Methods dump `pub=false` even when the source
-    /// says `pub fn`, because the oracle's `parse_fn` never sees that flag.
-    fn class_decl(is_pub: bool) -> int {
-        c.advance()
-        name_at = c.at
-        c.advance()
-        id = ast.add("Class")
-        ast.text(id, "name", c.text_of(name_at))
-        ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
-        ast.flag(id, "pub", is_pub)
-        if c.peek() == TokenKind.Lt {
-            c.advance()
-            more = true
-            while more {
-                param_at = c.at
-                c.advance()
-                tp = ast.add("TypeParam")
-                ast.text(tp, "name", c.text_of(param_at))
-                ast.span(tp, "span", c.token_start(param_at), c.token_end(param_at))
-                ast.kid(id, tp)
-                if c.peek() == TokenKind.Comma {
-                    c.advance()
-                } else {
-                    more = false
-                }
-            }
-            if c.peek() == TokenKind.Gt {
-                c.advance()
-            } else {
-                c.fail("E0102", "expected `>` to close the type parameters", c.token_start(c.at), c.token_end(c.at), "write `class Box<T>`")
-            }
-        }
-        if c.peek() == TokenKind.Implements {
-            c.advance()
-            more = true
-            while more {
-                name_at = c.at
-                c.advance()
-                im = ast.add("Implements")
-                ast.text(im, "name", c.text_of(name_at))
-                ast.span(im, "span", c.token_start(name_at), c.token_end(name_at))
-                ast.kid(id, im)
-                if c.peek() == TokenKind.Comma {
-                    c.advance()
-                } else {
-                    more = false
-                }
-            }
-        }
-        open_at = c.at
-        if c.peek() != TokenKind.LBrace {
-            c.fail("E0102", "expected `{` to open the class body", c.token_start(c.at), c.token_end(c.at), "write `class Point { x: int }`")
-            return id
-        }
-        c.advance()
-        closed = false
-        while not closed {
-            c.skip_newlines()
-            if c.peek() == TokenKind.RBrace {
-                c.advance()
-                closed = true
-            } else if c.done() {
-                c.fail("E0106", "this class is never closed", c.token_start(open_at), c.token_end(open_at), "add a matching `}`")
-                closed = true
-            } else {
-                // A `pub` on a method is accepted and dropped, as in the oracle.
-                if c.peek() == TokenKind.Pub {
-                    c.advance()
-                }
-                if c.peek() == TokenKind.Fn {
-                    m = fn_decl(c.at, false, "Method")
-                    ast.kid(id, m)
-                } else if c.peek() == TokenKind.Ident and c.peek_at(1) == TokenKind.Colon {
-                    field(id)
-                } else {
-                    c.fail(
-                        "E0114",
-                        "expected a field or a method, found `${c.text_of(c.at)}`",
-                        c.token_start(c.at),
-                        c.token_end(c.at),
-                        "fields look like `name: string`, methods like `fn show() { ... }`",
-                    )
-                    st().recover()
-                }
-                st().expect_end()
-            }
-        }
-        return id
-    }
-
-    /// `x: int` and `y: int = 0` in a class body.
-    fn field(class_id: int) {
-        name_at = c.at
-        c.advance()
-        c.advance()
-        f = ast.add("Field")
-        ast.text(f, "name", c.text_of(name_at))
-        ast.span(f, "name_span", c.token_start(name_at), c.token_end(name_at))
-        ast.kid(class_id, f)
-        ty = type_ann()
-        if ty >= 0 {
-            ast.kid(f, ty)
-        }
-        if c.peek() == TokenKind.Assign {
-            c.advance()
-            value = st().ex().expr()
-            default = ast.add("Default")
-            if value >= 0 {
-                ast.kid(default, value)
-            }
-            ast.kid(f, default)
-        }
+    fn decls() -> Decls {
+        return Decls(c: c, ast: ast)
     }
 }

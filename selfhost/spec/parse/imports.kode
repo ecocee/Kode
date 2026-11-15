@@ -1,0 +1,13 @@
+import "./a.kode"
+import "./b.kode" as bee
+from "./c.kode" import One, Two, Three
+pub import "./d.kode"
+const LIMIT = 10
+pub const NAME: string = "kode"
+const RATIO: float = 0.5
+const TAGS: [string] = ["a", "b"]
+const CONFIG: {string: int} = {a: 1}
+const OPT: User? = none
+fn use() {
+    return LIMIT
+}

@@ -1,0 +1,22 @@
+enum Color {
+    Red,
+        Green,
+        Blue,
+    }
+enum Shape {
+    Circle(radius: float),
+        Rect(w: float, h: float)
+}
+pub enum Maybe {
+    None,
+        Some(value: int)
+}
+enum One { Only }
+enum Types {
+    Tags(names: [string]),
+        Lookup(map: {string: int})
+}
+enum NoTrailing {
+    A,
+        B
+}

@@ -71,6 +71,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
   no `span`. Cases: `selfhost/spec/parse/{classes,matches}.kode`, **16/16 trees
   byte-identical**.
 
+- **Enums, interfaces, imports and consts in the port's parser (S2 slice 6).**
+  `enum` with payload variants (`Circle(radius: float)`), `interface` signatures
+  (a body is `E0236`), all three `import` forms and `const` with an optional
+  annotation. The item grammar was split into `types.kode`, `decls.kode` and
+  `enums.kode` (a case's `kode fmt` output indents enum bodies deeply; that is the
+  formatter's existing behaviour, unchanged here). Cases:
+  `selfhost/spec/parse/{enums,interfaces,imports}.kode`, **19/19 trees
+  byte-identical**.
+
 - **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
   `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
   outside `0..=255` instead of truncating them; the object is a packed list, so a
