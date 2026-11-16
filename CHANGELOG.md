@@ -91,6 +91,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `selfhost/spec/parse/catch_expr.kode`, and `parse` is still **22/22 trees
   byte-identical**.
 
+- **Typed local declarations in the port's parser (S2 slice 11).** `x: int = 5` now
+  parses, with the type node between the target and the value exactly where the oracle
+  dumps it, and any annotation the type grammar accepts (`[int]`, `{string: int}`,
+  `Box<int>`, `User?`). A missing `=` reports `E0107` ("expected `=` after the type")
+  with the `count: int = 0` hint, over the token that turned up. The target is not
+  counted for `expr_count`, because `x = 1` reuses the id of the name it parsed while a
+  declaration never made one. New cases `selfhost/spec/parse/typed_decl.kode` and
+  `parse-errors/e0107_typed_decl.kode`: **46/46 byte-identical**, stage1 259/259 dumps.
+
 - **The port's parser reports errors the way the oracle does (S2 slice 10).**
   `selfhost/report.kode` renders a diagnostic as `kode-diagnostics` does: the code and
   message, `--> file:line:col`, the source line, a caret as wide as the span (one

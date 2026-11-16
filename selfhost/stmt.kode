@@ -13,6 +13,7 @@ from "./cursor" import Cursor
 from "./expr" import Exprs
 from "./infix" import BP_ARITH
 from "./tokens" import TokenKind, starts_value
+from "./types" import Types
 
 pub class Stmts implements Blocks {
     c: Cursor
@@ -78,12 +79,56 @@ pub class Stmts implements Blocks {
         if kind == TokenKind.Ident and c.peek_at(1) == TokenKind.Assign {
             return assign()
         }
+        if kind == TokenKind.Ident and c.peek_at(1) == TokenKind.Colon {
+            return typed_decl()
+        }
         if starts_value(kind) {
             return expression_stmt()
         }
         // Everything else is reported by the expression parser, so a stray `}` or
         // `)` gets the same message the oracle gives it.
         return expression_stmt()
+    }
+
+    /// `x: int = 5`: a declaration that is also an assignment. The type node sits
+    /// between the target and the value, which is where the oracle dumps it, and the
+    /// statement still spans from the name to the value.
+    fn typed_decl() -> int {
+        name_at = c.at
+        c.advance()
+        c.advance()
+        id = ast.add("Assign")
+        // The oracle reuses the id of the name it already parsed for `x = 1`, so that
+        // count stays; a declaration never made one, so this target is not counted.
+        target = ast.add("TargetVar")
+        ast.text(target, "name", c.text_of(name_at))
+        ast.span(target, "span", c.token_start(name_at), c.token_end(name_at))
+        ast.kid(id, target)
+        ty = Types(c: c, ast: ast).type_ann()
+        if ty >= 0 {
+            ast.kid(id, ty)
+        }
+        if c.peek() != TokenKind.Assign {
+            c.fail(
+                "E0107",
+                "expected `=` after the type, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "write it like `count: int = 0`",
+            )
+            c.recover_line()
+            return -1
+        }
+        c.advance()
+        c.skip_newlines()
+        value = ex().expr()
+        if value >= 0 {
+            ast.kid(id, value)
+            ast.span(id, "span", c.token_start(name_at), ast.nodes[value].end)
+        } else {
+            ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
+        }
+        return id
     }
 
     /// `x = 1`: the target is a `TargetVar`, its span the name's, and the whole

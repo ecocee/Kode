@@ -144,7 +144,7 @@ with children as ids, no parent links, and `ast_lines` printing the oracle's for
 statements whose arguments are literals or names, with `Int`/`Float`/`Str`/`Bool`/
 `Ident`/`Call`/`Arg`/`Assign`/`TargetVar`/`ExprStmt` nodes. `kode-stage1 ast` prints
 it, and `./scripts/selfhost.sh parse` diffs it with `kode ast` over
-`selfhost/spec/parse` and `selfhost/spec/parse-errors` (44/44 cases: trees and
+`selfhost/spec/parse` and `selfhost/spec/parse-errors` (46/46 cases: trees and
 diagnostics byte-identical, `expr_count` included).
 
 Slice 1b adds the expression grammar: every infix operator at the oracle's
@@ -255,14 +255,20 @@ follows the oracle too: a failed item, parameter or class member abandons the re
 its line (`Parser::recover`) and the following line is reported on its own, so the
 port emits the same *set* of errors in the same order.
 
-`selfhost/spec/parse-errors` holds one case per code, and `check_parse` now compares
-stderr as well as stdout for every case in both directories: 25 tree cases and 19
-diagnostic cases, 44/44 byte-identical.
+`selfhost/spec/parse-errors` holds one case per code, and `check_parse` compares
+stderr as well as stdout for every case in both directories.
 
-Not yet: a typed local declaration (`x: int = 5`, `E0107`) is still not parsed, so
-that one shape reports `E0101` instead; and the `int?` parent edges ADR 0042 allows.
-Each of those adds cases to `selfhost/spec/parse` or `selfhost/spec/parse-errors`
-rather than rewriting this one.
+Slice 11 adds the shape that had been missing: `x: int = 5`, a declaration that is
+also an assignment. The `Assign` node carries the type between the target and the
+value, exactly where the oracle puts it, and a missing `=` is `E0107` ("expected `=`
+after the type", with the `count: int = 0` hint) over the token that was found. The
+`for`-style target is *not* counted for `expr_count`: `x = 1` reuses the id of the
+name it parsed, so its count stays, while a declaration never made one — counting it
+made `expr_count` one too high until that was fixed against the oracle.
+
+25 tree cases, 21 diagnostic cases, 46/46 byte-identical. Not yet: the `int?` parent
+edges ADR 0042 allows, which adds cases to `selfhost/spec/parse` rather than
+rewriting this one.
 
 Risk: this is where a missing language feature becomes duplication. Stop and
 report rather than invent a workaround.
