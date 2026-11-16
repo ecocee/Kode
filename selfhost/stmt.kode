@@ -8,7 +8,7 @@
 // The expression grammar lives in `expr.kode`; items (`fn`) live in `parser.kode`.
 
 from "./ast" import Ast
-from "./blocks" import Blocks
+from "./contracts" import Blocks
 from "./cursor" import Cursor
 from "./expr" import Exprs
 from "./infix" import BP_ARITH

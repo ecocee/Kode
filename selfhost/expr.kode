@@ -1,38 +1,50 @@
-// The expression grammar of the self-hosted compiler: S2 slice 2.
+// The expression grammar of the self-hosted compiler: S2 slices 2 and 8.
 //
-// Precedence is the oracle's (`crates/kode-syntax/src/parser/expr.rs`): `or` 2,
-// `and` 4, `|` 6, `^` 7, `&` 8, comparisons and `in` 10, `<< >>` 12, `+ -` 16,
-// `* / %` 20, unary `-` and `~` 30, and `not` 9. Grouping leaves no node: `(1 + 2)`
-// *is* the `Binary`, with its own span.
+// Precedence is the oracle's: `or` 2, `and` 4, `|` 6, `^` 7, `&` 8, comparisons and
+// `in` 10, `<< >>` 12, `+ -` 16, `* / %` 20, unary `-` and `~` 30, and `not` 9.
+// `await` takes a unary and a closure body is a whole expression. Grouping leaves no
+// node: `(1 + 2)` *is* the `Binary`, with its own span. A postfix chain (`.name`,
+// `.name(args)`, `?.name`, `[i]`, `[a..b]`, `!`) wraps what came before it.
 //
-// A postfix chain (`.name`, `.name(args)`, `?.name`, `[i]`, `[a..b]`, `!`) wraps
-// what came before it, so `xs[0].name!` is nested innermost-first, as dumped.
-//
-// The cursor and the error list are shared with the statement parser: one
-// position, one report.
+// The cursor and the error list are shared with the statement parser: one position,
+// one report. Statements that an expression needs (`catch` bodies) come through
+// `contracts.kode`; interpolated strings are in `interp.kode`.
 
 from "./ast" import Ast
-from "./blocks" import Blocks
+from "./contracts" import Blocks, Expressions
 from "./cursor" import Cursor
 from "./infix" import BP_NOT, BP_UNARY, infix_of
-from "./lexer" import lex
-from "./literals" import float_text, parse_int, string_parts
+from "./literals" import float_text, parse_int
+from "./closures" import Forms
+from "./interp" import Interp
 from "./tokens" import TokenKind
 
-pub class Exprs {
+pub class Exprs implements Expressions {
     c: Cursor
     ast: Ast
     /// The statement parser, for the body of `expr catch err { ... }`.
     blocks: Blocks
 
-    fn fail(code: string, message: string, start: int, end: int, help: string) {
-        c.fail(code, message, start, end, help)
-    }
-
     // ---- expressions ----
 
     fn expr() -> int {
         return expr_bp(0)
+    }
+
+    /// The same expression parser over another cursor: an interpolation hole is
+    /// re-lexed, and everything inside it has to read from that cursor.
+    fn with_cursor(next: Cursor) -> Expressions {
+        return Exprs(c: next, ast: ast, blocks: blocks.with_cursor(next))
+    }
+
+    /// Closures and `await` live in `closures.kode`, interpolated strings in
+    /// `interp.kode`; both ask back through an interface over this parser.
+    fn forms() -> Forms {
+        return Forms(c: c, ast: ast, exprs: Exprs(c: c, ast: ast, blocks: blocks))
+    }
+
+    fn interp() -> Interp {
+        return Interp(c: c, ast: ast, exprs: Exprs(c: c, ast: ast, blocks: blocks))
     }
 
     fn expr_bp(min_bp: int) -> int {
@@ -117,6 +129,13 @@ pub class Exprs {
     /// A prefix operator (`-`, `~`, `not`) or a postfix chain.
     fn prefix() -> int {
         kind = c.peek()
+        // `await expr` takes a unary, so `await f().g()` awaits the whole chain.
+        if kind == TokenKind.Await {
+            return forms().await_expr()
+        }
+        if kind == TokenKind.Pipe {
+            return forms().closure()
+        }
         if kind == TokenKind.Minus or kind == TokenKind.Tilde or kind == TokenKind.Not {
             op = "-"
             bp = BP_UNARY
@@ -148,7 +167,7 @@ pub class Exprs {
             c.advance()
             id = ast.counted("Int")
             ast.num(id, "value", parse_int(c.text_of(token)))
-            span_of(id, token)
+            ast.span_of(id, c, token)
             return id
         }
         if kind == TokenKind.Float {
@@ -156,27 +175,27 @@ pub class Exprs {
             c.advance()
             id = ast.counted("Float")
             ast.text(id, "value", float_text(c.text_of(token)))
-            span_of(id, token)
+            ast.span_of(id, c, token)
             return id
         }
         if kind == TokenKind.Str {
             token = c.at
             c.advance()
-            return string_expr(token)
+            return interp().string_expr(token)
         }
         if kind == TokenKind.True or kind == TokenKind.False {
             token = c.at
             c.advance()
             id = ast.counted("Bool")
             ast.flag(id, "value", kind == TokenKind.True)
-            span_of(id, token)
+            ast.span_of(id, c, token)
             return id
         }
         if kind == TokenKind.None {
             token = c.at
             c.advance()
             id = ast.counted("None")
-            span_of(id, token)
+            ast.span_of(id, c, token)
             return id
         }
         if kind == TokenKind.Ident {
@@ -200,7 +219,7 @@ pub class Exprs {
             return map_expr()
         }
         token = c.at
-        fail(
+        c.fail(
             "E0102",
             "expected a value, found `${c.text_of(token)}`",
             c.token_start(token),
@@ -226,7 +245,7 @@ pub class Exprs {
                     ast.text(id, "name", c.text_of(name_at))
                     ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
                     ast.kid(id, e)
-                    kids(id, args)
+                    ast.kids(id, args)
                     ast.span(id, "span", ast.nodes[e].start, c.last_end)
                     e = id
                 } else {
@@ -312,14 +331,14 @@ pub class Exprs {
         if c.peek() != TokenKind.LParen {
             id = ast.counted("Ident")
             ast.text(id, "name", c.text_of(callee))
-            span_of(id, callee)
+            ast.span_of(id, c, callee)
             return id
         }
         args = arg_list()
         id = ast.counted("Call")
         ast.text(id, "callee", c.text_of(callee))
         ast.span(id, "callee_span", c.token_start(callee), c.token_end(callee))
-        kids(id, args)
+        ast.kids(id, args)
         ast.span(id, "span", c.token_start(callee), c.last_end)
         return id
     }
@@ -353,7 +372,7 @@ pub class Exprs {
             }
         }
         if c.peek() != TokenKind.RParen {
-            fail(
+            c.fail(
                 "E0103",
                 "expected `)` or `,` to close the arguments",
                 c.token_start(c.at),
@@ -403,7 +422,7 @@ pub class Exprs {
             if c.peek() == TokenKind.Colon {
                 c.advance()
             } else {
-                fail(
+                c.fail(
                     "E0103",
                     "expected `:` between a key and its value",
                     c.token_start(c.at),
@@ -430,64 +449,5 @@ pub class Exprs {
         return id
     }
 
-    /// A string literal: plain text is a `Str`, anything with a hole is an
-    /// `Interp` of `Lit` text and `Hole` expressions, as the oracle dumps it.
-    fn string_expr(token: int) -> int {
-        body_from = c.token_start(token) + 1
-        body_to = c.token_end(token) - 1
-        parts = string_parts(c.src, body_from, body_to)
-        if parts.len() == 1 and not parts[0].is_hole {
-            id = ast.counted("Str")
-            ast.text(id, "value", parts[0].lit)
-            span_of(id, token)
-            return id
-        }
-        id = ast.counted("Interp")
-        for part in parts {
-            if part.is_hole {
-                inner = hole_expr(part.start_at, part.end_at)
-                if inner >= 0 {
-                    w = ast.add("Hole")
-                    ast.kid(w, inner)
-                    ast.kid(id, w)
-                }
-            } else {
-                lit = ast.add("Lit")
-                ast.text(lit, "text", part.lit)
-                ast.kid(id, lit)
-            }
-        }
-        span_of(id, token)
-        return id
-    }
-
-    /// The expression inside `${...}`. Its tokens are lexed from the hole's own
-    /// text and shifted by the hole's offset, so every span stays absolute.
-    fn hole_expr(hole_from: int, hole_to: int) -> int {
-        lx = lex(c.src.slice(hole_from, hole_to))
-        for err in lx.errors {
-            fail(err.code, err.message, err.start + hole_from, err.end + hole_from, err.help)
-        }
-        for t in lx.tokens {
-            t.start += hole_from
-            t.end += hole_from
-        }
-        sub_c = Cursor(src: c.src, tokens: lx.tokens)
-        sub = Exprs(c: sub_c, ast: ast, blocks: blocks.with_cursor(sub_c))
-        inner = sub.expr()
-        return inner
-    }
-
     // ---- helpers ----
-
-    fn span_of(id: int, token: int) {
-        ast.span(id, "span", c.token_start(token), c.token_end(token))
-    }
-
-    fn kids(id: int, children: [int]) {
-        for child in children {
-            ast.kid(id, child)
-        }
-    }
-
 }

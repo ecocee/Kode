@@ -7,6 +7,7 @@
 // then `attr=value` pairs in a fixed order, then children indented two spaces.
 
 from "./bytes" import utf8_len
+from "./cursor" import Cursor
 
 /// One node: the dump kind, attributes already rendered in dump order, children.
 pub class Node {
@@ -64,6 +65,19 @@ pub class Ast {
     /// An attribute printed without quotes, such as an operator.
     fn raw(id: int, name: string, value: string) {
         nodes[id].attrs.add("${name}=${value}")
+    }
+
+    /// The span of a node copied from one token: a closed group keeps its brackets,
+    /// which is why the caller passes the token rather than the child.
+    fn span_of(id: int, c: Cursor, token: int) {
+        span(id, "span", c.token_start(token), c.token_end(token))
+    }
+
+    /// Every child in one call, in order.
+    fn kids(id: int, children: [int]) {
+        for child in children {
+            kid(id, child)
+        }
     }
 
     fn kid(id: int, child: int) {

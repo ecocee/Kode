@@ -91,6 +91,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `selfhost/spec/parse/catch_expr.kode`, and `parse` is still **22/22 trees
   byte-identical**.
 
+- **Closures and `await` in the port's parser (S2 slice 8).** `|x: int| x * 2` with
+  typed parameters (`E0241` otherwise) and `||` for none, plus `await expr` at unary
+  precedence. A closure body is a whole expression, so `catch` and `await` nest in it.
+  Both live in `selfhost/closures.kode` and reach the expression parser through an
+  `Expressions` interface in `contracts.kode`; interpolation moved to `interp.kode`
+  behind the same interface, `kids`/`span_of` moved to the arena, and `expr.kode` is
+  back to 453 lines. Cases: `selfhost/spec/parse/{closures,await}.kode`, **24/24 trees
+  byte-identical**. `spawn` is still not parsed and is listed in the plan.
+
 - **Errors and optionals in the port's parser (S2 slice 7).** `throw`,
   `try`/`catch`/`finally`, `a ?? b`, `x is Shape.Circle` and `expr catch err { }`.
   One documented gap: the oracle attaches `catch` at binding power 0, so it can sit
