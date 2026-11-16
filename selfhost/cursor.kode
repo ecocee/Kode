@@ -106,6 +106,24 @@ pub class Cursor {
         recover_line()
     }
 
+    /// A closing token every group needs: `)`, `]`, `}`. Reports `E0102` and skips
+    /// the rest of the line, so the next statement is reported instead of the same
+    /// bad one twice.
+    fn expect_close(kind: TokenKind, what: string) {
+        if peek() == kind {
+            advance()
+            return
+        }
+        fail(
+            "E0102",
+            "expected ${what}, found `${text_of(at)}`",
+            token_start(at),
+            token_end(at),
+            "every bracket needs its closing partner",
+        )
+        recover_line()
+    }
+
     /// Skip to the end of the line after an error, so the next statement can be
     /// reported instead of the same one twice.
     fn recover_line() {

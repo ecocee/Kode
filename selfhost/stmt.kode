@@ -8,18 +8,21 @@
 // The expression grammar lives in `expr.kode`; items (`fn`) live in `parser.kode`.
 
 from "./ast" import Ast
+from "./blocks" import Blocks
 from "./cursor" import Cursor
 from "./expr" import Exprs
 from "./infix" import BP_ARITH
 from "./tokens" import TokenKind, starts_value
 
-pub class Stmts {
+pub class Stmts implements Blocks {
     c: Cursor
     ast: Ast
 
     /// The expression parser over the same cursor, arena and error list.
     fn ex() -> Exprs {
-        return Exprs(c: c, ast: ast)
+        // The expression parser gets this same statement parser back for `catch`
+        // bodies, over one cursor and one arena.
+        return Exprs(c: c, ast: ast, blocks: Stmts(c: c, ast: ast))
     }
 
     // ---- statements ----
@@ -84,7 +87,7 @@ pub class Stmts {
         name_at = c.at
         c.advance()
         c.advance()
-        value = expression()
+        value = ex().expr()
         id = ast.add("Assign")
         target = ast.counted("TargetVar")
         ast.text(target, "name", c.text_of(name_at))
@@ -102,12 +105,18 @@ pub class Stmts {
 
     /// `print(x)`, `xs.add(1)`: an expression statement.
     fn expression_stmt() -> int {
-        value = expression()
+        value = ex().expr()
         stmt = ast.add("ExprStmt")
         if value >= 0 {
             ast.kid(stmt, value)
         }
         return stmt
+    }
+
+    /// The block parser over another cursor, for a `catch` body inside an
+    /// interpolation hole.
+    fn with_cursor(next: Cursor) -> Blocks {
+        return Stmts(c: next, ast: ast)
     }
 
     /// `{ ... }` with one statement per line. Returns the `Block` node.
@@ -154,7 +163,7 @@ pub class Stmts {
     /// `if cond { } else { }`, and `else if` nesting through an `Else` block.
     fn if_stmt() -> int {
         c.advance()
-        cond = expression()
+        cond = ex().expr()
         then = block()
         id = ast.add("If")
         if cond >= 0 {
@@ -189,7 +198,7 @@ pub class Stmts {
 
     fn while_stmt() -> int {
         c.advance()
-        cond = expression()
+        cond = ex().expr()
         body = block()
         id = ast.add("While")
         if cond >= 0 {
@@ -272,7 +281,7 @@ pub class Stmts {
         id = ast.add("Return")
         ast.span(id, "span", c.token_start(token), c.token_end(token))
         if not c.at_statement_end() {
-            value = expression()
+            value = ex().expr()
             if value >= 0 {
                 ast.kid(id, value)
             }
@@ -285,7 +294,7 @@ pub class Stmts {
     fn match_stmt() -> int {
         span_at = c.at
         c.advance()
-        scrutinee = expression()
+        scrutinee = ex().expr()
         id = ast.add("Match")
         ast.span(id, "span", c.token_start(span_at), c.token_end(span_at))
         seen = ast.add("Scrutinee")
@@ -354,37 +363,11 @@ pub class Stmts {
         }
     }
 
-    /// An expression where a statement starts, including `expr catch err { ... }`.
-    /// The oracle attaches `catch` at binding power 0 only, which is exactly the
-    /// positions this helper is called from; `catch` inside parentheses, argument
-    /// lists, collections or an interpolation hole is not parsed yet.
-    fn expression() -> int {
-        lhs = ex().expr()
-        if c.peek() != TokenKind.Catch {
-            return lhs
-        }
-        c.advance()
-        var_at = c.at
-        c.advance()
-        id = ast.counted("Catch")
-        ast.text(id, "var", c.text_of(var_at))
-        ast.span(id, "var_span", c.token_start(var_at), c.token_end(var_at))
-        if lhs >= 0 {
-            ast.kid(id, lhs)
-        }
-        body = block()
-        if body >= 0 {
-            ast.kid(id, body)
-        }
-        ast.span(id, "span", ast.nodes[lhs].start, c.token_end(var_at))
-        return id
-    }
-
     /// `throw "boom"`: the keyword's span, then the value.
     fn throw_stmt() -> int {
         token = c.at
         c.advance()
-        value = expression()
+        value = ex().expr()
         id = ast.add("Throw")
         ast.span(id, "span", c.token_start(token), c.token_end(token))
         if value >= 0 {

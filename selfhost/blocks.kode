@@ -1,0 +1,19 @@
+// The one-method contract that lets expressions parse a block.
+//
+// `expr catch err { ... }` closes an expression with a body of statements, so the
+// expression grammar needs the statement grammar, and the statement grammar already
+// imports the expression grammar. A module cycle is `E0402`, so the two meet here:
+// `expr.kode` depends on this interface, and `Stmts` (in `stmt.kode`) implements it.
+// `Exprs` carries whatever `Blocks` it was handed, so a `catch` nested inside
+// parentheses, an argument list or a collection parses its body with the same
+// cursor and the same arena as everything else.
+
+from "./cursor" import Cursor
+
+pub interface Blocks {
+    fn block() -> int
+    /// The same statement parser reading a different cursor: an interpolation hole
+    /// is re-lexed into its own cursor, and a `catch` inside the hole has to parse
+    /// its body from that one, not from the outer file.
+    fn with_cursor(next: Cursor) -> Blocks
+}

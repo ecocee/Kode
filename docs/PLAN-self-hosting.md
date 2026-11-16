@@ -197,14 +197,16 @@ finally { }` (a `Try` node with a body `Block`, an optional `CatchVar` and `Hand
 and an optional `Finally`, and no span of its own), `a ?? b` at the loosest binding
 power, `x is Shape.Circle` at comparison precedence, and `expr catch err { ... }`.
 
-One deliberate gap: the oracle attaches `catch` at binding power 0, so it also
-appears inside parentheses, argument lists, collections and interpolation holes.
-The port parses it only where an expression starts a statement — a bare expression,
-an assignment value, `return`, `throw`, a condition, a `for` bound, a `match`
-scrutinee, a function body and a field or constant value — because a `catch` body is
-a block of statements and the statement grammar already imports the expression
-grammar (module cycles are `E0402`). Everywhere else the port reports a parse error
-where the oracle would accept the source.
+`catch` binds at binding power 0, which means it also appears inside parentheses,
+argument lists, collections and interpolation holes. A `catch` body is a block of
+statements, so the expression grammar needs the statement grammar while the
+statement grammar already imports the expression grammar — and a module cycle is
+`E0402`. The two meet through `blocks.kode`: a one-method `Blocks` interface that
+`expr.kode` depends on and `Stmts` implements, handed to `Exprs` by whoever builds
+it. A hole re-lexes into its own cursor and asks for the same parser over that
+cursor (`with_cursor`), so a `catch` inside `${...}` parses its body from the hole's
+tokens and every span stays absolute. The nesting is covered by
+`selfhost/spec/parse/catch_expr.kode`.
 
 Slice 7 pushed `stmt.kode` just over the size rule, so the line-end handling moved
 to where it belongs: `Cursor.end_statement`, `Cursor.at_statement_end` and
@@ -212,8 +214,7 @@ to where it belongs: `Cursor.end_statement`, `Cursor.at_statement_end` and
 `tokens.kode`. No grammar changed and no tree moved — the 22 cases stayed
 byte-identical, and the `E0101` report keeps its code, position and text.
 
-Not yet: `catch` inside parentheses, argument lists, collections or interpolation
-holes; closures; `await`; `E01xx` parity; and the `int?` parent edges ADR 0042
+Not yet: closures; `await`; `E01xx` parity; and the `int?` parent edges ADR 0042
 allows. Those are the rest of S2's slices, and each adds
 cases to `selfhost/spec/parse` rather than rewriting this one.
 

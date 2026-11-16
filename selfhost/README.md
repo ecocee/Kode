@@ -20,10 +20,11 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `lexer.kode` | the scan loop and punctuation: same tokens, spans, error codes and recovery as `lexer.rs`; strings and numbers delegate to their own modules |
 | `dump.kode` | the `kode tokens` line format, escaping and line/column |
 | `ast.kode` | the syntax tree: one arena of nodes with `int` child ids (ADR 0042), and the `kode ast` line format |
-| `cursor.kode` | the token cursor, the parse error type and the shared error list, plus where a statement ends (`end_statement`, `at_statement_end`) and how a bad line is skipped (`recover_line`) |
+| `cursor.kode` | the token cursor, the parse error type and the shared error list, plus where a statement ends (`end_statement`, `at_statement_end`), how a bad line is skipped (`recover_line`) and how a group's closing token is demanded (`expect_close`) |
+| `blocks.kode` | the one-method `Blocks` interface that lets expressions parse a `catch` body without a module cycle |
 | `infix.kode` | the infix table: operator symbols and their binding powers |
-| `expr.kode` | expressions: prefix, postfix chains, `??`, `is`, `[lists]`, `{maps}`, interpolation |
-| `stmt.kode` | statements: `name = value`, an expression on its own line, blocks, `if`/`while`/`for`, `match`, `try`/`throw`, `break`/`continue`, `return`, and the `catch` expression |
+| `expr.kode` | expressions: prefix, postfix chains, `??`, `is`, `catch`, `[lists]`, `{maps}`, interpolation |
+| `stmt.kode` | statements: `name = value`, an expression on its own line, blocks, `if`/`while`/`for`, `match`, `try`/`throw`, `break`/`continue`, `return` |
 | `types.kode` | type annotations (`T`, `[T]`, `{string: T}`, `Box<T>`, `T?`) and `Param` nodes |
 | `decls.kode` | items: `pub`/`fn`, `class`, `const` and `import` |
 | `enums.kode` | `enum` declarations with payload variants, and `interface` signatures |

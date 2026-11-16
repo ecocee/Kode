@@ -140,7 +140,7 @@ pub class Decls {
         if c.peek() == TokenKind.FatArrow {
             c.advance()
             c.skip_newlines()
-            value = st().expression()
+            value = st().ex().expr()
             body = ast.add("ExprBody")
             if value >= 0 {
                 ast.kid(body, value)
@@ -261,7 +261,7 @@ pub class Decls {
         }
         if c.peek() == TokenKind.Assign {
             c.advance()
-            value = st().expression()
+            value = st().ex().expr()
             default = ast.add("Default")
             if value >= 0 {
                 ast.kid(default, value)
@@ -291,7 +291,7 @@ pub class Decls {
         } else {
             c.fail("E0102", "expected `=` after the constant name", c.token_start(c.at), c.token_end(c.at), "write `const LIMIT = 10`")
         }
-        value = st().expression()
+        value = st().ex().expr()
         if value >= 0 {
             ast.kid(id, value)
         }

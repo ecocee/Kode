@@ -80,6 +80,17 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `selfhost/spec/parse/{enums,interfaces,imports}.kode`, **19/19 trees
   byte-identical**.
 
+- **`catch` now parses anywhere the oracle allows it.** The nested positions
+  (parentheses, argument lists, collections, interpolation holes) were the one gap
+  left in slice 7, because a `catch` body is a block of statements and the statement
+  grammar already imports the expression grammar. A one-method `Blocks` interface in
+  `selfhost/blocks.kode` breaks the cycle: `Exprs` carries a block parser, and a hole
+  re-lexes into its own cursor and takes the same parser over that cursor. `catch`
+  inside `${...}`, `f(a catch e { 1 })`, `[a catch e { 1 }]`, `(a catch e { 1 })` and
+  nested `((a catch x { 1 }) catch y { 2 })` are all covered by
+  `selfhost/spec/parse/catch_expr.kode`, and `parse` is still **22/22 trees
+  byte-identical**.
+
 - **Errors and optionals in the port's parser (S2 slice 7).** `throw`,
   `try`/`catch`/`finally`, `a ?? b`, `x is Shape.Circle` and `expr catch err { }`.
   One documented gap: the oracle attaches `catch` at binding power 0, so it can sit

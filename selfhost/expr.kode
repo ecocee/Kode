@@ -12,6 +12,7 @@
 // position, one report.
 
 from "./ast" import Ast
+from "./blocks" import Blocks
 from "./cursor" import Cursor
 from "./infix" import BP_NOT, BP_UNARY, infix_of
 from "./lexer" import lex
@@ -21,6 +22,8 @@ from "./tokens" import TokenKind
 pub class Exprs {
     c: Cursor
     ast: Ast
+    /// The statement parser, for the body of `expr catch err { ... }`.
+    blocks: Blocks
 
     fn fail(code: string, message: string, start: int, end: int, help: string) {
         c.fail(code, message, start, end, help)
@@ -90,6 +93,23 @@ pub class Exprs {
                 ast.span(id, "span", ast.nodes[lhs].start, ast.nodes[rhs].end)
                 lhs = id
             }
+        }
+        // `expr catch err { ... }` binds loosest of all, so it is not part of the
+        // loop above: only a caller asking for binding power 0 can end with one.
+        if min_bp == 0 and c.peek() == TokenKind.Catch {
+            c.advance()
+            var_at = c.at
+            c.advance()
+            id = ast.counted("Catch")
+            ast.text(id, "var", c.text_of(var_at))
+            ast.span(id, "var_span", c.token_start(var_at), c.token_end(var_at))
+            ast.kid(id, lhs)
+            body = blocks.block()
+            if body >= 0 {
+                ast.kid(id, body)
+            }
+            ast.span(id, "span", ast.nodes[lhs].start, c.token_end(var_at))
+            lhs = id
         }
         return lhs
     }
@@ -170,7 +190,7 @@ pub class Exprs {
                 return inner
             }
             c.skip_newlines()
-            expect_close(TokenKind.RParen, "`)` to close the group")
+            c.expect_close(TokenKind.RParen, "`)` to close the group")
             return inner
         }
         if kind == TokenKind.LBracket {
@@ -187,7 +207,7 @@ pub class Exprs {
             c.token_end(token),
             "values are numbers, strings, bools, none, names, calls, groups, [lists] and {maps}",
         )
-        skip_to_newline()
+        c.recover_line()
         return -1
     }
 
@@ -258,7 +278,7 @@ pub class Exprs {
                 end_at = expr()
             }
             c.skip_newlines()
-            expect_close(TokenKind.RBracket, "`]`")
+            c.expect_close(TokenKind.RBracket, "`]`")
             id = ast.counted("Slice")
             ast.flag(id, "inclusive", inclusive)
             ast.kid(id, obj)
@@ -276,7 +296,7 @@ pub class Exprs {
             return id
         }
         c.skip_newlines()
-        expect_close(TokenKind.RBracket, "`]`")
+        c.expect_close(TokenKind.RBracket, "`]`")
         id = ast.counted("Index")
         ast.kid(id, obj)
         if start_at >= 0 {
@@ -342,7 +362,7 @@ pub class Exprs {
             )
             return args
         }
-        expect_close(TokenKind.RParen, "`)`")
+        c.expect_close(TokenKind.RParen, "`)`")
         return args
     }
 
@@ -364,7 +384,7 @@ pub class Exprs {
                 break
             }
         }
-        expect_close(TokenKind.RBracket, "`]` or `,`")
+        c.expect_close(TokenKind.RBracket, "`]` or `,`")
         ast.span(id, "span", c.token_start(open_at), c.last_end)
         return id
     }
@@ -405,7 +425,7 @@ pub class Exprs {
                 break
             }
         }
-        expect_close(TokenKind.RBrace, "`}` or `,`")
+        c.expect_close(TokenKind.RBrace, "`}` or `,`")
         ast.span(id, "span", c.token_start(open_at), c.last_end)
         return id
     }
@@ -452,7 +472,8 @@ pub class Exprs {
             t.start += hole_from
             t.end += hole_from
         }
-        sub = Exprs(c: Cursor(src: c.src, tokens: lx.tokens), ast: ast)
+        sub_c = Cursor(src: c.src, tokens: lx.tokens)
+        sub = Exprs(c: sub_c, ast: ast, blocks: blocks.with_cursor(sub_c))
         inner = sub.expr()
         return inner
     }
@@ -469,24 +490,4 @@ pub class Exprs {
         }
     }
 
-    fn expect_close(kind: TokenKind, what: string) {
-        if c.peek() == kind {
-            c.advance()
-            return
-        }
-        fail(
-            "E0102",
-            "expected ${what}, found `${c.text_of(c.at)}`",
-            c.token_start(c.at),
-            c.token_end(c.at),
-            "every bracket needs its closing partner",
-        )
-        skip_to_newline()
-    }
-
-    fn skip_to_newline() {
-        while not c.done() and c.peek() != TokenKind.Newline {
-            c.advance()
-        }
-    }
 }
