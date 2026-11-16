@@ -79,7 +79,7 @@ pub class Types {
         }
         c.fail(
             "E0111",
-            "expected a type name, found `${c.text_of(c.at)}`",
+            "expected a type name, found ${c.describe(c.at)}",
             c.token_start(c.at),
             c.token_end(c.at),
             "types look like int, [int], {string: int} or User?",
@@ -111,6 +111,16 @@ pub class Types {
     /// `a: int` — a `Param` holds the name and its annotation. Function
     /// parameters, enum payloads and interface signatures all dump as `Param`.
     fn param(owner: int) {
+        if c.peek() != TokenKind.Ident {
+            c.fail(
+                "E0110",
+                "expected a parameter name, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "",
+            )
+            return
+        }
         name_at = c.at
         c.advance()
         p = ast.add("Param")

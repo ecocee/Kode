@@ -64,7 +64,7 @@ pub class Decls {
         if is_pub {
             c.fail(
                 "E0102",
-                "`pub` here has to be followed by a declaration, found `${c.text_of(c.at)}`",
+                "`pub` here has to be followed by a declaration, found ${c.describe(c.at)}",
                 c.token_start(c.at),
                 c.token_end(c.at),
                 "`pub` goes before `fn`, `class`, `enum`, `interface` or `const`",
@@ -116,7 +116,14 @@ pub class Decls {
         }
         c.skip_newlines()
         while c.peek() != TokenKind.RParen and not c.done() {
+            before = c.errors.len()
             ty().param(id)
+            if c.errors.len() > before {
+                // The oracle abandons the whole declaration on the first bad
+                // parameter, so its block is not reported a second time.
+                c.recover_line()
+                return -1
+            }
             c.skip_newlines()
             if c.peek() == TokenKind.Comma {
                 c.advance()
@@ -233,12 +240,15 @@ pub class Decls {
                 } else {
                     c.fail(
                         "E0114",
-                        "expected a field or a method, found `${c.text_of(c.at)}`",
+                        "expected a field or a method, found ${c.describe(c.at)}",
                         c.token_start(c.at),
                         c.token_end(c.at),
                         "fields look like `name: string`, methods like `fn show() { ... }`",
                     )
+                    // The oracle gives up on the class here; the `}` on the next
+                    // line is then reported as a statement, as it is there.
                     c.recover_line()
+                    return -1
                 }
                 c.end_statement()
             }
@@ -304,6 +314,15 @@ pub class Decls {
         from_style = c.peek() == TokenKind.From
         c.advance()
         path_at = c.at
+        if c.peek() != TokenKind.Str {
+            c.fail(
+                "E0116",
+                "expected a file path in quotes, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "",
+            )
+        }
         c.advance()
         id = ast.add("Import")
         ast.text(id, "path", plain_string(path_at))

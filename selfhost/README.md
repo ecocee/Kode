@@ -20,7 +20,8 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `lexer.kode` | the scan loop and punctuation: same tokens, spans, error codes and recovery as `lexer.rs`; strings and numbers delegate to their own modules |
 | `dump.kode` | the `kode tokens` line format, escaping and line/column |
 | `ast.kode` | the syntax tree: one arena of nodes with `int` child ids (ADR 0042), the `kode ast` line format, and the `kids`/`span_of`/`retype` helpers the parsers use |
-| `cursor.kode` | the token cursor, the parse error type and the shared error list, plus where a statement ends (`end_statement`, `at_statement_end`), how a bad line is skipped (`recover_line`) and how a group's closing token is demanded (`expect_close`) |
+| `cursor.kode` | the token cursor, the parse error type and the shared error list, plus where a statement ends (`end_statement`, `at_statement_end`), how a bad line is skipped (`recover_line`), how a group's closing token is demanded (`expect_close`) and how a token is named in a message (`describe`) |
+| `report.kode` | the diagnostic block `kode ast` prints: code, position, source line, caret and hint, rendered byte for byte as `kode-diagnostics` does |
 | `contracts.kode` | the `Blocks` and `Expressions` interfaces that let the statement, expression and interpolation grammars reach each other without a module cycle |
 | `infix.kode` | the infix table: operator symbols and their binding powers |
 | `expr.kode` | expressions: prefix (including `spawn`), postfix chains, `??`, `is`, `catch`, `[lists]`, `{maps}` |

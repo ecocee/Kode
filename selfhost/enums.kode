@@ -122,7 +122,7 @@ pub class Enums {
                 } else {
                     c.fail(
                         "E0114",
-                        "expected a method signature, found `${c.text_of(c.at)}`",
+                        "expected a method signature, found ${c.describe(c.at)}",
                         c.token_start(c.at),
                         c.token_end(c.at),
                         "method signatures look like `fn area() -> float`",

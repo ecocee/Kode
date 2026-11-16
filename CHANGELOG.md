@@ -91,6 +91,22 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `selfhost/spec/parse/catch_expr.kode`, and `parse` is still **22/22 trees
   byte-identical**.
 
+- **The port's parser reports errors the way the oracle does (S2 slice 10).**
+  `selfhost/report.kode` renders a diagnostic as `kode-diagnostics` does: the code and
+  message, `--> file:line:col`, the source line, a caret as wide as the span (one
+  character at minimum, columns counted in characters) and the `= help:` line, so
+  `kode-stage1 ast` stderr is now byte-identical to `kode ast`'s. Token names follow
+  the oracle too (`Cursor.describe`: names and spellings in backticks, `a string`,
+  `the end of the file`), and codes, messages, hints and spans were corrected against
+  the Rust parser: `E0103` for an unclosed group (no hint), `E0105` for `fn` in a
+  block, `E0108` for a two-variable range loop, `E0110` for a missing parameter or
+  field name, `E0112` for an unassignable target, `E0116` for a non-string import
+  path, and generic statements now report through the expression parser. Recovery
+  matches too: a failed item abandons its line, so the same set of errors comes out in
+  the same order. New `selfhost/spec/parse-errors` with one case per code (19), and
+  `check_parse` compares stderr as well as stdout: **44/44 byte-identical**. Known
+  gap: typed local declarations (`x: int = 5`, `E0107`) are still unparsed.
+
 - **`spawn` in the port's parser (S2 slice 9).** `spawn f(1, 2)` dumps as `Spawn`
   with the call's `callee`, `callee_span` and `Arg` children and a span from the
   keyword. The oracle keeps the chain only if it ended as a plain call, so

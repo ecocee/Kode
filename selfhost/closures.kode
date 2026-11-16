@@ -58,6 +58,8 @@ pub class Forms {
                         c.token_end(name_at),
                         "write it like `|x: int| x * 2`",
                     )
+                    c.recover_line()
+                    return -1
                 }
                 ty = Types(c: c, ast: ast).type_ann()
                 if ty >= 0 {

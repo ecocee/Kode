@@ -240,7 +240,7 @@ pub class Exprs implements Expressions {
                 return inner
             }
             c.skip_newlines()
-            c.expect_close(TokenKind.RParen, "`)` to close the group")
+            c.expect_close(TokenKind.RParen, "`)`")
             return inner
         }
         if kind == TokenKind.LBracket {
@@ -252,10 +252,10 @@ pub class Exprs implements Expressions {
         token = c.at
         c.fail(
             "E0102",
-            "expected a value, found `${c.text_of(token)}`",
+            "expected a value, found ${c.describe(token)}",
             c.token_start(token),
             c.token_end(token),
-            "values are numbers, strings, bools, none, names, calls, groups, [lists] and {maps}",
+            "",
         )
         c.recover_line()
         return -1
@@ -268,6 +268,17 @@ pub class Exprs implements Expressions {
             kind = c.peek()
             if kind == TokenKind.Dot {
                 c.advance()
+                if c.peek() != TokenKind.Ident {
+                    c.fail(
+                        "E0110",
+                        "expected a field or method name after `.`, found ${c.describe(c.at)}",
+                        c.token_start(c.at),
+                        c.token_end(c.at),
+                        "",
+                    )
+                    c.recover_line()
+                    return -1
+                }
                 name_at = c.at
                 c.advance()
                 if c.peek() == TokenKind.LParen {
@@ -405,11 +416,12 @@ pub class Exprs implements Expressions {
         if c.peek() != TokenKind.RParen {
             c.fail(
                 "E0103",
-                "expected `)` or `,` to close the arguments",
+                "expected `)` or `,`, found ${c.describe(c.at)}",
                 c.token_start(c.at),
                 c.token_end(c.at),
-                "every `(` needs a `)`",
+                "",
             )
+            c.recover_line()
             return args
         }
         c.expect_close(TokenKind.RParen, "`)`")
@@ -421,11 +433,12 @@ pub class Exprs implements Expressions {
         c.advance()
         c.skip_newlines()
         id = ast.counted("List")
-        while not c.done() and c.peek() != TokenKind.RBracket {
+        while c.peek() != TokenKind.RBracket {
             item = expr()
-            if item >= 0 {
-                ast.kid(id, item)
+            if item < 0 {
+                return -1
             }
+            ast.kid(id, item)
             c.skip_newlines()
             if c.peek() == TokenKind.Comma {
                 c.advance()
@@ -444,28 +457,30 @@ pub class Exprs implements Expressions {
         c.advance()
         c.skip_newlines()
         id = ast.counted("Map")
-        while not c.done() and c.peek() != TokenKind.RBrace {
+        while c.peek() != TokenKind.RBrace {
             entry = ast.add("Entry")
             key = expr()
-            if key >= 0 {
-                ast.kid(entry, key)
+            if key < 0 {
+                return -1
             }
+            ast.kid(entry, key)
             if c.peek() == TokenKind.Colon {
                 c.advance()
             } else {
                 c.fail(
                     "E0103",
-                    "expected `:` between a key and its value",
+                    "expected `:` between a key and its value, found ${c.describe(c.at)}",
                     c.token_start(c.at),
                     c.token_end(c.at),
-                    "write an entry like `name: 1`",
+                    "",
                 )
             }
             c.skip_newlines()
             value = expr()
-            if value >= 0 {
-                ast.kid(entry, value)
+            if value < 0 {
+                return -1
             }
+            ast.kid(entry, value)
             ast.kid(id, entry)
             c.skip_newlines()
             if c.peek() == TokenKind.Comma {

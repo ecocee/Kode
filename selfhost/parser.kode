@@ -40,8 +40,13 @@ pub class Parser {
             node = d.item()
             if node >= 0 {
                 ast.nodes[0].kids.add(node)
+                c.end_statement()
+            } else if not c.at_statement_end() {
+                // A failed item skips to its line end, which is the oracle's
+                // recovery: the next item is reported, not the rest of this one.
+                // The parser below has usually skipped already.
+                c.recover_line()
             }
-            d.c.end_statement()
         }
         return Parsed(ast: ast, errors: c.errors)
     }

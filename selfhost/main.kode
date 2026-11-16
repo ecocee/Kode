@@ -12,6 +12,7 @@ from "./ast" import ast_lines
 from "./dump" import position, tokens_lines
 from "./lexer" import lex
 from "./parser" import parse
+from "./report" import from_lex, render
 
 argv = args()
 
@@ -50,10 +51,7 @@ if lx.errors.len() > 0 {
     // Windows is a known gap, recorded in selfhost/README.md.
     report = ""
     for err in lx.errors {
-        report += "${file}:${position(src, err.start)}: error ${err.code}: ${err.message}\n"
-        if err.help.len() > 0 {
-            report += "  help: ${err.help}\n"
-        }
+        report += render(file, src, from_lex(err)) + "\n"
     }
     write_file("/dev/stderr", report)
     exit(1)
@@ -64,10 +62,7 @@ if command == "ast" {
     if parsed.errors.len() > 0 {
         report = ""
         for err in parsed.errors {
-            report += "${file}:${position(src, err.start)}: error ${err.code}: ${err.message}\n"
-            if err.help.len() > 0 {
-                report += "  help: ${err.help}\n"
-            }
+            report += render(file, src, err) + "\n"
         }
         write_file("/dev/stderr", report)
         exit(1)

@@ -6,7 +6,7 @@
 #   ./scripts/selfhost.sh stage1     compile the port and compare it with Stage 0
 #   ./scripts/selfhost.sh stage2     Stage 1 compiles itself; compare with Stage 1
 #   ./scripts/selfhost.sh compare    diff the dumps that already exist
-#   ./scripts/selfhost.sh parse      the S2 subset: tree dumps, case by case
+#   ./scripts/selfhost.sh parse      the S2 subset: tree dumps and diagnostics, case by case
 #   ./scripts/selfhost.sh gates      every work packet: target declared vs today
 #   ./scripts/selfhost.sh readiness  the readiness level reached, and what is next
 #   ./scripts/selfhost.sh all        Stage 0, Stage 1, then the work packets
@@ -77,37 +77,45 @@ check_gates() {
     echo "  work packets: $met met, $blocked blocked ($out)"
 }
 
-# Compare `kode ast` with the port's parser over `selfhost/spec/parse`. Only that
-# directory: S2 slice 1 parses a subset, so running the whole corpus would compare
-# trees the port does not build yet. A case is the acceptance test for the slice it
-# was added with; this refuses to report success when there are no cases at all.
+# Compare `kode ast` with the port's parser: trees in `selfhost/spec/parse`, and
+# trees plus diagnostics in `selfhost/spec/parse-errors` (where stderr is the point).
+# Both are compared byte for byte, stdout and stderr. Only those directories: S2
+# parses a subset, so running the whole corpus would compare files the port does not
+# handle yet. A case is the acceptance test for the slice it came with; this refuses
+# to report success when there are no cases at all.
 check_parse() {
-    local dir="$ROOT/selfhost/spec/parse" out="$OUT/parse" total=0 bad=0 file
-    if [[ ! -d "$dir" ]]; then
-        echo "  no parse cases in $dir" >&2
-        return 2
-    fi
+    local dirs=("$ROOT/selfhost/spec/parse" "$ROOT/selfhost/spec/parse-errors")
+    local out="$OUT/parse" total=0 bad=0 dir file
     if [[ ! -x "$STAGE1" ]]; then
         echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
         return 2
     fi
     rm -rf "$out"
     mkdir -p "$out"
-    while IFS= read -r file; do
-        total=$((total + 1))
-        "$STAGE0" ast "$file" >"$out/expected.txt" 2>"$out/expected.err"
-        "$STAGE1" ast "$file" >"$out/actual.txt" 2>"$out/actual.err"
-        if ! diff -u "$out/expected.txt" "$out/actual.txt" >"$out/diff.txt"; then
-            bad=$((bad + 1))
-            echo "  $(basename "$file"): tree differs"
-            head -20 "$out/diff.txt" | sed 's/^/    /'
+    for dir in "${dirs[@]}"; do
+        if [[ ! -d "$dir" ]]; then
+            continue
         fi
-    done < <(find "$dir" -name '*.kode' -type f | LC_ALL=C sort)
+        while IFS= read -r file; do
+            total=$((total + 1))
+            "$STAGE0" ast "$file" >"$out/expected.txt" 2>"$out/expected.err"
+            "$STAGE1" ast "$file" >"$out/actual.txt" 2>"$out/actual.err"
+            if ! diff -u "$out/expected.txt" "$out/actual.txt" >"$out/diff.txt"; then
+                bad=$((bad + 1))
+                echo "  $(basename "$file"): tree differs"
+                head -20 "$out/diff.txt" | sed 's/^/    /'
+            elif ! diff -u "$out/expected.err" "$out/actual.err" >"$out/diff.txt"; then
+                bad=$((bad + 1))
+                echo "  $(basename "$file"): diagnostics differ"
+                head -20 "$out/diff.txt" | sed 's/^/    /'
+            fi
+        done < <(find "$dir" -name '*.kode' -type f | LC_ALL=C sort)
+    done
     if [[ "$total" -eq 0 ]]; then
-        echo "  no parse cases in $dir" >&2
+        echo "  no parse cases in ${dirs[*]}" >&2
         return 2
     fi
-    echo "  parse cases: $((total - bad))/$total trees byte-identical"
+    echo "  parse cases: $((total - bad))/$total trees and diagnostics byte-identical"
     [[ "$bad" -eq 0 ]]
 }
 

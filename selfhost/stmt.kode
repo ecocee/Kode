@@ -51,6 +51,19 @@ pub class Stmts implements Blocks {
         if kind == TokenKind.Try {
             return try_stmt()
         }
+        if kind == TokenKind.Fn {
+            token = c.at
+            c.advance()
+            c.fail(
+                "E0105",
+                "functions can only be defined at the top level of a file",
+                c.token_start(token),
+                c.token_end(token),
+                "move this `fn` out of the block",
+            )
+            c.recover_line()
+            return -1
+        }
         if kind == TokenKind.Break or kind == TokenKind.Continue {
             token = c.at
             c.advance()
@@ -68,17 +81,9 @@ pub class Stmts implements Blocks {
         if starts_value(kind) {
             return expression_stmt()
         }
-        token = c.at
-        c.advance()
-        c.fail(
-            "E0102",
-            "expected a statement, found `${c.text_of(token)}`",
-            c.token_start(token),
-            c.token_end(token),
-            "a statement is an assignment, an expression, `if`, `while`, `for`, `break` or `continue`",
-        )
-        c.recover_line()
-        return -1
+        // Everything else is reported by the expression parser, so a stray `}` or
+        // `)` gets the same message the oracle gives it.
+        return expression_stmt()
     }
 
     /// `x = 1`: the target is a `TargetVar`, its span the name's, and the whole
@@ -87,6 +92,8 @@ pub class Stmts implements Blocks {
         name_at = c.at
         c.advance()
         c.advance()
+        // `x =` and the value on the next line is one assignment.
+        c.skip_newlines()
         value = ex().expr()
         id = ast.add("Assign")
         target = ast.counted("TargetVar")
@@ -106,6 +113,17 @@ pub class Stmts implements Blocks {
     /// `print(x)`, `xs.add(1)`: an expression statement.
     fn expression_stmt() -> int {
         value = ex().expr()
+        if value >= 0 and c.peek() == TokenKind.Assign {
+            c.fail(
+                "E0112",
+                "this cannot be assigned to",
+                ast.nodes[value].start,
+                ast.nodes[value].end,
+                "assign to a variable, a list item `xs[0]`, a map item `m[\"k\"]` or a field `obj.name`",
+            )
+            c.recover_line()
+            return -1
+        }
         stmt = ast.add("ExprStmt")
         if value >= 0 {
             ast.kid(stmt, value)
@@ -126,7 +144,7 @@ pub class Stmts implements Blocks {
         if c.peek() != TokenKind.LBrace {
             c.fail(
                 "E0102",
-                "expected `{` to open a block, found `${c.text_of(c.at)}`",
+                "expected `{` to open a block, found ${c.describe(c.at)}",
                 c.token_start(c.at),
                 c.token_end(c.at),
                 "a body is written as `{ ... }`",
@@ -227,7 +245,7 @@ pub class Stmts implements Blocks {
         } else {
             c.fail(
                 "E0102",
-                "expected `in` after the loop variable, found `${c.text_of(c.at)}`",
+                "expected `in` after the loop variable, found ${c.describe(c.at)}",
                 c.token_start(c.at),
                 c.token_end(c.at),
                 "write `for x in xs` or `for i in 0..10`",
@@ -236,6 +254,17 @@ pub class Stmts implements Blocks {
         first = ex().expr_bp(BP_ARITH)
         is_range = c.peek() == TokenKind.DotDot or c.peek() == TokenKind.DotDotEq
         inclusive = c.peek() == TokenKind.DotDotEq
+        if is_range and names.len() > 1 {
+            c.fail(
+                "E0108",
+                "a range loop has exactly one variable",
+                c.token_start(names[1]),
+                c.token_end(names[1]),
+                "",
+            )
+            c.recover_line()
+            return -1
+        }
         if is_range {
             c.advance()
             last = ex().expr_bp(BP_ARITH)
