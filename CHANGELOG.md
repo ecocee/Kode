@@ -95,6 +95,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
   is a property of the token stream. No grammar changed: all 22 parse cases stayed
   byte-identical and the `E0101` report keeps its code, position and text.
 
+- **`selfhost/lexer.kode` split by scanner (322 lines, was 558).** The byte values
+  moved to `chars.kode` (one definition, imported everywhere, since modules share
+  one constant namespace), number literals to `numbers.kode` and string literals to
+  `strings.kode`. Both scanners are now pure functions of `src` and an offset that
+  return where they stopped plus the token or the errors, so the lexer keeps the
+  only mutable cursor. No dump changed: 235 corpus token dumps are byte-identical,
+  and the pre-split and post-split binaries agree on stdout, stderr and exit status
+  for both `tokens` and `ast` across all 262 `.kode` files in the repository.
+
 - **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
   `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
   outside `0..=255` instead of truncating them; the object is a packed list, so a

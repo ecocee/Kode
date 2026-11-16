@@ -7,58 +7,17 @@
 //
 // It works on bytes (`byte_at`, `size`), not characters, because that is what
 // the oracle counts: a span is a byte range and a column is a character count.
+//
+// This file owns the scan loop and the punctuation. Number literals are in
+// `numbers.kode` and string literals in `strings.kode`; both are pure functions of
+// the source, so this class keeps the only mutable cursor.
 
 from "./bytes" import is_digit, is_ident_part, is_ident_start, utf8_len
+from "./chars" import AMP, BANG, CARET, COLON, COMMA, DOT, EQ, GT, LBRACE, LBRACKET, LF, LPAREN, LT, MINUS, PERCENT, PIPE, PLUS, QUESTION, QUOTE, RBRACE, RBRACKET, RPAREN, SEMICOLON, SLASH, SPACE, STAR, TAB, CR, TILDE
 from "./keywords" import keyword_of
-from "./strings" import hole_end
+from "./numbers" import scan_number
+from "./strings" import scan_string
 from "./tokens" import LexError, Lexed, Token, TokenKind
-
-// Byte values of the characters the scanner compares against. Named so the scan
-// below reads as punctuation instead of numbers.
-const TAB = 9
-const LF = 10
-const CR = 13
-const SPACE = 32
-const BANG = 33
-const QUOTE = 34
-const DOLLAR = 36
-const PERCENT = 37
-const AMP = 38
-const LPAREN = 40
-const RPAREN = 41
-const STAR = 42
-const PLUS = 43
-const COMMA = 44
-const MINUS = 45
-const DOT = 46
-const SLASH = 47
-const ZERO = 48
-const NINE = 57
-const CAP_A = 65
-const CAP_B = 66
-const CAP_F = 70
-const CAP_O = 79
-const CAP_X = 88
-const LOW_A = 97
-const LOW_B = 98
-const LOW_F = 102
-const LOW_O = 111
-const LOW_X = 120
-const COLON = 58
-const SEMICOLON = 59
-const LT = 60
-const EQ = 61
-const GT = 62
-const QUESTION = 63
-const LBRACKET = 91
-const BACKSLASH = 92
-const RBRACKET = 93
-const CARET = 94
-const UNDERSCORE = 95
-const LBRACE = 123
-const PIPE = 124
-const RBRACE = 125
-const TILDE = 126
 
 /// Lex a whole file. Errors are returned, not thrown: the caller decides what
 /// to print, exactly as the Rust front end does.
@@ -229,7 +188,7 @@ pub class Lexer {
             slash()
         } else if b == QUOTE {
             string_lit()
-        } else if b >= ZERO and b <= NINE {
+        } else if is_digit(b) {
             number()
         } else if is_ident_start(b) {
             word()
@@ -311,162 +270,20 @@ pub class Lexer {
         }
     }
 
-    fn eat_digits() {
-        while is_digit(peek()) or peek() == UNDERSCORE {
-            i += 1
-        }
-    }
-
-    /// The base of a `0x` / `0b` / `0o` literal at the cursor, or 0 (ADR 0043).
-    fn radix_of_prefix() -> int {
-        if peek() != ZERO {
-            return 0
-        }
-        b = peek_at(1)
-        if b == LOW_X or b == CAP_X {
-            return 16
-        }
-        if b == LOW_B or b == CAP_B {
-            return 2
-        }
-        if b == LOW_O or b == CAP_O {
-            return 8
-        }
-        return 0
-    }
-
-    /// `0`..`9` is 0..9, `a`..`f` or `A`..`F` is 10..15, anything else -1.
-    fn digit_value(b: int) -> int {
-        if b >= ZERO and b <= NINE {
-            return b - ZERO
-        }
-        if b >= CAP_A and b <= CAP_F {
-            return b - CAP_A + 10
-        }
-        if b >= LOW_A and b <= LOW_F {
-            return b - LOW_A + 10
-        }
-        return -1
-    }
-
-    fn is_radix_digit(radix: int) -> bool {
-        b = peek()
-        if b == UNDERSCORE {
-            return true
-        }
-        return digit_value(b) >= 0 and digit_value(b) < radix
-    }
-
-    /// `42`, `1_000`, `3.14`, `2.5e3`, `0x6b`. `1..5` stays a range.
+    /// `42`, `1_000`, `3.14`, `2.5e3`, `0x6b`. `1..5` stays a range. The scan
+    /// itself is in `numbers.kode`; this only emits what it found.
     fn number() {
         start = i
-        radix = radix_of_prefix()
-        if radix > 0 {
-            i += 2
-            digits_start = i
-            while is_radix_digit(radix) {
-                i += 1
-            }
-            // `0x6bz` is one bad literal, not `0x6b` then `z`.
-            if is_ident_part(peek()) {
-                while is_ident_part(peek()) {
-                    i += 1
-                }
-            }
-            digits = src.slice(digits_start, i)
-            ok = digits.size() > 0
-            k = 0
-            while ok and k < digits.size() {
-                b = digits.byte_at(k)
-                ok = b == UNDERSCORE or (digit_value(b) >= 0 and digit_value(b) < radix)
-                k += 1
-            }
-            if ok {
-                emit(TokenKind.Int, start, i)
-            } else {
-                like = "`0o755`"
-                if radix == 16 {
-                    like = "`0x6b`"
-                } else if radix == 2 {
-                    like = "`0b1010`"
-                }
-                fail(
-                    "E0006",
-                    "this is not a valid number",
-                    start,
-                    i,
-                    "write a base-${radix} integer like ${like}, up to 9223372036854775807",
-                )
-            }
-            return
-        }
-        is_float = false
-        eat_digits()
-        if peek() == DOT and is_digit(peek_at(1)) {
-            is_float = true
-            i += 1
-            eat_digits()
-        }
-        if peek() == 101 or peek() == 69 {
-            n1 = peek_at(1)
-            n2 = peek_at(2)
-            if is_digit(n1) {
-                is_float = true
-                i += 1
-                eat_digits()
-            } else if (n1 == PLUS or n1 == MINUS) and is_digit(n2) {
-                is_float = true
-                i += 2
-                eat_digits()
-            }
-        }
-        if is_ident_part(peek()) {
-            while is_ident_part(peek()) {
-                i += 1
-            }
-            text = src.slice(start, i)
-            fail(
-                "E0006",
-                "`${text}` is not a valid number",
-                start,
-                i,
-                "write numbers like 42, 1_000, 3.14 or 2.5e3",
-            )
-            return
-        }
-        text = src.slice(start, i).replace("_", "")
-        ok = true
-        // The value itself is not part of the token yet -- the dump prints the
-        // source text -- but the conversion is what decides E0005 versus Int.
-        if is_float {
-            _exact = 0.0
-            _exact = text.to_float() catch e {
-                ok = false
-                0.0
-            }
-        } else {
-            _whole = 0
-            _whole = text.to_int() catch e {
-                ok = false
-                0
-            }
-        }
-        if ok {
-            if is_float {
+        found = scan_number(src, i)
+        i = found.end
+        if found.ok {
+            if found.is_float {
                 emit(TokenKind.Float, start, i)
             } else {
                 emit(TokenKind.Int, start, i)
             }
-        } else if is_float {
-            fail("E0006", "this is not a valid number", start, i, "")
         } else {
-            fail(
-                "E0005",
-                "this integer is too large",
-                start,
-                i,
-                "int is a 64-bit signed integer (max 9223372036854775807)",
-            )
+            fail(found.code, found.message, found.err_start, found.err_end, found.help)
         }
     }
 
@@ -474,66 +291,13 @@ pub class Lexer {
     /// skipped here; the parser lexes their contents (S2).
     fn string_lit() {
         start = i
-        i += 1
-        closed = false
-        while i < src.size() {
-            b = peek()
-            if b == QUOTE {
-                i += 1
-                closed = true
-                break
-            }
-            if b == LF {
-                break
-            }
-            if b == BACKSLASH {
-                e = peek_at(1)
-                if e == 110 or e == 116 or e == 114 or e == 48 or e == QUOTE or e == BACKSLASH or e == DOLLAR {
-                    i += 2
-                } else if e != LF and e != -1 {
-                    end = i + 1 + utf8_len(e)
-                    ch = src.slice(i + 1, end)
-                    fail(
-                        "E0002",
-                        "unknown escape `\\${ch}`",
-                        i,
-                        end,
-                        "valid escapes are \\n \\t \\r \\0 \\\" \\\\ and \\$",
-                    )
-                    i = end
-                } else {
-                    i += 1
-                }
-            } else if b == DOLLAR and peek_at(1) == LBRACE {
-                code_start = i + 2
-                end = hole_end(src, code_start)
-                if end >= 0 {
-                    i = end + 1
-                } else {
-                    at = i
-                    fail(
-                        "E0003",
-                        "this `\${` is never closed",
-                        at,
-                        at + 2,
-                        "close it with `}` on the same line",
-                    )
-                    i += 2
-                }
-            } else {
-                i += utf8_len(b)
-            }
+        found = scan_string(src, i)
+        for e in found.errors {
+            out.errors.add(e)
         }
-        if closed {
+        i = found.end
+        if found.closed {
             emit(TokenKind.Str, start, i)
-        } else {
-            fail(
-                "E0001",
-                "this string is never closed",
-                start,
-                start + 1,
-                "add a closing `\"` at the end of the line",
-            )
         }
     }
 

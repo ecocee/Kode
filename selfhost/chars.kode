@@ -1,0 +1,53 @@
+// Byte values of the characters the scanner compares against, named so the scan
+// reads as punctuation instead of numbers.
+//
+// They live in one module because a program's modules share one constant
+// namespace: a name may be declared only once, so the lexer, number scanner and
+// string scanner all import from here.
+
+pub const TAB = 9
+pub const LF = 10
+pub const CR = 13
+pub const SPACE = 32
+pub const BANG = 33
+pub const QUOTE = 34
+pub const DOLLAR = 36
+pub const PERCENT = 37
+pub const AMP = 38
+pub const LPAREN = 40
+pub const RPAREN = 41
+pub const STAR = 42
+pub const PLUS = 43
+pub const COMMA = 44
+pub const MINUS = 45
+pub const DOT = 46
+pub const SLASH = 47
+pub const ZERO = 48
+pub const NINE = 57
+pub const COLON = 58
+pub const SEMICOLON = 59
+pub const LT = 60
+pub const EQ = 61
+pub const GT = 62
+pub const QUESTION = 63
+pub const CAP_A = 65
+pub const CAP_B = 66
+pub const CAP_E = 69
+pub const CAP_F = 70
+pub const CAP_O = 79
+pub const CAP_X = 88
+pub const LBRACKET = 91
+pub const BACKSLASH = 92
+pub const RBRACKET = 93
+pub const CARET = 94
+pub const UNDERSCORE = 95
+pub const LOW_A = 97
+pub const LOW_B = 98
+pub const LOW_E = 101
+pub const LOW_F = 102
+pub const LOW_O = 111
+pub const LOW_X = 120
+pub const LBRACE = 123
+pub const PIPE = 124
+pub const RBRACE = 125
+pub const TILDE = 126

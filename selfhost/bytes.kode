@@ -6,6 +6,15 @@
 // a character's width and these predicates are the whole character model the
 // scanner needs.
 
+/// The byte at `at`, or -1 past the end. Scanners that walk a string by offset
+/// use this instead of indexing, so the end of the file needs no special case.
+pub fn byte_at(src: string, at: int) -> int {
+    if at < src.size() {
+        return src.byte_at(at)
+    }
+    return -1
+}
+
 /// How many bytes the character starting with `b` occupies. Continuation bytes
 /// and anything below 0x80 report 1.
 pub fn utf8_len(b: int) -> int {

@@ -117,8 +117,10 @@ output; `--format=json` stability (AGENTS.md 9) applies from day one.
 
 ### S1 — lexer in Kode — **done**
 
-`selfhost/{tokens,keywords,bytes,strings,lexer,dump,main}.kode` (~1,250 lines,
-each file under 500) plus `selfhost/spec/lexer_cases.kode`.
+`selfhost/{tokens,keywords,bytes,chars,numbers,strings,lexer,dump,main}.kode`
+(~1,490 lines, each file under 500: `chars.kode` holds the byte values the scanners
+share, `numbers.kode` and `strings.kode` the two scanners that are pure functions of
+the source) plus `selfhost/spec/lexer_cases.kode`.
 
 `stage1` builds the port with Stage 0 and reports **216 of 216 token dumps
 byte-identical** (3.0 s / 6,736 KB for Stage 0 including trees, 2.3 s / 3,792 KB

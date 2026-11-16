@@ -13,9 +13,11 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 |---|---|
 | `tokens.kode` | the token set, the error type, the names the dump prints, and which tokens can start a value |
 | `keywords.kode` | the keyword table |
-| `bytes.kode` | UTF-8 width and the character-class predicates |
-| `strings.kode` | the `${...}` hole scanner |
-| `lexer.kode` | the scanner: same tokens, spans, error codes and recovery as `lexer.rs` |
+| `bytes.kode` | UTF-8 width, `byte_at` and the character-class predicates |
+| `strings.kode` | string literals and their `${...}` holes, as a pure scan |
+| `chars.kode` | the byte values the scanners compare against |
+| `numbers.kode` | number literals, including the base-prefixed forms |
+| `lexer.kode` | the scan loop and punctuation: same tokens, spans, error codes and recovery as `lexer.rs`; strings and numbers delegate to their own modules |
 | `dump.kode` | the `kode tokens` line format, escaping and line/column |
 | `ast.kode` | the syntax tree: one arena of nodes with `int` child ids (ADR 0042), and the `kode ast` line format |
 | `cursor.kode` | the token cursor, the parse error type and the shared error list, plus where a statement ends (`end_statement`, `at_statement_end`) and how a bad line is skipped (`recover_line`) |

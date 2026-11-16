@@ -1,11 +1,21 @@
-// String-literal scanning that the lexer shares with nothing else: finding the
-// `}` that closes a `${` hole.
+// String-literal scanning: the `${...}` holes and the literal itself.
 //
-// The byte values are literals rather than named constants because a program's
-// modules share one constant namespace (see selfhost/README.md); naming them
-// here would clash with `lexer.kode`, which owns the plain names.
+// Both are pure functions of `src` and an offset, so the lexer keeps the only
+// mutable cursor: a scan returns where it stopped plus the errors it found, and the
+// lexer emits the token or the errors in order. A literal can report more than one
+// error (an unknown escape and then an unclosed string), which is why the result
+// carries a list.
 
-from "./bytes" import utf8_len
+from "./bytes" import byte_at, utf8_len
+from "./chars" import BACKSLASH, DOLLAR, LBRACE, LF, QUOTE, RBRACE
+from "./tokens" import LexError
+
+/// Where a string scan stopped and what it reported.
+pub class StrScan {
+    end: int
+    closed: bool = false
+    errors: [LexError] = []
+}
 
 /// The `}` that closes a `${` hole, skipping nested braces and strings, or -1
 /// when the hole never closes before the end of the line.
@@ -13,35 +23,33 @@ pub fn hole_end(src: string, start_at: int) -> int {
     depth = 1
     j = start_at
     while j < src.size() {
-        b = src.byte_at(j)
-        if b == 123 {
-            // {
+        b = byte_at(src, j)
+        if b == LBRACE {
             depth += 1
             j += 1
-        } else if b == 125 {
-            // }
+        } else if b == RBRACE {
             depth -= 1
             if depth == 0 {
                 return j
             }
             j += 1
-        } else if b == 34 {
-            // " -- a string inside the hole may contain braces
+        } else if b == QUOTE {
+            // a string inside the hole may contain braces
             j += 1
             closed = false
             while j < src.size() {
-                c = src.byte_at(j)
-                if c == 92 {
+                c = byte_at(src, j)
+                if c == BACKSLASH {
                     // backslash: whatever follows is escaped
                     if j + 1 >= src.size() {
                         return -1
                     }
                     j += 2
-                } else if c == 34 {
+                } else if c == QUOTE {
                     j += 1
                     closed = true
                     break
-                } else if c == 10 {
+                } else if c == LF {
                     // a hole cannot span lines
                     return -1
                 } else {
@@ -51,11 +59,83 @@ pub fn hole_end(src: string, start_at: int) -> int {
             if not closed {
                 return -1
             }
-        } else if b == 10 {
+        } else if b == LF {
             return -1
         } else {
             j += utf8_len(b)
         }
     }
     return -1
+}
+
+/// Scan one string literal starting at `start`, which is known to be a `"`.
+pub fn scan_string(src: string, start: int) -> StrScan {
+    i = start + 1
+    closed = false
+    errors: [LexError] = []
+    while i < src.size() {
+        b = byte_at(src, i)
+        if b == QUOTE {
+            i += 1
+            closed = true
+            break
+        }
+        if b == LF {
+            break
+        }
+        if b == BACKSLASH {
+            e = byte_at(src, i + 1)
+            // n, t, r, \0, ", \\ and $
+            if e == 110 or e == 116 or e == 114 or e == 48 or e == QUOTE or e == BACKSLASH or e == DOLLAR {
+                i += 2
+            } else if e != LF and e != -1 {
+                end = i + 1 + utf8_len(e)
+                ch = src.slice(i + 1, end)
+                errors.add(
+                    LexError(
+                        code: "E0002",
+                        message: "unknown escape `\\${ch}`",
+                        start: i,
+                        end: end,
+                        help: "valid escapes are \\n \\t \\r \\0 \\\" \\\\ and \\$",
+                    )
+                )
+                i = end
+            } else {
+                i += 1
+            }
+        } else if b == DOLLAR and byte_at(src, i + 1) == LBRACE {
+            code_start = i + 2
+            end = hole_end(src, code_start)
+            if end >= 0 {
+                i = end + 1
+            } else {
+                at = i
+                errors.add(
+                    LexError(
+                        code: "E0003",
+                        message: "this `\${` is never closed",
+                        start: at,
+                        end: at + 2,
+                        help: "close it with `}` on the same line",
+                    )
+                )
+                i += 2
+            }
+        } else {
+            i += utf8_len(b)
+        }
+    }
+    if not closed {
+        errors.add(
+            LexError(
+                code: "E0001",
+                message: "this string is never closed",
+                start: start,
+                end: start + 1,
+                help: "add a closing `\"` at the end of the line",
+            )
+        )
+    }
+    return StrScan(end: i, closed: closed, errors: errors)
 }
