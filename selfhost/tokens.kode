@@ -408,7 +408,7 @@ pub fn starts_value(kind: TokenKind) -> bool {
     if kind == TokenKind.Minus or kind == TokenKind.Tilde or kind == TokenKind.Not {
         return true
     }
-    if kind == TokenKind.Await or kind == TokenKind.Pipe {
+    if kind == TokenKind.Await or kind == TokenKind.Pipe or kind == TokenKind.Spawn {
         return true
     }
     return false

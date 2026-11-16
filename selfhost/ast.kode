@@ -73,6 +73,25 @@ pub class Ast {
         span(id, "span", c.token_start(token), c.token_end(token))
     }
 
+    /// A node that turns out to be another kind of the same shape: `spawn f()` keeps
+    /// the callee and arguments a `Call` found and becomes `Spawn` over a wider span.
+    /// Attributes are rendered in dump order when built, so the old `span` has to be
+    /// replaced rather than added to.
+    fn retype(id: int, kind: string, start: int, end: int) {
+        renamed: [string] = []
+        for attr in nodes[id].attrs {
+            if attr.slice(0, 5) == "span=" {
+                renamed.add("span=${start}..${end}")
+            } else {
+                renamed.add(attr)
+            }
+        }
+        nodes[id].attrs = renamed
+        nodes[id].kind = kind
+        nodes[id].start = start
+        nodes[id].end = end
+    }
+
     /// Every child in one call, in order.
     fn kids(id: int, children: [int]) {
         for child in children {

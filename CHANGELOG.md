@@ -91,6 +91,18 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `selfhost/spec/parse/catch_expr.kode`, and `parse` is still **22/22 trees
   byte-identical**.
 
+- **`spawn` in the port's parser (S2 slice 9).** `spawn f(1, 2)` dumps as `Spawn`
+  with the call's `callee`, `callee_span` and `Arg` children and a span from the
+  keyword. The oracle keeps the chain only if it ended as a plain call, so
+  `spawn obj.run(1)` and `spawn f().g` are `E0117` ("`spawn` needs a function call")
+  over the whole chain, with the documented help text; the port matches code,
+  message, span and help on all such probes. `Ast.retype` lets the call node become
+  a `Spawn` without a second allocation and rewrites its rendered `span` attribute,
+  and `expr_count` is bumped because the oracle does allocate two nodes. Case:
+  `selfhost/spec/parse/spawn.kode`, **25/25 trees byte-identical**. With this the
+  port parses every prefix form the oracle has, so `spawn` leaves the plan's
+  not-yet list.
+
 - **Closures and `await` in the port's parser (S2 slice 8).** `|x: int| x * 2` with
   typed parameters (`E0241` otherwise) and `||` for none, plus `await expr` at unary
   precedence. A closure body is a whole expression, so `catch` and `await` nest in it.
@@ -98,7 +110,7 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `Expressions` interface in `contracts.kode`; interpolation moved to `interp.kode`
   behind the same interface, `kids`/`span_of` moved to the arena, and `expr.kode` is
   back to 453 lines. Cases: `selfhost/spec/parse/{closures,await}.kode`, **24/24 trees
-  byte-identical**. `spawn` is still not parsed and is listed in the plan.
+  byte-identical**.
 
 - **Errors and optionals in the port's parser (S2 slice 7).** `throw`,
   `try`/`catch`/`finally`, `a ?? b`, `x is Shape.Circle` and `expr catch err { }`.

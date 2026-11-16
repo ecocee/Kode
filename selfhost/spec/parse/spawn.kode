@@ -1,0 +1,8 @@
+spawn work(1, 2)
+spawn f()
+x = spawn tick()
+y = spawn f() + 1
+print(spawn f(1))
+items = [spawn f()]
+spawn f(|a: int| a)
+await spawn f()

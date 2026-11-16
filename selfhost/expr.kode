@@ -129,6 +129,9 @@ pub class Exprs implements Expressions {
     /// A prefix operator (`-`, `~`, `not`) or a postfix chain.
     fn prefix() -> int {
         kind = c.peek()
+        if kind == TokenKind.Spawn {
+            return spawn_expr()
+        }
         // `await expr` takes a unary, so `await f().g()` awaits the whole chain.
         if kind == TokenKind.Await {
             return forms().await_expr()
@@ -158,6 +161,34 @@ pub class Exprs implements Expressions {
             return id
         }
         return postfix(primary())
+    }
+
+    /// `spawn f(1, 2)`: a call that does not block the caller. The oracle decides it
+    /// on the finished postfix chain, so a method call (`spawn obj.run(1)`) or any
+    /// further postfix (`spawn f().g`) is `E0117` over that whole chain.
+    fn spawn_expr() -> int {
+        start = c.at
+        c.advance()
+        call = postfix(primary())
+        if call < 0 {
+            return call
+        }
+        if ast.nodes[call].kind != "Call" {
+            c.fail(
+                "E0117",
+                "`spawn` needs a function call",
+                ast.nodes[call].start,
+                ast.nodes[call].end,
+                "write it like `spawn work(1, 2)`",
+            )
+            c.recover_line()
+            return -1
+        }
+        // The oracle builds the `Spawn` as a second node over the call, so `expr_count`
+        // counts two here even though the port re-names the one it has.
+        ast.retype(call, "Spawn", c.token_start(start), ast.nodes[call].end)
+        ast.expr_count += 1
+        return call
     }
 
     fn primary() -> int {
