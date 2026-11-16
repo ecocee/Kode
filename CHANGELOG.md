@@ -91,6 +91,19 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `selfhost/spec/parse/catch_expr.kode`, and `parse` is still **22/22 trees
   byte-identical**.
 
+- **The port's arena carries its parent edges (S2 slice 12).** Every node has
+  `parent: int?`, set when it is attached, so a later pass can climb from a node to the
+  statement that holds it without another tree or reverse edges; the child edge stays
+  the ordered `kids` list. Only the root and nodes built and then dropped (the key of a
+  `{K: V}` annotation, which is checked and never dumped) have no parent, which a
+  throwaway probe over every case confirmed node by node. New `deep_tree` case (generic
+  class, methods, interpolation, `match`, nested loops, `spawn`, `await`).
+- **A match arm without `=>` reports `E0103`** ("expected `=>` after the pattern,
+  found …") over the token found, and ends the whole `match`, as the oracle does; new
+  `parse-errors/e0103_match_arm.kode`. That work pushed `stmt.kode` past the size rule,
+  so `match` moved to `selfhost/matches.kode`, with `Blocks` offering `statement()` for
+  a single-statement arm. **48/48 cases byte-identical**, stage1 261/261 dumps.
+
 - **Typed local declarations in the port's parser (S2 slice 11).** `x: int = 5` now
   parses, with the type node between the target and the value exactly where the oracle
   dumps it, and any annotation the type grammar accepts (`[int]`, `{string: int}`,

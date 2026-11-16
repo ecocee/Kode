@@ -144,7 +144,7 @@ with children as ids, no parent links, and `ast_lines` printing the oracle's for
 statements whose arguments are literals or names, with `Int`/`Float`/`Str`/`Bool`/
 `Ident`/`Call`/`Arg`/`Assign`/`TargetVar`/`ExprStmt` nodes. `kode-stage1 ast` prints
 it, and `./scripts/selfhost.sh parse` diffs it with `kode ast` over
-`selfhost/spec/parse` and `selfhost/spec/parse-errors` (46/46 cases: trees and
+`selfhost/spec/parse` and `selfhost/spec/parse-errors` (48/48 cases: trees and
 diagnostics byte-identical, `expr_count` included).
 
 Slice 1b adds the expression grammar: every infix operator at the oracle's
@@ -266,9 +266,29 @@ after the type", with the `count: int = 0` hint) over the token that was found. 
 name it parsed, so its count stays, while a declaration never made one — counting it
 made `expr_count` one too high until that was fixed against the oracle.
 
-26 tree cases, 20 diagnostic cases, 46/46 byte-identical. Not yet: the `int?` parent
-edges ADR 0042 allows, which adds cases to `selfhost/spec/parse` rather than
-rewriting this one.
+Slice 12 finishes the arena: every node now carries `parent: int?`, set when it is
+attached, so a later pass can climb from a node to the statement that holds it without
+a second tree or a set of reverse edges. The child edge stays the ordered `kids` list
+(ADR 0042 sketches `first_child`/`next_sibling`; a list holds the same information in
+the order the dump needs). Two kinds of node are deliberately parentless: the root,
+and a node the parse built and then dropped — the key of a `{K: V}` annotation is
+parsed to be checked and never dumped. A throwaway probe over every tree case checked
+that each attached node names a parent that really lists it: no problems, and the only
+orphans were those map keys.
+
+The new `deep_tree` case (a generic class with methods, interpolation, a `match`, a
+nested `for`/`if`, `spawn` and `await`) turned up three gaps at once. Two are recorded
+below; the third was a diagnostic: a match arm without `=>` is `E0103` ("expected `=>`
+after the pattern, found …") over the token found, and it ends the whole `match`, with
+its `parse-errors` case. That pushed `stmt.kode` over the size rule, so `match`
+statements moved to `matches.kode` behind a `Blocks` interface that now offers
+`statement()` for a single-statement arm.
+
+27 tree cases, 21 diagnostic cases, 48/48 byte-identical. Not yet, and both measured
+by trying to parse the port's own source: compound assignment (`total += i`) and a
+closure type in an annotation (`cb: |n: int| int`) are still unparsed, which is why
+`kode-stage1 ast selfhost/stmt.kode` fails today. Each is a small grammar addition
+with its own cases.
 
 Risk: this is where a missing language feature becomes duplication. Stop and
 report rather than invent a workaround.

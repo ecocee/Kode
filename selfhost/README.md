@@ -19,7 +19,7 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `numbers.kode` | number literals, including the base-prefixed forms |
 | `lexer.kode` | the scan loop and punctuation: same tokens, spans, error codes and recovery as `lexer.rs`; strings and numbers delegate to their own modules |
 | `dump.kode` | the `kode tokens` line format, escaping and line/column |
-| `ast.kode` | the syntax tree: one arena of nodes with `int` child ids (ADR 0042), the `kode ast` line format, and the `kids`/`span_of`/`retype` helpers the parsers use |
+| `ast.kode` | the syntax tree: one arena of nodes with `int` child ids and one `int?` parent (ADR 0042), the `kode ast` line format, and the `kids`/`span_of`/`retype` helpers the parsers use |
 | `cursor.kode` | the token cursor, the parse error type and the shared error list, plus where a statement ends (`end_statement`, `at_statement_end`), how a bad line is skipped (`recover_line`), how a group's closing token is demanded (`expect_close`) and how a token is named in a message (`describe`) |
 | `report.kode` | the diagnostic block `kode ast` prints: code, position, source line, caret and hint, rendered byte for byte as `kode-diagnostics` does |
 | `contracts.kode` | the `Blocks` and `Expressions` interfaces that let the statement, expression and interpolation grammars reach each other without a module cycle |
@@ -27,7 +27,8 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `expr.kode` | expressions: prefix (including `spawn`), postfix chains, `??`, `is`, `catch`, `[lists]`, `{maps}` |
 | `closures.kode` | `\|x: int\| x * 2` and `await expr` |
 | `interp.kode` | interpolated strings and the holes they re-lex |
-| `stmt.kode` | statements: `name = value`, `name: Type = value`, an expression on its own line, blocks, `if`/`while`/`for`, `match`, `try`/`throw`, `break`/`continue`, `return` |
+| `stmt.kode` | statements: `name = value`, `name: Type = value`, an expression on its own line, blocks, `if`/`while`/`for`, `try`/`throw`, `break`/`continue`, `return` |
+| `matches.kode` | `match` statements and their arms, which reach statements and expressions through `contracts.kode` |
 | `types.kode` | type annotations (`T`, `[T]`, `{string: T}`, `Box<T>`, `T?`) and `Param` nodes |
 | `decls.kode` | items: `pub`/`fn`, `class`, `const` and `import` |
 | `enums.kode` | `enum` declarations with payload variants, and `interface` signatures |

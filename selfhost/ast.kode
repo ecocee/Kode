@@ -1,8 +1,8 @@
 // The syntax tree of the self-hosted compiler, as an arena (ADR 0042).
 //
-// One `Ast` owns every node; a node names its children by `int` id. There is no
-// parent link and no reference between nodes, so no cycle is expressible and one
-// release frees the whole tree. The dump format is the one
+// One `Ast` owns every node; a node names its children by `int` ids and its parent by
+// one `int?` (ADR 0042). Neither edge is a reference, so no cycle is expressible and
+// one release frees the whole tree. The dump format is the one
 // `crates/kode-syntax/src/dump/ast.rs` defines and the harness compares: kind,
 // then `attr=value` pairs in a fixed order, then children indented two spaces.
 
@@ -13,7 +13,15 @@ from "./cursor" import Cursor
 pub class Node {
     kind: string
     attrs: [string] = []
+    /// The child edge, in dump order. ADR 0042 sketches `first_child`/`next_sibling`
+    /// as `int?`; a list holds the same information in the order the dump needs, and
+    /// the parent edge below is what a later pass climbs.
     kids: [int] = []
+    /// None for the root, and for a node the parse built and then dropped: the key of
+    /// a `{K: V}` annotation is parsed to be checked and never dumped, and an error
+    /// path abandons whatever it had built. Set when the node is attached, so it
+    /// always names the real parent.
+    parent: int? = none
     /// The node's own extent, for a parent that has to span it.
     start: int = 0
     end: int = 0
@@ -101,6 +109,7 @@ pub class Ast {
 
     fn kid(id: int, child: int) {
         nodes[id].kids.add(child)
+        nodes[child].parent = id
     }
 }
 

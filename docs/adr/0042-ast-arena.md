@@ -1,7 +1,7 @@
 # ADR 0042: the AST is an arena, not a `weak` graph
 
-Status: **accepted**. The port's AST is a flat list of nodes with `int?` links;
-`weak` is not on the S2 path.
+Status: **accepted**, and implemented. The port's AST is a flat list of nodes with
+`int?` links; `weak` is not on the S2 path.
 Date: 2026-11-13.
 Plan item: `docs/PLAN-self-hosting.md` WP-11 (and WP-07 by consequence),
 `docs/STATUS.md` 1.3.

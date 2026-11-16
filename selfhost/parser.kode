@@ -39,7 +39,7 @@ pub class Parser {
             }
             node = d.item()
             if node >= 0 {
-                ast.nodes[0].kids.add(node)
+                ast.kid(0, node)
                 c.end_statement()
             } else if not c.at_statement_end() {
                 // A failed item skips to its line end, which is the oracle's

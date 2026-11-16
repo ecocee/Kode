@@ -17,6 +17,7 @@ from "./cursor" import Cursor
 
 pub interface Blocks {
     fn block() -> int
+    fn statement() -> int
     fn with_cursor(next: Cursor) -> Blocks
 }
 
