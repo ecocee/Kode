@@ -266,7 +266,7 @@ after the type", with the `count: int = 0` hint) over the token that was found. 
 name it parsed, so its count stays, while a declaration never made one — counting it
 made `expr_count` one too high until that was fixed against the oracle.
 
-25 tree cases, 21 diagnostic cases, 46/46 byte-identical. Not yet: the `int?` parent
+26 tree cases, 20 diagnostic cases, 46/46 byte-identical. Not yet: the `int?` parent
 edges ADR 0042 allows, which adds cases to `selfhost/spec/parse` rather than
 rewriting this one.
 
