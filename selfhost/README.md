@@ -38,9 +38,13 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `builtins.kode` | the names every program starts with — builtin functions, runtime free functions, module qualifiers, prelude classes — mirrored from `std_fns.rs` |
 | `diag.kode` | one checker diagnostic (code, message, span, optional hint) and the constructors that add one |
 | `scope.kode` | the checker's scope stack: one frame per block, each bound name with the type it holds |
-| `typing.kode` | the checker's types: the primitives, `[T]`, `{string: T}`, `T?`, names and `any`, expression typing, annotations (`E0303`) and assignment (`E0202`) |
-| `operands.kode` | which operands each operator accepts, and what `print`/`stderr` can show (`E0203`, `E0210`) |
-| `sema.kode` | the checker (S3): name resolution (`E0201`/`E0206`), alias members, and the walk that ties the type rules together |
+| `typing.kode` | the checker's types: the primitives, `[T]`, `{string: T}`, `T?`, names and `any`, expression typing, and whether a value fits (`E0202`) |
+| `annotations.kode` | what a written type means: `T`, `[T]`, `{string: T}`, `T?`, `Box<T>`, `fn(...)`, with an unknown name as `E0303` |
+| `items.kode` | what a function or class declaration puts in scope: its type parameters, parameters, fields, methods and return type |
+| `binding.kode` | what `name = value` does: the type the name takes (`E0202`), a constant as the target (`E0312`), and a value that is nothing at all (`E0205`) |
+| `operands.kode` | which operands each operator accepts, and what `print`/`stderr` can show (`E0203`, `E0204`, `E0210`) |
+| `names.kode` | the program's names and the rules about declaring one: `E0301`, `E0302`, `E0306`, `E0307`, `E0308` |
+| `sema.kode` | the checker (S3): name resolution (`E0201`/`E0206`), alias members, `return`/`break`/`continue` outside their place (`E0311`/`E0314`), and the walk that ties the rules together |
 | `namespace.kode` | the import namespace: a module alias may not repeat (`E0408`) or hide a declaration (`E0409`), and the first in load order is the one a member call resolves through |
 | `modules.kode` | the module graph: `import`/`from` resolve, load once, and export (`E0401`/`E0402`/`E0403`/`E0405`/`E0411`), keeping every alias in load order |
 | `main.kode` | the entry point: `kode-stage1 tokens <file>` / `ast <file>` / `check <file>` |

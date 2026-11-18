@@ -397,6 +397,25 @@ class instances an error). An assignment keeps the type its target already had, 
 `selfhost/scope.kode` is the frame stack those rules read, which is how `sema.kode`
 stays under its size limit.
 
+**Slice 5 is in: declarations.** `selfhost/names.kode` is the program's namespace and
+the rules about declaring a name. `sema.kode` collects every file's declarations
+before it walks any of them, which is what lets `stmt.kode` use `infix.kode`'s
+constant without importing it, and the same walk reports what cannot stand — `E0301`
+(a name defined twice, with the oracle's wording when the name is a class or the
+built-in `Error`), `E0302` (a builtin redefined), `E0306` (a parameter or a field
+twice), `E0307` (a constant that is not a plain value, hint included) and `E0308` (a
+constant defined twice). The tree work that slice once held moves out as well:
+`selfhost/annotations.kode` turns a written type into a `Type` (`E0303`),
+`selfhost/items.kode` is what a function or class declaration puts in scope, and
+`selfhost/binding.kode` what `name = value` does — `E0312` for a constant, `E0205` for
+a value that is nothing at all, and `E0202` when it does not fit. A failed `E0202`
+declares no name, which is why `tests/compile-fail/e0202_annotation.kode` reports
+`E0201` on the next line, exactly as the oracle does. `sema.kode` also tracks whether
+it is inside a function and how many loops deep, so `return` at the top level is
+`E0311` and `break`/`continue` outside a loop `E0314`; the operator rules gained
+`E0204` for a literal division by zero. Every new rule is silent when it cannot prove
+the mistake, and the gate after it is **105/165** with **self-check 37/37**.
+
 Every rule stays quiet when it cannot prove the mistake: an operand that is `any` (a
 call, a method call, an index), an optional operand (narrowing is a later slice) and
 two named types (this slice does not read `implements`, so a class stored as one of
@@ -407,7 +426,7 @@ Why the module graph comes before the other families: the namespace is program-w
 so the checker cannot resolve `stmt.kode`'s `BP_ARITH` — a const in `infix.kode` that
 `stmt.kode` does not import — without every file the program loads. `check` now loads
 the graph and checks all of it, and `check_sema` checks the port's own sources as a
-second gate: **self-check 33/33**, every file of the port clean under its own
+second gate: **self-check 37/37**, every file of the port clean under its own
 checker. Measured: **95 of 165** programs report the expected code set, with the
 split `38` compile-fail exact, `57` run-pass clean, `62` compile-fail with no
 diagnostic yet (the families below), `6` where the port's parse errors still differ

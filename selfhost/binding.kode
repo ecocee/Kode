@@ -1,0 +1,66 @@
+// What `name = value` does (S3): the type the name takes, and the two ways the value
+// cannot be stored.
+//
+// An annotated target takes the annotation's type and the value must fit it (`E0202`).
+// An unannotated target takes the type of its first value and keeps it, which is what
+// makes a later value of another type `E0202` too. A value that is nothing at all —
+// the result of `print`, which shows text and returns no value — is `E0205`.
+//
+// The answer is the binding to make, or an empty one: the oracle declares nothing when
+// the value does not fit, which is why a later use of that name is `E0201`.
+//
+// `selfhost/assign.kode` is the parser's module of the same word: it builds the
+// `TargetVar`/`TargetIndex`/`TargetField` nodes. This one decides what those nodes
+// mean once the tree exists.
+
+from "./annotations" import resolve_ann
+from "./ast" import Ast, is_type_node
+from "./diag" import Diag, diag, diag_help
+from "./names" import Names
+from "./typing" import Local, coerce_value, expr_type, local_in, type_any
+
+/// The binding one `name = value` makes: `name` is "" when the name already existed or
+/// the value did not fit, so the caller declares nothing.
+pub fn bound_local(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int, target: int) -> Local {
+    name = ast.attr_text(target, "name")
+    if names.consts.contains(name) {
+        diag(ast, diags, "E0312", "`${name}` is a constant and cannot be changed", target)
+        return Local(name: "", ty: type_any())
+    }
+    kids = ast.nodes[id].kids
+    ann = -1
+    value = -1
+    i = kids.len() - 1
+    while i >= 1 {
+        if is_type_node(ast.nodes[kids[i]].kind) {
+            ann = kids[i]
+        } else if value < 0 {
+            value = kids[i]
+        }
+        i -= 1
+    }
+    vt = type_any()
+    if value >= 0 {
+        vt = expr_type(ast, frames, names, value)
+    }
+    if vt.kind == "unit" {
+        diag_help(ast, diags, "E0205", "this call returns nothing, so it cannot be stored in a variable",
+            value, "`print(...)` shows text and gives back no value")
+        return Local(name: "", ty: type_any())
+    }
+    if ann >= 0 {
+        want = resolve_ann(ast, names, diags, ann)
+        if value >= 0 and not coerce_value(ast, diags, value, vt, want, name) {
+            return Local(name: "", ty: type_any())
+        }
+        return Local(name: name, ty: want)
+    }
+    have = local_in(frames, name)
+    if have.name != "" {
+        if value >= 0 {
+            coerce_value(ast, diags, value, vt, have.ty, name)
+        }
+        return Local(name: "", ty: type_any())
+    }
+    return Local(name: name, ty: vt)
+}

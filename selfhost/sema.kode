@@ -1,33 +1,35 @@
-// The checker (S3): name resolution, the import namespace, and the types a value
-// holds.
+// The checker (S3): the walk over a loaded program.
 //
-// `./scripts/selfhost.sh check` runs this pass over `tests/compile-fail` and
-// `tests/run-pass` and compares the codes it reports with the code each program is
-// expected to fail with, so a family lands when that count moves. The oracle's
-// `E02xx` family arrives one slice per commit (docs/PLAN-self-hosting.md §4).
+// `./scripts/selfhost.sh check` compares the codes this pass reports with the code
+// each program is expected to fail with, so a family lands when that count moves.
 //
 // A name is in scope when it is a builtin, a runtime function, a prelude class, a
 // module alias, a top-level declaration, or bound in an enclosing block by a
 // parameter, an assignment target, a `for` variable, a `catch` variable, a match
 // arm's payload or a closure parameter. Scopes are pushed per block, so a name
 // declared in a block is gone when the block ends, and a name used before its
-// declaration is unknown — the oracle's rule. `selfhost/scope.kode` holds the stack,
-// `selfhost/typing.kode` what its entries hold, and `selfhost/namespace.kode` the
-// rules of a module alias.
+// declaration is unknown — the oracle's rule.
 //
-// The namespace is program-wide, not per file: `selfhost/modules.kode` reads
-// everything the program imports, and every file's top-level names are collected
-// before any of them is walked, so `stmt.kode` resolves `BP_ARITH` from
-// `infix.kode` without importing it.
+// The pieces are elsewhere on purpose: `names.kode` collects every declared name and
+// reports a declaration that cannot stand, `scope.kode` is the frame stack,
+// `typing.kode` says what a value is, `annotations.kode` what a written type means,
+// `items.kode` what a declaration puts in scope, `operands.kode` which operands an
+// operator and `print` accept, `assign.kode` what an assignment does, and
+// `namespace.kode` the rules of a module alias. The namespace is program-wide, not
+// per file: every file's names are collected before any of them is walked.
 
-from "./ast" import Ast
+from "./annotations" import resolve_ann
+from "./ast" import Ast, is_type_node
+from "./binding" import bound_local
 from "./builtins" import Builtins
 from "./diag" import Diag, diag, diag_help
+from "./items" import pop_type_params, setup_class, setup_fn
 from "./modules" import Alias, Module
+from "./names" import Names, collect
 from "./namespace" import alias_diags, check_alias
 from "./operands" import check_operator, check_print
 from "./scope" import Scope
-from "./typing" import Anns, Type, coerce_value, expr_type, resolve_ann, type_any
+from "./typing" import type_any
 
 pub class Sema {
     /// Every file the program loads, the entry first, from `modules.kode`.
@@ -39,34 +41,27 @@ pub class Sema {
     /// Every `import "..." as n` in the program, in load order (`E0408`/`E0409`).
     aliases: [Alias] = []
     diags: [Diag] = []
-    /// Every top-level name: `fn`, `class`, `enum`, `interface`, `const`, `import`.
-    globals: [string] = []
-    /// The declarations alone: what a module alias may not hide (`E0409`).
-    decls: [string] = []
-    /// The class names: `User(name: "a")` builds an instance of one.
-    classes: [string] = []
-    /// What an annotation may name, and the type parameters in scope: the lists
-    /// `resolve_ann` reads, in the file that reads them.
-    anns: Anns = Anns()
+    /// Every declaration in the program: what a name resolves against, and what an
+    /// annotation may name.
+    names: Names = Names()
     /// Bound names and what they hold, innermost frame last.
     scopes: Scope = Scope()
     /// The names a program starts with, in their own file (`builtins.kode`).
     builtins: Builtins = Builtins()
+    /// `return` needs a function (`E0311`) and `break`/`continue` a loop (`E0314`).
+    in_fn: bool = false
+    loops: int = 0
 
-    /// Check a loaded program; the caller prints `diags`. Every top-level name of
-    /// every file is collected first, because the namespace is program-wide and a
-    /// function may be called before the line that declares it, and every declared
-    /// type, because an annotation may name one from another file. Top-level
-    /// statements then run in one shared scope.
+    /// Check a loaded program; the caller prints `diags`.
     fn run() {
         for one in asts {
             ast = one
-            collect_globals()
+            collect(ast, names, builtins, diags)
         }
         // An alias is a program-wide name, so its rules run once every file's
         // declarations exist (`namespace.kode`).
-        for diag in alias_diags(aliases, decls) {
-            diags.add(diag)
+        for d in alias_diags(aliases, names.decls) {
+            diags.add(d)
         }
         scopes.push()
         for one in asts {
@@ -86,32 +81,6 @@ pub class Sema {
         }
     }
 
-    fn collect_globals() {
-        for id in ast.nodes[0].kids {
-            kind = ast.nodes[id].kind
-            if kind == "Fn" or kind == "Class" or kind == "Enum" or kind == "Interface" or kind == "Const" {
-                globals.add(ast.attr_text(id, "name"))
-                decls.add(ast.attr_text(id, "name"))
-            }
-            if kind == "Class" {
-                classes.add(ast.attr_text(id, "name"))
-                if has_type_param(id) {
-                    // A bare generic name is `E0423`, so its annotation is not a
-                    // type this slice can use.
-                    anns.generics.add(ast.attr_text(id, "name"))
-                }
-            }
-            if kind == "Class" or kind == "Enum" or kind == "Interface" {
-                anns.types.add(ast.attr_text(id, "name"))
-            }
-            if kind == "Import" {
-                for kid in ast.nodes[id].kids {
-                    globals.add(ast.attr_text(kid, "name"))
-                }
-            }
-        }
-    }
-
     fn check_item(id: int) {
         kind = ast.nodes[id].kind
         if kind == "Fn" {
@@ -120,8 +89,8 @@ pub class Sema {
             check_class(id)
         } else if kind == "Const" {
             for kid in ast.nodes[id].kids {
-                if is_type(ast.nodes[kid].kind) {
-                    resolve_ann(ast, anns, diags, kid)
+                if is_type_node(ast.nodes[kid].kind) {
+                    resolve_ann(ast, names, diags, kid)
                 } else {
                     visit(kid)
                 }
@@ -129,70 +98,27 @@ pub class Sema {
         }
     }
 
-    /// Does this item declare type parameters (`class Box<T>`)?
-    fn has_type_param(id: int) -> bool {
-        for kid in ast.nodes[id].kids {
-            if ast.nodes[kid].kind == "TypeParam" {
-                return true
-            }
-        }
-        return false
-    }
-
     fn check_fn(id: int) {
-        before = push_type_params(id)
         scopes.push()
-        for kid in ast.nodes[id].kids {
-            kind = ast.nodes[kid].kind
-            if kind == "Param" {
-                declare_param(kid)
-            } else if is_type(kind) {
-                // The return type, so that an unknown name is `E0303` here too.
-                resolve_ann(ast, anns, diags, kid)
-            }
-        }
+        before = setup_fn(ast, names, scopes, diags, id)
+        was = in_fn
+        in_fn = true
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
             if kind == "Block" or kind == "ExprBody" {
                 visit(kid)
             }
         }
+        in_fn = was
         scopes.pop()
-        pop_type_params(before)
-    }
-
-    /// `a: int` binds `a` to `int`; an annotation this slice cannot name is `any`, so
-    /// nothing is claimed about the uses.
-    fn declare_param(id: int) {
-        ty = annotation_of(id)
-        scopes.declare(ast.attr_text(id, "name"), ty)
-    }
-
-    /// The type a `Param` or `Field` is annotated with, resolving it (and so
-    /// reporting `E0303`); `any` when it has none.
-    fn annotation_of(id: int) -> Type {
-        for kid in ast.nodes[id].kids {
-            if is_type(ast.nodes[kid].kind) {
-                return resolve_ann(ast, anns, diags, kid)
-            }
-        }
-        return type_any()
+        pop_type_params(names, before)
     }
 
     /// A method reads its class's fields and methods by bare name, so they are in
     /// scope for the whole class.
     fn check_class(id: int) {
-        before = push_type_params(id)
         scopes.push()
-        for kid in ast.nodes[id].kids {
-            kind = ast.nodes[kid].kind
-            if kind == "Field" {
-                scopes.declare(ast.attr_text(kid, "name"), annotation_of(kid))
-            }
-            if kind == "Method" {
-                scopes.declare(ast.attr_text(kid, "name"), type_any())
-            }
-        }
+        before = setup_class(ast, names, scopes, diags, id)
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
             if kind == "Method" {
@@ -200,35 +126,18 @@ pub class Sema {
             }
             if kind == "Field" {
                 for part in ast.nodes[kid].kids {
-                    if not is_type(ast.nodes[part].kind) {
+                    if not is_type_node(ast.nodes[part].kind) {
                         visit(part)
                     }
                 }
             }
         }
         scopes.pop()
-        pop_type_params(before)
-    }
-
-    /// The type parameters an item declares, made visible to its annotations.
-    fn push_type_params(id: int) -> int {
-        before = anns.params.len()
-        for kid in ast.nodes[id].kids {
-            if ast.nodes[kid].kind == "TypeParam" {
-                anns.params.add(ast.attr_text(kid, "name"))
-            }
-        }
-        return before
-    }
-
-    fn pop_type_params(before: int) {
-        while anns.params.len() > before {
-            anns.params.pop()
-        }
+        pop_type_params(names, before)
     }
 
     fn is_bound(name: string) -> bool {
-        if globals.contains(name) or builtins.has(name) {
+        if names.all.contains(name) or builtins.has(name) {
             return true
         }
         return scopes.find(name).name != ""
@@ -272,6 +181,10 @@ pub class Sema {
             visit_for_in(id)
             return
         }
+        if kind == "While" {
+            visit_while(id)
+            return
+        }
         if kind == "Try" {
             visit_try(id)
             return
@@ -284,6 +197,14 @@ pub class Sema {
             visit_block(id)
             return
         }
+        if kind == "Return" {
+            visit_return(id)
+            return
+        }
+        if kind == "Break" or kind == "Continue" {
+            visit_loop_keyword(id)
+            return
+        }
         if kind == "TargetVar" {
             scopes.declare(ast.attr_text(id, "name"), type_any())
             return
@@ -291,11 +212,11 @@ pub class Sema {
         if kind == "Var" or kind == "CatchVar" {
             return
         }
-        if is_type(kind) {
+        if is_type_node(kind) {
             return
         }
         if kind == "Binary" or kind == "Unary" {
-            check_operator(ast, scopes.frames, classes, diags, id)
+            check_operator(ast, scopes.frames, names, diags, id)
         }
         for kid in ast.nodes[id].kids {
             visit(kid)
@@ -317,64 +238,29 @@ pub class Sema {
         }
     }
 
-    /// `x = 1` binds `x` to what the value is; `x = "a"` after `x = 1` is `E0202`, as
-    /// is a value that does not fit `x`'s annotation. `xs[0] = 1` and `obj.name = 1`
-    /// are reads of what they index into. The value is always walked.
+    /// `x = 1` binds `x` to the value's type (`assign.kode`); `xs[0] = 1` and
+    /// `obj.name = 1` are reads of what they index into. The value is always walked.
     fn visit_assign(id: int) {
         kids = ast.nodes[id].kids
         if kids.len() == 0 {
             return
         }
         target = kids[0]
-        ann = -1
-        value = -1
-        i = kids.len() - 1
-        while i >= 1 {
-            if is_type(ast.nodes[kids[i]].kind) {
-                ann = kids[i]
-            } else if value < 0 {
-                value = kids[i]
-            }
-            i -= 1
-        }
-        vt = type_any()
-        if value >= 0 {
-            vt = expr_type(ast, scopes.frames, classes, value)
-        }
         if ast.nodes[target].kind == "TargetVar" {
-            bind(ast.attr_text(target, "name"), ann, value, vt)
+            one = bound_local(ast, scopes.frames, names, diags, id, target)
+            if one.name != "" {
+                scopes.declare(one.name, one.ty)
+            }
         } else {
             visit(target)
         }
         i = 1
         while i < kids.len() {
-            if not is_type(ast.nodes[kids[i]].kind) {
+            if not is_type_node(ast.nodes[kids[i]].kind) {
                 visit(kids[i])
             }
             i += 1
         }
-    }
-
-    /// One `name = value`, with or without an annotation. An annotated target takes
-    /// the annotation's type; an unannotated one keeps the type it already had, which
-    /// is what makes a later value of another type `E0202`.
-    fn bind(name: string, ann: int, value: int, vt: Type) {
-        if ann >= 0 {
-            want = resolve_ann(ast, anns, diags, ann)
-            if value >= 0 {
-                coerce_value(ast, diags, value, vt, want, name)
-            }
-            scopes.declare(name, want)
-            return
-        }
-        have = scopes.find(name)
-        if have.name != "" {
-            if value >= 0 {
-                coerce_value(ast, diags, value, vt, have.ty, name)
-            }
-            return
-        }
-        scopes.declare(name, vt)
     }
 
     fn visit_call(id: int) {
@@ -383,7 +269,7 @@ pub class Sema {
             diag(ast, diags, "E0206", "unknown function `${callee}`", id)
         }
         if callee == "print" or callee == "stderr" {
-            check_print(ast, scopes.frames, classes, diags, id)
+            check_print(ast, scopes.frames, names, diags, id)
         }
         for kid in ast.nodes[id].kids {
             visit(kid)
@@ -396,7 +282,7 @@ pub class Sema {
         kids = ast.nodes[id].kids
         if kids.len() > 0 and ast.nodes[kids[0]].kind == "Ident" {
             base = ast.attr_text(kids[0], "name")
-            check_alias(ast, mods, aliases, decls, diags, id, base, callee)
+            check_alias(ast, mods, aliases, names.decls, diags, id, base, callee)
         }
         for kid in kids {
             visit(kid)
@@ -430,13 +316,15 @@ pub class Sema {
         scopes.pop()
     }
 
-    /// `for i in 0..3`: the variable is an attribute and counts, so it is an int.
+    /// `for i in 0..3`: the variable is an attribute.
     fn visit_for(id: int) {
         scopes.push()
         scopes.declare(ast.attr_text(id, "var"), type_any())
+        loops += 1
         for kid in ast.nodes[id].kids {
             visit(kid)
         }
+        loops -= 1
         scopes.pop()
     }
 
@@ -448,13 +336,45 @@ pub class Sema {
                 scopes.declare(ast.attr_text(kid, "name"), type_any())
             }
         }
+        loops += 1
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
             if kind == "Iter" or kind == "Block" {
                 visit(kid)
             }
         }
+        loops -= 1
         scopes.pop()
+    }
+
+    /// `while cond { }`: a loop, so `break` and `continue` work inside it.
+    fn visit_while(id: int) {
+        loops += 1
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+        loops -= 1
+    }
+
+    fn visit_return(id: int) {
+        if not in_fn {
+            diag_help(ast, diags, "E0311", "`return` can only be used inside a function", id,
+                "top-level code simply runs to the end")
+        }
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+    }
+
+    fn visit_loop_keyword(id: int) {
+        if loops > 0 {
+            return
+        }
+        word = "break"
+        if ast.nodes[id].kind == "Continue" {
+            word = "continue"
+        }
+        diag(ast, diags, "E0314", "`${word}` can only be used inside a loop", id)
     }
 
     /// `try { } catch err { } finally { }`: `err` is in scope in the handler only.
@@ -523,15 +443,6 @@ pub class Sema {
             }
         }
     }
-}
-
-/// `TypeName`, `TypeList`, `TypeFn` and the rest: an annotation names types, not
-/// values, so the walker never enters one.
-fn is_type(kind: string) -> bool {
-    if kind.size() < 4 {
-        return false
-    }
-    return kind.slice(0, 4) == "Type"
 }
 
 /// The node kinds that declare a name for the whole program.

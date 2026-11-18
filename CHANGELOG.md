@@ -7,6 +7,23 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's checker learns declarations.** `selfhost/names.kode` collects every
+  name a program declares — functions, constants, classes, enums, interfaces, `from`
+  names — before any file is walked, and reports the declarations that cannot stand:
+  `E0301` (a name defined twice, with the oracle's wording for a class and for the
+  built-in `Error`), `E0302` (a builtin redefined), `E0306` (a parameter or field
+  twice), `E0307` (a constant that is not a plain value, with the `${}` hint) and
+  `E0308` (a constant defined twice). `selfhost/annotations.kode` turns a written type
+  into a `Type`, `selfhost/items.kode` is what a function or class declaration puts in
+  scope, and `selfhost/binding.kode` what `name = value` does — `E0312` (a constant
+  assigned), `E0205` (the value of `print`, which returns nothing) and, in the
+  operator rules, `E0204` (a literal division by zero). The walk tracks whether it is
+  inside a function and how many loops deep, so `return` at the top level is `E0311`
+  and `break`/`continue` outside a loop `E0314`. A value that does not fit its
+  annotation is `E0202` *and* declares no name, which is why
+  `tests/compile-fail/e0202_annotation.kode` reports `E0201` as well, like the oracle.
+  Gate: 95 → **105/165**, self-check **37/37**.
+
 - **The port's checker learns types.** `selfhost/typing.kode` says what a value is —
   the primitives, `[T]`, `{string: T}`, `T?`, a named class, `any` — and types
   literals, locals, unary and binary expressions, list and map literals and the calls

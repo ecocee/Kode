@@ -1,6 +1,7 @@
 // The operand rules (S3): which types each operator accepts, and what `print` can
 // show. These are the two places a value's type is wrong in a way the program wrote
-// out, so they are the two that report `E0203` (and `E0210` for a mixed int/float).
+// out, so they are the two that report `E0203` (plus `E0210` for a mixed int/float,
+// and `E0204` for a literal division by zero).
 //
 // `selfhost/typing.kode` says what a value is; this says what may be done with it.
 // An operand that is `any` — a call, a method, anything the slice cannot see through
@@ -8,26 +9,25 @@
 
 from "./ast" import Ast
 from "./diag" import Diag, diag, diag_help
-from "./typing" import Local, Type, expr_type, type_article, type_is_any, type_printable
+from "./names" import Names
+from "./typing" import Local, Type, expr_type, mixed_number, same_type, type_article, type_is_any, type_printable
 
-/// The operand rules: `+ - * / %`, comparisons, `and`/`or`, the bit operators and
-/// `in`, plus the unary operators. Reports where the oracle reports and stays quiet
-/// whenever a side is `any`.
-pub fn check_operator(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
+/// The operand rules, plus the unary operators.
+pub fn check_operator(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
     if ast.nodes[id].kind == "Unary" {
-        check_unary(ast, frames, classes, diags, id)
+        check_unary(ast, frames, names, diags, id)
         return
     }
-    check_binary(ast, frames, classes, diags, id)
+    check_binary(ast, frames, names, diags, id)
 }
 
-fn check_unary(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
+fn check_unary(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
     kids = ast.nodes[id].kids
     if kids.len() < 1 {
         return
     }
     op = ast.attr_raw(id, "op")
-    t = expr_type(ast, frames, classes, kids[0])
+    t = expr_type(ast, frames, names, kids[0])
     if type_is_any(t) {
         return
     }
@@ -51,14 +51,14 @@ fn check_unary(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id
     }
 }
 
-fn check_binary(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
+fn check_binary(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
     kids = ast.nodes[id].kids
     if kids.len() < 2 {
         return
     }
     op = ast.attr_raw(id, "op")
-    l = expr_type(ast, frames, classes, kids[0])
-    r = expr_type(ast, frames, classes, kids[1])
+    l = expr_type(ast, frames, names, kids[0])
+    r = expr_type(ast, frames, names, kids[1])
     if type_is_any(l) or type_is_any(r) {
         return
     }
@@ -74,6 +74,9 @@ fn check_binary(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], i
     }
     if op == "+" or op == "-" or op == "*" or op == "/" or op == "%" {
         if l.kind == "int" and r.kind == "int" {
+            if (op == "/" or op == "%") and zero_literal(ast, kids[1]) {
+                diag(ast, diags, "E0204", "division by zero", kids[1])
+            }
             return
         }
         if l.kind == "float" and r.kind == "float" and op != "%" {
@@ -134,6 +137,15 @@ fn check_binary(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], i
     }
 }
 
+/// Is this node the literal `0`? Only a literal is proved, so `x / y` is never called
+/// a division by zero on a guess.
+fn zero_literal(ast: Ast, id: int) -> bool {
+    if ast.nodes[id].kind != "Int" {
+        return false
+    }
+    return ast.attr_raw(id, "value") == "0"
+}
+
 fn bad_operands(ast: Ast, diags: [Diag], id: int, op: string, l: Type, r: Type, help: string) {
     message = "cannot apply `${op}` to ${type_article(l)} and ${type_article(r)}"
     diag_help(ast, diags, "E0203", message, id, help)
@@ -141,19 +153,19 @@ fn bad_operands(ast: Ast, diags: [Diag], id: int, op: string, l: Type, r: Type, 
 
 /// `print` and `stderr` take what the runtime can format, which is what makes
 /// `print(users)` with a list of class instances an error rather than a wall of fields.
-pub fn check_print(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
+pub fn check_print(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
     for kid in ast.nodes[id].kids {
         if ast.nodes[kid].kind != "Arg" {
             continue
         }
         for part in ast.nodes[kid].kids {
-            check_print_value(ast, frames, classes, diags, part)
+            check_print_value(ast, frames, names, diags, part)
         }
     }
 }
 
-fn check_print_value(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
-    t = expr_type(ast, frames, classes, id)
+fn check_print_value(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    t = expr_type(ast, frames, names, id)
     if t.kind == "unit" {
         // `E0205` is its own family: a call that returns nothing.
         return

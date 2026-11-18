@@ -1,0 +1,202 @@
+// The names a program declares, and the rules about declaring one.
+//
+// Kode has one program-wide namespace: `sema.kode` collects every file's names before
+// it walks any of them, so a function may be called above its own line and
+// `stmt.kode` may use a constant from `infix.kode` without importing it. These tables
+// are what that lookup asks, and the same walk reports a declaration that cannot
+// stand: `E0301` (a name defined twice), `E0302` (a builtin redefined), `E0306` (a
+// parameter or field twice), `E0307` (a constant that is not a plain value) and
+// `E0308` (a constant defined twice).
+
+from "./ast" import Ast, has_type_param, is_type_node
+from "./builtins" import Builtins
+from "./diag" import Diag, diag_at, diag_help
+
+pub class Names {
+    /// Every top-level name in the shared namespace, `from`-import names included:
+    /// what a name is resolved against.
+    all: [string] = []
+    /// The declarations alone: what a module alias may not hide (`E0409`).
+    decls: [string] = []
+    fns: [string] = []
+    consts: [string] = []
+    classes: [string] = []
+    enums: [string] = []
+    interfaces: [string] = []
+    /// The classes with type parameters: a bare `Box` is not a type (`E0423`).
+    generics: [string] = []
+    /// The type parameters of the item being walked (`fn id<T>`), which its own
+    /// annotations may name.
+    params: [string] = []
+}
+
+/// Is `name` a declared type: a class, an enum or an interface?
+pub fn is_type_name(names: Names, name: string) -> bool {
+    if names.classes.contains(name) or names.enums.contains(name) {
+        return true
+    }
+    return names.interfaces.contains(name)
+}
+
+/// Record one file's declarations, reporting the ones that cannot stand.
+pub fn collect(ast: Ast, names: Names, builtins: Builtins, diags: [Diag]) {
+    if ast.nodes.len() == 0 {
+        return
+    }
+    for id in ast.nodes[0].kids {
+        kind = ast.nodes[id].kind
+        if kind == "Fn" {
+            declare_fn(ast, names, builtins, diags, id)
+        } else if kind == "Const" {
+            declare_const(ast, names, diags, id)
+        } else if kind == "Class" {
+            declare_class(ast, names, diags, id)
+        } else if kind == "Enum" {
+            declare_named(ast, names, diags, id)
+        } else if kind == "Interface" {
+            declare_named(ast, names, diags, id)
+        } else if kind == "Import" {
+            // A `from` name is a way to reach something, not a declaration of its own,
+            // so it is in `all` and not in `decls`.
+            for kid in ast.nodes[id].kids {
+                names.all.add(ast.attr_text(kid, "name"))
+            }
+        }
+    }
+}
+
+fn add_decl(names: Names, name: string) {
+    names.all.add(name)
+    names.decls.add(name)
+}
+
+fn declare_fn(ast: Ast, names: Names, builtins: Builtins, diags: [Diag], id: int) {
+    name = ast.attr_text(id, "name")
+    if builtins.has(name) {
+        message = "`${name}` is a built-in function and cannot be redefined"
+        diag_at(ast, diags, "E0302", message, id, "name_span", "pick another name")
+    } else if names.decls.contains(name) {
+        message = "the name `${name}` is defined twice"
+        diag_at(ast, diags, "E0301", message, id, "name_span", "")
+    } else {
+        add_decl(names, name)
+        names.fns.add(name)
+    }
+    declare_params(ast, diags, id)
+}
+
+fn declare_params(ast: Ast, diags: [Diag], id: int) {
+    seen: [string] = []
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Param" {
+            continue
+        }
+        name = ast.attr_text(kid, "name")
+        if seen.contains(name) {
+            message = "the parameter `${name}` appears twice"
+            diag_at(ast, diags, "E0306", message, kid, "name_span", "")
+        } else {
+            seen.add(name)
+        }
+    }
+}
+
+fn declare_class(ast: Ast, names: Names, diags: [Diag], id: int) {
+    name = ast.attr_text(id, "name")
+    if names.decls.contains(name) {
+        what = "is defined twice"
+        if name == "Error" {
+            what = "is built in"
+        }
+        message = "the class `${name}` ${what}"
+        diag_at(ast, diags, "E0301", message, id, "name_span", "")
+        return
+    }
+    add_decl(names, name)
+    names.classes.add(name)
+    if has_type_param(ast, id) {
+        names.generics.add(name)
+    }
+    declare_fields(ast, diags, id)
+}
+
+fn declare_fields(ast: Ast, diags: [Diag], id: int) {
+    seen: [string] = []
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Field" {
+            continue
+        }
+        name = ast.attr_text(kid, "name")
+        if seen.contains(name) {
+            message = "the field `${name}` appears twice"
+            diag_at(ast, diags, "E0306", message, kid, "name_span", "")
+        } else {
+            seen.add(name)
+        }
+    }
+}
+
+fn declare_named(ast: Ast, names: Names, diags: [Diag], id: int) {
+    name = ast.attr_text(id, "name")
+    if names.decls.contains(name) {
+        message = "the name `${name}` is defined twice"
+        diag_at(ast, diags, "E0301", message, id, "name_span", "")
+        return
+    }
+    add_decl(names, name)
+    if ast.nodes[id].kind == "Enum" {
+        names.enums.add(name)
+    } else {
+        names.interfaces.add(name)
+    }
+}
+
+fn declare_const(ast: Ast, names: Names, diags: [Diag], id: int) {
+    value = const_value(ast, id)
+    if value < 0 or not plain_value(ast, value) {
+        at = id
+        if value >= 0 {
+            at = value
+        }
+        // The hint names `${}` itself, so it is built from two pieces: a string
+        // literal cannot hold that sequence.
+        hint = "use a number, true, false or a string without `$" + "{}`"
+        diag_help(ast, diags, "E0307", "a constant must be a plain value", at, hint)
+        return
+    }
+    name = ast.attr_text(id, "name")
+    if names.consts.contains(name) {
+        message = "the constant `${name}` is defined twice"
+        diag_at(ast, diags, "E0308", message, id, "name_span", "")
+        return
+    }
+    add_decl(names, name)
+    names.consts.add(name)
+}
+
+/// The value of a `const`, or -1 when it has none.
+fn const_value(ast: Ast, id: int) -> int {
+    for kid in ast.nodes[id].kids {
+        if not is_type_node(ast.nodes[kid].kind) {
+            return kid
+        }
+    }
+    return -1
+}
+
+/// A number, `true`, `false` or a plain string — what `E0307` demands. `-1` is a
+/// negation over a literal, which the oracle accepts.
+fn plain_value(ast: Ast, id: int) -> bool {
+    kind = ast.nodes[id].kind
+    if kind == "Int" or kind == "Float" or kind == "Bool" or kind == "Str" {
+        return true
+    }
+    if kind != "Unary" or ast.attr_raw(id, "op") != "-" {
+        return false
+    }
+    for kid in ast.nodes[id].kids {
+        inner = ast.nodes[kid].kind
+        return inner == "Int" or inner == "Float"
+    }
+    return false
+}

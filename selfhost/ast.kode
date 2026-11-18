@@ -161,6 +161,25 @@ pub class Ast {
     }
 }
 
+/// `TypeName`, `TypeList`, `TypeFn` and the rest: an annotation names types, not
+/// values, so a walk over expressions never enters one.
+pub fn is_type_node(kind: string) -> bool {
+    if kind.size() < 4 {
+        return false
+    }
+    return kind.slice(0, 4) == "Type"
+}
+
+/// Does this item declare type parameters (`fn id<T>`, `class Box<T>`)?
+pub fn has_type_param(ast: Ast, id: int) -> bool {
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "TypeParam" {
+            return true
+        }
+    }
+    return false
+}
+
 /// The whole tree, one line per node, in source order.
 pub fn ast_lines(ast: Ast) -> [string] {
     lines: [string] = []

@@ -1,0 +1,73 @@
+// What a function or class declaration puts in scope (S3): its type parameters, its
+// parameters or fields, its methods, and its return type.
+//
+// `sema.kode` owns the walk, so the setup lives here and returns what the walk has to
+// undo afterwards: the type parameters an item added, so the next sibling does not see
+// them. Everything is a function of the tree, the program's names and the open scope,
+// which is why none of it needs a checker of its own.
+
+from "./ast" import Ast, is_type_node
+from "./annotations" import resolve_ann
+from "./diag" import Diag
+from "./names" import Names
+from "./scope" import Scope
+from "./typing" import type_any
+
+/// The type parameters an item declares, made visible to its annotations. Returns the
+/// number in scope before, which `pop_type_params` takes back to.
+pub fn push_type_params(ast: Ast, names: Names, id: int) -> int {
+    before = names.params.len()
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "TypeParam" {
+            names.params.add(ast.attr_text(kid, "name"))
+        }
+    }
+    return before
+}
+
+pub fn pop_type_params(names: Names, before: int) {
+    while names.params.len() > before {
+        names.params.pop()
+    }
+}
+
+/// A `Param` or a `Field`: its name bound to the type its annotation names (`any`
+/// when it has none, so nothing is claimed about it).
+pub fn declare_annotated(ast: Ast, names: Names, scopes: Scope, diags: [Diag], id: int) {
+    ty = type_any()
+    for kid in ast.nodes[id].kids {
+        if is_type_node(ast.nodes[kid].kind) {
+            ty = resolve_ann(ast, names, diags, kid)
+        }
+    }
+    scopes.declare(ast.attr_text(id, "name"), ty)
+}
+
+/// A function's parameters and return type, in the scope its body opens.
+pub fn setup_fn(ast: Ast, names: Names, scopes: Scope, diags: [Diag], id: int) -> int {
+    before = push_type_params(ast, names, id)
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Param" {
+            declare_annotated(ast, names, scopes, diags, kid)
+        } else if is_type_node(kind) {
+            // The return type, so that an unknown name is `E0303` here too.
+            resolve_ann(ast, names, diags, kid)
+        }
+    }
+    return before
+}
+
+/// A class's fields and methods, which a method reads by bare name.
+pub fn setup_class(ast: Ast, names: Names, scopes: Scope, diags: [Diag], id: int) -> int {
+    before = push_type_params(ast, names, id)
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Field" {
+            declare_annotated(ast, names, scopes, diags, kid)
+        } else if kind == "Method" {
+            scopes.declare(ast.attr_text(kid, "name"), type_any())
+        }
+    }
+    return before
+}
