@@ -65,8 +65,8 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
 - **A compiler written in Kode.** No parser, checker, MIR builder, evaluator or
   native backend exists in Kode; the lexer does (`selfhost/lexer.kode`, S1).
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
-  timeouts, no sorting with a comparator, and no stderr stream (the port writes
-  diagnostics to `/dev/stderr` through `write_file`, which is Unix-only).
+  timeouts and no sorting with a comparator. `stderr(...)` exists (ADR 0045), so
+  the port reports diagnostics without a device file.
 
 ## Dependency order for the remaining work
 

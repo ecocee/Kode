@@ -48,7 +48,7 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 
 ## Rules
 
-1. **Tests first.** A new feature starts as a `.kode` file with a `.out` file in `tests/run-pass/`, or a `.kode` file with an `.err` file (the error code) in `tests/compile-fail/`.
+1. **Tests first.** A new feature starts as a `.kode` file with a `.out` file in `tests/run-pass/`, or a `.kode` file with an `.err` file (the error code) in `tests/compile-fail/`. A run-pass program that writes to stderr adds a `name.err` with the expected text: `llvm_conformance` compares it exactly, and programs without one must keep stderr empty.
 2. **Every error has a stable code** (`E0xxx`, warnings `W0xxx`) and a hint. Add new codes to `docs/errors/index.md`, and make sure `kode explain` works for them.
 3. **Do not change language behavior without an ADR** in `docs/adr/` (context, decision, alternatives, consequences).
 4. **Only MIR reaches the backend.** Do not read the AST in `kode-llvm`.

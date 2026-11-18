@@ -105,12 +105,22 @@ fn compare(src: &Path, expected: Option<&str>, args: &[String]) {
         r.code,
         r.stderr
     );
-    assert!(
-        r.stderr.trim().is_empty(),
-        "{}: leaked or reported a runtime problem:\n{}",
-        src.display(),
-        r.stderr
-    );
+    // A program that writes to stderr names what it expects in `name.err`.
+    // Everything else must keep stderr empty, so a leak message is a failure.
+    match std::fs::read_to_string(src.with_extension("err")) {
+        Ok(want) => assert_eq!(
+            r.stderr,
+            want,
+            "{}: stderr does not match the checked-in .err file",
+            src.display()
+        ),
+        Err(_) => assert!(
+            r.stderr.trim().is_empty(),
+            "{}: leaked or reported a runtime problem:\n{}",
+            src.display(),
+            r.stderr
+        ),
+    }
     if let Some(want) = expected {
         assert_eq!(
             r.stdout.trim_end(),

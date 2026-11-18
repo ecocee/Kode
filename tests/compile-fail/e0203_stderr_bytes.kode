@@ -1,0 +1,1 @@
+stderr("diagnostic", bytes(1))

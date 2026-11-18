@@ -2033,7 +2033,9 @@ impl Checker {
         tys: &[Option<Type>],
         span: Span,
     ) -> Option<Type> {
-        if b == Builtin::Print {
+        // `print` and `stderr` take the same arguments and apply the same rules;
+        // they differ only in the stream the runtime writes to.
+        if b == Builtin::Print || b == Builtin::Stderr {
             for (i, t) in tys.iter().enumerate() {
                 match t {
                     Some(t) if self.unprintable_enum(t).is_some() => {
@@ -2133,7 +2135,7 @@ impl Checker {
                 "an int, float, bool or string",
             ),
             Builtin::Assert => (vec![Type::Bool], Type::Unit, "a bool"),
-            Builtin::Print => unreachable!(),
+            Builtin::Print | Builtin::Stderr => unreachable!(),
             // Handled by the early return above.
             Builtin::Channel
             | Builtin::Send

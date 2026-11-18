@@ -3,6 +3,14 @@
 All of these are runtime functions listed in one table (`crates/kode-sema/src/std_fns.rs`).
 Adding one means one table row and one `extern "C"` function in `crates/kode-rt/src/std_fns.rs`.
 
+| Console | |
+|---|---|
+| `print(...)` | write values to stdout, separated by spaces, then a newline |
+| `stderr(...)` | the same, on stderr: for diagnostics (ADR 0045) |
+
+`print` and `stderr` take the same arguments and apply the same rules; only the
+stream differs. Values that cannot be printed are `E0203`.
+
 | Building text | |
 |---|---|
 | `StringBuilder()` | a growable text buffer (ADR 0044); not printable |

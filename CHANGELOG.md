@@ -7,6 +7,14 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`stderr(...)` (WP-10, ADR 0045).** The same arguments and formatting as
+  `print`, written to stderr: variadic, space-separated, one line per call, with
+  the existing `E0203`/`E0205` rules. The port now reports diagnostics with
+  `stderr(render(...))` instead of opening `/dev/stderr` through `write_file`, so
+  it no longer has a Unix-only path. Runtime ABI marker `0006`. Evidence:
+  `tests/run-pass/stderr_stream.kode` (+ `.err`, compared by `llvm_conformance`),
+  `tests/compile-fail/e0203_stderr_bytes.kode`, and WP-10 met in the gates table.
+
 - **`StringBuilder` (WP-09, ADR 0044).** `sb = StringBuilder()` with `push(s)` and
   `build()`: one growable byte buffer instead of a new string per `+`, which is what
   S5 needs to emit IR text in linear time. `push` copies the bytes and does not
@@ -17,6 +25,10 @@ language: a patch release fixes bugs, a minor release may add syntax.
   in `benchmarks/report.md`.
 
 ### Docs
+
+- **ADR 0045: a `stderr` stream.** `stderr(...)` mirrors `print` on the
+  diagnostic stream with six new runtime symbols; the port uses it for parse
+  errors, which removes its last platform-specific workaround.
 
 - **ADR 0044: `StringBuilder`.** The last language feature S2–S5 need that is not a
   diagnostic stream: a reference-counted `BUFFER` object with `push`/`build`, typed

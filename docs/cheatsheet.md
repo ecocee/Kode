@@ -17,6 +17,8 @@ sb = StringBuilder()        # building text without quadratic `+` (ADR 0044)
 sb.push("a")
 sb.push("b")
 text = sb.build()           # "ab"
+print("answer:", 42)        # stdout: `answer: 42`
+stderr("kode: warning")     # stderr, same argument rules (ADR 0045)
 ```
 
 - Types are `int`, `float`, `bool`, `string`, `bytes`, `[T]`, `{string: T}`, classes,
@@ -25,6 +27,8 @@ text = sb.build()           # "ab"
   not a `[int]`.
 - A `StringBuilder` has `push(s)` and `build()`; it is not printable. Push in a loop,
   build once.
+- `print(...)` writes to stdout and `stderr(...)` to stderr; both separate arguments
+  with a space and end the line.
 - Numbers never convert on their own: use `int(x)` or `float(x)`.
 
 ## Optionals

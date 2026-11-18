@@ -49,9 +49,10 @@ included.
 - `.len()` on a string counts characters, `.size()` counts bytes. Every offset
   in a compiler is a byte offset, so `.size()` is the one to reach for; using
   `.len()` there silently truncates any file with a multibyte character.
-- There is no stderr stream, so `main.kode` writes diagnostics to `/dev/stderr`
-  through `write_file`. A `stderr(text)` builtin is the fix; until then this is
-  a Unix-only path (see `docs/self-hosting.md`).
+- `stderr(...)` takes the same arguments as `print` and writes them to stderr
+  (WP-10, ADR 0045), so `main.kode` reports each diagnostic with
+  `stderr(render(...))` and the blank line between reports comes from `render`'s
+  own newline plus the one `stderr` adds.
 - Constants *and free functions* share one namespace across a program's modules,
   and `match` is a statement, not an expression. Both are worked around here; both
   are worth remembering when the parser (S2) wants lookups and tables.

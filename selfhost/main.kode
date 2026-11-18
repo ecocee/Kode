@@ -45,26 +45,22 @@ try {
 lx = lex(src)
 
 if lx.errors.len() > 0 {
-    // Diagnostics belong on stderr, and `kode tokens` puts them there. The
-    // stdlib has no stderr stream yet (`docs/self-hosting.md`, gate 6), so the
-    // port writes the report to the device directly. A missing /dev/stderr on
-    // Windows is a known gap, recorded in selfhost/README.md.
-    report = ""
+    // Diagnostics belong on stderr, and `kode tokens` puts them there. Each
+    // report ends with a newline of its own, and `stderr` adds one, so the
+    // stream gets a blank line between reports exactly like the oracle
+    // (`stderr` is WP-10, ADR 0045).
     for err in lx.errors {
-        report += render(file, src, from_lex(err)) + "\n"
+        stderr(render(file, src, from_lex(err)))
     }
-    write_file("/dev/stderr", report)
     exit(1)
 }
 
 if command == "ast" {
     parsed = parse(src, lx)
     if parsed.errors.len() > 0 {
-        report = ""
         for err in parsed.errors {
-            report += render(file, src, err) + "\n"
+            stderr(render(file, src, err))
         }
-        write_file("/dev/stderr", report)
         exit(1)
     }
     print(ast_lines(parsed.ast).join("\n"))

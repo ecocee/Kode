@@ -58,10 +58,10 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R5** | the front end interprets programs | every run-pass `.out` through the Kode evaluator |
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
-Measured today: **R1** — 264 token dumps byte-identical, including the work packet
+Measured today: **R1** — 270 token dumps byte-identical, including the work packet
 probes, and the S2 parser is byte-identical on 51/51 cases and on all 25 files of
-the port itself. R2 is open: `gates` reports 10 met, 3 blocked (WP-10 next; WP-07
-and WP-08b are deferred on purpose).
+the port itself. R2 is open only on the two deferred packets: `gates` reports
+11 met, 2 blocked (WP-07 `weak` and WP-08b `u8`/`i32`, both off the path).
 
 ## 3. Work packets
 
@@ -91,7 +91,7 @@ each probe with Stage 0, records the observed result, and prints `met` or
 | **WP-08** | byte buffers and `0x`/`0b`/`0o` literals (ADR 0043) | `wp08-bytes` | **met** |
 | **WP-08b** | `u8`/`i32` as numeric types (ADR 0043 §4) | `wp08b-fixed-width` | E0303 — deferred by ADR 0043, not needed to read bytes |
 | **WP-09** | `StringBuilder` (ADR 0044) | `wp09-string-builder` | **met** |
-| **WP-10** | a `stderr` stream | `wp10-stderr` | E0206 |
+| **WP-10** | a `stderr` stream (ADR 0045) | `wp10-stderr` | **met** |
 | **WP-11** | the AST is an arena (ADR 0042) | `wp11-arena` | **met** |
 | **WP-12** | streaming process output | `exec` on 10 MB without buffering | open |
 
@@ -103,6 +103,9 @@ feature rather than a port blocker. WP-08b is red for the same reason: `u8`/`i32
 are numeric types of their own and reading bytes does not need them (ADR 0043 §4).
 WP-09 is met: `StringBuilder` is what S5 writes IR text through, and the gain is
 measured in `benchmarks/report.md` (185.2 ms → 5.2 ms on 8,000 lines of text).
+WP-10 is met too: `stderr(...)` takes `print`'s arguments on the diagnostic
+stream, so the port no longer opens `/dev/stderr` (ADR 0045). What is left in R2
+is the two deferred packets, not a blocker the port is waiting on.
 
 Each packet lands with: its probe turning `met`, a `tests/run-pass/` program with
 `.out` (or a `tests/compile-fail/` pair for guard cases), the codes it needs in

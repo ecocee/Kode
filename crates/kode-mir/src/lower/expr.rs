@@ -1316,12 +1316,17 @@ impl<'a> Lowerer<'a> {
                 });
                 self.owned(Operand::Local(t))
             }
-            Builtin::Print => {
+            Builtin::Print | Builtin::Stderr => {
+                // `stderr(...)` is `print(...)` on the diagnostic stream.
+                let err = b == Builtin::Stderr;
+                let str_rt = if err { RtFn::ErrStr } else { RtFn::PrintStr };
+                let sep = if err { RtFn::ErrSep } else { RtFn::PrintSep };
+                let nl = if err { RtFn::ErrNl } else { RtFn::PrintNl };
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 {
                         self.emit(Inst::Call {
                             dst: None,
-                            callee: Callee::Rt(RtFn::PrintSep),
+                            callee: Callee::Rt(sep),
                             args: vec![],
                         });
                     }
@@ -1338,7 +1343,7 @@ impl<'a> Lowerer<'a> {
                         };
                         self.emit(Inst::Call {
                             dst: None,
-                            callee: Callee::Rt(RtFn::PrintStr),
+                            callee: Callee::Rt(str_rt),
                             args: vec![s.clone()],
                         });
                         if payload {
@@ -1354,18 +1359,22 @@ impl<'a> Lowerer<'a> {
                         let s = self.value_to_string(v, ty);
                         self.emit(Inst::Call {
                             dst: None,
-                            callee: Callee::Rt(RtFn::PrintStr),
+                            callee: Callee::Rt(str_rt),
                             args: vec![s.op.clone()],
                         });
                         self.release_if_owned(s);
                         continue;
                     }
                     let v = self.expr(&a.value);
-                    let rt = match ty {
-                        Type::Int => RtFn::PrintInt,
-                        Type::Float => RtFn::PrintFloat,
-                        Type::Bool => RtFn::PrintBool,
-                        Type::Str => RtFn::PrintStr,
+                    let rt = match (ty, err) {
+                        (Type::Int, false) => RtFn::PrintInt,
+                        (Type::Float, false) => RtFn::PrintFloat,
+                        (Type::Bool, false) => RtFn::PrintBool,
+                        (Type::Str, false) => RtFn::PrintStr,
+                        (Type::Int, true) => RtFn::ErrInt,
+                        (Type::Float, true) => RtFn::ErrFloat,
+                        (Type::Bool, true) => RtFn::ErrBool,
+                        (Type::Str, true) => RtFn::ErrStr,
                         _ => unreachable!("the type checker rejects this"),
                     };
                     self.emit(Inst::Call {
@@ -1377,7 +1386,7 @@ impl<'a> Lowerer<'a> {
                 }
                 self.emit(Inst::Call {
                     dst: None,
-                    callee: Callee::Rt(RtFn::PrintNl),
+                    callee: Callee::Rt(nl),
                     args: vec![],
                 });
                 V::unit()

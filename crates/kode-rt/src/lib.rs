@@ -10,7 +10,7 @@
 //! * `process`: `exec`, so a Kode program can run a compiler or a linker
 //! * `router`: the `Router` / `Request` / `Response` web API layer
 //! * `tls`: client TLS (rustls), shared by the PostgreSQL and HTTP clients
-//! * `io`: printing; `repr`: the text of a list or map
+//! * `io`: printing to stdout and stderr; `repr`: the text of a list or map
 
 mod base64;
 mod buffer;
@@ -45,13 +45,13 @@ mod tls;
 /// symbol name. Rename it (and `RT_ABI` in `kode-cli/src/doctor.rs`) whenever the
 /// runtime functions or object layouts change, so an old library is never used by mistake.
 #[no_mangle]
-pub extern "C" fn kode_rt_abi_0005() {}
+pub extern "C" fn kode_rt_abi_0006() {}
 
 /// Called once when the program ends. With `KODE_LEAK_CHECK=1` it reports
 /// objects that were never freed (used by the test suite).
 #[no_mangle]
 pub extern "C" fn kode_rt_finish() {
-    kode_rt_abi_0005();
+    kode_rt_abi_0006();
     io::flush();
     if std::env::var_os("KODE_LEAK_CHECK").is_some() {
         let live = object::live_objects();

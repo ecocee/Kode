@@ -88,6 +88,13 @@ pub enum RtFn {
     PrintStr,
     PrintSep,
     PrintNl,
+    /// `stderr(...)`: the print family, on the diagnostic stream.
+    ErrInt,
+    ErrFloat,
+    ErrBool,
+    ErrStr,
+    ErrSep,
+    ErrNl,
     StrConcat,
     StrEq,
     IntToStr,
