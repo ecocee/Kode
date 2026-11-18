@@ -1,0 +1,481 @@
+// The checker's types (S3): what a value is, and the rules that reject a wrong one.
+//
+// A `Type` is a kind and, for the containers, the type inside it. `any` is "this
+// slice cannot tell" — what a call, a method call or an index answers — and every
+// rule treats it as compatible, so the checker never invents an error it cannot
+// prove. The oracle has full inference; the port has the part `E0202` (a value in
+// the wrong place) and `E0203` (operands and printing) need, and grows from here.
+//
+// `selfhost/types.kode` is the parser's annotation module: this is what those
+// annotations and the expressions mean. Everything here is a function of the tree and
+// the scope stack (`[[Local]]` from `scope.kode`) so it needs no checker of its own.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag, diag_help
+
+/// A value's type.
+pub class Type {
+    /// "int", "float", "bool", "string", "bytes", "none", "unit", "list", "map",
+    /// "opt", "named" (a class, enum or interface) or "any".
+    kind: string
+    /// The item type of a list or map, or what an optional wraps.
+    inner: Type? = none
+    /// The declared name of a "named" type.
+    name: string = ""
+}
+
+/// One bound name and the type it holds: `x = 1` binds an int.
+pub class Local {
+    name: string
+    ty: Type
+}
+
+/// What an annotation may name, and the type parameters of the item being walked.
+/// One value, so `resolve_ann`'s signature does not grow with every new kind of name.
+pub class Anns {
+    /// Every declared class, enum and interface, from every file.
+    types: [string] = []
+    /// The classes with type parameters: their bare name is not a type (`E0423` is
+    /// its own family), so an annotation naming one is left unchecked here.
+    generics: [string] = []
+    /// The type parameters of the item being walked (`fn id<T>`), which its own
+    /// annotations may name.
+    params: [string] = []
+}
+
+pub fn type_any() -> Type {
+    return Type(kind: "any")
+}
+
+pub fn type_prim(kind: string) -> Type {
+    return Type(kind: kind)
+}
+
+pub fn type_named(name: string) -> Type {
+    return Type(kind: "named", name: name)
+}
+
+pub fn type_of(kind: string, inner: Type) -> Type {
+    return Type(kind: kind, inner: inner)
+}
+
+pub fn type_is_any(t: Type) -> bool {
+    return t.kind == "any"
+}
+
+/// What a list, map or optional holds; `any` when this slice cannot name it.
+pub fn type_inner(t: Type) -> Type {
+    return t.inner ?? type_any()
+}
+
+/// The type a written name means on its own: the five primitives. A class is
+/// `type_named`, which `sema.kode` builds because only it knows what is declared.
+pub fn type_of_name(name: string) -> Type {
+    if name == "int" or name == "float" or name == "bool" or name == "string" or name == "bytes" {
+        return type_prim(name)
+    }
+    return type_any()
+}
+
+/// "an int", "a string", "`[int]`": the oracle's wording inside a message.
+pub fn type_article(t: Type) -> string {
+    if t.kind == "int" {
+        return "an int"
+    }
+    if t.kind == "float" {
+        return "a float"
+    }
+    if t.kind == "bool" {
+        return "a bool"
+    }
+    if t.kind == "string" {
+        return "a string"
+    }
+    if t.kind == "bytes" {
+        return "a bytes buffer"
+    }
+    if t.kind == "unit" {
+        return "nothing"
+    }
+    return "`${type_name(t)}`"
+}
+
+/// "int", "[int]", "{string: int}", "int?" — the oracle's `Type::name`.
+pub fn type_name(t: Type) -> string {
+    if t.kind == "list" {
+        inside = type_name(type_inner(t))
+        return "[" + inside + "]"
+    }
+    if t.kind == "map" {
+        inside = type_name(type_inner(t))
+        return "{string: " + inside + "}"
+    }
+    if t.kind == "opt" {
+        inside = type_name(type_inner(t))
+        return inside + "?"
+    }
+    if t.kind == "named" {
+        return t.name
+    }
+    return t.kind
+}
+
+/// Can `print` and `stderr` show it? The runtime formats ints, floats, bools and
+/// strings, and lists and maps whose items it can. `any` is left alone, and `unit` is
+/// asked about first by the caller (`E0205` is another family).
+pub fn type_printable(t: Type) -> bool {
+    if t.kind == "int" or t.kind == "float" or t.kind == "bool" or t.kind == "string" {
+        return true
+    }
+    if t.kind == "list" or t.kind == "map" {
+        return type_printable(type_inner(t))
+    }
+    if t.kind == "any" or t.kind == "opt" or t.kind == "none" {
+        return true
+    }
+    return false
+}
+
+/// Can a value that is `got` be stored where `to` is expected? `any` fits anywhere.
+pub fn type_assignable(got: Type, to: Type) -> bool {
+    if got.kind == "any" or to.kind == "any" {
+        return true
+    }
+    if got.kind == "none" {
+        return true
+    }
+    if to.kind == "opt" {
+        return type_assignable(got, type_inner(to))
+    }
+    if got.kind == "opt" {
+        return false
+    }
+    if got.kind != to.kind {
+        return false
+    }
+    if got.kind == "named" and to.kind == "named" {
+        // A class may be stored where one of its interfaces is expected, and this
+        // slice does not read `implements`, so two names are never called a
+        // mismatch. `E0234`/`E0235` are the family that checks the relation.
+        return true
+    }
+    if got.kind == "list" or got.kind == "map" {
+        return type_assignable(type_inner(got), type_inner(to))
+    }
+    return true
+}
+
+/// The type of a list whose items disagree: `any`, so nothing more is claimed.
+pub fn type_common(a: Type, b: Type) -> Type {
+    if a.kind == "any" or b.kind == "any" {
+        return type_any()
+    }
+    if type_assignable(a, b) and type_assignable(b, a) {
+        return a
+    }
+    return type_any()
+}
+
+fn same_type(a: Type, b: Type) -> bool {
+    if a.kind != b.kind {
+        return false
+    }
+    return a.name == b.name
+}
+
+fn mixed_number(a: Type, b: Type) -> bool {
+    if a.kind == "int" and b.kind == "float" {
+        return true
+    }
+    return a.kind == "float" and b.kind == "int"
+}
+
+/// The innermost binding of a name in a scope stack, or an empty one.
+pub fn local_in(frames: [[Local]], name: string) -> Local {
+    i = frames.len() - 1
+    while i >= 0 {
+        for one in frames[i] {
+            if one.name == name {
+                return one
+            }
+        }
+        i -= 1
+    }
+    return Local(name: "", ty: type_any())
+}
+
+/// The type of an expression, or `any` when this slice cannot tell. It never reports:
+/// the callers below decide what a wrong type means.
+pub fn expr_type(ast: Ast, frames: [[Local]], classes: [string], id: int) -> Type {
+    kind = ast.nodes[id].kind
+    if kind == "Int" {
+        return type_prim("int")
+    }
+    if kind == "Float" {
+        return type_prim("float")
+    }
+    if kind == "Bool" {
+        return type_prim("bool")
+    }
+    if kind == "Str" or kind == "Interp" {
+        return type_prim("string")
+    }
+    if kind == "None" {
+        return type_prim("none")
+    }
+    if kind == "Ident" {
+        found = local_in(frames, ast.attr_text(id, "name"))
+        return found.ty
+    }
+    if kind == "Unary" {
+        return unary_type(ast, frames, classes, id)
+    }
+    if kind == "Binary" {
+        return binary_type(ast, frames, classes, id)
+    }
+    if kind == "List" {
+        return list_type(ast, frames, classes, id)
+    }
+    if kind == "Map" {
+        return map_type(ast, frames, classes, id)
+    }
+    if kind == "Call" {
+        return call_type(ast, classes, id)
+    }
+    return type_any()
+}
+
+fn unary_type(ast: Ast, frames: [[Local]], classes: [string], id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return type_any()
+    }
+    op = ast.attr_raw(id, "op")
+    t = expr_type(ast, frames, classes, kids[0])
+    if type_is_any(t) {
+        return type_any()
+    }
+    if op == "not" {
+        return type_prim("bool")
+    }
+    if op == "~" {
+        return type_prim("int")
+    }
+    return t
+}
+
+fn binary_type(ast: Ast, frames: [[Local]], classes: [string], id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return type_any()
+    }
+    op = ast.attr_raw(id, "op")
+    l = expr_type(ast, frames, classes, kids[0])
+    r = expr_type(ast, frames, classes, kids[1])
+    if type_is_any(l) or type_is_any(r) {
+        return type_any()
+    }
+    if op == "+" or op == "-" or op == "*" or op == "/" or op == "%" {
+        if l.kind == "int" and r.kind == "int" {
+            return type_prim("int")
+        }
+        if l.kind == "float" and r.kind == "float" and op != "%" {
+            return type_prim("float")
+        }
+        if op == "+" and l.kind == "string" and r.kind == "string" {
+            return type_prim("string")
+        }
+        return type_any()
+    }
+    if op == "==" or op == "!=" or op == "<" or op == "<=" or op == ">" or op == ">=" {
+        return type_prim("bool")
+    }
+    if op == "and" or op == "or" or op == "in" {
+        return type_prim("bool")
+    }
+    if op == "<<" or op == ">>" or op == "&" or op == "|" or op == "^" {
+        return type_prim("int")
+    }
+    return type_any()
+}
+
+fn list_type(ast: Ast, frames: [[Local]], classes: [string], id: int) -> Type {
+    element = type_any()
+    first = true
+    for kid in ast.nodes[id].kids {
+        t = expr_type(ast, frames, classes, kid)
+        if first {
+            element = t
+            first = false
+        } else {
+            element = type_common(element, t)
+        }
+    }
+    return type_of("list", element)
+}
+
+/// `{"a": 1}`: an `Entry` holds the key first, then the value.
+fn map_type(ast: Ast, frames: [[Local]], classes: [string], id: int) -> Type {
+    element = type_any()
+    first = true
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Entry" {
+            continue
+        }
+        parts = ast.nodes[kid].kids
+        if parts.len() < 2 {
+            continue
+        }
+        t = expr_type(ast, frames, classes, parts[1])
+        if first {
+            element = t
+            first = false
+        } else {
+            element = type_common(element, t)
+        }
+    }
+    return type_of("map", element)
+}
+
+/// A call's type for the callees this slice can name: a class constructor builds an
+/// instance, and the converting builtins return what they convert to.
+fn call_type(ast: Ast, classes: [string], id: int) -> Type {
+    callee = ast.attr_text(id, "callee")
+    if classes.contains(callee) {
+        return type_named(callee)
+    }
+    if callee == "bytes" {
+        return type_prim("bytes")
+    }
+    if callee == "len" {
+        return type_prim("int")
+    }
+    if callee == "int" {
+        return type_prim("int")
+    }
+    if callee == "float" {
+        return type_prim("float")
+    }
+    if callee == "string" or callee == "chr" {
+        return type_prim("string")
+    }
+    return type_any()
+}
+
+/// The prelude classes a program may annotate without declaring: the runtime and the
+/// checker provide them (`crates/kode-sema/src/check/mod.rs`).
+fn prelude_type(name: string) -> bool {
+    if name == "Error" or name == "Json" or name == "JsonKind" {
+        return true
+    }
+    if name == "Request" or name == "Response" or name == "Router" or name == "HttpResponse" {
+        return true
+    }
+    return name == "ProcessResult" or name == "StringBuilder"
+}
+
+/// `u8`, `i32`, `uint16`, `f64`: the fixed-width names other languages use. Kode has
+/// one `int` and one `float`, both 64-bit, and no sized variants yet (ADR 0043), so
+/// the hint for one of these names says that instead of only listing the types.
+/// Compared as written (`u8`, not `U8`): a type name is spelled in lower case in every
+/// program the suite has.
+fn fixed_width(name: string) -> bool {
+    at = 0
+    while at < name.size() {
+        c = name.char_at(at)
+        if c == "0" or c == "1" or c == "2" or c == "3" or c == "4" {
+            break
+        }
+        if c == "5" or c == "6" or c == "7" or c == "8" or c == "9" {
+            break
+        }
+        at += 1
+    }
+    if at == 0 {
+        return false
+    }
+    prefix = name.slice(0, at)
+    digits = name.slice(at, name.size())
+    if prefix != "u" and prefix != "i" and prefix != "uint" and prefix != "f" {
+        return false
+    }
+    return digits == "8" or digits == "16" or digits == "32" or digits == "64" or digits == "128"
+}
+
+/// The oracle's list of types, which every "unknown type" hint repeats.
+fn available_types() -> string {
+    return "The types are int, float, bool, string, bytes, your classes, interfaces " +
+        "and enums, [T] for a list, {string: T} for a map, T? for an optional, " +
+        "Task<T>, Channel<T> and fn(T) -> U"
+}
+
+/// The type an annotation names, reporting `E0303` when it names nothing. A form this
+/// slice cannot see through (`Box<int>`, `Task<T>`, `fn(...)`) is `any`: the
+/// annotation is valid, its uses are just not checked yet.
+pub fn resolve_ann(ast: Ast, anns: Anns, diags: [Diag], id: int) -> Type {
+    kind = ast.nodes[id].kind
+    if kind == "TypeName" {
+        return resolve_type_name(ast, anns, diags, id)
+    }
+    if kind == "TypeList" {
+        inner = ann_child(ast, anns, diags, id)
+        return type_of("list", inner)
+    }
+    if kind == "TypeMap" {
+        inner = ann_child(ast, anns, diags, id)
+        return type_of("map", inner)
+    }
+    if kind == "TypeOpt" {
+        inner = ann_child(ast, anns, diags, id)
+        return type_of("opt", inner)
+    }
+    return type_any()
+}
+
+/// The annotation inside a `[T]`, `{string: T}` or `T?`: its first type child.
+fn ann_child(ast: Ast, anns: Anns, diags: [Diag], id: int) -> Type {
+    for kid in ast.nodes[id].kids {
+        return resolve_ann(ast, anns, diags, kid)
+    }
+    return type_any()
+}
+
+fn resolve_type_name(ast: Ast, anns: Anns, diags: [Diag], id: int) -> Type {
+    name = ast.attr_text(id, "name")
+    written = type_of_name(name)
+    if not type_is_any(written) {
+        return written
+    }
+    if anns.params.contains(name) {
+        return type_named(name)
+    }
+    if anns.generics.contains(name) {
+        // `Box` alone needs its arguments (`E0423`), so this slice says nothing.
+        return type_any()
+    }
+    if anns.types.contains(name) or prelude_type(name) {
+        return type_named(name)
+    }
+    help = available_types()
+    if fixed_width(name) {
+        help = "`${name}` is a fixed-width number, which Kode does not have yet " +
+            "(planned; see docs/ROADMAP.md). `int` is already 64-bit and `float` is " +
+            "64-bit. " + help
+    }
+    diag_help(ast, diags, "E0303", "unknown type `${name}`", id, help)
+    return type_any()
+}
+
+/// `E0202`: a value that does not fit where it is stored.
+pub fn coerce_value(ast: Ast, diags: [Diag], value: int, got: Type, want: Type, name: string) {
+    if type_assignable(got, want) {
+        return
+    }
+    message = "the value for `${name}` should be ${type_article(want)}, found ${type_article(got)}"
+    if mixed_number(got, want) {
+        diag_help(ast, diags, "E0202", message, value,
+            "numbers never convert automatically; use int(x) or float(x)")
+        return
+    }
+    diag(ast, diags, "E0202", message, value)
+}

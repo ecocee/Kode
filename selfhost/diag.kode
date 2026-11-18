@@ -1,7 +1,11 @@
-// One checker diagnostic: the code the oracle uses, what it says, and where.
+// The checker's diagnostics, and how one is added.
 //
-// Both the checker (`sema.kode`) and the import namespace rules (`namespace.kode`)
-// produce these, so the record lives on its own rather than in either.
+// Both the checker (`sema.kode`), the import namespace (`namespace.kode`) and the
+// type rules (`typing.kode`) produce diagnostics, so the record and the two
+// constructors live on their own rather than in any of them. `report.kode` renders a
+// `ParseError`; this is the same shape without the snippet's needs.
+
+from "./ast" import Ast
 
 pub class Diag {
     code: string
@@ -10,4 +14,34 @@ pub class Diag {
     end: int
     /// The oracle's `= help:` line, when the diagnostic has one.
     help: string = ""
+}
+
+/// A diagnostic pointing at a node's own `span`.
+pub fn diag(ast: Ast, diags: [Diag], code: string, message: string, id: int) {
+    diag_help(ast, diags, code, message, id, "")
+}
+
+/// The same, with the oracle's hint.
+pub fn diag_help(ast: Ast, diags: [Diag], code: string, message: string, id: int, help: string) {
+    start = 0
+    end = 0
+    span = ast.attr_span(id)
+    if span.len() == 2 {
+        start = span[0]
+        end = span[1]
+    }
+    diags.add(Diag(code: code, message: message, start: start, end: end, help: help))
+}
+
+/// A diagnostic pointing at a named span attribute: an `Import` keeps its path in
+/// `path_span`, and a method call puts the caret under the name.
+pub fn diag_at(ast: Ast, diags: [Diag], code: string, message: string, id: int, key: string, help: string) {
+    start = 0
+    end = 0
+    span = ast.attr_span_named(id, key)
+    if span.len() == 2 {
+        start = span[0]
+        end = span[1]
+    }
+    diags.add(Diag(code: code, message: message, start: start, end: end, help: help))
 }

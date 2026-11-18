@@ -10,8 +10,9 @@
 // the one that survives in `module_index`, which is what a member call resolves
 // through (`surviving`), so the reported duplicate is never the one that is used.
 
-from "./diag" import Diag
-from "./modules" import Alias
+from "./ast" import Ast
+from "./diag" import Diag, diag_at
+from "./modules" import Alias, Module
 
 /// The diagnostics for every `import "..." as n` in the program, in load order.
 pub fn alias_diags(aliases: [Alias], globals: [string]) -> [Diag] {
@@ -47,4 +48,37 @@ pub fn surviving(aliases: [Alias], decls: [string], name: string) -> Alias {
         }
     }
     return Alias(name: "", target: "")
+}
+
+/// `mods.f(...)`: a call through a module alias has to name something that module
+/// exports (`E0410`/`E0411`), resolved through the alias that survived — the first in
+/// load order. The caret goes under the member name, as the oracle's does.
+pub fn check_alias(ast: Ast, mods: [Module], aliases: [Alias], decls: [string], diags: [Diag], id: int, base: string, callee: string) {
+    alias = surviving(aliases, decls, base)
+    if alias.name == "" {
+        return
+    }
+    declared = false
+    exported = false
+    for target in mods {
+        if target.key == alias.target {
+            if target.names.contains(callee) {
+                declared = true
+            }
+            if target.exports.contains(callee) {
+                exported = true
+            }
+        }
+    }
+    if exported {
+        return
+    }
+    if not declared {
+        message = "the module `${base}` has no method `${callee}`"
+        diag_at(ast, diags, "E0410", message, id, "name_span", "")
+        return
+    }
+    message = "`${callee}` is private to module `${base}`"
+    diag_at(ast, diags, "E0411", message, id, "name_span",
+        "mark it `pub` in that file to use it from here")
 }

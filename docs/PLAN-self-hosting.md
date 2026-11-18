@@ -382,21 +382,41 @@ proves the order from the outside, because its `E0410` can only appear when the 
 from the imported file — not the entry's duplicate — is the one in force.
 
 The names every program starts with are their own file (`selfhost/builtins.kode`,
-mirrored from `std_fns.rs`), so `sema.kode` (479 lines) has room for the next family.
+mirrored from `std_fns.rs`), so `sema.kode` has room for the next family.
+
+**Slice 4 is in: types.** `selfhost/typing.kode` says what a value is — the
+primitives, `[T]`, `{string: T}`, `T?`, a named class, and `any` for whatever this
+slice cannot see through — types literals, locals, unary and binary expressions, list
+and map literals and the calls it can name, and resolves annotations (an unknown name
+is `E0303`, `u8` with the fixed-width hint). `selfhost/operands.kode` then holds the
+two places a type is wrong in a way the program wrote out: which operands each
+operator accepts (`E0203`, plus `E0210` for a mixed int and float) and what
+`print`/`stderr` can show (`E0203`, which is what makes `print(users)` with a list of
+class instances an error). An assignment keeps the type its target already had, so
+`x = 1` then `x = "a"` is `E0202`, as is a value that does not fit an annotation.
+`selfhost/scope.kode` is the frame stack those rules read, which is how `sema.kode`
+stays under its size limit.
+
+Every rule stays quiet when it cannot prove the mistake: an operand that is `any` (a
+call, a method call, an index), an optional operand (narrowing is a later slice) and
+two named types (this slice does not read `implements`, so a class stored as one of
+its interfaces must stay legal) are all accepted. Preferring silence to a wrong
+diagnostic is what keeps the run-pass suite clean while the families land.
 
 Why the module graph comes before the other families: the namespace is program-wide,
 so the checker cannot resolve `stmt.kode`'s `BP_ARITH` — a const in `infix.kode` that
 `stmt.kode` does not import — without every file the program loads. `check` now loads
 the graph and checks all of it, and `check_sema` checks the port's own sources as a
-second gate: **self-check 30/30**, every file of the port clean under its own
-checker. Measured: **85 of 165** programs report the expected code set, with the
-split `28` compile-fail exact, `57` run-pass clean, `72` compile-fail with no
+second gate: **self-check 33/33**, every file of the port clean under its own
+checker. Measured: **95 of 165** programs report the expected code set, with the
+split `38` compile-fail exact, `57` run-pass clean, `62` compile-fail with no
 diagnostic yet (the families below), `6` where the port's parse errors still differ
 from the oracle on the wider corpus, and `2` elsewhere.
 
-The checker diagnostics that still print without a location are `E0201`/`E0206` and
-`E0408`/`E0409`, plus the alias-member `E0410`/`E0411`: they render message and help
-only until the spans and messages slice lands.
+A checker diagnostic still prints without a location — code, message and the
+oracle's hint, but no file, line or caret. Loader diagnostics already render through
+`report.kode` and are byte-identical; this is the spans-and-messages slice, and it is
+what the JSON form needs before its order can be compared.
 
 Next families, each one commit: types (resolution already gives the scope for it),
 then arguments and the `E0208`/`E0210` family, then item signatures and generics,

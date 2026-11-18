@@ -7,6 +7,17 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's checker learns types.** `selfhost/typing.kode` says what a value is —
+  the primitives, `[T]`, `{string: T}`, `T?`, a named class, `any` — and types
+  literals, locals, unary and binary expressions, list and map literals and the calls
+  it can name; it also resolves annotations (`E0303`, with the fixed-width hint `u8`
+  gets). `selfhost/operands.kode` holds the operator and printing rules (`E0203`,
+  `E0210`), and an assignment keeps its target's type, so `x = 1` then `x = "a"` is
+  `E0202`. `selfhost/scope.kode` is the frame stack, which keeps `sema.kode` under its
+  size limit. A rule only fires when the mistake can be proved: an `any` operand, an
+  optional operand (narrowing is a later slice) and two named types (no `implements`
+  yet) are accepted. Gate: 85 → **95/165**, self-check **33/33**.
+
 - **The port's import namespace is complete.** `selfhost/namespace.kode` adds the two
   alias rules the oracle keeps in the checker: a module alias may not repeat
   (`E0408`, "the module name `x` is imported twice") or hide a declaration

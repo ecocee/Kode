@@ -124,6 +124,19 @@ pub class Ast {
         return ""
     }
 
+    /// The value of an attribute printed without quotes: an operator (`op=+`) and a
+    /// flag (`pub=true`) carry no quote to strip, which is why `attr_text` cannot
+    /// read them.
+    fn attr_raw(id: int, key: string) -> string {
+        prefix = "${key}="
+        for attr in nodes[id].attrs {
+            if attr.starts_with(prefix) {
+                return attr.slice(prefix.size(), attr.size())
+            }
+        }
+        return ""
+    }
+
     /// The two ends of the node's `span` attribute, or an empty list when it has
     /// none (`Class` and a few wrappers carry no span).
     fn attr_span(id: int) -> [int] {

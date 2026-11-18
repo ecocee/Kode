@@ -1,0 +1,172 @@
+// The operand rules (S3): which types each operator accepts, and what `print` can
+// show. These are the two places a value's type is wrong in a way the program wrote
+// out, so they are the two that report `E0203` (and `E0210` for a mixed int/float).
+//
+// `selfhost/typing.kode` says what a value is; this says what may be done with it.
+// An operand that is `any` — a call, a method, anything the slice cannot see through
+// — is left alone, so a rule only fires when the checker can prove the mistake.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag, diag_help
+from "./typing" import Local, Type, expr_type, type_article, type_is_any, type_printable
+
+/// The operand rules: `+ - * / %`, comparisons, `and`/`or`, the bit operators and
+/// `in`, plus the unary operators. Reports where the oracle reports and stays quiet
+/// whenever a side is `any`.
+pub fn check_operator(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
+    if ast.nodes[id].kind == "Unary" {
+        check_unary(ast, frames, classes, diags, id)
+        return
+    }
+    check_binary(ast, frames, classes, diags, id)
+}
+
+fn check_unary(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return
+    }
+    op = ast.attr_raw(id, "op")
+    t = expr_type(ast, frames, classes, kids[0])
+    if type_is_any(t) {
+        return
+    }
+    if op == "not" {
+        if t.kind != "bool" {
+            message = "`not` needs a bool, found ${type_article(t)}"
+            diag_help(ast, diags, "E0203", message, id, "compare it first, for example `not (x == 0)`")
+        }
+        return
+    }
+    if op == "~" {
+        if t.kind != "int" {
+            message = "`~` needs an int, found ${type_article(t)}"
+            diag_help(ast, diags, "E0203", message, id, "bit operators work on ints; use `not` for bools")
+        }
+        return
+    }
+    if op == "-" and t.kind != "int" and t.kind != "float" {
+        message = "cannot negate ${type_article(t)}"
+        diag(ast, diags, "E0203", message, id)
+    }
+}
+
+fn check_binary(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return
+    }
+    op = ast.attr_raw(id, "op")
+    l = expr_type(ast, frames, classes, kids[0])
+    r = expr_type(ast, frames, classes, kids[1])
+    if type_is_any(l) or type_is_any(r) {
+        return
+    }
+    // Narrowing (`if x != none { x + 1 }`) is its own slice: an optional operand is
+    // left alone until then, so a legal narrowing never looks like an error here.
+    if l.kind == "opt" or r.kind == "opt" {
+        return
+    }
+    if mixed_number(l, r) {
+        message = "cannot mix an int and a float with `${op}`"
+        diag_help(ast, diags, "E0210", message, id, "convert one side: float(x) or int(x)")
+        return
+    }
+    if op == "+" or op == "-" or op == "*" or op == "/" or op == "%" {
+        if l.kind == "int" and r.kind == "int" {
+            return
+        }
+        if l.kind == "float" and r.kind == "float" and op != "%" {
+            return
+        }
+        if op == "+" and l.kind == "string" and r.kind == "string" {
+            return
+        }
+        bad_operands(ast, diags, id, op, l, r,
+            "arithmetic works on two ints or two floats; `+` also joins two strings")
+        return
+    }
+    if op == "==" or op == "!=" {
+        if l.kind == "none" or r.kind == "none" {
+            return
+        }
+        // A class and one of its interfaces compare fine, and this slice cannot see
+        // that relation, so two named types are never called a mismatch here.
+        if l.kind == "named" or r.kind == "named" {
+            return
+        }
+        if same_type(l, r) {
+            return
+        }
+        bad_operands(ast, diags, id, op, l, r, "both sides must have the same type")
+        return
+    }
+    if op == "<" or op == "<=" or op == ">" or op == ">=" {
+        if l.kind == "int" and r.kind == "int" {
+            return
+        }
+        if l.kind == "float" and r.kind == "float" {
+            return
+        }
+        bad_operands(ast, diags, id, op, l, r, "only ints and floats can be ordered so far")
+        return
+    }
+    if op == "and" or op == "or" {
+        if l.kind == "bool" and r.kind == "bool" {
+            return
+        }
+        bad_operands(ast, diags, id, op, l, r, "`and` and `or` need two bools")
+        return
+    }
+    if op == "<<" or op == ">>" or op == "&" or op == "|" or op == "^" {
+        if l.kind == "int" and r.kind == "int" {
+            return
+        }
+        bad_operands(ast, diags, id, op, l, r,
+            "bit operators work on two ints; use `and` and `or` for bools")
+        return
+    }
+    if op == "in" {
+        if l.kind == "string" and r.kind == "map" {
+            return
+        }
+        bad_operands(ast, diags, id, op, l, r, "`in` checks whether a string key is in a map")
+    }
+}
+
+fn bad_operands(ast: Ast, diags: [Diag], id: int, op: string, l: Type, r: Type, help: string) {
+    message = "cannot apply `${op}` to ${type_article(l)} and ${type_article(r)}"
+    diag_help(ast, diags, "E0203", message, id, help)
+}
+
+/// `print` and `stderr` take what the runtime can format, which is what makes
+/// `print(users)` with a list of class instances an error rather than a wall of fields.
+pub fn check_print(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Arg" {
+            continue
+        }
+        for part in ast.nodes[kid].kids {
+            check_print_value(ast, frames, classes, diags, part)
+        }
+    }
+}
+
+fn check_print_value(ast: Ast, frames: [[Local]], classes: [string], diags: [Diag], id: int) {
+    t = expr_type(ast, frames, classes, id)
+    if t.kind == "unit" {
+        // `E0205` is its own family: a call that returns nothing.
+        return
+    }
+    if type_printable(t) {
+        return
+    }
+    message = "cannot print ${type_article(t)} yet"
+    if t.kind == "list" or t.kind == "map" {
+        diag_help(ast, diags, "E0203", message, id,
+            "its items are not printable; loop over it and print each one")
+        return
+    }
+    diag_help(ast, diags, "E0203", message, id,
+        "print its parts, for example `print(user.name)` or loop over a list")
+}

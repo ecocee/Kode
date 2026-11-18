@@ -1,0 +1,36 @@
+// The checker's scopes: the names a block binds, and what type each one holds.
+//
+// One frame per block, innermost last. A parameter, an assignment target, a `for`
+// variable, a `catch` variable, a match-arm payload and a closure parameter all
+// declare into the open frame; a name declared in a block is gone when the block
+// closes, and `find` searches outwards, which is the oracle's rule. `typing.kode`
+// reads the frames for a name's type, so the stack is one value here and one shape
+// there.
+
+from "./typing" import Local, Type, local_in
+
+pub class Scope {
+    /// The open frames, outermost first.
+    frames: [[Local]] = []
+
+    fn push() {
+        frames.add([])
+    }
+
+    fn pop() {
+        frames.pop()
+    }
+
+    fn declare(name: string, ty: Type) {
+        if name == "" or frames.len() == 0 {
+            return
+        }
+        frames[frames.len() - 1].add(Local(name: name, ty: ty))
+    }
+
+    /// The innermost binding of a name, or an empty one: an entry with no name means
+    /// "not bound", which is the shape the checker's other lookups use too.
+    fn find(name: string) -> Local {
+        return local_in(frames, name)
+    }
+}
