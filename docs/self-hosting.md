@@ -55,7 +55,8 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
 - **Enum payloads and type tests.** Enums are tags only (ADR 0009); there is no
   `Shape.Circle(radius)`, no `x is Circle`, no safe downcast.
 - **Fixed-width integers and binary data.** Only 64-bit `int`. No `u8`/`i32`
-  families, no byte buffer, no `StringBuilder`, no binary encode/decode.
+  families, no binary encode/decode. Byte buffers (`bytes(n)`, ADR 0043) and
+  `StringBuilder` (ADR 0044) are done.
 - **Integer map keys.** Maps are string-keyed by decision (ADR 0014).
 - **Optional types beyond locals.** `string?`, `[T]?`, class optionals work as
   fields and parameters; `int?`/`float?`/`bool?` work only as locals (ADR 0024).
@@ -64,9 +65,8 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
 - **A compiler written in Kode.** No parser, checker, MIR builder, evaluator or
   native backend exists in Kode; the lexer does (`selfhost/lexer.kode`, S1).
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
-  timeouts, no sorting with a comparator, no growable string builder, and no
-  stderr stream (the port writes diagnostics to `/dev/stderr` through
-  `write_file`, which is Unix-only).
+  timeouts, no sorting with a comparator, and no stderr stream (the port writes
+  diagnostics to `/dev/stderr` through `write_file`, which is Unix-only).
 
 ## Dependency order for the remaining work
 
@@ -78,9 +78,9 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
 2. **Enum payloads and `is`/downcast.** The AST is a tagged union; without
    payloads it has to be modelled as N parallel fields plus a tag, which is
    exactly the duplication the mission forbids.
-3. **Byte buffers, `StringBuilder` and fixed-width integers.** Needed to encode
-   object files and instruction words, and to build output without quadratic
-   string concatenation.
+3. **Fixed-width integers.** Byte buffers (ADR 0043) and `StringBuilder`
+   (ADR 0044) are in; `u8`/`i32` are what is left for encoding object files and
+   instruction words.
 4. **Arena or `weak` references.** The AST is a tree with parent pointers; with
    reference counting alone a parent pointer is a cycle and leaks every node.
 5. **Port order:** lexer/parser + spans, then the checker, then MIR, then an

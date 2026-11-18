@@ -1,0 +1,8 @@
+// WP-09 baseline: building IR-shaped text with `+`.
+// Every `+` makes a new string that holds everything written so far.
+lines = 8000
+text = ""
+for i in 0..lines {
+    text = text + "  %t" + string(i) + " = add i32 0, " + string(i) + "\n"
+}
+print(text.len())

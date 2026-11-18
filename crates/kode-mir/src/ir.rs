@@ -105,6 +105,12 @@ pub enum RtFn {
     ListNewPacked,
     BytesNew,
     BytesSet,
+    /// `StringBuilder()`: a growable buffer for building text (ADR 0044).
+    BufferNew,
+    /// Append the bytes of a string to a builder.
+    BufferPush,
+    /// The text built so far, as a new string.
+    BufferBuild,
     ListPush8,
     ListGet8,
     ListSet8,

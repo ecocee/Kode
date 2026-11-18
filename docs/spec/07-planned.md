@@ -14,8 +14,9 @@ Still missing, in the order the plan takes them:
 
 - **`weak` references.** Reference counting cannot break a cycle, so two objects
   that point at each other leak (see `docs/design/memory-model.md`).
-- **Byte buffers and fixed-width integers.** Only 64-bit `int`; no `u8`/`i32`
-  families, no `[]byte`, no `StringBuilder`, no binary encode/decode.
+- **Fixed-width integers and binary data.** Only 64-bit `int`; no `u8`/`i32`
+  families, no binary encode/decode. (`bytes(n)` and `StringBuilder` exist — ADR
+  0043 and ADR 0044.)
 - **Enum payloads and type tests.** Enums are tags only: no `Shape.Circle(radius)`,
   no `x is Circle`, no safe downcast.
 - **Integer map keys.** Maps are string-keyed by decision (ADR 0014).

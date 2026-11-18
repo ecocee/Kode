@@ -56,6 +56,9 @@ const RT: &[(RtFn, &str, &[&str], Option<&str>)] = &[
         &[I64, I64, I64, I64],
         None,
     ),
+    (RtFn::BufferNew, "kode_buffer_new", &[], Some(I64)),
+    (RtFn::BufferPush, "kode_buffer_push", &[I64, I64], None),
+    (RtFn::BufferBuild, "kode_buffer_build", &[I64], Some(I64)),
     (RtFn::ListPush8, "kode_list_push8", &[I64, I64], None),
     (
         RtFn::ListGet8,

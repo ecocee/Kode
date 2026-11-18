@@ -80,6 +80,20 @@ Every binary is built for release: `kode build --release`, `cc -O2` and plain
 | Node | 1885.5 | 1753.3 | 2086.4 | 135.3 | 48432.0 KB |
 | Python | 16970.1 | 16831.7 | 18498.9 | 699.7 | 9472.0 KB |
 
+## String building (WP-09)
+
+The same 8,000-line IR-shaped text built two ways: `text = text + ...` and
+`sb.push(...)` / `sb.build()` (ADR 0044). Both programs print the byte length of
+the result, so a wrong result would show up next to the time.
+
+| build | median (ms) | peak RSS | vs `+` |
+|---|---:|---:|---:|
+| `+` | 193.3 | 4344.0 KB | 1.00× |
+| StringBuilder | 5.4 | 2480.0 KB | 0.03× |
+
+Reproduce with `benchmarks/string_build/run.sh`; `benchmarks/run.sh` writes this
+section on every run.
+
 ## Binary size (`--release`, stripped)
 
 - `fib`: 440 KB

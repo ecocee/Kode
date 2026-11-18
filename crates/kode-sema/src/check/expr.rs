@@ -1785,6 +1785,25 @@ impl Checker {
                 }
                 Some(if name == "get" { Type::Int } else { Type::Unit })
             }
+            // A text builder: `push(s)` and `build()` (ADR 0044).
+            Type::Builder if name == "push" => {
+                if arity(self, 1) {
+                    if let Some(Some(t)) = tys.first() {
+                        if *t != Type::Str {
+                            self.errors.push(Diagnostic::error(
+                                "E0208",
+                                format!("`push` expects a string, found {}", t.article()),
+                                args[0].value.span,
+                            ));
+                        }
+                    }
+                }
+                Some(Type::Unit)
+            }
+            Type::Builder if name == "build" => {
+                arity(self, 0);
+                Some(Type::Str)
+            }
             other => {
                 self.errors.push(
                     Diagnostic::error(
@@ -1794,7 +1813,7 @@ impl Checker {
                     )
                     .with_help(
                         "lists have add, len; maps have has, len, keys; strings have len; \
-                         bytes have size, get, set",
+                         bytes have size, get, set; a StringBuilder has push, build",
                     ),
                 );
                 None
@@ -2083,6 +2102,16 @@ impl Checker {
                 // The payload arrives from the declared type (E0240).
                 return Some(Type::Chan(Box::new(Type::NoneT)));
             }
+            Builtin::StringBuilder => {
+                if !args.is_empty() {
+                    self.errors.push(Diagnostic::error(
+                        "E0207",
+                        format!("`{name}` takes no arguments, found {}", args.len()),
+                        span,
+                    ));
+                }
+                return Some(Type::Builder);
+            }
             Builtin::Send | Builtin::Recv | Builtin::Close => {
                 return self.channel_call(b, name, args, tys, span);
             }
@@ -2106,7 +2135,11 @@ impl Checker {
             Builtin::Assert => (vec![Type::Bool], Type::Unit, "a bool"),
             Builtin::Print => unreachable!(),
             // Handled by the early return above.
-            Builtin::Channel | Builtin::Send | Builtin::Recv | Builtin::Close => unreachable!(),
+            Builtin::Channel
+            | Builtin::Send
+            | Builtin::Recv
+            | Builtin::Close
+            | Builtin::StringBuilder => unreachable!(),
         };
         if args.len() != 1 {
             self.errors.push(Diagnostic::error(

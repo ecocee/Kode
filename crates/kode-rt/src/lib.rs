@@ -2,7 +2,7 @@
 //! Compiled code calls these `extern "C"` functions.
 //!
 //! * `object`: the shared header and reference counting for every heap value
-//! * `string`, `list`, `map`: the built-in heap types
+//! * `string`, `list`, `map`, `buffer`: the built-in heap types
 //! * `error`: `throw`, `catch` and runtime errors
 //! * `task`: `spawn` / `await`; `http`: the web server; `http_client`: the HTTP client
 //! * `http_wire`: request parsing, limits, timeouts and response writing shared by both servers
@@ -13,6 +13,7 @@
 //! * `io`: printing; `repr`: the text of a list or map
 
 mod base64;
+mod buffer;
 mod channel;
 mod clock_time;
 mod error;
@@ -44,13 +45,13 @@ mod tls;
 /// symbol name. Rename it (and `RT_ABI` in `kode-cli/src/doctor.rs`) whenever the
 /// runtime functions or object layouts change, so an old library is never used by mistake.
 #[no_mangle]
-pub extern "C" fn kode_rt_abi_0004() {}
+pub extern "C" fn kode_rt_abi_0005() {}
 
 /// Called once when the program ends. With `KODE_LEAK_CHECK=1` it reports
 /// objects that were never freed (used by the test suite).
 #[no_mangle]
 pub extern "C" fn kode_rt_finish() {
-    kode_rt_abi_0004();
+    kode_rt_abi_0005();
     io::flush();
     if std::env::var_os("KODE_LEAK_CHECK").is_some() {
         let live = object::live_objects();

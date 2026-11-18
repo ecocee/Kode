@@ -791,6 +791,27 @@ impl<'a> Lowerer<'a> {
                 self.release_if_owned(ov);
                 V::unit()
             }
+            (Type::Builder, "push") => {
+                let s = self.expr(&args[0].value);
+                self.emit(Inst::Call {
+                    dst: None,
+                    callee: Callee::Rt(RtFn::BufferPush),
+                    args: vec![ov.op.clone(), s.op.clone()],
+                });
+                self.release_if_owned(s);
+                self.release_if_owned(ov);
+                V::unit()
+            }
+            (Type::Builder, "build") => {
+                let t = self.new_temp(Ty::Ref);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::BufferBuild),
+                    args: vec![ov.op.clone()],
+                });
+                self.release_if_owned(ov);
+                self.owned(Operand::Local(t))
+            }
             (Type::Class(cn), m) => {
                 let checked = self.checked;
                 // `u.id(1)` resolved to one instance of a generic method

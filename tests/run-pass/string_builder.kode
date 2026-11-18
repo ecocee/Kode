@@ -1,0 +1,21 @@
+// `StringBuilder`: push many pieces, build the text once (ADR 0044).
+sb = StringBuilder()
+sb.push("")
+print(sb.build())
+
+parts = StringBuilder()
+for i in 0..3 {
+    if i > 0 {
+        parts.push(", ")
+    }
+    parts.push(string(i * 10))
+}
+print(parts.build())
+
+name = "kode"
+greeting = StringBuilder()
+greeting.push("hello, ")
+greeting.push(name)
+greeting.push("!")
+text = greeting.build()
+print(text, text.len())

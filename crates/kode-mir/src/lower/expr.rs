@@ -1307,6 +1307,15 @@ impl<'a> Lowerer<'a> {
                 self.release_if_owned(n);
                 self.owned(Operand::Local(t))
             }
+            Builtin::StringBuilder => {
+                let t = self.new_temp(Ty::Ref);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::BufferNew),
+                    args: vec![],
+                });
+                self.owned(Operand::Local(t))
+            }
             Builtin::Print => {
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 {

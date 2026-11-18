@@ -7,12 +7,18 @@
 | `bool` | `true` or `false` |
 | `string` | immutable UTF-8 text, reference counted |
 | `bytes` | a buffer of `n` bytes from `bytes(n)`; `size()`, `get(i)`, `set(i, v)` (ADR 0043) |
+| `StringBuilder` | a growable text buffer from `StringBuilder()`; `push(s)`, `build()` (ADR 0044) |
 
 Numbers never convert automatically. Use `int(x)` and `float(x)`; mixing them is E0210.
 
 A `bytes` value is reference counted, is not printable, and is not a `[int]`: `get(i)`
 returns an `int` in `0..=255` and `set(i, v)` rejects anything else. `bytes` is not a
 class, so only the builtin creates one.
+
+A `StringBuilder` is reference counted and not printable either: `push(s)` appends a
+string and `build()` returns everything pushed so far as a new string, leaving the
+builder usable for more pushes. It exists because `text = text + line` copies the whole
+text on every line.
 
 ## Variables
 

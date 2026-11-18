@@ -32,6 +32,7 @@ KODE = ROOT / "target" / "debug" / "kode"
 BUILD = HERE / "build"
 RUNS = int(os.environ.get("RUNS", "3"))
 PROGRAMS = ["fib", "loop_mod", "sieve", "mandel", "collatz"]
+STRING_BUILD = HERE / "string_build"
 TIME = shutil.which("time") or "/usr/bin/time"
 LANGUAGES = ["Kode", "C", "Go", "Node", "Python"]
 
@@ -166,10 +167,64 @@ def tool_versions() -> list[str]:
     ]
 
 
+def measure(cmd: list[str], cwd: Path):
+    """(stats, peak RSS in KB) for one command line."""
+    stats = hyperfine_ms(cmd, cwd)
+    if stats is None:
+        ms = best_ms(cmd, cwd)
+        if ms is None:
+            return None
+        stats = {"median": ms, "min": ms, "max": ms, "sd": 0.0, "best_only": True}
+    rss = stats.pop("rss_kb", None) or peak_rss_kb(cmd, cwd)
+    return stats, rss
+
+
+def string_build_section() -> list[str]:
+    """WP-09: the same text built with `+` and with StringBuilder (ADR 0044)."""
+    sources = [("`+`", STRING_BUILD / "plus.kode"), ("StringBuilder", STRING_BUILD / "builder.kode")]
+    if not all(src.exists() for _, src in sources):
+        return []
+    out = BUILD / "string_build"
+    out.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for label, src in sources:
+        exe = out / src.stem
+        r = subprocess.run(
+            [str(KODE), "build", str(src), "-o", str(exe), "--release"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            return ["## String building (WP-09)", "", f"`{src.name}` did not build:", "", "```", r.stderr.strip()[:500], "```", ""]
+        m = measure([str(exe)], STRING_BUILD)
+        if m is None:
+            return []
+        rows.append((label, m[0], m[1]))
+    base = rows[0][1]["median"]
+    lines = [
+        "## String building (WP-09)",
+        "",
+        "The same 8,000-line IR-shaped text built two ways: `text = text + ...` and",
+        "`sb.push(...)` / `sb.build()`. Both programs print the byte length of the",
+        "result, so a wrong result would show up next to the time.",
+        "",
+        "| build | median (ms) | peak RSS | vs `+` |",
+        "|---|---:|---:|---:|",
+    ]
+    for label, stats, rss in rows:
+        rss_txt = f"{rss} KB" if rss else "—"
+        lines.append(f"| {label} | {stats['median']:.1f} | {rss_txt} | {stats['median'] / base:.2f}× |")
+    lines += ["", "Reproduce with `benchmarks/string_build/run.sh`.", ""]
+    return lines
+
+
 def main() -> int:
     if not KODE.exists():
         print(f"build the compiler first: cargo build --workspace ({KODE} is missing)", file=sys.stderr)
         return 1
+    if "--string-build" in sys.argv[1:]:
+        section = string_build_section()
+        print("\n".join(section) if section else "no StringBuilder sources to measure", file=sys.stderr if not section else sys.stdout)
+        return 0 if section else 1
     BUILD.mkdir(exist_ok=True)
 
     rows = []          # one dict per program: {"program", "stats": {lang: {...}}, "rss": {lang: kb}}
@@ -257,6 +312,8 @@ def main() -> int:
                 f"| {lang} | {s['median']:.1f} | {s['min']:.1f} | {s['max']:.1f} | {sd} | {rss_txt} |"
             )
         lines.append("")
+
+    lines += string_build_section()
 
     if sizes:
         lines += ["## Binary size (`--release`, stripped)", ""]

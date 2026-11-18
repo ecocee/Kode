@@ -5,7 +5,22 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ## Unreleased
 
+### Added
+
+- **`StringBuilder` (WP-09, ADR 0044).** `sb = StringBuilder()` with `push(s)` and
+  `build()`: one growable byte buffer instead of a new string per `+`, which is what
+  S5 needs to emit IR text in linear time. `push` copies the bytes and does not
+  retain the argument; `build` returns the text so far as a new string and leaves the
+  builder usable. No new error code (`E0208`, `E0207`, `E0217`, `E0203` cover it).
+  Evidence: `tests/run-pass/string_builder.kode` (0 leaks),
+  `tests/compile-fail/e0208_builder_push.kode`, and the measured 185.2 ms → 5.2 ms
+  in `benchmarks/report.md`.
+
 ### Docs
+
+- **ADR 0044: `StringBuilder`.** The last language feature S2–S5 need that is not a
+  diagnostic stream: a reference-counted `BUFFER` object with `push`/`build`, typed
+  as the builtin `Type::Builder`, with the ABI marker bumped to `0005`.
 
 - **ADR 0043: byte buffers and base-2/8/16 literals.** `bytes(n)` is a fixed-size
   buffer of bytes backed by the packed-list object, so retain/release/drop and the

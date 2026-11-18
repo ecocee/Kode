@@ -6,6 +6,8 @@ pub enum Type {
     Str,
     /// `bytes(n)`: a buffer of `n` bytes (ADR 0043).
     Bytes,
+    /// `StringBuilder()`: a growable buffer for building text (ADR 0044).
+    Builder,
     /// The result of a call that returns nothing, such as `print(...)`.
     Unit,
     List(Box<Type>),
@@ -35,6 +37,7 @@ impl Type {
             Type::Bool => "bool".into(),
             Type::Str => "string".into(),
             Type::Bytes => "bytes".into(),
+            Type::Builder => "StringBuilder".into(),
             Type::Unit => "nothing".into(),
             Type::List(t) => format!("[{}]", t.name()),
             Type::Map(t) => format!("{{string: {}}}", t.name()),
@@ -58,6 +61,7 @@ impl Type {
             Type::Bool => "a bool".into(),
             Type::Str => "a string".into(),
             Type::Bytes => "a bytes buffer".into(),
+            Type::Builder => "a StringBuilder".into(),
             Type::Unit => "nothing".into(),
             other => format!("`{}`", other.name()),
         }
@@ -69,6 +73,7 @@ impl Type {
             self,
             Type::Str
                 | Type::Bytes
+                | Type::Builder
                 | Type::List(_)
                 | Type::Map(_)
                 | Type::Class(_)
@@ -93,6 +98,7 @@ impl Type {
             "bool" => Some(Type::Bool),
             "string" => Some(Type::Str),
             "bytes" => Some(Type::Bytes),
+            "StringBuilder" => Some(Type::Builder),
             _ => None,
         }
     }
