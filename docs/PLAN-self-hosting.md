@@ -351,19 +351,43 @@ imports, builtins, the runtime's free functions and modules (a table mirrored fr
 `std_fns.rs`, since the port cannot read it), the prelude classes, and block scopes
 — parameters, assignment targets, `for` variables, `catch` variables (statement and
 expression forms), match-arm payload bindings and closure parameters. It reports
-`E0201` (unknown variable) and `E0206` (unknown function). Measured today:
-**75 of 164** programs report the expected code set, with the split
-`18` compile-fail exact, `57` run-pass clean, `80` compile-fail with no diagnostic
-yet (the families below), `6` where the port's parse errors still differ from the
-oracle on the wider corpus, and `3` elsewhere. The port's own sources cannot be
-checked yet: `BP_ARITH` in `stmt.kode` came from another module, so that needs the
-module graph (below), not a new rule.
+`E0201` (unknown variable) and `E0206` (unknown function).
+
+**Slice 2 is in: the module graph.** `selfhost/modules.kode` reads what `import` and
+`from` name instead of only recording the path. A path resolves relative to the file
+that wrote it, `.kode` is appended when the path has none, and one file is read once
+however many modules reach it; a path that cannot be found is `E0401` and a file that
+imports itself, directly or through others, is `E0402`, both pointing at the path
+token of the import that asked, in the file that asked. A bare `x` is the package
+root's (`kode.toml`: `root = "lib"`), which is what makes
+`tests/run-pass/modules_alias.kode` resolve, and a module with top-level code is
+`E0403`. What an import then reaches belongs to the same slice: a `from` name must be
+declared (`E0405`) and `pub` (`E0411`, "does not export"), and a call through an
+alias must be a declared (`E0410`, "has no method") `pub` top-level (`E0411`, "is
+private to module"). Loader diagnostics render through `report.kode`, so they are
+byte-identical to the oracle's, snippet and help included. Two rules of the import
+namespace are still missing — `E0408` (a duplicate alias) and `E0409` (an alias that
+clashes with a declaration) — and no dependency's source root is resolved, because
+nothing on the path reads a dependency yet.
+
+Why the module graph comes before the other families: the namespace is program-wide,
+so the checker cannot resolve `stmt.kode`'s `BP_ARITH` — a const in `infix.kode` that
+`stmt.kode` does not import — without every file the program loads. `check` now loads
+the graph and checks all of it, and `check_sema` checks the port's own sources as a
+second gate: **self-check 27/27**, every file of the port clean under its own
+checker. Measured: **82 of 164** programs report the expected code set, with the
+split `25` compile-fail exact, `57` run-pass clean, `74` compile-fail with no
+diagnostic yet (the families below), `6` where the port's parse errors still differ
+from the oracle on the wider corpus, and `2` elsewhere.
+
+The one checker diagnostic that still prints without a location is the alias-member
+`E0411`: `E0201`/`E0206` render message-only until the spans and messages slice
+lands, and that one follows them.
 
 Next families, each one commit: types (resolution already gives the scope for it),
 then arguments and the `E0208`/`E0210` family, then item signatures and generics,
-and the JSON form with the oracle's order once the families stop moving. Module
-loading — reading what `import` names rather than only recording its path — belongs
-before S3 closes, because checking the port itself needs it.
+then the spans and messages those diagnostics already carry, and the JSON form with
+the oracle's order once the families stop moving.
 
 Risk: wording is coupled to Rust. Mitigation: one diagnostic family per commit,
 the JSON diff names the differing field.

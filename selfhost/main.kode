@@ -11,6 +11,7 @@
 from "./ast" import ast_lines
 from "./dump" import position, tokens_lines
 from "./lexer" import lex
+from "./modules" import Loader
 from "./parser" import parse
 from "./report" import from_lex, render
 from "./sema" import Sema
@@ -57,22 +58,27 @@ if lx.errors.len() > 0 {
 }
 
 if command == "check" {
-    checked = parse(src, lx)
-    if checked.errors.len() > 0 {
-        for err in checked.errors {
-            stderr(render(file, src, err))
+    // The checker needs the whole program, not one file: free functions and
+    // constants share one namespace across modules (`modules.kode`).
+    graph = Loader().graph(file, src)
+    if graph.problems.len() > 0 {
+        for problem in graph.problems {
+            stderr(render(problem.file, problem.src, problem.err))
         }
         exit(1)
     }
-    checker = Sema(ast: checked.ast)
+    checker = Sema(asts: graph.asts, mods: graph.modules)
     checker.run()
     if checker.diags.len() > 0 {
         for diag in checker.diags {
             stderr("error[${diag.code}]: ${diag.message}")
+            if diag.help.len() > 0 {
+                stderr("  = help: ${diag.help}")
+            }
         }
         exit(1)
     }
-    print("ok: ${file} has no errors")
+    stderr("ok: ${file} has no errors")
     exit(0)
 }
 

@@ -7,6 +7,18 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's checker loads the module graph.** `selfhost/modules.kode` makes
+  `import`/`from` read what they name instead of only recording the path: paths
+  resolve relative to the file that wrote them (a bare path against the package root
+  from `kode.toml`), `.kode` is appended when absent, each file is read once, and the
+  oracle's module diagnostics are reproduced byte-for-byte — `E0401` missing file,
+  `E0402` cycle, `E0403` code in a module. What an import reaches is enforced too:
+  `E0405` a name the module does not define, `E0410` a member an alias does not have,
+  `E0411` a name or member that is not `pub`. `kode-stage1 check` therefore checks the
+  whole program: the port's own sources are clean under its own checker
+  (`self-check: 27/27`, a second gate in `./scripts/selfhost.sh check`), and the
+  corpus gate moves 75 → 82/164.
+
 - **The S3 checker starts (name resolution).** `selfhost/sema.kode` resolves every
   name a program uses against top-level declarations, imports, builtins, the
   runtime's free functions and modules, the prelude classes, and block scopes

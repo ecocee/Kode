@@ -1,0 +1,358 @@
+// The module graph (S3 slice 2): what `import` and `from` name, read once each.
+//
+// Kode has one program-wide namespace, so the checker cannot resolve a name without
+// every file the program pulls in: `stmt.kode` uses `BP_ARITH` from `infix.kode`
+// without importing it, and a bare `import "./a"` makes `a`'s free functions and
+// constants visible unqualified.
+//
+// The oracle's rules, checked against it: a path resolves relative to the file that
+// wrote it; `.kode` is appended when the path has no extension; a file is read once,
+// however many modules import it; a path that cannot be found is `E0401` and a file
+// that imports itself, directly or through others, is `E0402`. Both point at the
+// path token of the import that asked, in the file that asked.
+
+from "./ast" import Ast
+from "./cursor" import ParseError
+from "./lexer" import lex
+from "./parser" import parse
+from "./report" import from_lex
+
+/// A diagnostic from loading, with the file it belongs to: a report needs that
+/// file's source to point at the line that asked.
+pub class Problem {
+    file: string
+    src: string
+    err: ParseError
+}
+
+/// One module: the file, its tree, what it exports, and the names other files use to
+/// reach it (`E0411` needs the last two).
+pub class Module {
+    /// The normalized path, which is how one file is recognized however it is spelled.
+    key: string
+    /// The path as it was resolved, which is what a report shows.
+    file: string
+    ast: Ast
+    /// Every top-level name, `pub` or not: `E0405`/`E0410` are about a name that is
+    /// not there at all, `E0411` about one that is there and private.
+    names: [string] = []
+    /// The `pub` top-level names: what `from "./m" import x` and `m.x` may reach.
+    exports: [string] = []
+    /// `import "./m" as alias` records that alias here, with the module it names.
+    aliases: [Alias] = []
+    /// A module cannot hold top-level code (`E0403`), which is what this notices.
+    code: bool = false
+}
+
+pub class Alias {
+    name: string
+    target: string
+}
+
+pub class Loaded {
+    /// Every file read, the entry first, in the order the imports reach them.
+    asts: [Ast] = []
+    modules: [Module] = []
+    problems: [Problem] = []
+}
+
+pub class Loader {
+    /// The identity of every file already read. Compared after `normalize`, so
+    /// `selfhost/./ast.kode` and `selfhost/ast.kode` are one file.
+    seen: [string] = []
+    /// The files on the current import chain: a file that meets one of these is a
+    /// cycle, which is a different answer from a file read earlier.
+    open: [string] = []
+    loaded: Loaded = Loaded()
+
+    /// Read `file` and everything it imports. `src` is already in hand, so the entry
+    /// costs one read rather than two.
+    fn graph(file: string, src: string) -> Loaded {
+        read(file, normalize(file), src)
+        return loaded
+    }
+
+    fn read(file: string, key: string, src: string) {
+        seen.add(key)
+        open.add(key)
+        lx = lex(src)
+        if lx.errors.len() > 0 {
+            for err in lx.errors {
+                loaded.problems.add(Problem(file: file, src: src, err: from_lex(err)))
+            }
+            open.pop()
+            return
+        }
+        parsed = parse(src, lx)
+        if parsed.errors.len() > 0 {
+            for err in parsed.errors {
+                loaded.problems.add(Problem(file: file, src: src, err: err))
+            }
+            open.pop()
+            return
+        }
+        loaded.asts.add(parsed.ast)
+        module = Module(key: key, file: file, ast: parsed.ast)
+        module.names = declared_names(parsed.ast)
+        module.exports = exported_names(parsed.ast)
+        module.code = has_code(parsed.ast)
+        loaded.modules.add(module)
+        // The record is in place before the imports are followed, so a file that
+        // closes a cycle can still say what the module it reached exports.
+        if parsed.ast.nodes.len() > 0 {
+            for id in parsed.ast.nodes[0].kids {
+                if parsed.ast.nodes[id].kind == "Import" {
+                    follow(module, parsed.ast, id, src)
+                }
+            }
+        }
+        open.pop()
+    }
+
+    /// One import edge: resolve it, then read the file unless it is on the chain (a
+    /// cycle) or already read (a diamond).
+    fn follow(module: Module, ast: Ast, id: int, src: string) {
+        written = ast.attr_text(id, "path")
+        if written.size() == 0 {
+            return
+        }
+        joined = join(dir_of(module.file), written)
+        key = normalize(joined)
+        if open.contains(key) {
+            loaded.problems.add(problem(ast, id, "path_span", module.file, src, "E0402",
+                    "`${written}` imports itself, directly or through other files", ""))
+            // The edge is refused, so nothing it names reaches anything: the oracle
+            // reports the cycle and no export error for it.
+            return
+        } else if not seen.contains(key) {
+            text = ""
+            try {
+                text = read_file(joined)
+            } catch e {
+                loaded.problems.add(problem(ast, id, "path_span", module.file, src, "E0401",
+                        "cannot find the file `${written}`", "looked for ${joined}"))
+                return
+            }
+            read(joined, key, text)
+        }
+        reach(module, ast, id, key, written, src)
+    }
+
+    /// What the import asks for: an alias becomes a way to reach the module, and each
+    /// `from "./m" import x` name has to be one of `m`'s exports (`E0411`).
+    fn reach(module: Module, ast: Ast, id: int, target: string, written: string, src: string) {
+        found = module_at(target)
+        if found.key != "" and found.code {
+            loaded.problems.add(problem(ast, id, "path_span", module.file, src, "E0403",
+                    "`${written}` has top-level code, which a module cannot have", ""))
+        }
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "Alias" {
+                module.aliases.add(Alias(name: ast.attr_text(kid, "name"), target: target))
+            }
+            if kind == "Name" and found.key != "" {
+                name = ast.attr_text(kid, "name")
+                if not found.names.contains(name) {
+                    loaded.problems.add(problem(ast, kid, "span", module.file, src, "E0405",
+                            "`${written}` does not define `${name}`", ""))
+                } else if not found.exports.contains(name) {
+                    loaded.problems.add(problem(ast, kid, "span", module.file, src, "E0411",
+                            "`${written}` does not export `${name}`",
+                            "mark it `pub` in that file to import it"))
+                }
+            }
+        }
+    }
+
+    /// The module read for a key, or an empty one: a file that failed to parse has no
+    /// record, and its own diagnostic is the answer for every import that reached it.
+    fn module_at(key: string) -> Module {
+        for module in loaded.modules {
+            if module.key == key {
+                return module
+            }
+        }
+        return Module(key: "", file: "", ast: Ast())
+    }
+
+    fn problem(ast: Ast, id: int, key: string, file: string, src: string, code: string, message: string, help: string) -> Problem {
+        span = ast.attr_span_named(id, key)
+        start = 0
+        end = 0
+        if span.len() == 2 {
+            start = span[0]
+            end = span[1]
+        }
+        err = ParseError(code: code, message: message, start: start, end: end, help: help)
+        return Problem(file: file, src: src, err: err)
+    }
+}
+
+/// Every top-level name a module declares.
+fn declared_names(ast: Ast) -> [string] {
+    names: [string] = []
+    if ast.nodes.len() == 0 {
+        return names
+    }
+    for id in ast.nodes[0].kids {
+        kind = ast.nodes[id].kind
+        if kind == "Fn" or kind == "Const" or kind == "Class" or kind == "Enum" or kind == "Interface" {
+            names.add(ast.attr_text(id, "name"))
+        }
+    }
+    return names
+}
+
+/// A module holds declarations only; a top-level statement is `E0403`.
+fn has_code(ast: Ast) -> bool {
+    if ast.nodes.len() == 0 {
+        return false
+    }
+    for id in ast.nodes[0].kids {
+        kind = ast.nodes[id].kind
+        if kind != "Fn" and kind != "Const" and kind != "Class" and kind != "Enum" and kind != "Interface" and kind != "Import" {
+            return true
+        }
+    }
+    return false
+}
+
+/// The `pub` top-level names of a module: functions, constants, classes, enums and
+/// interfaces, which is everything a `from ... import` may name.
+fn exported_names(ast: Ast) -> [string] {
+    names: [string] = []
+    if ast.nodes.len() == 0 {
+        return names
+    }
+    for id in ast.nodes[0].kids {
+        kind = ast.nodes[id].kind
+        if kind == "Fn" or kind == "Const" or kind == "Class" or kind == "Enum" or kind == "Interface" {
+            if is_pub(ast, id) {
+                names.add(ast.attr_text(id, "name"))
+            }
+        }
+    }
+    return names
+}
+
+/// `pub=true` is dumped unquoted, so it is compared as the attribute it is.
+fn is_pub(ast: Ast, id: int) -> bool {
+    for attr in ast.nodes[id].attrs {
+        if attr == "pub=true" {
+            return true
+        }
+    }
+    return false
+}
+
+/// `dir/./name` with `.kode` when the name has no extension, the way the oracle
+/// spells the path it looks for in `E0401`'s help.
+/// Where an import points: `./x` and `../x` are relative to the importing file, and a
+/// bare `x` is the package root's when a manifest declares one (`kode.toml`:
+/// `root = "lib"`), which is how `tests/run-pass/modules_alias.kode` reaches
+/// `lib/words.kode`. A dependency's source root (a bare `name/x` whose `name` is a
+/// dependency) is not implemented: nothing on the path reads a dependency yet.
+fn join(dir: string, written: string) -> string {
+    if written.starts_with("/") {
+        return with_extension(written)
+    }
+    if written.starts_with("./") or written.starts_with("../") {
+        return with_extension("${dir}/${written}")
+    }
+    root = package_root(dir)
+    if root != "" {
+        return with_extension("${root}/${written}")
+    }
+    return with_extension("${dir}/${written}")
+}
+
+/// The `root = "..."` line of a manifest, or "" when it has none. Line ends are found
+/// by hand: a string here has `find` and `slice`, not a `split`.
+fn manifest_root(text: string) -> string {
+    rest = text
+    while rest.size() > 0 {
+        line = rest
+        stop = rest.find("\n")
+        if stop < 0 {
+            rest = ""
+        } else {
+            line = rest.slice(0, stop)
+            rest = rest.slice(stop + 1, rest.size())
+        }
+        trimmed = line.trim()
+        if not trimmed.starts_with("root") {
+            continue
+        }
+        eq = trimmed.find("=")
+        if eq < 0 {
+            continue
+        }
+        value = trimmed.slice(eq + 1, trimmed.size()).trim()
+        if value.size() >= 2 and value.char_at(0) == "\"" {
+            value = value.slice(1, value.size() - 1)
+        }
+        return value
+    }
+    return ""
+}
+
+/// The `root` of the nearest `kode.toml` at or above `dir`, or "" when there is none.
+/// Only that one key is read: the checker needs paths, not a package's name or
+/// version, and the two message variants that show them are `E0401` on a bare import.
+fn package_root(dir: string) -> string {
+    at = dir
+    while at != "" and at != "." and at != "/" {
+        text = ""
+        try {
+            text = read_file("${at}/kode.toml")
+        } catch e {
+            text = ""
+        }
+        if text != "" {
+            root = manifest_root(text)
+            if root != "" {
+                return "${at}/${root}"
+            }
+            return ""
+        }
+        parent = dir_of(at)
+        if parent == at {
+            return ""
+        }
+        at = parent
+    }
+    return ""
+}
+
+fn with_extension(path: string) -> string {
+    if path.ends_with(".kode") {
+        return path
+    }
+    return path + ".kode"
+}
+
+/// The directory a file lives in, or `.` for a bare name.
+fn dir_of(file: string) -> string {
+    at = file.size() - 1
+    while at >= 0 {
+        if file.char_at(at) == "/" {
+            return file.slice(0, at)
+        }
+        at -= 1
+    }
+    return "."
+}
+
+/// `a/./b` and a leading `./` are the same file as `a/b`: identity, not display, so
+/// one module is read once however many spellings reach it.
+fn normalize(path: string) -> string {
+    out = path
+    while out.contains("/./") {
+        out = out.replace("/./", "/")
+    }
+    if out.starts_with("./") {
+        out = out.slice(2, out.size())
+    }
+    return out
+}

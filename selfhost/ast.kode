@@ -127,7 +127,13 @@ pub class Ast {
     /// The two ends of the node's `span` attribute, or an empty list when it has
     /// none (`Class` and a few wrappers carry no span).
     fn attr_span(id: int) -> [int] {
-        prefix = "span="
+        return attr_span_named(id, "span")
+    }
+
+    /// The same for any other `a..b` attribute; an `Import` keeps its path's extent
+    /// in `path_span`, and a diagnostic points at the path, not at the whole line.
+    fn attr_span_named(id: int, key: string) -> [int] {
+        prefix = "${key}="
         for attr in nodes[id].attrs {
             if attr.starts_with(prefix) {
                 rest = attr.slice(prefix.size(), attr.size())

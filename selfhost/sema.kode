@@ -12,8 +12,14 @@
 // arm's payload or a closure parameter. Scopes are pushed per block, so a name
 // declared in a block is gone when the block ends, and a name used before its
 // declaration is unknown — the oracle's rule.
+//
+// The namespace is program-wide, not per file: `selfhost/modules.kode` reads
+// everything the program imports, and every file's top-level names are collected
+// before any of them is walked, so `stmt.kode` resolves `BP_ARITH` from
+// `infix.kode` without importing it.
 
 from "./ast" import Ast
+from "./modules" import Module
 
 /// One diagnostic: the code the oracle uses, what it says, and where.
 pub class Diag {
@@ -21,10 +27,17 @@ pub class Diag {
     message: string
     start: int
     end: int
+    /// The oracle's `= help:` line, when the diagnostic has one.
+    help: string = ""
 }
 
 pub class Sema {
-    ast: Ast
+    /// Every file the program loads, the entry first, from `modules.kode`.
+    asts: [Ast] = []
+    /// The file being walked; `asts` drives it, so the visitors stay one-file code.
+    ast: Ast = Ast()
+    /// The loaded modules, for what a module alias may reach (`E0411`).
+    mods: [Module] = []
     diags: [Diag] = []
     /// Every top-level name: `fn`, `class`, `enum`, `interface`, `const`, `import`.
     globals: [string] = []
@@ -48,12 +61,24 @@ pub class Sema {
         "fs", "http", "json", "math", "pg", "time"
     ]
 
-    /// Check a parsed program; the caller prints `diags`. Top-level statements run
-    /// in one scope after every top-level name is known, because a function may be
-    /// called before the line that declares it.
+    /// Check a loaded program; the caller prints `diags`. Every top-level name of
+    /// every file is collected first, because the namespace is program-wide and a
+    /// function may be called before the line that declares it. Top-level statements
+    /// then run in one shared scope.
     fn run() {
-        collect_globals()
+        for one in asts {
+            ast = one
+            collect_globals()
+        }
         scopes.add([])
+        for one in asts {
+            ast = one
+            walk_program()
+        }
+        scopes.pop()
+    }
+
+    fn walk_program() {
         for id in ast.nodes[0].kids {
             if is_item(ast.nodes[id].kind) {
                 check_item(id)
@@ -61,7 +86,6 @@ pub class Sema {
                 visit(id)
             }
         }
-        scopes.pop()
     }
 
     fn collect_globals() {
@@ -183,6 +207,10 @@ pub class Sema {
             visit_call(id)
             return
         }
+        if kind == "MethodCall" {
+            visit_method(id)
+            return
+        }
         if kind == "Catch" {
             visit_catch(id)
             return
@@ -270,6 +298,62 @@ pub class Sema {
         for kid in ast.nodes[id].kids {
             visit(kid)
         }
+    }
+
+    /// `mods.f(...)`: a call through a module alias has to name something that module
+    /// exports (`E0411`). The alias is matched by name across the program; two files
+    /// aliasing one name to different modules would only disagree if the name were
+    /// private in both, so the permissive side is taken.
+    fn visit_method(id: int) {
+        callee = ast.attr_text(id, "name")
+        kids = ast.nodes[id].kids
+        if kids.len() > 0 and ast.nodes[kids[0]].kind == "Ident" {
+            check_alias(id, ast.attr_text(kids[0], "name"), callee)
+        }
+        for kid in kids {
+            visit(kid)
+        }
+    }
+
+    fn check_alias(id: int, base: string, callee: string) {
+        known = false
+        declared = false
+        exported = false
+        for mod in mods {
+            for alias in mod.aliases {
+                if alias.name == base {
+                    known = true
+                    for target in mods {
+                        if target.key == alias.target {
+                            if target.names.contains(callee) {
+                                declared = true
+                            }
+                            if target.exports.contains(callee) {
+                                exported = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if not known or exported {
+            return
+        }
+        span = ast.attr_span_named(id, "name_span")
+        start = 0
+        end = 0
+        if span.len() == 2 {
+            start = span[0]
+            end = span[1]
+        }
+        if not declared {
+            diags.add(Diag(code: "E0410", message: "the module `${base}` has no method `${callee}`",
+                    start: start, end: end))
+            return
+        }
+        diags.add(Diag(code: "E0411", message: "`${callee}` is private to module `${base}`",
+                start: start, end: end,
+                help: "mark it `pub` in that file to use it from here"))
     }
 
     /// `expr catch err { }`: the variable is an attribute and is in scope in the

@@ -170,7 +170,24 @@ check_sema() {
         echo "  first mismatches (S3 is in progress, one family per commit):"
         printf '%s' "$mismatches" | head -n 8
     fi
-    printf 'check_pass=%s\ncheck_total=%s\n' "$pass" "$total" >"$OUT/check.txt"
+    # The port's own sources are the one program big enough to need the module
+    # graph, so they are checked too: a name the checker cannot resolve in
+    # `selfhost/` is a bug in the checker, not a missing family.
+    local self_total=0 self_pass=0 self_bad=""
+    for file in "$ROOT"/selfhost/*.kode; do
+        self_total=$((self_total + 1))
+        if "$STAGE1" check "$file" >/dev/null 2>"$log"; then
+            self_pass=$((self_pass + 1))
+        else
+            self_bad+="    $(basename "$file"): $(head -n 1 "$log")"$'\n'
+        fi
+    done
+    echo "  self-check: $self_pass/$self_total of the port's own files are clean"
+    if [[ "$self_pass" -ne "$self_total" ]]; then
+        printf '%s' "$self_bad" | head -n 8
+    fi
+    printf 'check_pass=%s\ncheck_total=%s\nself_pass=%s\nself_total=%s\n' \
+        "$pass" "$total" "$self_pass" "$self_total" >"$OUT/check.txt"
     return 0
 }
 
@@ -212,7 +229,7 @@ readiness() {
         echo "  R3 parser: not started"
     fi
     if [[ -f "$OUT/check.txt" ]]; then
-        echo "  R4 checker: $(sed -n 's/^check_pass=//p' "$OUT/check.txt")/$(sed -n 's/^check_total=//p' "$OUT/check.txt") cases, name resolution only"
+        echo "  R4 checker: $(sed -n 's/^check_pass=//p' "$OUT/check.txt")/$(sed -n 's/^check_total=//p' "$OUT/check.txt") cases, name resolution and modules"
     else
         echo "  R4 checker: not run (./scripts/selfhost.sh check)"
     fi
