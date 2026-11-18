@@ -7,6 +7,17 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The S3 checker starts (name resolution).** `selfhost/sema.kode` resolves every
+  name a program uses against top-level declarations, imports, builtins, the
+  runtime's free functions and modules, the prelude classes, and block scopes
+  (parameters, assignment targets, `for` and `catch` variables, match-arm payloads,
+  closure parameters), reporting `E0201`/`E0206`; `kode-stage1 check <file>` is the
+  new entry point. The gate comes first: `./scripts/selfhost.sh check` compares the
+  port's code set with the code each program's `.err` names, so progress is a number
+  — **75/164** today (18 compile-fail exact, 57 run-pass clean, 80 with no
+  diagnostic yet, 6 where the wider corpus still parses differently). `readiness`
+  now reports the checker level, and `all` runs the new pass.
+
 - **Function types in annotations (S2 slice 14).** The port parses the whole type
   grammar now, `fn(int) -> int` included (in a parameter, a field, a local, a return
   type, nested, zero-argument, after `?`), and `Task<T>`/`Channel<T>` dump as their

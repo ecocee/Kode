@@ -7,6 +7,7 @@
 #   ./scripts/selfhost.sh stage2     Stage 1 compiles itself; compare with Stage 1
 #   ./scripts/selfhost.sh compare    diff the dumps that already exist
 #   ./scripts/selfhost.sh parse      the S2 subset and the port's own source, case by case
+#   ./scripts/selfhost.sh check      the S3 checker: expected codes over tests/{compile-fail,run-pass}
 #   ./scripts/selfhost.sh gates      every work packet: target declared vs today
 #   ./scripts/selfhost.sh readiness  the readiness level reached, and what is next
 #   ./scripts/selfhost.sh all        Stage 0, Stage 1, then the work packets
@@ -135,6 +136,44 @@ check_parse() {
 
 # The level reached (PLAN-self-hosting.md §2), from the artefacts on disk and the
 # packet table. This reports; it never pretends a stage exists.
+# The S3 gate: a compile-fail program must report the code its `.err` names, and a
+# run-pass program must report nothing. Codes are compared as sets; message, span
+# and order (the JSON form) are the next step of S3, not this one, so a family
+# lands when this count moves.
+check_sema() {
+    local total=0 pass=0 file expected got name
+    local log="$OUT/check.log" mismatches=""
+    for file in "$ROOT"/tests/compile-fail/*.kode; do
+        total=$((total + 1))
+        name="$(basename "${file%.kode}")"
+        expected="$(grep -o '[EW]0[0-9][0-9][0-9]' "${file%.kode}.err" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
+        "$STAGE1" check "$file" >/dev/null 2>"$log" || true
+        got="$(grep -o '[EW]0[0-9][0-9][0-9]' "$log" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
+        if [[ "$got" == "$expected" ]]; then
+            pass=$((pass + 1))
+        else
+            mismatches+="    $name: wanted [$expected] got [$got]"$'\n'
+        fi
+    done
+    for file in "$ROOT"/tests/run-pass/*.kode; do
+        total=$((total + 1))
+        name="$(basename "${file%.kode}")"
+        if "$STAGE1" check "$file" >/dev/null 2>"$log"; then
+            pass=$((pass + 1))
+        else
+            got="$(grep -o '[EW]0[0-9][0-9][0-9]' "$log" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
+            mismatches+="    $name: wanted [] got [$got]"$'\n'
+        fi
+    done
+    echo "  check cases: $pass/$total report the expected code set"
+    if [[ "$pass" -ne "$total" ]]; then
+        echo "  first mismatches (S3 is in progress, one family per commit):"
+        printf '%s' "$mismatches" | head -n 8
+    fi
+    printf 'check_pass=%s\ncheck_total=%s\n' "$pass" "$total" >"$OUT/check.txt"
+    return 0
+}
+
 readiness() {
     echo "Self-host readiness (docs/PLAN-self-hosting.md)"
     if [[ -d "$OUT/dumps/stage0" ]]; then
@@ -171,6 +210,11 @@ readiness() {
         echo "  R3 parser: subset green (./scripts/selfhost.sh parse)"
     else
         echo "  R3 parser: not started"
+    fi
+    if [[ -f "$OUT/check.txt" ]]; then
+        echo "  R4 checker: $(sed -n 's/^check_pass=//p' "$OUT/check.txt")/$(sed -n 's/^check_total=//p' "$OUT/check.txt") cases, name resolution only"
+    else
+        echo "  R4 checker: not run (./scripts/selfhost.sh check)"
     fi
     {
         echo "gates_blocked=$blocked"
@@ -372,10 +416,15 @@ parse)
     echo "S2: the port's parser against the oracle (the parse subset)"
     check_parse || exit $?
     ;;
+check)
+    echo "S3: the port's checker against the expected codes"
+    check_sema || exit $?
+    ;;
 all)
     bash "${BASH_SOURCE[0]}" stage0
     bash "${BASH_SOURCE[0]}" stage1
     bash "${BASH_SOURCE[0]}" parse
+    bash "${BASH_SOURCE[0]}" check
     bash "${BASH_SOURCE[0]}" gates
     ;;
 __dump)

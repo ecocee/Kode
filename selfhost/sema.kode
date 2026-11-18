@@ -1,0 +1,412 @@
+// The checker (S3), first family: name resolution.
+//
+// `./scripts/selfhost.sh check` runs this pass over `tests/compile-fail` and
+// `tests/run-pass` and compares the codes it reports with the code each program is
+// expected to fail with, so a family lands when that count moves. Only resolution
+// is here; types, argument checking and the rest of the oracle's `E02xx` family
+// arrive one family per commit (docs/PLAN-self-hosting.md §4).
+//
+// A name is in scope when it is a builtin, a runtime function, a prelude class, a
+// module alias, a top-level declaration, or bound in an enclosing block by a
+// parameter, an assignment target, a `for` variable, a `catch` variable, a match
+// arm's payload or a closure parameter. Scopes are pushed per block, so a name
+// declared in a block is gone when the block ends, and a name used before its
+// declaration is unknown — the oracle's rule.
+
+from "./ast" import Ast
+
+/// One diagnostic: the code the oracle uses, what it says, and where.
+pub class Diag {
+    code: string
+    message: string
+    start: int
+    end: int
+}
+
+pub class Sema {
+    ast: Ast
+    diags: [Diag] = []
+    /// Every top-level name: `fn`, `class`, `enum`, `interface`, `const`, `import`.
+    globals: [string] = []
+    /// Bound names, innermost scope last.
+    scopes: [[string]] = []
+    /// The builtin functions, the runtime's free functions, the prelude classes
+    /// and the module names. `std_fns.rs` is the source; this table mirrors it.
+    always: [string] = [
+        "print", "stderr", "len", "bytes", "StringBuilder", "int", "float", "string",
+        "assert", "channel", "send", "recv", "close",
+        "read_file", "write_file", "args", "env", "exit", "sleep", "now_ms", "now_ns",
+        "chr", "exec", "json_parse", "json_null", "json_bool", "json_int", "json_float",
+        "json_string", "json_list", "json_map", "json_encode", "math_sqrt", "math_abs",
+        "math_floor", "math_ceil", "math_round", "math_sin", "math_cos", "math_tan",
+        "math_log", "math_exp", "math_pow", "math_min", "math_max", "http_get",
+        "http_post", "http_request", "pg_connect", "pg_exec", "pg_query", "pg_close",
+        "pg_pool", "pg_pool_close", "pg_pool_connect", "pg_pool_release", "pg_pool_exec",
+        "pg_pool_query", "json_obj", "response_json", "response_text", "response",
+        "ProcessResult", "Request", "Response", "Router", "Error", "Json",
+        "HttpResponse", "JsonKind",
+        "fs", "http", "json", "math", "pg", "time"
+    ]
+
+    /// Check a parsed program; the caller prints `diags`. Top-level statements run
+    /// in one scope after every top-level name is known, because a function may be
+    /// called before the line that declares it.
+    fn run() {
+        collect_globals()
+        scopes.add([])
+        for id in ast.nodes[0].kids {
+            if is_item(ast.nodes[id].kind) {
+                check_item(id)
+            } else {
+                visit(id)
+            }
+        }
+        scopes.pop()
+    }
+
+    fn collect_globals() {
+        for id in ast.nodes[0].kids {
+            kind = ast.nodes[id].kind
+            if kind == "Fn" or kind == "Class" or kind == "Enum" or kind == "Interface" or kind == "Const" {
+                globals.add(ast.attr_text(id, "name"))
+            }
+            if kind == "Import" {
+                for kid in ast.nodes[id].kids {
+                    globals.add(ast.attr_text(kid, "name"))
+                }
+            }
+        }
+    }
+
+    fn check_item(id: int) {
+        kind = ast.nodes[id].kind
+        if kind == "Fn" {
+            check_fn(id)
+        } else if kind == "Class" {
+            check_class(id)
+        } else if kind == "Const" {
+            for kid in ast.nodes[id].kids {
+                if not is_type(ast.nodes[kid].kind) {
+                    visit(kid)
+                }
+            }
+        }
+    }
+
+    fn check_fn(id: int) {
+        scopes.add([])
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "Param" {
+                declare(ast.attr_text(kid, "name"))
+            }
+        }
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "Block" or kind == "ExprBody" {
+                visit(kid)
+            }
+        }
+        scopes.pop()
+    }
+
+    /// A method reads its class's fields and methods by bare name, so they are in
+    /// scope for the whole class.
+    fn check_class(id: int) {
+        scopes.add([])
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "Field" or kind == "Method" {
+                declare(ast.attr_text(kid, "name"))
+            }
+        }
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "Method" {
+                check_fn(kid)
+            }
+            if kind == "Field" {
+                for part in ast.nodes[kid].kids {
+                    if not is_type(ast.nodes[part].kind) {
+                        visit(part)
+                    }
+                }
+            }
+        }
+        scopes.pop()
+    }
+
+    fn declare(name: string) {
+        if name == "" or scopes.len() == 0 {
+            return
+        }
+        scopes[scopes.len() - 1].add(name)
+    }
+
+    fn is_bound(name: string) -> bool {
+        if globals.contains(name) or always.contains(name) {
+            return true
+        }
+        i = scopes.len() - 1
+        while i >= 0 {
+            if scopes[i].contains(name) {
+                return true
+            }
+            i -= 1
+        }
+        return false
+    }
+
+    fn add(code: string, message: string, id: int) {
+        start = 0
+        end = 0
+        span = ast.attr_span(id)
+        if span.len() == 2 {
+            start = span[0]
+            end = span[1]
+        }
+        diags.add(Diag(code: code, message: message, start: start, end: end))
+    }
+
+    /// One node. The kinds that bind or resolve names have their own function;
+    /// everything else is walked through, and a type annotation is skipped.
+    fn visit(id: int) {
+        kind = ast.nodes[id].kind
+        if kind == "Ident" {
+            visit_ident(id)
+            return
+        }
+        if kind == "Assign" {
+            visit_assign(id)
+            return
+        }
+        if kind == "Call" {
+            visit_call(id)
+            return
+        }
+        if kind == "Catch" {
+            visit_catch(id)
+            return
+        }
+        if kind == "Closure" {
+            visit_closure(id)
+            return
+        }
+        if kind == "For" {
+            visit_for(id)
+            return
+        }
+        if kind == "ForIn" {
+            visit_for_in(id)
+            return
+        }
+        if kind == "Try" {
+            visit_try(id)
+            return
+        }
+        if kind == "Match" {
+            visit_match(id)
+            return
+        }
+        if kind == "Block" {
+            visit_block(id)
+            return
+        }
+        if kind == "TargetVar" {
+            declare(ast.attr_text(id, "name"))
+            return
+        }
+        if kind == "Var" or kind == "CatchVar" {
+            return
+        }
+        if is_type(kind) {
+            return
+        }
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+    }
+
+    fn visit_block(id: int) {
+        scopes.add([])
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+        scopes.pop()
+    }
+
+    fn visit_ident(id: int) {
+        name = ast.attr_text(id, "name")
+        if name != "" and not is_bound(name) {
+            add("E0201", "unknown variable `${name}`", id)
+        }
+    }
+
+    /// `x = 1` declares `x`; `xs[0] = 1` and `obj.name = 1` are reads of what they
+    /// index into. The value is always walked.
+    fn visit_assign(id: int) {
+        kids = ast.nodes[id].kids
+        if kids.len() > 0 {
+            target = kids[0]
+            if ast.nodes[target].kind == "TargetVar" {
+                declare(ast.attr_text(target, "name"))
+            } else {
+                visit(target)
+            }
+        }
+        i = 1
+        while i < kids.len() {
+            if not is_type(ast.nodes[kids[i]].kind) {
+                visit(kids[i])
+            }
+            i += 1
+        }
+    }
+
+    fn visit_call(id: int) {
+        callee = ast.attr_text(id, "callee")
+        if callee != "" and not is_bound(callee) {
+            add("E0206", "unknown function `${callee}`", id)
+        }
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+    }
+
+    /// `expr catch err { }`: the variable is an attribute and is in scope in the
+    /// block, like the statement form's `CatchVar`.
+    fn visit_catch(id: int) {
+        scopes.add([])
+        declare(ast.attr_text(id, "var"))
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+        scopes.pop()
+    }
+
+    fn visit_closure(id: int) {
+        scopes.add([])
+        body: [int] = []
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "ClosureParam" {
+                declare(ast.attr_text(kid, "name"))
+            } else {
+                body.add(kid)
+            }
+        }
+        for kid in body {
+            visit(kid)
+        }
+        scopes.pop()
+    }
+
+    /// `for i in 0..3`: the variable is an attribute, the body is a block.
+    fn visit_for(id: int) {
+        scopes.add([])
+        declare(ast.attr_text(id, "var"))
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+        scopes.pop()
+    }
+
+    /// `for i, v in xs`: the variables are `Var` children, the body a block.
+    fn visit_for_in(id: int) {
+        scopes.add([])
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "Var" {
+                declare(ast.attr_text(kid, "name"))
+            }
+        }
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "Iter" or kind == "Block" {
+                visit(kid)
+            }
+        }
+        scopes.pop()
+    }
+
+    /// `try { } catch err { } finally { }`: `err` is in scope in the handler only.
+    fn visit_try(id: int) {
+        opened = false
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "CatchVar" {
+                scopes.add([])
+                opened = true
+                declare(ast.attr_text(kid, "name"))
+            } else if kind == "Handler" {
+                visit(kid)
+                if opened {
+                    scopes.pop()
+                    opened = false
+                }
+            } else {
+                visit(kid)
+            }
+        }
+        if opened {
+            scopes.pop()
+        }
+    }
+
+    fn visit_match(id: int) {
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "Arm" {
+                visit_arm(kid)
+            } else {
+                visit(kid)
+            }
+        }
+    }
+
+    fn visit_arm(id: int) {
+        scopes.add([])
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "PatternValue" {
+                bind_pattern(kid)
+            } else {
+                visit(kid)
+            }
+        }
+        scopes.pop()
+    }
+
+    /// The names an arm pattern binds: the arguments of `Shape.Circle(r)` are
+    /// bindings, while the `Shape` before the dot is a reference.
+    fn bind_pattern(id: int) {
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind != "MethodCall" {
+                continue
+            }
+            for arg in ast.nodes[kid].kids {
+                if ast.nodes[arg].kind != "Arg" {
+                    continue
+                }
+                for inner in ast.nodes[arg].kids {
+                    if ast.nodes[inner].kind == "Ident" {
+                        declare(ast.attr_text(inner, "name"))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `TypeName`, `TypeList`, `TypeFn` and the rest: an annotation names types, not
+/// values, so the walker never enters one.
+fn is_type(kind: string) -> bool {
+    if kind.size() < 4 {
+        return false
+    }
+    return kind.slice(0, 4) == "Type"
+}
+
+/// The node kinds that declare a name for the whole program.
+fn is_item(kind: string) -> bool {
+    if kind == "Fn" or kind == "Class" or kind == "Enum" or kind == "Interface" {
+        return true
+    }
+    return kind == "Const" or kind == "Import"
+}

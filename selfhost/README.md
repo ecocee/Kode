@@ -35,7 +35,8 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `enums.kode` | `enum` declarations with payload variants, and `interface` signatures |
 | `parser.kode` | the program loop: items one per line, each ending where the oracle says a line ends |
 | `literals.kode` | what a literal means: base-2/8/16 ints, floats shaped like `{:?}`, strings split into text and `${...}` holes |
-| `main.kode` | the entry point: `kode-stage1 tokens <file>` / `kode-stage1 ast <file>` |
+| `sema.kode` | the checker (S3 slice 1): name resolution, `E0201`/`E0206` |
+| `main.kode` | the entry point: `kode-stage1 tokens <file>` / `ast <file>` / `check <file>` |
 | `spec/lexer_cases.kode` | escapes, a 4-byte character, a brace inside a hole |
 | `spec/parse/` | the cases `parse` compares tree by tree |
 

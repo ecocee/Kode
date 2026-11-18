@@ -111,6 +111,35 @@ pub class Ast {
         nodes[id].kids.add(child)
         nodes[child].parent = id
     }
+
+    /// The value of a text attribute (`name="x"`) with its quotes stripped, or
+    /// "" when the node has no such attribute. A pass reads what the dump shows.
+    fn attr_text(id: int, key: string) -> string {
+        prefix = "${key}=\""
+        for attr in nodes[id].attrs {
+            if attr.starts_with(prefix) and attr.size() > prefix.size() {
+                return attr.slice(prefix.size(), attr.size() - 1)
+            }
+        }
+        return ""
+    }
+
+    /// The two ends of the node's `span` attribute, or an empty list when it has
+    /// none (`Class` and a few wrappers carry no span).
+    fn attr_span(id: int) -> [int] {
+        prefix = "span="
+        for attr in nodes[id].attrs {
+            if attr.starts_with(prefix) {
+                rest = attr.slice(prefix.size(), attr.size())
+                dots = rest.find("..")
+                if dots < 0 {
+                    return []
+                }
+                return [rest.slice(0, dots).to_int(), rest.slice(dots + 2, rest.size()).to_int()]
+            }
+        }
+        return []
+    }
 }
 
 /// The whole tree, one line per node, in source order.

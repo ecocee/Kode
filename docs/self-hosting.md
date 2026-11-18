@@ -62,8 +62,10 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   fields and parameters; `int?`/`float?`/`bool?` work only as locals (ADR 0024).
 - **Cycle-safe memory management.** Reference counting only; no `weak`, no
   arenas, no regions.
-- **A compiler written in Kode.** No parser, checker, MIR builder, evaluator or
-  native backend exists in Kode; the lexer does (`selfhost/lexer.kode`, S1).
+- **A compiler written in Kode.** The lexer and parser do (`selfhost/lexer.kode` S1,
+  `selfhost/parser.kode` S2), and the checker resolves names (`selfhost/sema.kode`,
+  S3 slice 1, 75/164 programs on its gate); no MIR builder, evaluator or native
+  backend exists in Kode.
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
   timeouts and no sorting with a comparator. `stderr(...)` exists (ADR 0045), so
   the port reports diagnostics without a device file.

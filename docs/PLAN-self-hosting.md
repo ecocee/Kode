@@ -336,8 +336,34 @@ report rather than invent a workaround.
 
 Files: `selfhost/sema.kode`, `selfhost/types.kode` (~4,500 lines).
 
-Acceptance: `kode check --format=json` identical to Stage 0 for the 98
-compile-fail programs (code, message, span, hint, order) and clean for run-pass.
+Acceptance: `kode check --format=json` identical to Stage 0 for the 107
+compile-fail programs (code, message, span, hint, order) and clean for the 57
+run-pass programs.
+
+**The gate comes before the checker.** `./scripts/selfhost.sh check` runs the port's
+`check` over both suites and compares the **set of codes** it reports with the code
+each `.err` names; a run-pass program must report nothing. It is staged on purpose:
+codes first, then message and span, then the JSON form with order, because a code
+set is a number that can move from the first commit instead of only at the end.
+
+**Slice 1 is in.** `selfhost/sema.kode` resolves names: top-level declarations,
+imports, builtins, the runtime's free functions and modules (a table mirrored from
+`std_fns.rs`, since the port cannot read it), the prelude classes, and block scopes
+— parameters, assignment targets, `for` variables, `catch` variables (statement and
+expression forms), match-arm payload bindings and closure parameters. It reports
+`E0201` (unknown variable) and `E0206` (unknown function). Measured today:
+**75 of 164** programs report the expected code set, with the split
+`18` compile-fail exact, `57` run-pass clean, `80` compile-fail with no diagnostic
+yet (the families below), `6` where the port's parse errors still differ from the
+oracle on the wider corpus, and `3` elsewhere. The port's own sources cannot be
+checked yet: `BP_ARITH` in `stmt.kode` came from another module, so that needs the
+module graph (below), not a new rule.
+
+Next families, each one commit: types (resolution already gives the scope for it),
+then arguments and the `E0208`/`E0210` family, then item signatures and generics,
+and the JSON form with the oracle's order once the families stop moving. Module
+loading — reading what `import` names rather than only recording its path — belongs
+before S3 closes, because checking the port itself needs it.
 
 Risk: wording is coupled to Rust. Mitigation: one diagnostic family per commit,
 the JSON diff names the differing field.
