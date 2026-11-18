@@ -19,9 +19,10 @@
 // `infix.kode` without importing it.
 
 from "./ast" import Ast
+from "./builtins" import Builtins
 from "./diag" import Diag
 from "./modules" import Alias, Module
-from "./namespace" import alias_diags
+from "./namespace" import alias_diags, surviving
 
 pub class Sema {
     /// Every file the program loads, the entry first, from `modules.kode`.
@@ -39,23 +40,8 @@ pub class Sema {
     decls: [string] = []
     /// Bound names, innermost scope last.
     scopes: [[string]] = []
-    /// The builtin functions, the runtime's free functions, the prelude classes
-    /// and the module names. `std_fns.rs` is the source; this table mirrors it.
-    always: [string] = [
-        "print", "stderr", "len", "bytes", "StringBuilder", "int", "float", "string",
-        "assert", "channel", "send", "recv", "close",
-        "read_file", "write_file", "args", "env", "exit", "sleep", "now_ms", "now_ns",
-        "chr", "exec", "json_parse", "json_null", "json_bool", "json_int", "json_float",
-        "json_string", "json_list", "json_map", "json_encode", "math_sqrt", "math_abs",
-        "math_floor", "math_ceil", "math_round", "math_sin", "math_cos", "math_tan",
-        "math_log", "math_exp", "math_pow", "math_min", "math_max", "http_get",
-        "http_post", "http_request", "pg_connect", "pg_exec", "pg_query", "pg_close",
-        "pg_pool", "pg_pool_close", "pg_pool_connect", "pg_pool_release", "pg_pool_exec",
-        "pg_pool_query", "json_obj", "response_json", "response_text", "response",
-        "ProcessResult", "Request", "Response", "Router", "Error", "Json",
-        "HttpResponse", "JsonKind",
-        "fs", "http", "json", "math", "pg", "time"
-    ]
+    /// The names a program starts with, in their own file (`builtins.kode`).
+    builtins: Builtins = Builtins()
 
     /// Check a loaded program; the caller prints `diags`. Every top-level name of
     /// every file is collected first, because the namespace is program-wide and a
@@ -169,7 +155,7 @@ pub class Sema {
     }
 
     fn is_bound(name: string) -> bool {
-        if globals.contains(name) or always.contains(name) {
+        if globals.contains(name) or builtins.has(name) {
             return true
         }
         i = scopes.len() - 1
@@ -303,9 +289,8 @@ pub class Sema {
     }
 
     /// `mods.f(...)`: a call through a module alias has to name something that module
-    /// exports (`E0411`). The alias is matched by name across the program; two files
-    /// aliasing one name to different modules would only disagree if the name were
-    /// private in both, so the permissive side is taken.
+    /// exports (`E0410`/`E0411`), resolved through the alias that survived, which is
+    /// the first in load order (`namespace.kode`).
     fn visit_method(id: int) {
         callee = ast.attr_text(id, "name")
         kids = ast.nodes[id].kids
@@ -318,27 +303,23 @@ pub class Sema {
     }
 
     fn check_alias(id: int, base: string, callee: string) {
-        known = false
+        alias = surviving(aliases, decls, base)
+        if alias.name == "" {
+            return
+        }
         declared = false
         exported = false
-        for mod in mods {
-            for alias in mod.aliases {
-                if alias.name == base {
-                    known = true
-                    for target in mods {
-                        if target.key == alias.target {
-                            if target.names.contains(callee) {
-                                declared = true
-                            }
-                            if target.exports.contains(callee) {
-                                exported = true
-                            }
-                        }
-                    }
+        for target in mods {
+            if target.key == alias.target {
+                if target.names.contains(callee) {
+                    declared = true
+                }
+                if target.exports.contains(callee) {
+                    exported = true
                 }
             }
         }
-        if not known or exported {
+        if exported {
             return
         }
         span = ast.attr_span_named(id, "name_span")

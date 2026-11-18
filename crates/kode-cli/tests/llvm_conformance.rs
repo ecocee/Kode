@@ -238,7 +238,9 @@ balanced",
         ),
     ];
 
-    let plain = ["bank", "config", "fib", "hello", "pipeline", "report", "tour"];
+    let plain = [
+        "bank", "config", "fib", "hello", "pipeline", "report", "tour",
+    ];
     for name in plain {
         compare(&root().join(format!("examples/{name}.kode")), None, &[]);
     }
@@ -330,10 +332,13 @@ fn compile_fail_diagnostics_match_the_checked_in_codes() {
     files.sort();
     assert!(!files.is_empty(), "no compile-fail programs found");
     for src in files {
-        let expected = std::fs::read_to_string(src.with_extension("err"))
+        let codes: Vec<String> = std::fs::read_to_string(src.with_extension("err"))
             .unwrap_or_else(|_| panic!("{}: missing .err file", src.display()))
-            .trim()
-            .to_string();
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+        assert!(!codes.is_empty(), "{}: empty .err file", src.display());
+        let expected = codes.join(" ");
         let out = Command::new(BIN)
             .args([
                 "check",
@@ -350,11 +355,13 @@ fn compile_fail_diagnostics_match_the_checked_in_codes() {
             "{}: expected {expected} but it compiled",
             src.display()
         );
-        assert!(
-            stdout.contains(&format!("\"code\":\"{expected}\"")),
-            "{}: expected {expected}, got:\n{stdout}",
-            src.display()
-        );
+        for code in &codes {
+            assert!(
+                stdout.contains(&format!("\"code\":\"{code}\"")),
+                "{}: expected {expected}, got:\n{stdout}",
+                src.display()
+            );
+        }
     }
 }
 

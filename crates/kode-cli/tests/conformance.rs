@@ -4,7 +4,8 @@
 //! * `tests/run-pass/name.kode` + `name.out`  -> must run and print exactly `name.out`,
 //!   and must not leak memory (`KODE_LEAK_CHECK=1`).
 //! * `tests/compile-fail/name.kode` + `name.err` -> `kode check --strict --format=json`
-//!   must fail and report the diagnostic code written in `name.err`.
+//!   must fail and report every diagnostic code written in `name.err` (one per line
+//!   or separated by spaces; a case with two codes documents a rule of its own).
 //!
 //! These files, not the Rust code, are the source of truth for the language.
 //! The runtime library is rebuilt automatically before the tests run.
@@ -96,10 +97,13 @@ fn compile_fail() {
     let mut failures = Vec::new();
     for file in &files {
         let name = file.file_stem().unwrap().to_string_lossy().to_string();
-        let code = std::fs::read_to_string(file.with_extension("err"))
+        let codes: Vec<String> = std::fs::read_to_string(file.with_extension("err"))
             .unwrap_or_else(|_| panic!("{name}: missing .err file"))
-            .trim()
-            .to_string();
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+        assert!(!codes.is_empty(), "{name}: empty .err file");
+        let code = codes.join(" ");
         let result = Command::new(kode())
             .args(["check", "--strict", "--format=json"])
             .arg(file)
@@ -108,7 +112,10 @@ fn compile_fail() {
         let stdout = String::from_utf8_lossy(&result.stdout).to_string();
         if result.status.success() {
             failures.push(format!("{name}: expected {code} but it compiled"));
-        } else if !stdout.contains(&format!("\"code\":\"{code}\"")) {
+        } else if codes
+            .iter()
+            .any(|c| !stdout.contains(&format!("\"code\":\"{c}\"")))
+        {
             failures.push(format!("{name}: expected {code}, got\n{stdout}"));
         }
     }

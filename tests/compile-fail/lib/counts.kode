@@ -1,0 +1,1 @@
+pub fn plus_one(n: int) -> int => n + 1

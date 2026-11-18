@@ -25,8 +25,8 @@ pub class Problem {
     err: ParseError
 }
 
-/// One module: the file, its tree, what it exports, and the names other files use to
-/// reach it (`E0411` needs the last two).
+/// One module: the file, its tree, what it declares and what it exports (`E0405` and
+/// `E0411` need the last two).
 pub class Module {
     /// The normalized path, which is how one file is recognized however it is spelled.
     key: string
@@ -38,8 +38,6 @@ pub class Module {
     names: [string] = []
     /// The `pub` top-level names: what `from "./m" import x` and `m.x` may reach.
     exports: [string] = []
-    /// `import "./m" as alias` records that alias here, with the module it names.
-    aliases: [Alias] = []
     /// A module cannot hold top-level code (`E0403`), which is what this notices.
     code: bool = false
 }
@@ -161,7 +159,6 @@ pub class Loader {
                     alias.start = span[0]
                     alias.end = span[1]
                 }
-                module.aliases.add(alias)
                 loaded.aliases.add(alias)
             }
             if kind == "Name" and found.key != "" {

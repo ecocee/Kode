@@ -6,7 +6,9 @@
 // top-level name of every file exists. The list is in load order — the aliases of a
 // file's imports come after the files those imports reach — and the check walks it
 // once, so the *second* of two equal aliases is the one reported, and an alias that
-// hides a function is reported even when a later file repeats it.
+// hides a function is reported even when a later file repeats it. The first alias is
+// the one that survives in `module_index`, which is what a member call resolves
+// through (`surviving`), so the reported duplicate is never the one that is used.
 
 from "./diag" import Diag
 from "./modules" import Alias
@@ -30,4 +32,19 @@ pub fn alias_diags(aliases: [Alias], globals: [string]) -> [Diag] {
         }
     }
     return diags
+}
+
+/// The alias a name resolves through, or an empty one when it resolves through none:
+/// the first in load order, as `module_index` holds it. A duplicate does not take the
+/// place of the first, and a name that hides a declaration is never inserted at all.
+pub fn surviving(aliases: [Alias], decls: [string], name: string) -> Alias {
+    if decls.contains(name) {
+        return Alias(name: "", target: "")
+    }
+    for alias in aliases {
+        if alias.name == name {
+            return alias
+        }
+    }
+    return Alias(name: "", target: "")
 }

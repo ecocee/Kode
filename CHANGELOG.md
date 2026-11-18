@@ -12,9 +12,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
   (`E0408`, "the module name `x` is imported twice") or hide a declaration
   (`E0409`, "the module name `x` hides another declaration", with the oracle's hint).
   The alias list is kept in load order, so the *second* of two equal aliases is the
-  one reported, matching `crates/kode-sema/src/check/item.rs::collect_modules`.
-  `selfhost/diag.kode` now holds the diagnostic record both passes produce. Gate:
-  82 → **84/164**, self-check **29/29**.
+  one reported, matching `crates/kode-sema/src/check/item.rs::collect_modules`, and
+  the first is the one that survives there — a member call resolves through it, so
+  `tests/compile-fail/e0408_duplicate_alias_across_files.kode` proves the order from
+  the outside: its `E0410` only appears when the alias from the imported file is the
+  one in force. A `.err` file may now list several codes (one per line or space
+  separated), which is what lets that case state both, and both conformance suites
+  check each one. `selfhost/diag.kode` holds the diagnostic record both passes
+  produce, and the builtin/std name table moved to `selfhost/builtins.kode`.
+  Gate: 82 → **85/165**, self-check **30/30**.
 
 - **The port's checker loads the module graph.** `selfhost/modules.kode` makes
   `import`/`from` read what they name instead of only recording the path: paths

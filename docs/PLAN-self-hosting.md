@@ -375,15 +375,22 @@ constant, class, enum or interface (`E0409`, "hides another declaration", with t
 oracle's hint to pick another name). The alias list is in load order — the imports of
 a file are listed after the files they reach — so the *second* of two equal aliases is
 the one reported, and an alias that hides a declaration is reported even when a later
-file repeats it. Messages and hint are the oracle's, word for word.
+file repeats it. Messages and hint are the oracle's, word for word. The first alias for
+a name is the one that survives (the oracle's `module_index`), so a member call
+resolves through it: `tests/compile-fail/e0408_duplicate_alias_across_files.kode`
+proves the order from the outside, because its `E0410` can only appear when the alias
+from the imported file — not the entry's duplicate — is the one in force.
+
+The names every program starts with are their own file (`selfhost/builtins.kode`,
+mirrored from `std_fns.rs`), so `sema.kode` (479 lines) has room for the next family.
 
 Why the module graph comes before the other families: the namespace is program-wide,
 so the checker cannot resolve `stmt.kode`'s `BP_ARITH` — a const in `infix.kode` that
 `stmt.kode` does not import — without every file the program loads. `check` now loads
 the graph and checks all of it, and `check_sema` checks the port's own sources as a
-second gate: **self-check 29/29**, every file of the port clean under its own
-checker. Measured: **84 of 164** programs report the expected code set, with the
-split `27` compile-fail exact, `57` run-pass clean, `72` compile-fail with no
+second gate: **self-check 30/30**, every file of the port clean under its own
+checker. Measured: **85 of 165** programs report the expected code set, with the
+split `28` compile-fail exact, `57` run-pass clean, `72` compile-fail with no
 diagnostic yet (the families below), `6` where the port's parse errors still differ
 from the oracle on the wider corpus, and `2` elsewhere.
 

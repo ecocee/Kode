@@ -1,0 +1,8 @@
+// The alias that survives a duplicate is the first in load order: `lib/reaches.kode`
+// reaches `dup` before this file does, so it points at `lib/words.kode` and the
+// duplicate reported below is this line. `shout` is therefore not reachable through
+// `dup` — E0410 names the module the first alias chose.
+import "./lib/reaches"
+import "./lib/words" as dup
+
+print(dup.shout("x"))
