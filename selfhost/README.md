@@ -35,8 +35,10 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `enums.kode` | `enum` declarations with payload variants, and `interface` signatures |
 | `parser.kode` | the program loop: items one per line, each ending where the oracle says a line ends |
 | `literals.kode` | what a literal means: base-2/8/16 ints, floats shaped like `{:?}`, strings split into text and `${...}` holes |
-| `sema.kode` | the checker (S3 slices 1–2): name resolution, `E0201`/`E0206` |
-| `modules.kode` | the module graph: `import`/`from` resolve, load once, and export (`E0401`/`E0402`/`E0411`) |
+| `diag.kode` | one checker diagnostic: code, message, span and the oracle's optional hint |
+| `sema.kode` | the checker (S3): name resolution (`E0201`/`E0206`) and alias members (`E0410`/`E0411`) |
+| `namespace.kode` | the import namespace: a module alias may not repeat (`E0408`) or hide a declaration (`E0409`) |
+| `modules.kode` | the module graph: `import`/`from` resolve, load once, and export (`E0401`/`E0402`/`E0403`/`E0405`/`E0411`), keeping every alias in load order |
 | `main.kode` | the entry point: `kode-stage1 tokens <file>` / `ast <file>` / `check <file>` |
 | `spec/lexer_cases.kode` | escapes, a 4-byte character, a brace inside a hole |
 | `spec/parse/` | the cases `parse` compares tree by tree |

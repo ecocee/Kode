@@ -19,17 +19,9 @@
 // `infix.kode` without importing it.
 
 from "./ast" import Ast
-from "./modules" import Module
-
-/// One diagnostic: the code the oracle uses, what it says, and where.
-pub class Diag {
-    code: string
-    message: string
-    start: int
-    end: int
-    /// The oracle's `= help:` line, when the diagnostic has one.
-    help: string = ""
-}
+from "./diag" import Diag
+from "./modules" import Alias, Module
+from "./namespace" import alias_diags
 
 pub class Sema {
     /// Every file the program loads, the entry first, from `modules.kode`.
@@ -38,9 +30,13 @@ pub class Sema {
     ast: Ast = Ast()
     /// The loaded modules, for what a module alias may reach (`E0411`).
     mods: [Module] = []
+    /// Every `import "..." as n` in the program, in load order (`E0408`/`E0409`).
+    aliases: [Alias] = []
     diags: [Diag] = []
     /// Every top-level name: `fn`, `class`, `enum`, `interface`, `const`, `import`.
     globals: [string] = []
+    /// The declarations alone: what a module alias may not hide (`E0409`).
+    decls: [string] = []
     /// Bound names, innermost scope last.
     scopes: [[string]] = []
     /// The builtin functions, the runtime's free functions, the prelude classes
@@ -70,6 +66,11 @@ pub class Sema {
             ast = one
             collect_globals()
         }
+        // An alias is a program-wide name, so its rules run once every file's
+        // declarations exist (`namespace.kode`).
+        for diag in alias_diags(aliases, decls) {
+            diags.add(diag)
+        }
         scopes.add([])
         for one in asts {
             ast = one
@@ -93,6 +94,7 @@ pub class Sema {
             kind = ast.nodes[id].kind
             if kind == "Fn" or kind == "Class" or kind == "Enum" or kind == "Interface" or kind == "Const" {
                 globals.add(ast.attr_text(id, "name"))
+                decls.add(ast.attr_text(id, "name"))
             }
             if kind == "Import" {
                 for kid in ast.nodes[id].kids {

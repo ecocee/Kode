@@ -47,12 +47,18 @@ pub class Module {
 pub class Alias {
     name: string
     target: string
+    /// The alias token's extent, which is where `E0408` and `E0409` point.
+    start: int = 0
+    end: int = 0
 }
 
 pub class Loaded {
     /// Every file read, the entry first, in the order the imports reach them.
     asts: [Ast] = []
     modules: [Module] = []
+    /// Every alias in the program, in load order: a file's imports are listed after
+    /// the files they reach, which is the order the oracle's `st.modules` has.
+    aliases: [Alias] = []
     problems: [Problem] = []
 }
 
@@ -149,7 +155,14 @@ pub class Loader {
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
             if kind == "Alias" {
-                module.aliases.add(Alias(name: ast.attr_text(kid, "name"), target: target))
+                alias = Alias(name: ast.attr_text(kid, "name"), target: target)
+                span = ast.attr_span_named(kid, "span")
+                if span.len() == 2 {
+                    alias.start = span[0]
+                    alias.end = span[1]
+                }
+                module.aliases.add(alias)
+                loaded.aliases.add(alias)
             }
             if kind == "Name" and found.key != "" {
                 name = ast.attr_text(kid, "name")

@@ -67,7 +67,7 @@ if command == "check" {
         }
         exit(1)
     }
-    checker = Sema(asts: graph.asts, mods: graph.modules)
+    checker = Sema(asts: graph.asts, mods: graph.modules, aliases: graph.aliases)
     checker.run()
     if checker.diags.len() > 0 {
         for diag in checker.diags {

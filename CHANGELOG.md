@@ -7,6 +7,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's import namespace is complete.** `selfhost/namespace.kode` adds the two
+  alias rules the oracle keeps in the checker: a module alias may not repeat
+  (`E0408`, "the module name `x` is imported twice") or hide a declaration
+  (`E0409`, "the module name `x` hides another declaration", with the oracle's hint).
+  The alias list is kept in load order, so the *second* of two equal aliases is the
+  one reported, matching `crates/kode-sema/src/check/item.rs::collect_modules`.
+  `selfhost/diag.kode` now holds the diagnostic record both passes produce. Gate:
+  82 → **84/164**, self-check **29/29**.
+
 - **The port's checker loads the module graph.** `selfhost/modules.kode` makes
   `import`/`from` read what they name instead of only recording the path: paths
   resolve relative to the file that wrote them (a bare path against the package root

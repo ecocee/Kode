@@ -1,0 +1,13 @@
+// One checker diagnostic: the code the oracle uses, what it says, and where.
+//
+// Both the checker (`sema.kode`) and the import namespace rules (`namespace.kode`)
+// produce these, so the record lives on its own rather than in either.
+
+pub class Diag {
+    code: string
+    message: string
+    start: int
+    end: int
+    /// The oracle's `= help:` line, when the diagnostic has one.
+    help: string = ""
+}

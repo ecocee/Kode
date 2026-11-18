@@ -1,0 +1,33 @@
+// The import namespace family: a module alias is a qualifier in the one shared
+// namespace, so it may not repeat (`E0408`) or hide a declaration (`E0409`).
+//
+// The oracle records an alias while it loads a file and checks the list from the
+// checker (`crates/kode-sema/src/check/item.rs::collect_modules`), once every
+// top-level name of every file exists. The list is in load order — the aliases of a
+// file's imports come after the files those imports reach — and the check walks it
+// once, so the *second* of two equal aliases is the one reported, and an alias that
+// hides a function is reported even when a later file repeats it.
+
+from "./diag" import Diag
+from "./modules" import Alias
+
+/// The diagnostics for every `import "..." as n` in the program, in load order.
+pub fn alias_diags(aliases: [Alias], globals: [string]) -> [Diag] {
+    diags: [Diag] = []
+    seen: [string] = []
+    for alias in aliases {
+        if seen.contains(alias.name) {
+            diags.add(Diag(code: "E0408",
+                    message: "the module name `${alias.name}` is imported twice",
+                    start: alias.start, end: alias.end))
+        } else if globals.contains(alias.name) {
+            diags.add(Diag(code: "E0409",
+                    message: "the module name `${alias.name}` hides another declaration",
+                    start: alias.start, end: alias.end,
+                    help: "choose another name, for example `import \"...\" as pkg`"))
+        } else {
+            seen.add(alias.name)
+        }
+    }
+    return diags
+}

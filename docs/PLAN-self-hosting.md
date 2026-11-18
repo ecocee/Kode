@@ -365,24 +365,31 @@ root's (`kode.toml`: `root = "lib"`), which is what makes
 declared (`E0405`) and `pub` (`E0411`, "does not export"), and a call through an
 alias must be a declared (`E0410`, "has no method") `pub` top-level (`E0411`, "is
 private to module"). Loader diagnostics render through `report.kode`, so they are
-byte-identical to the oracle's, snippet and help included. Two rules of the import
-namespace are still missing — `E0408` (a duplicate alias) and `E0409` (an alias that
-clashes with a declaration) — and no dependency's source root is resolved, because
-nothing on the path reads a dependency yet.
+byte-identical to the oracle's, snippet and help included. No dependency's source
+root is resolved, because nothing on the path reads a dependency yet.
+
+**Slice 3 is in: the import namespace.** `selfhost/namespace.kode` closes the family
+the oracle keeps in the checker (`collect_modules`): a module alias is a program-wide
+name, so it may not repeat (`E0408`, "is imported twice") or hide a function,
+constant, class, enum or interface (`E0409`, "hides another declaration", with the
+oracle's hint to pick another name). The alias list is in load order — the imports of
+a file are listed after the files they reach — so the *second* of two equal aliases is
+the one reported, and an alias that hides a declaration is reported even when a later
+file repeats it. Messages and hint are the oracle's, word for word.
 
 Why the module graph comes before the other families: the namespace is program-wide,
 so the checker cannot resolve `stmt.kode`'s `BP_ARITH` — a const in `infix.kode` that
 `stmt.kode` does not import — without every file the program loads. `check` now loads
 the graph and checks all of it, and `check_sema` checks the port's own sources as a
-second gate: **self-check 27/27**, every file of the port clean under its own
-checker. Measured: **82 of 164** programs report the expected code set, with the
-split `25` compile-fail exact, `57` run-pass clean, `74` compile-fail with no
+second gate: **self-check 29/29**, every file of the port clean under its own
+checker. Measured: **84 of 164** programs report the expected code set, with the
+split `27` compile-fail exact, `57` run-pass clean, `72` compile-fail with no
 diagnostic yet (the families below), `6` where the port's parse errors still differ
 from the oracle on the wider corpus, and `2` elsewhere.
 
-The one checker diagnostic that still prints without a location is the alias-member
-`E0411`: `E0201`/`E0206` render message-only until the spans and messages slice
-lands, and that one follows them.
+The checker diagnostics that still print without a location are `E0201`/`E0206` and
+`E0408`/`E0409`, plus the alias-member `E0410`/`E0411`: they render message and help
+only until the spans and messages slice lands.
 
 Next families, each one commit: types (resolution already gives the scope for it),
 then arguments and the `E0208`/`E0210` family, then item signatures and generics,
