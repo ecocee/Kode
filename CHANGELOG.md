@@ -91,6 +91,19 @@ language: a patch release fixes bugs, a minor release may add syntax.
   `selfhost/spec/parse/catch_expr.kode`, and `parse` is still **22/22 trees
   byte-identical**.
 
+- **Compound assignment in the port's parser (S2 slice 13).** `x += 1` and the other
+  ten operators now parse, and so do `xs[0] = 1`, `m["k"] += 2` and `obj.a.b = 3`: the
+  left side is parsed as an expression and then turned into a `TargetVar`,
+  `TargetIndex` or `TargetField`, with `obj?.name = 1` reported as `E0112`. The parsed
+  expression stays counted (the oracle's `expr_count`) and becomes the left side of the
+  `Binary` for `op=`, so `x += 1` dumps an `Assign` around a `Binary`. Assignments moved
+  to `selfhost/assign.kode`. Parsing the port's own source also found `""` dumped as an
+  empty `Interp` instead of `Str value=""`, now fixed. New cases `assign_targets`,
+  `empty_string` and `e0112_optional_target`.
+- **The port parses its own source.** With the above, `kode-stage1 ast` is
+  byte-identical to `kode ast` on all 25 files of `selfhost/`, and `./scripts/selfhost.sh
+  parse` checks it every run (`self-parse: 25/25`) next to **51/51** cases.
+
 - **The port's arena carries its parent edges (S2 slice 12).** Every node has
   `parent: int?`, set when it is attached, so a later pass can climb from a node to the
   statement that holds it without another tree or reverse edges; the child edge stays

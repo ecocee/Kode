@@ -6,7 +6,7 @@
 #   ./scripts/selfhost.sh stage1     compile the port and compare it with Stage 0
 #   ./scripts/selfhost.sh stage2     Stage 1 compiles itself; compare with Stage 1
 #   ./scripts/selfhost.sh compare    diff the dumps that already exist
-#   ./scripts/selfhost.sh parse      the S2 subset: tree dumps and diagnostics, case by case
+#   ./scripts/selfhost.sh parse      the S2 subset and the port's own source, case by case
 #   ./scripts/selfhost.sh gates      every work packet: target declared vs today
 #   ./scripts/selfhost.sh readiness  the readiness level reached, and what is next
 #   ./scripts/selfhost.sh all        Stage 0, Stage 1, then the work packets
@@ -116,7 +116,21 @@ check_parse() {
         return 2
     fi
     echo "  parse cases: $((total - bad))/$total trees and diagnostics byte-identical"
-    [[ "$bad" -eq 0 ]]
+    # Then the port's own source: the strongest case there is, because every file in
+    # `selfhost/` is a program the compiler already builds.
+    local own=0 ownbad=0
+    while IFS= read -r file; do
+        own=$((own + 1))
+        "$STAGE0" ast "$file" >"$out/expected.txt" 2>"$out/expected.err"
+        "$STAGE1" ast "$file" >"$out/actual.txt" 2>"$out/actual.err"
+        if ! diff -u "$out/expected.txt" "$out/actual.txt" >"$out/diff.txt"; then
+            ownbad=$((ownbad + 1))
+            echo "  $(basename "$file"): own-source tree differs"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        fi
+    done < <(find "$ROOT/selfhost" -maxdepth 1 -name '*.kode' -type f | LC_ALL=C sort)
+    echo "  self-parse: $((own - ownbad))/$own of the port's own files tree-identical"
+    [[ "$bad" -eq 0 && "$ownbad" -eq 0 ]]
 }
 
 # The level reached (PLAN-self-hosting.md §2), from the artefacts on disk and the

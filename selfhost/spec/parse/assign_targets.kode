@@ -1,0 +1,28 @@
+x = 1
+x += 1
+x -= 2
+x *= 3
+x /= 4
+x %= 5
+x &= 6
+x |= 7
+x ^= 8
+x <<= 9
+x >>= 10
+xs[0] = 1
+xs[1] += 2
+m["k"] = 3
+m["k"] += 4
+obj.name = 5
+obj.name += 6
+obj.name.deep = 7
+obj.inner.name *= 8
+xs[0][1] += 2
+row = xs[0]
+row.value = 9
+call(x).name = 10
+fn bump(total: int) -> int {
+    total += 1
+    total <<= 2
+    return total
+}

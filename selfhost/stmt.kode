@@ -7,19 +7,23 @@
 //
 // The expression grammar lives in `expr.kode`; items (`fn`) live in `parser.kode`.
 
+from "./assign" import Assigns
 from "./ast" import Ast
 from "./contracts" import Blocks
 from "./cursor" import Cursor
 from "./expr" import Exprs
 from "./matches" import Matches
 from "./tokens" import TokenKind, starts_value
-from "./types" import Types
 
 pub class Stmts implements Blocks {
     c: Cursor
     ast: Ast
 
     /// The expression parser over the same cursor, arena and error list.
+    fn assigns() -> Assigns {
+        return Assigns(c: c, ast: ast, exprs: ex())
+    }
+
     fn matches() -> Matches {
         return Matches(c: c, ast: ast, blocks: Stmts(c: c, ast: ast), exprs: ex())
     }
@@ -80,104 +84,15 @@ pub class Stmts implements Blocks {
             ast.span(id, "span", c.token_start(token), c.token_end(token))
             return id
         }
-        if kind == TokenKind.Ident and c.peek_at(1) == TokenKind.Assign {
-            return assign()
-        }
         if kind == TokenKind.Ident and c.peek_at(1) == TokenKind.Colon {
-            return typed_decl()
+            return assigns().typed_decl()
         }
         if starts_value(kind) {
-            return expression_stmt()
+            return assigns().expr_or_assign()
         }
         // Everything else is reported by the expression parser, so a stray `}` or
         // `)` gets the same message the oracle gives it.
-        return expression_stmt()
-    }
-
-    /// `x: int = 5`: a declaration that is also an assignment. The type node sits
-    /// between the target and the value, which is where the oracle dumps it, and the
-    /// statement still spans from the name to the value.
-    fn typed_decl() -> int {
-        name_at = c.at
-        c.advance()
-        c.advance()
-        id = ast.add("Assign")
-        // The oracle reuses the id of the name it already parsed for `x = 1`, so that
-        // count stays; a declaration never made one, so this target is not counted.
-        target = ast.add("TargetVar")
-        ast.text(target, "name", c.text_of(name_at))
-        ast.span(target, "span", c.token_start(name_at), c.token_end(name_at))
-        ast.kid(id, target)
-        ty = Types(c: c, ast: ast).type_ann()
-        if ty >= 0 {
-            ast.kid(id, ty)
-        }
-        if c.peek() != TokenKind.Assign {
-            c.fail(
-                "E0107",
-                "expected `=` after the type, found ${c.describe(c.at)}",
-                c.token_start(c.at),
-                c.token_end(c.at),
-                "write it like `count: int = 0`",
-            )
-            c.recover_line()
-            return -1
-        }
-        c.advance()
-        c.skip_newlines()
-        value = ex().expr()
-        if value >= 0 {
-            ast.kid(id, value)
-            ast.span(id, "span", c.token_start(name_at), ast.nodes[value].end)
-        } else {
-            ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
-        }
-        return id
-    }
-
-    /// `x = 1`: the target is a `TargetVar`, its span the name's, and the whole
-    /// statement spans the target and the value.
-    fn assign() -> int {
-        name_at = c.at
-        c.advance()
-        c.advance()
-        // `x =` and the value on the next line is one assignment.
-        c.skip_newlines()
-        value = ex().expr()
-        id = ast.add("Assign")
-        target = ast.counted("TargetVar")
-        ast.text(target, "name", c.text_of(name_at))
-        ast.span(target, "span", c.token_start(name_at), c.token_end(name_at))
-        ast.kid(id, target)
-        if value >= 0 {
-            ast.kid(id, value)
-            // `x = (1)` ends where the `1` ends, not where the `)` is.
-            ast.span(id, "span", c.token_start(name_at), ast.nodes[value].end)
-        } else {
-            ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
-        }
-        return id
-    }
-
-    /// `print(x)`, `xs.add(1)`: an expression statement.
-    fn expression_stmt() -> int {
-        value = ex().expr()
-        if value >= 0 and c.peek() == TokenKind.Assign {
-            c.fail(
-                "E0112",
-                "this cannot be assigned to",
-                ast.nodes[value].start,
-                ast.nodes[value].end,
-                "assign to a variable, a list item `xs[0]`, a map item `m[\"k\"]` or a field `obj.name`",
-            )
-            c.recover_line()
-            return -1
-        }
-        stmt = ast.add("ExprStmt")
-        if value >= 0 {
-            ast.kid(stmt, value)
-        }
-        return stmt
+        return assigns().expr_or_assign()
     }
 
     /// The block parser over another cursor, for a `catch` body inside an

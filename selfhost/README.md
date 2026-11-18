@@ -27,7 +27,8 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `expr.kode` | expressions: prefix (including `spawn`), postfix chains, `??`, `is`, `catch`, `[lists]`, `{maps}` |
 | `closures.kode` | `\|x: int\| x * 2` and `await expr` |
 | `interp.kode` | interpolated strings and the holes they re-lex |
-| `stmt.kode` | statements: `name = value`, `name: Type = value`, an expression on its own line, blocks, `if`/`while`/`for`, `try`/`throw`, `break`/`continue`, `return` |
+| `stmt.kode` | statements: blocks, `if`/`while`/`for`, `try`/`throw`, `break`/`continue`, `return`, and the dispatch to expressions and assignments |
+| `assign.kode` | assignments: `name = value`, `name: Type = value`, the eleven compound operators, and the `TargetVar`/`TargetIndex`/`TargetField` built from the left side |
 | `matches.kode` | `match` statements and their arms, which reach statements and expressions through `contracts.kode` |
 | `types.kode` | type annotations (`T`, `[T]`, `{string: T}`, `Box<T>`, `T?`) and `Param` nodes |
 | `decls.kode` | items: `pub`/`fn`, `class`, `const` and `import` |

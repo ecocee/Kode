@@ -284,11 +284,28 @@ its `parse-errors` case. That pushed `stmt.kode` over the size rule, so `match`
 statements moved to `matches.kode` behind a `Blocks` interface that now offers
 `statement()` for a single-statement arm.
 
-27 tree cases, 21 diagnostic cases, 48/48 byte-identical. Not yet, and both measured
-by trying to parse the port's own source: compound assignment (`total += i`) and a
-closure type in an annotation (`cb: |n: int| int`) are still unparsed, which is why
-`kode-stage1 ast selfhost/stmt.kode` fails today. Each is a small grammar addition
-with its own cases.
+Slice 13 closes the first of those: compound assignment. The left side is parsed as a
+whole expression and only then turned into a target — `Ident` to `TargetVar`, `Index`
+to `TargetIndex`, `Member` to `TargetField` (never a `?.`, which is `E0112`) — which is
+what makes `xs[0] = 1` and `obj.name += 2` work at all; the port had only ever
+accepted `name = value`. The parsed expression stays in the arena, because the
+oracle's `expr_count` still counts it, and for `op=` it is also the left side of the
+`Binary` that becomes the value, so `x += 1` dumps `Assign(TargetVar,
+Binary(Ident, Int))`. A `TargetIndex` shares the `Index` node's children, which the
+dump prints twice. Assignments moved to `assign.kode` to keep `stmt.kode` the
+dispatch.
+
+The new `assign_targets` case covers all eleven operators plus index, map, field and
+nested targets, and `parse-errors/e0112_optional_target.kode` pins `obj?.name += 1`.
+Parsing the port's own source then exposed one unrelated dump bug: `""` was an
+`Interp` with no parts where the oracle has `Str value=""`, fixed in `interp.kode`
+with `empty_string.kode` as its case.
+
+With that, **the port parses all 25 of its own files tree-identically**, and `parse`
+now checks that on every run (`self-parse: 25/25`). 29 tree cases, 22 diagnostic
+cases, 51/51 byte-identical.
+
+Not yet: a closure type in an annotation (`cb: |n: int| int`) is still unparsed.
 
 Risk: this is where a missing language feature becomes duplication. Stop and
 report rather than invent a workaround.

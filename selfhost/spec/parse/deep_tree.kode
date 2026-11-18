@@ -9,7 +9,7 @@ class Box<T> implements Sized {
     fn describe(label: string) -> string {
         total: int = 0
         for i in 0..self.count {
-            total = total + i
+            total += i
         }
         return "${label}: ${total} ${self.get()}"
     }

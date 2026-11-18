@@ -24,9 +24,20 @@ pub class Interp {
         body_from = c.token_start(token) + 1
         body_to = c.token_end(token) - 1
         parts = string_parts(c.src, body_from, body_to)
-        if parts.len() == 1 and not parts[0].is_hole {
+        // `""` has no parts at all, and `"a"` has one literal: both are a plain `Str`.
+        plain = true
+        for part in parts {
+            if part.is_hole {
+                plain = false
+            }
+        }
+        if plain {
+            text = ""
+            for part in parts {
+                text += part.lit
+            }
             id = ast.counted("Str")
-            ast.text(id, "value", parts[0].lit)
+            ast.text(id, "value", text)
             ast.span(id, "span", c.token_start(token), c.token_end(token))
             return id
         }
