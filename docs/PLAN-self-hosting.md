@@ -105,7 +105,10 @@ WP-09 is met: `StringBuilder` is what S5 writes IR text through, and the gain is
 measured in `benchmarks/report.md` (185.2 ms → 5.2 ms on 8,000 lines of text).
 WP-10 is met too: `stderr(...)` takes `print`'s arguments on the diagnostic
 stream, so the port no longer opens `/dev/stderr` (ADR 0045). What is left in R2
-is the two deferred packets, not a blocker the port is waiting on.
+is the two deferred packets, not a blocker the port is waiting on: `readiness`
+counts them apart, names the next packet in build order, and, when nothing on the
+path is blocked, points at S3 and records that WP-12 (process streaming) stays
+until S5.
 
 Each packet lands with: its probe turning `met`, a `tests/run-pass/` program with
 `.out` (or a `tests/compile-fail/` pair for guard cases), the codes it needs in
@@ -312,7 +315,19 @@ With that, **the port parses all 25 of its own files tree-identically**, and `pa
 now checks that on every run (`self-parse: 25/25`). 29 tree cases, 22 diagnostic
 cases, 51/51 byte-identical.
 
-Not yet: a closure type in an annotation (`cb: |n: int| int`) is still unparsed.
+Slice 14 closes the type grammar. `fn(int) -> int` was the one annotation the port
+could not parse; the `|n: int| int` spelling written down here before is not Kode
+syntax at all — the language spells a function type `fn(int) -> int`, as
+`docs/spec/05-functions.md` has all along, so this was a port gap and not a missing
+language feature. The `TypeFn` node spans only the `fn` keyword and holds its
+parameter types, then its return type, which is also why `fn(int) -> int?` puts the
+optional on the return. `Task<T>` and `Channel<T>` dump as their own kinds instead
+of a generic named `Task`. Parsing the corpus's own malformed annotations also
+showed three wrong diagnostics: a missing `]`, `}`, `>` or `->` is `E0103` over the
+token found (the port said `E0102` in its own words), and a map key that is not
+`string` is `E0115` over the key's first token, which the port did not check at
+all. With that, 30 tree cases and 24 diagnostic cases are byte-identical — 54/54 —
+and self-parse is still 25/25.
 
 Risk: this is where a missing language feature becomes duplication. Stop and
 report rather than invent a workaround.

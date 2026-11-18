@@ -7,6 +7,18 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Function types in annotations (S2 slice 14).** The port parses the whole type
+  grammar now, `fn(int) -> int` included (in a parameter, a field, a local, a return
+  type, nested, zero-argument, after `?`), and `Task<T>`/`Channel<T>` dump as their
+  own kinds instead of a generic named `Task`. Malformed annotations also match the
+  oracle: a missing `]`, `}`, `>` or `->` is `E0103` over the token found (the port
+  had been saying `E0102` in its own words) and a map key that is not `string` is
+  `E0115`, which the port had not checked at all. `selfhost/spec/parse` is 30 tree
+  cases and 24 diagnostic cases, **54/54 byte-identical**, self-parse 25/25.
+  `./scripts/selfhost.sh readiness` also counts deferred packets apart and, with
+  nothing on the path blocked, names S3 as next and records that WP-12 stays until
+  S5 instead of pointing at the deliberately red WP-07.
+
 - **`stderr(...)` (WP-10, ADR 0045).** The same arguments and formatting as
   `print`, written to stderr: variadic, space-separated, one line per call, with
   the existing `E0203`/`E0205` rules. The port now reports diagnostics with

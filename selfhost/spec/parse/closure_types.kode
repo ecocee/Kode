@@ -1,0 +1,28 @@
+// Function types in annotations (WP-10 follow-on): `fn(int) -> int` in a
+// parameter, a field, a local, a return type, nested, with no arguments, inside
+// a list and a map, with an optional return, and next to `Task<T>`/`Channel<T>`.
+fn apply(cb: fn(int) -> int, x: int) -> int {
+    return cb(x)
+}
+
+class Holder {
+    cb: fn(int) -> int
+    many: [fn(int) -> int]
+}
+
+fn nested(cb: fn(fn(int) -> int) -> [int]) -> fn(int, string) -> bool {
+    return cb
+}
+
+fn empty(f: fn() -> int) -> fn() -> int {
+    return f
+}
+
+fn run() {
+    h = Holder()
+    local: fn(int) -> string = none
+    tasks: [Task<int>] = []
+    ch: Channel<string> = channel()
+    maybe: fn(int) -> int? = none
+    both: {string: fn(int) -> int} = {}
+}

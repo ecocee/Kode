@@ -30,7 +30,7 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `stmt.kode` | statements: blocks, `if`/`while`/`for`, `try`/`throw`, `break`/`continue`, `return`, and the dispatch to expressions and assignments |
 | `assign.kode` | assignments: `name = value`, `name: Type = value`, the eleven compound operators, and the `TargetVar`/`TargetIndex`/`TargetField` built from the left side |
 | `matches.kode` | `match` statements and their arms, which reach statements and expressions through `contracts.kode` |
-| `types.kode` | type annotations (`T`, `[T]`, `{string: T}`, `Box<T>`, `T?`) and `Param` nodes |
+| `types.kode` | type annotations (`T`, `[T]`, `{string: T}`, `Box<T>`, `Task<T>`, `Channel<T>`, `fn(int) -> int`, `T?`) and `Param` nodes |
 | `decls.kode` | items: `pub`/`fn`, `class`, `const` and `import` |
 | `enums.kode` | `enum` declarations with payload variants, and `interface` signatures |
 | `parser.kode` | the program loop: items one per line, each ending where the oracle says a line ends |

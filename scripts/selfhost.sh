@@ -148,9 +148,23 @@ readiness() {
         echo "  R1 lexer: missing - run ./scripts/selfhost.sh stage1"
     fi
     check_gates || true
-    local blocked next
+    local blocked next deferred onpath packet
     blocked="$(awk -F'\t' '$5 == "blocked"' "$OUT/gates.txt" | wc -l | tr -d ' ')"
-    echo "  R2 language: $blocked work packet(s) blocked"
+    # A deferred packet is red on purpose, so it is counted apart from the
+    # packets the port is actually waiting on.
+    deferred=0
+    for packet in "${DEFERRED[@]}"; do
+        if awk -F'\t' -v p="$packet" '$1 == p && $5 == "blocked" {found = 1} END {exit !found}' \
+            "$OUT/gates.txt"; then
+            deferred=$((deferred + 1))
+        fi
+    done
+    onpath=$((blocked - deferred))
+    if [[ "$onpath" -eq 0 ]]; then
+        echo "  R2 language: every packet on the path is met, $deferred deferred (${DEFERRED[*]})"
+    else
+        echo "  R2 language: $onpath work packet(s) blocked on the path, $deferred deferred"
+    fi
     if [[ -d "$OUT/dumps/stage2" ]]; then
         echo "  R3 parser: present"
     elif [[ -d "$ROOT/selfhost/spec/parse" ]]; then
@@ -160,11 +174,12 @@ readiness() {
     fi
     {
         echo "gates_blocked=$blocked"
+        echo "gates_blocked_on_path=$onpath"
+        echo "gates_deferred=$deferred"
         awk -F'\t' '$5 == "blocked" {printf "blocked=%s %s (target %s, today %s)\n", $1, $2, $3, $4}' \
             "$OUT/gates.txt"
     } >"$OUT/readiness.txt"
     next=""
-    local packet
     for packet in "${PACKET_ORDER[@]}"; do
         if [[ " ${DEFERRED[*]} " == *" $packet "* ]]; then
             continue
@@ -175,12 +190,17 @@ readiness() {
             break
         fi
     done
-    # A packet added to the probes but not yet to the order still gets named.
-    [[ -n "$next" ]] || next="$(awk -F'\t' '$5 == "blocked" {print $1; exit}' "$OUT/gates.txt")"
+    # A packet added to the probes but not yet to the order still gets named,
+    # unless the plan defers it.
+    if [[ -z "$next" ]]; then
+        next="$(awk -F'\t' -v skip=" ${DEFERRED[*]} " \
+            'index(skip, " " $1 " ") == 0 && $5 == "blocked" {print $1; exit}' "$OUT/gates.txt")"
+    fi
     if [[ -n "$next" ]]; then
         echo "  next: $next (docs/PLAN-self-hosting.md §3)"
     else
-        echo "  next: S2 parser (R3) - every work packet is met"
+        echo "  next: S3 checker (R4) - every work packet on the path is met"
+        echo "  WP-12 process streaming stays until S5 (docs/PLAN-self-hosting.md §3)"
     fi
 }
 
