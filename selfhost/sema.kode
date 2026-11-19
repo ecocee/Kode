@@ -22,8 +22,9 @@ from "./annotations" import resolve_ann
 from "./ast" import Ast, is_type_node
 from "./binding" import bound_local
 from "./builtins" import Builtins
+from "./containers" import check_condition, check_expression, check_index_target, open_for_in
 from "./diag" import Diag, diag, diag_help
-from "./functions" import check_call, check_expr_body, check_method_call, check_paths, check_return
+from "./functions" import call_fails, check_call, check_expr_body, check_method_call, check_paths, check_return
 from "./items" import pop_type_params, setup_class, setup_fn
 from "./modules" import Alias, Module
 from "./names" import Names, collect
@@ -32,7 +33,7 @@ from "./operands" import check_operator, check_print
 from "./patterns" import bind_arm_names
 from "./scope" import Scope
 from "./signatures" import SigTable, Signature, collect_signatures
-from "./typing" import type_any
+from "./typing" import type_any, type_prim
 
 pub class Sema {
     /// Every file the program loads, the entry first, from `modules.kode`.
@@ -211,6 +212,10 @@ pub class Sema {
             visit_while(id)
             return
         }
+        if kind == "If" {
+            visit_if(id)
+            return
+        }
         if kind == "Try" {
             visit_try(id)
             return
@@ -244,6 +249,9 @@ pub class Sema {
         if kind == "Binary" or kind == "Unary" {
             check_operator(ast, scopes.frames, names, diags, id)
         }
+        if kind == "Index" or kind == "Slice" or kind == "List" or kind == "Map" {
+            check_expression(ast, scopes.frames, names, diags, id)
+        }
         for kid in ast.nodes[id].kids {
             visit(kid)
         }
@@ -276,13 +284,20 @@ pub class Sema {
             // A call the checker refuses declares nothing, so the next line's use of
             // the name is unknown — the oracle's rule (and what makes
             // `e0208_generic_mismatch` report `E0201`).
-            if not value_fails(kids) {
+            value = -1
+            if kids.len() >= 2 {
+                value = kids[kids.len() - 1]
+            }
+            if not call_fails(ast, scopes.frames, names, sigs, value) {
                 one = bound_local(ast, scopes.frames, names, diags, id, target)
                 if one.name != "" {
                     scopes.declare(one.name, one.ty)
                 }
             }
         } else {
+            if ast.nodes[target].kind == "TargetIndex" {
+                check_index_target(ast, scopes.frames, names, diags, target)
+            }
             visit(target)
         }
         i = 1
@@ -292,30 +307,6 @@ pub class Sema {
             }
             i += 1
         }
-    }
-
-    /// Would the assignment's value be a call the checker refuses? Asked before the
-    /// name is declared, with a scratch list so the call is reported once, later, by
-    /// `visit_call`.
-    ///
-    /// Only a function the program declares can refuse this way. A builtin still gives
-    /// its result (`b = bytes("four")` binds a buffer and the oracle only reports the
-    /// argument), and so does a class constructor (`a = A()` still makes an `A`).
-    fn value_fails(kids: [int]) -> bool {
-        if kids.len() < 2 {
-            return false
-        }
-        value = kids[kids.len() - 1]
-        if ast.nodes[value].kind != "Call" {
-            return false
-        }
-        sig = sigs.find(ast.attr_text(value, "callee"))
-        if sig.name == "" or sig.is_ctor {
-            return false
-        }
-        scratch: [Diag] = []
-        check_call(ast, scopes.frames, names, sigs, scratch, value)
-        return scratch.len() > 0
     }
 
     fn visit_call(id: int) {
@@ -377,7 +368,8 @@ pub class Sema {
     /// `for i in 0..3`: the variable is an attribute.
     fn visit_for(id: int) {
         scopes.push()
-        scopes.declare(ast.attr_text(id, "var"), type_any())
+        // `for i in 0..n` counts, so its variable is an int.
+        scopes.declare(ast.attr_text(id, "var"), type_prim("int"))
         loops += 1
         for kid in ast.nodes[id].kids {
             visit(kid)
@@ -388,12 +380,7 @@ pub class Sema {
 
     /// `for i, v in xs`: the variables are `Var` children, the body a block.
     fn visit_for_in(id: int) {
-        scopes.push()
-        for kid in ast.nodes[id].kids {
-            if ast.nodes[kid].kind == "Var" {
-                scopes.declare(ast.attr_text(kid, "name"), type_any())
-            }
-        }
+        open_for_in(ast, scopes, names, diags, id)
         loops += 1
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
@@ -405,8 +392,27 @@ pub class Sema {
         scopes.pop()
     }
 
+    /// `if cond { } else { }`: the condition is a bool, and an `else if` is another `If`
+    /// inside the `Else`, so it is checked the same way.
+    fn visit_if(id: int) {
+        kids = ast.nodes[id].kids
+        if kids.len() > 0 {
+            kind = ast.nodes[kids[0]].kind
+            if kind != "Then" and kind != "Else" {
+                check_condition(ast, scopes.frames, names, diags, kids[0], "`if`")
+            }
+        }
+        for kid in kids {
+            visit(kid)
+        }
+    }
+
     /// `while cond { }`: a loop, so `break` and `continue` work inside it.
     fn visit_while(id: int) {
+        kids = ast.nodes[id].kids
+        if kids.len() > 0 {
+            check_condition(ast, scopes.frames, names, diags, kids[0], "`while`")
+        }
         loops += 1
         for kid in ast.nodes[id].kids {
             visit(kid)

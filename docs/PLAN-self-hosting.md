@@ -488,6 +488,24 @@ the new rules (`e0203_print_process_result`, `e0205_print_nothing`,
 `e0203_print_optional_string` and the run-pass `optional_scalar_print`, which prints a
 `none` `int?`, a `float?` and a `bool?`).
 
+**Slice 9 is in: containers and conditions.** `selfhost/containers.kode` holds the rules
+whose subject is a value's shape. A condition that is not a bool is `E0209` (the oracle's
+`if` and `while` wording; an `else if` is another `If` inside the `Else`, so it is checked
+by the same rule). Indexing is `E0211`/`E0212`: a list index is an int, a map key a string,
+a `Json` value either, and everything else cannot be indexed at all — with the target form
+saying why a `Json` value cannot be changed in place. A slice reads its bounds first (a bad
+bound on a map is the bound's error alone) and then wants a list. A list or map literal
+holds one type, `E0213`, and cannot hold `none` or nothing; a literal the checker refuses
+declares no name, so the next line is `E0201` (`e0213_mixed_list`). `for ... in` over
+anything but a list or a map is `E0214`, and the loop now binds the item (or the index and
+the item), the key (or the key and the value) with the types they really have.
+`selfhost/typing.kode` answers what an `Index` or `Slice` is worth and what a loop binds,
+without reporting; `containers.kode` makes the same decision out loud. Two things it
+needed: `none` fits only an optional (so `[1, none]` is `E0213`), and an enum prints, so a
+loop over `[Color]` is silent. The gate after it is **138/169** with **self-check
+44/44**. `sema.kode` stayed under 500 lines by moving the call-fails question to
+`functions.call_fails` and the loop's binding to `containers.open_for_in`.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that

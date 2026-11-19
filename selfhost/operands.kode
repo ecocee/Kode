@@ -172,6 +172,11 @@ fn check_print_value(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], i
         diag(ast, diags, "E0205", "this call returns nothing, so there is nothing to print", id)
         return
     }
+    // An enum prints as its variant name; one whose payload is not printable is
+    // `E0203`'s other form, with a different message, and is a later slice.
+    if t.kind == "named" and names.enums.contains(t.name) {
+        return
+    }
     if type_printable(t) {
         return
     }

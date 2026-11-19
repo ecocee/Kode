@@ -57,6 +57,12 @@ pub fn free_fn(name: string) -> StdSig {
     if name == "chr" {
         return StdSig(name: name, params: ["int"], ret: "string")
     }
+    if name == "json_parse" {
+        return StdSig(name: name, params: ["string"], ret: "Json")
+    }
+    if name == "json_null" {
+        return StdSig(name: name, ret: "Json")
+    }
     if name == "exec" {
         return StdSig(name: name, params: ["string", "[string]", "string"], ret: "ProcessResult")
     }

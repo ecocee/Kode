@@ -233,6 +233,26 @@ fn type_bare(t: Type) -> string {
     return "`${name}`"
 }
 
+/// Would this call be refused? Asked before the name it is assigned to is declared,
+/// with a scratch list, so the call is reported once, where it stands, and the name
+/// stays undeclared — which is why the next line is `E0201`, as in the oracle.
+///
+/// Only a function the program declares can refuse this way. A builtin still gives its
+/// result (`b = bytes("four")` binds a buffer and the oracle only reports the argument),
+/// and so does a class constructor (`a = A()` still makes an `A`).
+pub fn call_fails(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, id: int) -> bool {
+    if ast.nodes[id].kind != "Call" {
+        return false
+    }
+    sig = sigs.find(ast.attr_text(id, "callee"))
+    if sig.name == "" or sig.is_ctor {
+        return false
+    }
+    scratch: [Diag] = []
+    check_call(ast, frames, names, sigs, scratch, id)
+    return scratch.len() > 0
+}
+
 /// A runtime function or a builtin: `exec(...)`, `bytes(...)`, `sb.push(...)`. The
 /// oracle names a runtime function's arguments positionally and describes a builtin's
 /// single argument in words.

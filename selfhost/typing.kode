@@ -137,8 +137,10 @@ pub fn type_assignable(got: Type, to: Type) -> bool {
     if got.kind == "any" or to.kind == "any" {
         return true
     }
+    // `none` fits only where an optional is expected, which is what makes
+    // `[1, none]` an `E0213` while `x: int? = none` is fine.
     if got.kind == "none" {
-        return true
+        return to.kind == "opt" or to.kind == "none" or to.kind == "any"
     }
     // An optional fits an optional when what it wraps fits: `int?` is assignable to
     // `int?`, which is not the same question as `int` fitting `int?`.
@@ -240,6 +242,12 @@ pub fn expr_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
     if kind == "Map" {
         return map_type(ast, frames, names, id)
     }
+    if kind == "Index" {
+        return index_type(ast, frames, names, id)
+    }
+    if kind == "Slice" {
+        return slice_type(ast, frames, names, id)
+    }
     if kind == "Call" {
         return call_type(ast, names, id)
     }
@@ -338,6 +346,93 @@ fn map_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
     return type_of("map", element)
 }
 
+/// `x[i]`: the item of a list, the value of a map, and for a `Json` value another
+/// `Json`. Anything else is `any` — `selfhost/containers.kode` is what says so out loud.
+pub fn index_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return type_any()
+    }
+    ot = expr_type(ast, frames, names, kids[0])
+    it = expr_type(ast, frames, names, kids[1])
+    if type_is_any(ot) or type_is_any(it) {
+        return type_any()
+    }
+    if ot.kind == "list" and it.kind == "int" {
+        return type_inner(ot)
+    }
+    if ot.kind == "map" and it.kind == "string" {
+        return type_inner(ot)
+    }
+    if ot.kind == "named" and ot.name == "Json" and (it.kind == "string" or it.kind == "int") {
+        return type_named("Json")
+    }
+    return type_any()
+}
+
+/// `xs[a..b]`: a list keeps its item type; anything else is `any`.
+pub fn slice_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return type_any()
+    }
+    ot = expr_type(ast, frames, names, kids[0])
+    if ot.kind == "list" {
+        return ot
+    }
+    return type_any()
+}
+
+/// What a `for ... in` statement binds: a list gives its item (and the index first when
+/// two names are written), a map gives the key (then the value), anything else an int.
+pub fn loop_vars(ast: Ast, frames: [[Local]], names: Names, id: int, count: int) -> [Type] {
+    out: [Type] = []
+    iter = -1
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Iter" {
+            iter = kid
+        }
+    }
+    t = type_any()
+    if iter >= 0 and ast.nodes[iter].kids.len() > 0 {
+        t = expr_type(ast, frames, names, ast.nodes[iter].kids[0])
+    }
+    // A thing this slice cannot see through does not become an int: its items are
+    // unknown, so what the loop binds is unknown too.
+    if type_is_any(t) {
+        i = 0
+        while i < count {
+            out.add(type_any())
+            i += 1
+        }
+        return out
+    }
+    if t.kind == "list" and count == 1 {
+        out.add(type_inner(t))
+        return out
+    }
+    if t.kind == "list" and count >= 2 {
+        out.add(type_prim("int"))
+        out.add(type_inner(t))
+        return out
+    }
+    if t.kind == "map" and count == 1 {
+        out.add(type_prim("string"))
+        return out
+    }
+    if t.kind == "map" and count >= 2 {
+        out.add(type_prim("string"))
+        out.add(type_inner(t))
+        return out
+    }
+    i = 0
+    while i < count {
+        out.add(type_prim("int"))
+        i += 1
+    }
+    return out
+}
+
 /// A call's type for the callees this slice can name: a class constructor builds an
 /// instance, `print` and `stderr` give back nothing, and the converting builtins
 /// return what they convert to.
@@ -375,7 +470,7 @@ pub fn type_from_spec(spec: string) -> Type {
     if spec == "string?" {
         return type_of("opt", type_prim("string"))
     }
-    if spec == "ProcessResult" {
+    if spec == "ProcessResult" or spec == "Json" {
         return type_named(spec)
     }
     return type_prim(spec)

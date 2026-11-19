@@ -16,6 +16,7 @@
 from "./annotations" import resolve_ann
 from "./ast" import Ast, is_type_node
 from "./diag" import Diag, diag, diag_help
+from "./containers" import literal_fails
 from "./names" import Names
 from "./typing" import Local, coerce_value, expr_type, local_in, type_any
 
@@ -42,6 +43,11 @@ pub fn bound_local(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id:
     vt = type_any()
     if value >= 0 {
         vt = expr_type(ast, frames, names, value)
+    }
+    // A list or map literal the checker refuses declares nothing, which is what makes
+    // the next line's use of the name `E0201` (`e0213_mixed_list`).
+    if value >= 0 and literal_fails(ast, frames, names, value) {
+        return Local(name: "", ty: type_any())
     }
     if vt.kind == "unit" {
         diag_help(ast, diags, "E0205", "this call returns nothing, so it cannot be stored in a variable",

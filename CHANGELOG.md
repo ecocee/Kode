@@ -7,6 +7,23 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's checker knows what may be indexed, sliced, collected and looped over.**
+  `selfhost/containers.kode` ports the rules whose subject is a value's shape:
+  `E0209` for a condition that is not a bool (the oracle's `if` and `while` wording, the
+  `else if` form included, since it is another `If` inside the `Else`), `E0211` for a
+  value that cannot be indexed (`a string cannot be indexed`, "`Json` cannot be changed in
+  place" for an index target) or sliced (bounds first, so a bad bound on a map is the
+  bound's error alone), `E0212` for an index, key or slice bound of the wrong type —
+  a list index is an int, a map key a string, a `Json` value either — `E0213` for a list
+  item or map value that is not the type of the first one (and a list that cannot hold
+  `none` or nothing at all), and `E0214` for a `for ... in` over something that is not a
+  list or a map. A refused literal declares no name, so the next line is `E0201` as in
+  the oracle, and `for` now binds a list's item (or index and item), a map's key (or key
+  and value) with the types they really have rather than `any`. Optionals are left to
+  `E0220`'s own family, and a range loop's bounds to `E0203`'s. Two supporting rules
+  were fixed: `none` fits only an optional (so `[1, none]` is `E0213`), and an enum is
+  printable. Gate: 130 → **138/169**, self-check **44/44**.
+
 - **The port's checker knows the builtins, the runtime functions and methods.**
   `selfhost/stdlib.kode` mirrors the oracle's tables: the runtime functions a program
   calls by name (`exec` and its `(string, [string], string)` among them), the
