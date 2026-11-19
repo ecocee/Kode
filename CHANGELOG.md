@@ -7,6 +7,14 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Split `selfhost/mir.kode` by idea.** The MIR model and its dump stay in
+  `selfhost/mir.kode` (198 lines); the walk that builds them moves to
+  `selfhost/lower.kode` (645), and `main.kode` imports `build` from there. Behaviour is
+  unchanged — 33/33 dumps, 33/33 runs, check text 170/170, self-parse and self-check
+  55/55 — which is the point of a pure move. `lower.kode` is one class, so it is over
+  AGENTS' ~500-line guideline; getting under it means breaking `Builder` up, which is a
+  separate item and not worth bundling with a move.
+
 - **Pins for the cases slice 7 introduced.** `selfhost/spec/run/while_in_if.kode` runs a
   loop inside an `if` arm (dump identical to the oracle; prints `0 1 2 3`), and
   `tests/compile-fail/e0314_continue_outside` covers the one missing rejection —

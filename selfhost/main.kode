@@ -14,7 +14,8 @@ from "./ast" import ast_lines
 from "./dump" import position, tokens_lines
 from "./eval" import run
 from "./lexer" import lex
-from "./mir" import build, dump_lines
+from "./lower" import build
+from "./mir" import dump_lines
 from "./modules" import Loader
 from "./parser" import parse
 from "./report" import from_lex, render, render_diag

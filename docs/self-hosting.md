@@ -69,7 +69,7 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   `typing.kode`, `annotations.kode`, `items.kode`, `binding.kode`, `operands.kode`,
   `scope.kode`, `signatures.kode`, `functions.kode`, `stdlib.kode`, `containers.kode`,
   `optional.kode`, `members.kode`, `generics.kode`, `suggest.kode`; S3, 170/170
-  programs on its gate with 170/170 reports byte-identical, and 54/54 of the port's own files
+  programs on its gate with 170/170 reports byte-identical, and 55/55 of the port's own files
   clean); S4 has begun: `selfhost/mir.kode` lowers `print` of scalar literals, locals
   (declaration, reassignment), the five integer operators, run-time strings,
   interpolation and comparisons with the oracle's temporaries and retain/release

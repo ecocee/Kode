@@ -59,7 +59,7 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
 Measured today: **R1** — 283 token dumps byte-identical, including the work packet
-probes, the S2 parser is byte-identical on 173/173 cases and on all 54 files of
+probes, the S2 parser is byte-identical on 173/173 cases and on all 55 files of
 the port itself, and S3 is done (170/170 reports byte-identical). R2 is open
 only on the two deferred packets: `gates` reports
 11 met, 2 blocked (WP-07 `weak` and WP-08b `u8`/`i32`, both off the path).
@@ -661,7 +661,9 @@ the JSON diff names the differing field.
 
 ### S4 — MIR and an interpreter (branch `selfhost/s4-interpreter`)
 
-Files: `selfhost/mir.kode`, `selfhost/eval.kode` (~3,500 + 1,500 lines).
+Files: `selfhost/mir.kode` (the model and the dump), `selfhost/lower.kode` (the walk
+that builds it) and `selfhost/eval.kode` (~3,500 + 1,500 lines at plan time; the walk is
+one class, so it stays over AGENTS' ~500-line guideline until `Builder` is broken up).
 
 An interpreter is not a detour: it makes the front end testable before code
 generation exists and runs every run-pass program against its `.out` without a
