@@ -1,27 +1,39 @@
-// The interpreter over that MIR (S4, slice 1): what a program prints.
+// The interpreter over that MIR (S4): what a program prints.
 //
-// Slice 1's MIR is straight-line calls in one block, so the evaluator is a loop over
-// the instructions in order: the four print primitives append to a pending line, a
-// separator appends a space, and `PrintNl` prints the line and clears it — the
-// separator and newline rule `print` has. `goto` and `return` carry no work yet;
-// they are in the dump for the shape, and control flow arrives with the branch that
-// needs them.
+// The evaluator keeps one `int` per temporary and walks the instructions in order:
+// an assignment writes a temporary, an `add` writes the sum of its operands, and the
+// print primitives append to a pending line — a separator appends a space, and
+// `PrintNl` prints the line and clears it, the separator and newline rule `print`
+// has. `goto` and `return` carry no work yet; slice 2's MIR is still one straight
+// block, and control flow arrives with the branch that needs it.
 
-from "./mir" import Instr, Mir, print_text
+from "./mir" import Block, Function, Instr, Mir, Operand, print_text
 
 /// Run `mir` and write its output, exactly as the program would.
 pub fn run(mir: Mir) {
     pending = ""
     for f in mir.functions {
+        values: [int] = []
+        for k in 0..f.temps.len() {
+            values.add(0)
+        }
         for b in f.blocks {
             for i in b.instrs {
-                pending = print_step(pending, i)
+                pending = print_step(pending, i, values)
             }
         }
     }
 }
 
-fn print_step(pending: string, i: Instr) -> string {
+fn print_step(pending: string, i: Instr, values: [int]) -> string {
+    if i.kind == "assign" {
+        values[i.dest] = operand_int(i.args[0], values)
+        return pending
+    }
+    if i.kind == "add" {
+        values[i.dest] = operand_int(i.args[0], values) + operand_int(i.args[1], values)
+        return pending
+    }
     if i.kind != "call" {
         return pending
     }
@@ -35,5 +47,15 @@ fn print_step(pending: string, i: Instr) -> string {
     if i.args.len() == 0 {
         return pending
     }
-    return pending + print_text(i.args[0])
+    if i.callee == "rt::PrintInt" {
+        return pending + "${operand_int(i.args[0], values)}"
+    }
+    return pending + print_text(i.args[0].value)
+}
+
+fn operand_int(o: Operand, values: [int]) -> int {
+    if o.is_temp {
+        return values[o.index]
+    }
+    return o.value.int_value
 }

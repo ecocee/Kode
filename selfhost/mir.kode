@@ -1,17 +1,22 @@
-// The MIR an interpreter runs (S4, slice 1): `kode mir`'s first shape.
+// The MIR an interpreter runs (S4): `kode mir`'s first two shapes.
 //
-// A program whose statements are `print(...)` calls over scalar literals lowers to
-// one function, `<main>`, with two blocks: `bb0` calls the runtime's print
-// primitives — `rt::PrintInt`, `PrintFloat`, `PrintBool`, `PrintStr` — with a
-// `rt::PrintSep` between two arguments and a `rt::PrintNl` after the last, then
-// `goto bb1`, which returns. That is the whole of slice 1: no locals, no
-// temporaries, no strings built at run time, so nothing to retain or release.
+// Slice 1 lowered `print` of scalar literals. Slice 2 adds a local — `x = <int
+// expression>` — and `+`, so the function now has temporaries, and the oracle's
+// rules for them are exact:
 //
-// A statement outside that shape sets `ok = false` with a reason, and `main.kode`
+//   * every variable and every intermediate `+` gets one temporary, numbered in the
+//     order the program is walked; printing a string, bool or float literal directly
+//     gets none;
+//   * the `let` lines come before `bb0:`, with the variable's own name as a comment
+//     (`    let _0: int  // x`) and none for an intermediate (`    let _1: int`);
+//   * `bb0` opens with one `_N = 0` per temporary, in index order, then the code;
+//   * `a + b` lowers `a`, then `b`, then emits `_N = add a, b`, where an operand
+//     prints as itself (`1`) or as its temporary (`_0`).
+//
+// A statement outside those shapes sets `ok = false` with a reason, and `main.kode`
 // says so and exits 2 rather than printing a MIR that would not run.
 
 from "./ast" import Ast
-from "./diag" import Diag
 from "./literals" import parse_int
 
 /// A literal an instruction carries, with the value it stands for.
@@ -23,11 +28,20 @@ pub class Value {
     str_value: string = ""
 }
 
-/// One instruction: a call (`callee`, `args`), a `goto` (`target`) or a `return`.
+/// An instruction's argument: a literal, or the temporary that holds a value.
+pub class Operand {
+    is_temp: bool = false
+    index: int = 0
+    value: Value = Value(kind: "any")
+}
+
+/// One instruction: an assignment (`dest = arg`), an `add` into `dest`, a call, a
+/// `goto` or a `return`.
 pub class Instr {
     kind: string
+    dest: int = -1
     callee: string = ""
-    args: [Value] = []
+    args: [Operand] = []
     target: string = ""
 }
 
@@ -36,10 +50,18 @@ pub class Block {
     instrs: [Instr] = []
 }
 
+/// One temporary: its type, and the variable whose name it is (empty for an
+/// intermediate, which the dump leaves uncommented).
+pub class Temp {
+    kind: string = "int"
+    name: string = ""
+}
+
 pub class Function {
     name: string
     ret: string = "unit"
     entry: bool = false
+    temps: [Temp] = []
     blocks: [Block] = []
 }
 
@@ -50,18 +72,209 @@ pub class Mir {
     why: string = ""
 }
 
-/// Lower a program to the one function slice 1 can build.
+/// The lowering state: the tree, the function being filled, and the names in scope.
+pub class Builder {
+    ast: Ast
+    main: Function
+    block: Block
+    names: [string] = []
+    slots: [int] = []
+    ok: bool = true
+    why: string = ""
+
+    /// A new temporary, optionally the variable it belongs to.
+    fn temp(name: string) -> int {
+        index = main.temps.len()
+        main.temps.add(Temp(name: name))
+        return index
+    }
+
+    fn slot(name: string) -> int {
+        for k in 0..names.len() {
+            if names[k] == name {
+                return slots[k]
+            }
+        }
+        return -1
+    }
+
+    fn stop(reason: string) {
+        if ok {
+            ok = false
+            why = reason
+        }
+    }
+
+    fn stmt(id: int) {
+        if not ok {
+            return
+        }
+        kind = ast.nodes[id].kind
+        if kind == "ExprStmt" {
+            for kid in ast.nodes[id].kids {
+                if ast.nodes[kid].kind != "Call" or ast.attr_text(kid, "callee") != "print" {
+                    stop("a call other than `print`")
+                    return
+                }
+                print_call(kid)
+            }
+            return
+        }
+        if kind == "Assign" {
+            assign(id)
+            return
+        }
+        stop("statement `${kind}`")
+    }
+
+    fn assign(id: int) {
+        var_name = ""
+        var_id = -1
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "TargetVar" {
+                var_id = kid
+                var_name = ast.attr_text(kid, "name")
+            }
+        }
+        if var_id < 0 {
+            stop("an assignment to something other than a name")
+            return
+        }
+        if slot(var_name) >= 0 {
+            stop("a second assignment to `${var_name}`")
+            return
+        }
+        value = ast.nodes[id].kids[ast.nodes[id].kids.len() - 1]
+        if value == var_id {
+            stop("an assignment with no value")
+            return
+        }
+        index = temp(var_name)
+        names.add(var_name)
+        slots.add(index)
+        operand = expr(value)
+        if not ok {
+            return
+        }
+        if not is_int(operand) {
+            stop("`${var_name}` holding something other than an int")
+            return
+        }
+        block.instrs.add(Instr(kind: "assign", dest: index, args: [operand]))
+    }
+
+    fn print_call(call: int) {
+        first = true
+        for arg in ast.nodes[call].kids {
+            if not first {
+                block.instrs.add(Instr(kind: "call", callee: "rt::PrintSep"))
+            }
+            first = false
+            if ast.nodes[arg].kids.len() < 1 {
+                stop("an argument with no value")
+                return
+            }
+            operand = expr(ast.nodes[arg].kids[0])
+            if not ok {
+                return
+            }
+            block.instrs.add(Instr(kind: "call", callee: print_primitive(operand), args: [operand]))
+        }
+        block.instrs.add(Instr(kind: "call", callee: "rt::PrintNl"))
+    }
+
+    /// An expression as an operand: a literal, a name, or a `+` of two of those.
+    fn expr(id: int) -> Operand {
+        kind = ast.nodes[id].kind
+        if kind == "Int" or kind == "Float" or kind == "Bool" or kind == "Str" {
+            return Operand(value: literal(id))
+        }
+        if kind == "Ident" {
+            name = ast.attr_text(id, "name")
+            index = slot(name)
+            if index < 0 {
+                stop("a read of `${name}`, which this slice cannot bind")
+                return Operand()
+            }
+            return Operand(is_temp: true, index: index)
+        }
+        if kind == "Binary" and ast.attr_raw(id, "op") == "+" {
+            return add(id)
+        }
+        stop("an expression of kind `${kind}`")
+        return Operand()
+    }
+
+    fn add(id: int) -> Operand {
+        kids = ast.nodes[id].kids
+        if kids.len() != 2 {
+            stop("a `+` without two operands")
+            return Operand()
+        }
+        left = expr(kids[0])
+        right = expr(kids[1])
+        if not ok {
+            return Operand()
+        }
+        if not is_int(left) or not is_int(right) {
+            stop("an addition of something other than int")
+            return Operand()
+        }
+        index = temp("")
+        block.instrs.add(Instr(kind: "add", dest: index, args: [left, right]))
+        return Operand(is_temp: true, index: index)
+    }
+
+    fn literal(id: int) -> Value {
+        kind = ast.nodes[id].kind
+        if kind == "Int" {
+            return Value(kind: "int", int_value: parse_int(ast.attr_raw(id, "value")))
+        }
+        if kind == "Float" {
+            text = ast.attr_text(id, "value")
+            return Value(kind: "float", float_value: text.to_float() catch e {
+                    0.0
+            })
+        }
+        if kind == "Bool" {
+            return Value(kind: "bool", bool_value: ast.attr_raw(id, "value") == "true")
+        }
+        return Value(kind: "str", str_value: ast.attr_text(id, "value"))
+    }
+}
+
+/// A bool operand that is an int: an int literal, or a temporary (only `add` and an
+/// int assignment make one, so a temporary is an int in this slice).
+fn is_int(o: Operand) -> bool {
+    if o.is_temp {
+        return true
+    }
+    return o.value.kind == "int"
+}
+
+/// Lower a program to the one function these slices can build.
 pub fn build(ast: Ast) -> Mir {
     mir = Mir()
     main = Function(name: "<main>", entry: true)
-    block = Block(label: "bb0")
+    b = Builder(ast: ast, main: main, block: Block(label: "bb0"))
     if ast.nodes.len() > 0 {
         for id in ast.nodes[0].kids {
-            lower_stmt(ast, mir, block, id)
+            b.stmt(id)
         }
     }
-    block.instrs.add(Instr(kind: "goto", target: "bb1"))
-    main.blocks.add(block)
+    if not b.ok {
+        return Mir(functions: [], ok: false, why: b.why)
+    }
+    // The oracle opens `bb0` with one zero per temporary, in index order.
+    zeros: [Instr] = []
+    for k in 0..main.temps.len() {
+        zeros.add(Instr(kind: "assign", dest: k, args: [Operand(value: Value(kind: "int"))]))
+    }
+    for one in b.block.instrs {
+        zeros.add(one)
+    }
+    zeros.add(Instr(kind: "goto", target: "bb1"))
+    main.blocks.add(Block(label: "bb0", instrs: zeros))
     end = Block(label: "bb1")
     end.instrs.add(Instr(kind: "return"))
     main.blocks.add(end)
@@ -69,47 +282,12 @@ pub fn build(ast: Ast) -> Mir {
     return mir
 }
 
-/// One statement: a `print` call of literals, or a reason this slice stops.
-fn lower_stmt(ast: Ast, mir: Mir, block: Block, id: int) {
-    if not mir.ok {
-        return
-    }
-    kind = ast.nodes[id].kind
-    if kind != "ExprStmt" {
-        stop(mir, "statement `${kind}`")
-        return
-    }
-    for kid in ast.nodes[id].kids {
-        if ast.nodes[kid].kind != "Call" or ast.attr_text(kid, "callee") != "print" {
-            stop(mir, "a call other than `print`")
-            return
-        }
-        lower_print(ast, mir, block, kid)
-    }
-}
-
-fn lower_print(ast: Ast, mir: Mir, block: Block, call: int) {
-    first = true
-    for arg in ast.nodes[call].kids {
-        if not first {
-            block.instrs.add(Instr(kind: "call", callee: "rt::PrintSep"))
-        }
-        first = false
-        if ast.nodes[arg].kids.len() < 1 {
-            stop(mir, "an argument with no value")
-            return
-        }
-        value = literal(ast, mir, ast.nodes[arg].kids[0])
-        if not mir.ok {
-            return
-        }
-        block.instrs.add(Instr(kind: "call", callee: print_primitive(value.kind), args: [value]))
-    }
-    block.instrs.add(Instr(kind: "call", callee: "rt::PrintNl"))
-}
-
 /// The runtime call that prints a value of that kind.
-fn print_primitive(kind: string) -> string {
+fn print_primitive(o: Operand) -> string {
+    kind = o.value.kind
+    if o.is_temp {
+        return "rt::PrintInt"
+    }
     if kind == "int" {
         return "rt::PrintInt"
     }
@@ -122,35 +300,7 @@ fn print_primitive(kind: string) -> string {
     return "rt::PrintStr"
 }
 
-fn literal(ast: Ast, mir: Mir, id: int) -> Value {
-    kind = ast.nodes[id].kind
-    if kind == "Int" {
-        return Value(kind: "int", int_value: parse_int(ast.attr_raw(id, "value")))
-    }
-    if kind == "Float" {
-        text = ast.attr_text(id, "value")
-        return Value(kind: "float", float_value: text.to_float() catch e {
-                0.0
-        })
-    }
-    if kind == "Bool" {
-        return Value(kind: "bool", bool_value: ast.attr_raw(id, "value") == "true")
-    }
-    if kind == "Str" {
-        return Value(kind: "str", str_value: ast.attr_text(id, "value"))
-    }
-    stop(mir, "a value of kind `${kind}`")
-    return Value(kind: "any")
-}
-
-fn stop(mir: Mir, what: string) {
-    if mir.ok {
-        mir.ok = false
-        mir.why = what
-    }
-}
-
-/// The dump's lines: the oracle's layout, one function, its blocks and instructions.
+/// The dump's lines: the oracle's layout, the `let` block, then the blocks.
 pub fn dump_lines(mir: Mir) -> [string] {
     lines: [string] = []
     for f in mir.functions {
@@ -159,6 +309,13 @@ pub fn dump_lines(mir: Mir) -> [string] {
             head += "  // entry"
         }
         lines.add(head)
+        for k in 0..f.temps.len() {
+            line = "    let _${k}: ${f.temps[k].kind}"
+            if f.temps[k].name != "" {
+                line += "  // ${f.temps[k].name}"
+            }
+            lines.add(line)
+        }
         for b in f.blocks {
             lines.add("  ${b.label}:")
             for i in b.instrs {
@@ -180,14 +337,27 @@ fn instr_text(i: Instr) -> string {
     if i.kind == "return" {
         return "return"
     }
+    if i.dest >= 0 {
+        if i.kind == "add" {
+            return "_${i.dest} = add ${operand_text(i.args[0])}, ${operand_text(i.args[1])}"
+        }
+        return "_${i.dest} = ${operand_text(i.args[0])}"
+    }
     parts = ""
     for arg in i.args {
         if parts != "" {
             parts += ", "
         }
-        parts += value_text(arg)
+        parts += operand_text(arg)
     }
     return "call ${i.callee}(${parts})"
+}
+
+fn operand_text(o: Operand) -> string {
+    if o.is_temp {
+        return "_${o.index}"
+    }
+    return value_text(o.value)
 }
 
 /// A value the way the dump writes it: a string quoted, a float in its shortest form.

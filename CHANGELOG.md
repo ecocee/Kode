@@ -7,6 +7,18 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **S4 slice 2: a local, a name read and `+`, with the oracle's temporaries.** The
+  self-hosted MIR now lowers `x = <int expression>` and `print(<int expression>)`
+  (`selfhost/mir.kode`, learning the oracle's rules: one temporary per variable and per
+  `add`, numbered in walk order; the `let` block before `bb0`, with the variable's name
+  as a comment; one `_N = 0` per temporary at the top of `bb0`; `_N = add a, b` for a
+  sum). `selfhost/eval.kode` keeps one `int` per temporary and resolves assignment,
+  `add` and `rt::PrintInt` against it. Four fixtures came first in
+  `selfhost/spec/run/` (a local, `1 + 2`, two locals summed, `1 + 2 + 3`), and the
+  gates report **7/7** dumps byte-identical and **7/7** runs with the oracle's output
+  and exit code. Out of scope still: other operators, reassignment, string temporaries
+  and their retain/release, blocks and user calls.
+
 - **S4 has begun: a MIR, a dump and an interpreter for `print` of literals.** The
   self-hosted compiler's first S4 slice lowers a program whose statements are
   `print(...)` calls over scalar literals into one function, `<main>`, with `bb0`

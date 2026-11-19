@@ -719,6 +719,45 @@ against the oracle's `kode run` first. Both joined `all`. The one thing the plan
 does not arise yet, so the dump comparison starts out exact, and the next slice (a
 local and an `add`) is where it becomes a structural comparison.
 
+**The plan for slice 2 — a local and an `add`.** The shape it adds is
+`x = <int expression>` and `print(<int expression>)`, where an expression is a
+literal, a name or a `+` of two of those. That is the first slice with temporaries,
+and the oracle's rules for them are exact, so the dump can stay byte-identical:
+
+- **Allocation.** A variable and every intermediate `+` get one temporary, numbered in
+  the order the program is walked; a string or bool printed directly gets none. The
+  `let` lines come before `bb0:` (`    let _0: int  // x`, the variable's own name as
+  a comment; a bare `    let _1: int` for an intermediate), then `bb0` opens with one
+  `_N = 0` per temporary in index order, then the code.
+- **Lowering.** A `+` lowers its left operand, then its right, then emits
+  `_N = add a, b` where each operand prints as itself (`1`) or as its temporary
+  (`_0`). Nested `1 + 2 + 3` is two `add`s, left one first. `print` follows with
+  `call rt::PrintInt(_N)` and `rt::PrintNl`.
+- **Files.** `selfhost/mir.kode` grows an `Operand` (a literal or a temporary), a
+  `dest` on `Instr`, and a lowering state (name → temporary, next index); the `let`
+  block is part of the function's dump. `selfhost/eval.kode` keeps one `int` per
+  temporary and resolves `add` and the print primitives against it.
+- **Fixtures first.** Four more programs in `selfhost/spec/run/`: a local,`1 + 2`,
+  two locals summed, and `1 + 2 + 3`, each with its `.out`.
+- **Gates.** Unchanged — `mir` byte-identical, `run` output and exit code. If the
+  port's numbering ever drifts from the oracle's, the gate says so rather than
+  hiding it, and the plan's allowance (numbering may differ) becomes a normaliser.
+- **Out of scope.** Other operators, string temporaries (and their `retain`/
+  `release`), typed annotations, reassignment (`x = x + 1` on an existing local),
+  blocks, branches and calls to user functions.
+
+**Slice 2 is in.** `selfhost/mir.kode` now lowers a local (`x = 41`), a name read and
+`+`, with the oracle's temporaries exactly: one per variable and per `add`, numbered
+in walk order, `    let _N: int  // x` for a variable and a bare `let` for an
+intermediate, one `_N = 0` per temporary at the top of `bb0`, and `_N = add a, b`.
+`selfhost/eval.kode` keeps one `int` per temporary and resolves assignment, `add` and
+`rt::PrintInt` against that store. Fixtures first: four more programs in
+`selfhost/spec/run/` (a local, `1 + 2`, two locals summed, `1 + 2 + 3`), so the gates
+report **7/7** dumps byte-identical and **7/7** runs with the oracle's output and exit
+code. The numbering did not drift, so the dump comparison is still exact rather than
+normalised. Next: reassignment and the other arithmetic operators, then strings built
+at run time with their `retain`/`release`.
+
 ### S5 — native code generation (branch `selfhost/s5-backend`)
 
 Files: `selfhost/codegen.kode`, `selfhost/driver.kode` (~2,000 lines). Emits LLVM

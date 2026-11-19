@@ -70,9 +70,10 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   `scope.kode`, `signatures.kode`, `functions.kode`, `stdlib.kode`, `containers.kode`,
   `optional.kode`, `members.kode`, `generics.kode`, `suggest.kode`; S3, 169/169
   programs on its gate with 169/169 reports byte-identical, and 54/54 of the port's own files
-  clean); S4 has begun: `selfhost/mir.kode` lowers `print` of scalar literals and
-  `selfhost/eval.kode` interprets it (`kode-stage1 mir` and `run`, 3/3 fixtures each),
-  and no native backend exists in Kode yet.
+  clean); S4 has begun: `selfhost/mir.kode` lowers `print` of scalar literals, a local
+  and `+` (with the oracle's temporaries) and `selfhost/eval.kode` interprets it
+  (`kode-stage1 mir` and `run`, 7/7 fixtures each), and no native backend exists in
+  Kode yet.
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
   timeouts and no sorting with a comparator. `stderr(...)` exists (ADR 0045), so
   the port reports diagnostics without a device file.
