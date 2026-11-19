@@ -7,6 +7,13 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's hints match the oracle's.** An unknown name (`E0201`) now says which
+  mistake it probably is: a module needs `.member`, an enum value is written
+  `Enum.Variant`, a near miss gets `did you mean ...?` (the same Levenshtein search the
+  member rules use), and anything else is created first. `E0206` suggests a declared
+  function, class or builtin, or says how to define one, and `E0403` says what a module
+  may contain. `check text` (byte-identical reports) moves **79 → 86/169**.
+
 - **The port renders a diagnostic the way the oracle does.** `check` now prints the
   whole report — `error[CODE]: message`, the `--> file:line:column` line, the offending
   source line with its carets, and the hint — instead of the bare code and message. The

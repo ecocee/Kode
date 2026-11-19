@@ -33,6 +33,7 @@ from "./namespace" import alias_diags, check_alias
 from "./operands" import check_operator, check_print
 from "./optional" import Narrow, check_method_optional, check_optional, narrowing_of
 from "./patterns" import bind_arm_names
+from "./suggest" import closest
 from "./scope" import Scope
 from "./signatures" import SigTable, Signature, collect_signatures
 from "./typing" import type_any, type_prim
@@ -275,11 +276,66 @@ pub class Sema {
         scopes.pop()
     }
 
+    /// An unknown name is `E0201`, and the hint is the oracle's: a module is reached
+    /// with a `.`, an enum value is written `Enum.Variant`, a near miss gets the name it
+    /// probably meant, and anything else is a name not created yet.
     fn visit_ident(id: int) {
         name = ast.attr_text(id, "name")
-        if name != "" and not is_bound(name) {
-            diag(ast, diags, "E0201", "unknown variable `${name}`", id)
+        if name == "" or is_bound(name) {
+            return
         }
+        message = "unknown variable `${name}`"
+        if is_alias(name) {
+            diag_help(ast, diags, "E0201", message, id, "`${name}` is a module; use `${name}.member`")
+            return
+        }
+        if names.enums.contains(name) {
+            diag_help(ast, diags, "E0201", message, id,
+                "enum values are written like `${name}.VariantName`")
+            return
+        }
+        close = closest(name, scope_names())
+        if close != "" {
+            diag_help(ast, diags, "E0201", message, id, "did you mean `${close}`?")
+            return
+        }
+        diag_help(ast, diags, "E0201", message, id,
+            "create it first with `${name} = ...` on an earlier line")
+    }
+
+    fn is_alias(name: string) -> bool {
+        for one in aliases {
+            if one.name == name {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The names an unknown variable is compared with: every binding in scope and every
+    /// constant, as the oracle's candidates.
+    fn scope_names() -> [string] {
+        out: [string] = scopes.names()
+        for one in names.consts {
+            out.add(one)
+        }
+        return out
+    }
+
+    /// The names an unknown callee is compared with: the program's functions and
+    /// classes, and every builtin.
+    fn callee_names() -> [string] {
+        out: [string] = []
+        for one in names.fns {
+            out.add(one)
+        }
+        for one in names.classes {
+            out.add(one)
+        }
+        for one in builtins.names {
+            out.add(one)
+        }
+        return out
     }
 
     /// `x = 1` binds `x` (`binding.kode`); `xs[0] = 1` is a read of what it indexes into.
@@ -309,7 +365,14 @@ pub class Sema {
     fn visit_call(id: int) {
         callee = ast.attr_text(id, "callee")
         if callee != "" and not is_bound(callee) {
-            diag(ast, diags, "E0206", "unknown function `${callee}`", id)
+            message = "unknown function `${callee}`"
+            close = closest(callee, callee_names())
+            if close != "" {
+                diag_help(ast, diags, "E0206", message, id, "did you mean `${close}`?")
+            } else {
+                diag_help(ast, diags, "E0206", message, id,
+                    "define it first with `fn name(...) { ... }`")
+            }
         }
         if callee == "print" or callee == "stderr" {
             check_print(ast, scopes.frames, names, sigs, members, diags, id)

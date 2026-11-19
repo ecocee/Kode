@@ -148,8 +148,9 @@ pub class Loader {
     fn reach(module: Module, ast: Ast, id: int, target: string, written: string, src: string) {
         found = module_at(target)
         if found.key != "" and found.code {
+            hint = "a module may only contain fn, const, class, interface and enum"
             loaded.problems.add(problem(ast, id, "path_span", module.file, src, "E0403",
-                    "`${written}` has top-level code, which a module cannot have", ""))
+                    "`${written}` has top-level code, which a module cannot have", hint))
         }
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind

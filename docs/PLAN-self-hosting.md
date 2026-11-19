@@ -556,6 +556,14 @@ now also prints `check text: N/169`, which counts byte-identical output rather t
 sets; it is reported, not gated, because 32 programs still differ: the families below and
 the missing hints (`E0201`). It is the number that will make the last of S3 honest.
 
+**Slice 14 is in: hints.** `E0201`, `E0206` and `E0403` now carry the oracle's hint.
+An unknown name is compared with every binding in scope and every constant: a module
+alias says `use name.member`, an enum name says `enum values are written like
+Enum.Variant`, a near miss gets `did you mean ...?` from `suggest.kode`, and the rest say
+the name is created first. An unknown callee is compared with the program's functions,
+its classes and every builtin, and a module that holds code says what it may contain.
+`check text` moves **79 → 86/169**; the gate holds at **152/169**.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that

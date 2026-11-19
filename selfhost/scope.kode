@@ -28,6 +28,18 @@ pub class Scope {
         frames[frames.len() - 1].add(Local(name: name, ty: ty))
     }
 
+    /// Every name the open frames bind, outermost first: what an unknown name is
+    /// compared with for its "did you mean" hint.
+    fn names() -> [string] {
+        out: [string] = []
+        for frame in frames {
+            for one in frame {
+                out.add(one.name)
+            }
+        }
+        return out
+    }
+
     /// The innermost binding of a name, or an empty one: an entry with no name means
     /// "not bound", which is the shape the checker's other lookups use too.
     fn find(name: string) -> Local {
