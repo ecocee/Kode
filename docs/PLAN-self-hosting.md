@@ -848,8 +848,46 @@ block. Probing `kode mir` gave the layout exactly:
 - **Fixtures first.** Five more in `selfhost/spec/run/`: the six comparisons printed,
   an `if` that runs, an `if` that is skipped, an `if`/`else`, and an `if` that assigns.
 - **Gates.** Unchanged: `mir` byte-identical, `run` output and exit code.
-- **Out of scope.** `while`/`for`, `and`/`or`/`not`, bool variables, string equality,
-  nested `if`s inside each other (a nested block numbering to verify on its own).
+- **Out of scope.** `while`/`for`, `and`/`or`/`not`, bool variables, string equality.
+
+**The plan for slice 7 — `while`, `break` and `continue`.** Probing `kode mir` gave the
+loop layout and one new rule about terminated blocks:
+
+- A loop creates its condition block, its body block and its exit block in that order,
+  and the block before it ends with `goto <cond>`. The condition block computes the
+  condition (a `true` literal is passed straight to `branch true, bb3, bb4`) and
+  branches to the body or the exit; the body ends with `goto <cond>`, and the code
+  after the loop is the exit block. A nested loop is created inside the outer body, in
+  the same order (`bb5` cond, `bb6` body, `bb7` exit).
+- `continue` jumps to the condition block and `break` to the exit block.
+- **A terminated block is never written again.** After `break`/`continue` ends a
+  block, the next instruction — even the `goto <join>` an `if` emits for its arm —
+  goes into a *new* block, which is why an `if` whose arm ends in `continue` produces a
+  join and then an extra block that only `goto`s it (`bb5: goto bb2`, `bb6` the join,
+  `bb7: goto bb6`).
+
+- **Files.** `selfhost/mir.kode`: a single `emit` that starts a new block when the
+  current one is terminated (every instruction goes through it), a stack of break and
+  continue targets, `while_stmt`, and `break`/`continue` as gotos. `selfhost/eval.kode`
+  needs nothing: its program counter already follows `goto` and `branch`.
+- **Fixtures first.** Five more in `selfhost/spec/run/`: a counting loop, `while true`
+  with a `break`, a loop with both `continue` and `break`, nested loops, and a loop
+  whose body never runs.
+- **Gates.** Unchanged: `mir` byte-identical, `run` output and exit code.
+- **Out of scope.** `for` (both forms), `else` on a loop, and `break`/`continue` inside
+  a `match` arm.
+
+**Slice 7 is in.** Every instruction now goes through one `emit`, which starts a fresh
+block when the current one already ends in a terminator — the rule that explains the
+oracle's extra `goto`-only blocks after an arm that `break`s or `continue`s.
+`while_stmt` creates its condition, body and exit blocks in that order, `break` and
+`continue` jump to the exit and the condition through a stack of loop targets, and a
+nested loop is created inside the outer body. `selfhost/eval.kode` needed nothing: its
+program counter already followed `goto` and `branch`. Five fixtures came first in
+`selfhost/spec/run/` (a counting loop, `while true` with `break`, `continue` with
+`break`, nested loops, a body that never runs): the gates report **32/32** dumps
+byte-identical and **32/32** runs with the oracle's output and exit code. `for` (both
+forms), `else` on a loop and `break`/`continue` inside a `match` arm are still out.
 
 **Slice 6 is in.** `selfhost/mir.kode` keeps its blocks in a list: `bb0`, then the exit
 `bb1`, then whatever the walk created, in creation order — exactly the oracle's dump.

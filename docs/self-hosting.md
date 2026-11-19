@@ -73,9 +73,9 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   clean); S4 has begun: `selfhost/mir.kode` lowers `print` of scalar literals, locals
   (declaration, reassignment), the five integer operators, run-time strings,
   interpolation and comparisons with the oracle's temporaries and retain/release
-  lines, plus `if`/`else` blocks, and `selfhost/eval.kode` interprets it
-  (`kode-stage1 mir` and `run`, 27/27 fixtures each), and no native backend exists in
-  Kode yet.
+  lines, plus `if`/`else` and `while` blocks with `break`/`continue`, and
+  `selfhost/eval.kode` interprets it (`kode-stage1 mir` and `run`, 32/32 fixtures
+  each), and no native backend exists in Kode yet.
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
   timeouts and no sorting with a comparator. `stderr(...)` exists (ADR 0045), so
   the port reports diagnostics without a device file.

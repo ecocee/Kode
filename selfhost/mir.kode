@@ -36,6 +36,13 @@
 // its else-block when there is one, each ending in `goto <join>`, with
 // `branch _1, <then>, <else>` at the split.
 //
+// Slice 7 adds `while`, `break` and `continue`: a loop creates its condition block, its
+// body block and its exit block in that order, the code before it ends with
+// `goto <cond>`, `continue` jumps to the condition and `break` to the exit. A block
+// that already ends in a terminator is never written again — the next instruction goes
+// into a fresh block — which is why an arm ending in `continue` leaves an extra block
+// that only `goto`s its join.
+//
 // A statement outside those shapes sets `ok = false` with a reason, and `main.kode`
 // says so and exits 2 rather than printing a MIR that would not run.
 
@@ -113,10 +120,30 @@ pub class Builder {
     /// The blocks the walk created, in creation order; the dump keeps that order.
     blocks: [Block] = []
     next_label: int = 2
+    /// Where `break` and `continue` go, innermost loop last.
+    break_to: [string] = []
+    continue_to: [string] = []
     names: [string] = []
     slots: [int] = []
     ok: bool = true
     why: string = ""
+
+    /// Whether the current block already ends in a terminator.
+    fn terminated() -> bool {
+        if block.instrs.len() == 0 {
+            return false
+        }
+        last = block.instrs[block.instrs.len() - 1].kind
+        return last == "goto" or last == "branch" or last == "return"
+    }
+
+    /// Append an instruction, starting a fresh block first if the current one is ended.
+    fn emit(one: Instr) {
+        if terminated() {
+            switch_to(new_block())
+        }
+        block.instrs.add(one)
+    }
 
     /// A fresh block, labelled in creation order after the entry and the exit.
     fn new_block() -> Block {
@@ -211,6 +238,26 @@ pub class Builder {
             if_stmt(id)
             return
         }
+        if kind == "While" {
+            while_stmt(id)
+            return
+        }
+        if kind == "Break" {
+            if break_to.len() == 0 {
+                stop("a `break` outside a loop")
+                return
+            }
+            emit(Instr(kind: "goto", target: break_to[break_to.len() - 1]))
+            return
+        }
+        if kind == "Continue" {
+            if continue_to.len() == 0 {
+                stop("a `continue` outside a loop")
+                return
+            }
+            emit(Instr(kind: "goto", target: continue_to[continue_to.len() - 1]))
+            return
+        }
         stop("statement `${kind}`")
     }
 
@@ -256,16 +303,16 @@ pub class Builder {
         // A reference slot releases what it held before it is overwritten — for the
         // first store too, where the oracle releases the null it was zeroed with.
         if slot_kind == "ref" {
-            block.instrs.add(Instr(kind: "release", args: [Operand(is_temp: true, index: index)]))
+            emit(Instr(kind: "release", args: [Operand(is_temp: true, index: index)]))
         }
-        block.instrs.add(Instr(kind: "assign", dest: index, args: [operand]))
+        emit(Instr(kind: "assign", dest: index, args: [operand]))
     }
 
     fn print_call(call: int) {
         first = true
         for arg in ast.nodes[call].kids {
             if not first {
-                block.instrs.add(Instr(kind: "call", callee: "rt::PrintSep"))
+                emit(Instr(kind: "call", callee: "rt::PrintSep"))
             }
             first = false
             if ast.nodes[arg].kids.len() < 1 {
@@ -280,21 +327,21 @@ pub class Builder {
                 if not ok {
                     return
                 }
-                block.instrs.add(Instr(kind: "call", callee: "rt::PrintStr", args: [operand]))
-                block.instrs.add(Instr(kind: "release", args: [operand]))
+                emit(Instr(kind: "call", callee: "rt::PrintStr", args: [operand]))
+                emit(Instr(kind: "release", args: [operand]))
                 continue
             }
             operand = expr(node)
             if not ok {
                 return
             }
-            block.instrs.add(Instr(kind: "call", callee: print_primitive(operand), args: [operand]))
+            emit(Instr(kind: "call", callee: print_primitive(operand), args: [operand]))
             // A variable lives to the end of the function; an intermediate dies here.
             if operand.is_temp and main.temps[operand.index].kind == "ref" and main.temps[operand.index].name == "" {
-                block.instrs.add(Instr(kind: "release", args: [operand]))
+                emit(Instr(kind: "release", args: [operand]))
             }
         }
-        block.instrs.add(Instr(kind: "call", callee: "rt::PrintNl"))
+        emit(Instr(kind: "call", callee: "rt::PrintNl"))
     }
 
     /// An interpolation as one owned reference: its pieces are lowered where they are
@@ -326,15 +373,15 @@ pub class Builder {
                 acc = piece.op
                 have = true
                 if acc.is_temp and not piece.owned {
-                    block.instrs.add(Instr(kind: "retain", args: [acc]))
+                    emit(Instr(kind: "retain", args: [acc]))
                 }
                 continue
             }
             index = temp("", "ref")
-            block.instrs.add(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [acc, piece.op]))
-            block.instrs.add(Instr(kind: "release", args: [acc]))
+            emit(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [acc, piece.op]))
+            emit(Instr(kind: "release", args: [acc]))
             if piece.owned {
-                block.instrs.add(Instr(kind: "release", args: [piece.op]))
+                emit(Instr(kind: "release", args: [piece.op]))
             }
             acc = Operand(is_temp: true, index: index)
         }
@@ -380,20 +427,53 @@ pub class Builder {
         if else_node >= 0 {
             else_bb = new_block()
         }
-        block.instrs.add(Instr(kind: "branch", args: [cond], target: then_bb.label, alt: else_bb.label))
+        emit(Instr(kind: "branch", args: [cond], target: then_bb.label, alt: else_bb.label))
         switch_to(then_bb)
         body(then_node)
         if ok {
-            block.instrs.add(Instr(kind: "goto", target: join.label))
+            emit(Instr(kind: "goto", target: join.label))
         }
         if ok and else_node >= 0 {
             switch_to(else_bb)
             body(else_node)
             if ok {
-                block.instrs.add(Instr(kind: "goto", target: join.label))
+                emit(Instr(kind: "goto", target: join.label))
             }
         }
         switch_to(join)
+    }
+
+    /// `while`: condition block, body block, exit block, in that order.
+    fn while_stmt(id: int) {
+        kids = ast.nodes[id].kids
+        if kids.len() != 2 {
+            stop("a `while` without a condition and a body")
+            return
+        }
+        cond_bb = new_block()
+        body_bb = new_block()
+        exit_bb = new_block()
+        emit(Instr(kind: "goto", target: cond_bb.label))
+        switch_to(cond_bb)
+        cond = expr(kids[0])
+        if not ok {
+            return
+        }
+        if kind_of(cond) != "bool" {
+            stop("a `while` on a `${kind_of(cond)}`")
+            return
+        }
+        emit(Instr(kind: "branch", args: [cond], target: body_bb.label, alt: exit_bb.label))
+        switch_to(body_bb)
+        break_to.add(exit_bb.label)
+        continue_to.add(cond_bb.label)
+        body(kids[1])
+        break_to.pop()
+        continue_to.pop()
+        if ok {
+            emit(Instr(kind: "goto", target: cond_bb.label))
+        }
+        switch_to(exit_bb)
     }
 
     fn body(id: int) {
@@ -431,7 +511,7 @@ pub class Builder {
             return Piece(op: Operand())
         }
         text = temp("", "ref")
-        block.instrs.add(Instr(kind: "call", dest: text, callee: "rt::IntToStr", args: [Operand(is_temp: true, index: index)]))
+        emit(Instr(kind: "call", dest: text, callee: "rt::IntToStr", args: [Operand(is_temp: true, index: index)]))
         return Piece(op: Operand(is_temp: true, index: text), owned: true)
     }
 
@@ -479,7 +559,7 @@ pub class Builder {
                 return Operand()
             }
             index = temp("", "ref")
-            block.instrs.add(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [left, right]))
+            emit(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [left, right]))
             return Operand(is_temp: true, index: index)
         }
         if compare_name(op) != "" {
@@ -488,7 +568,7 @@ pub class Builder {
                 return Operand()
             }
             index = temp("", "bool")
-            block.instrs.add(Instr(kind: compare_name(op), dest: index, args: [left, right]))
+            emit(Instr(kind: compare_name(op), dest: index, args: [left, right]))
             return Operand(is_temp: true, index: index)
         }
         mnemonic = operator_name(op)
@@ -501,7 +581,7 @@ pub class Builder {
             return Operand()
         }
         index = temp("", "int")
-        block.instrs.add(Instr(kind: mnemonic, dest: index, args: [left, right]))
+        emit(Instr(kind: mnemonic, dest: index, args: [left, right]))
         return Operand(is_temp: true, index: index)
     }
 
@@ -591,7 +671,7 @@ pub fn build(ast: Ast) -> Mir {
         return Mir(functions: [], ok: false, why: b.why)
     }
     // The block the walk ends in falls out to the exit.
-    b.block.instrs.add(Instr(kind: "goto", target: "bb1"))
+    b.emit(Instr(kind: "goto", target: "bb1"))
     // The entry opens with one zero per temporary, in index order: `0` for an int,
     // `false` for a bool and `null` for a reference.
     head: [Instr] = []

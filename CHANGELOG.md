@@ -7,6 +7,17 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **S4 slice 7: `while`, `break` and `continue`.** A loop creates its condition, body
+  and exit blocks in that order, ends the code before it with `goto <cond>`, and sends
+  `continue` to the condition and `break` to the exit through a stack of loop targets;
+  a nested loop is created inside the outer body. Every instruction now goes through a
+  single `emit`, which starts a fresh block when the current one already ends in a
+  terminator — the oracle's extra `goto`-only blocks after an arm that leaves the loop.
+  The interpreter needed no change, since it already followed `goto` and `branch`
+  (`selfhost/mir.kode`). Five fixtures came first in `selfhost/spec/run/`, so the gates
+  report **32/32** dumps byte-identical and **32/32** runs with the oracle's output and
+  exit code. `for`, `else` on a loop and `break` inside a `match` arm are not in.
+
 - **S4 slice 6: comparisons and `if`, and real control flow in the interpreter.** MIR
   now has more than one block: `bb0`, the exit `bb1`, then the blocks in creation order;
   an `if` makes its then-block, its join and its else-block, splits with
