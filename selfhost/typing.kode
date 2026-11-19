@@ -186,6 +186,31 @@ pub fn same_type(a: Type, b: Type) -> bool {
     return a.name == b.name
 }
 
+/// Do two types name the same thing? `int` and `int`, `[int]` and `[int]`, `A?` and
+/// `A?` — what `E0235` compares an interface method with the class's.
+pub fn type_same(a: Type, b: Type) -> bool {
+    if a.kind != b.kind or a.name != b.name {
+        return false
+    }
+    if a.kind != "list" and a.kind != "map" and a.kind != "opt" {
+        return true
+    }
+    return type_same(a.inner!, b.inner!)
+}
+
+/// Is it a reference (ADR 0041 §3): a string, bytes, a list, a map, an optional, a class
+/// or an interface — not a number, a bool, an enum or nothing. `?.` can only produce a
+/// reference, so this is what `E0219` asks.
+pub fn type_is_ref(t: Type, names: Names) -> bool {
+    if t.kind == "string" or t.kind == "bytes" or t.kind == "list" or t.kind == "map" or t.kind == "opt" {
+        return true
+    }
+    if t.kind == "named" {
+        return not names.enums.contains(t.name)
+    }
+    return false
+}
+
 pub fn mixed_number(a: Type, b: Type) -> bool {
     if a.kind == "int" and b.kind == "float" {
         return true

@@ -26,6 +26,7 @@ from "./containers" import check_condition, check_container, check_index_target,
 from "./diag" import Diag, diag, diag_help
 from "./functions" import call_fails, check_call, check_expr_body, check_method_call, check_paths, check_return
 from "./items" import pop_type_params, setup_class, setup_fn
+from "./members" import Members, check_implements, collect_members
 from "./modules" import Alias, Module
 from "./names" import Names, collect
 from "./namespace" import alias_diags, check_alias
@@ -56,6 +57,9 @@ pub class Sema {
     builtins: Builtins = Builtins()
     /// Every function's and class's parameters and result (`signatures.kode`).
     sigs: SigTable = SigTable()
+    /// Every class and interface member, and every `implements` relation
+    /// (`members.kode`).
+    members: Members = Members()
     /// The signature of the function being walked, which `return` reads; a name of
     /// "" means no function (a method, or the top level).
     current: Signature = Signature(name: "")
@@ -72,6 +76,8 @@ pub class Sema {
         // Calls are checked against a program-wide table, so it is built before any
         // file is walked (`signatures.kode`).
         collect_signatures(asts, names, sigs)
+        collect_members(asts, names, members)
+        check_implements(asts, names, members, diags)
         // An alias is a program-wide name, so its rules run once every file's
         // declarations exist (`namespace.kode`).
         for d in alias_diags(aliases, names.decls) {
@@ -254,7 +260,7 @@ pub class Sema {
             check_container(ast, scopes.frames, names, diags, id)
         }
         if kind == "Unwrap" or kind == "Coalesce" or kind == "Member" {
-            check_optional(ast, scopes.frames, names, narrows, diags, id)
+            check_optional(ast, scopes.frames, names, narrows, members, diags, id)
         }
         for kid in ast.nodes[id].kids {
             visit(kid)
@@ -284,7 +290,7 @@ pub class Sema {
         }
         target = kids[0]
         if ast.nodes[target].kind == "TargetVar" {
-            bind_target(ast, scopes, names, sigs, diags, id, target)
+            bind_target(ast, scopes, names, sigs, members, diags, id, target)
         } else {
             if ast.nodes[target].kind == "TargetIndex" {
                 check_index_target(ast, scopes.frames, names, diags, target)

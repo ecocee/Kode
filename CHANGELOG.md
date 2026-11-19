@@ -7,6 +7,19 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's checker knows what a class has.** `selfhost/members.kode` collects every
+  field and method a class or interface declares (and the fields of the prelude classes
+  `Json`, `ProcessResult`, `Error`, `Request`, `Response`, `HttpResponse` and `Router`),
+  so a `.` on a class is checked instead of guessed: an unknown name is `E0217` with the
+  oracle's "did you mean" hint (from the new `selfhost/suggest.kode`), and a receiver
+  with no fields at all — an interface, a number, a list, an enum — is `E0218`.
+  `E0417` reports a payload variant used as a value instead of called, `E0228` a
+  method parameter that shares a field's name, and `E0234`/`E0235` a class that does not
+  implement its interfaces' methods with exactly the same parameter and result types.
+  `?.` now also refuses a field that is not a reference (`E0219`), and a failed `.`
+  declares nothing, so the next use of the name is `E0201` as in the oracle. Gate:
+  145 → **152/169**, self-check **47/47**.
+
 - **The port's checker knows what may be none.** `selfhost/optional.kode` ports the
   optional rules: `E0219` for the shapes that are not supported yet (a list of `int?`, a
   map of `int?`, an optional of something that is neither a reference nor a scalar) and

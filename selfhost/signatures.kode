@@ -166,7 +166,7 @@ fn method_signature(ast: Ast, names: Names, quiet: [Diag], class_id: int, id: in
 
 /// A `Param` or a `Field`'s annotation, or `any` when it has none: nothing is
 /// claimed about a value the program did not describe.
-fn annotation_of(ast: Ast, names: Names, quiet: [Diag], id: int) -> Type {
+pub fn annotation_of(ast: Ast, names: Names, quiet: [Diag], id: int) -> Type {
     for kid in ast.nodes[id].kids {
         if is_type_node(ast.nodes[kid].kind) {
             return resolve_ann(ast, names, quiet, kid)

@@ -1,0 +1,292 @@
+// What a class and an interface say about their members (S3): the fields a `.` may
+// reach, the methods a call may use, and the `implements` relation between them.
+//
+// `E0217` is a `.` on a class with no field or method of that name (with the oracle's
+// "did you mean" hint), `E0218` is a `.` on something that has no fields at all — an
+// interface (its hint points at methods), a primitive, a list, an enum — and `E0417` is
+// a payload variant used as a value instead of called. `E0234`/`E0235` are the other
+// half of `implements`: a class has to provide every interface method with exactly the
+// same parameter and result types. A generic class is checked where it is instantiated
+// (ADR 0040), so it is skipped here.
+//
+// The table is collected once, before any file is walked, because a member may be read
+// in another file from its declaration. `E0228` (a parameter named like a field) is
+// reported where the declarations are collected (`names.kode`).
+
+from "./annotations" import resolve_ann
+from "./ast" import Ast, has_type_param, is_type_node
+from "./diag" import Diag, diag_at
+from "./items" import pop_type_params, push_type_params
+from "./names" import Names, has_payload
+from "./signatures" import annotation_of
+from "./suggest" import closest
+from "./typing" import Local, Type, expr_type, local_in, type_any, type_article, type_inner, type_is_any, type_named, type_of, type_prim, type_same
+
+/// One field or method a class or an interface declares.
+pub class MemberField {
+    /// The class or interface that declares it.
+    owner: string
+    name: string
+    /// A field's type, or a method's declared result.
+    ty: Type
+    /// A method's parameter types, in order; a field has none.
+    params: [Type] = []
+    /// True when the declaration writes a result type: a method that declares none is
+    /// not the same as one that declares nothing to return.
+    ret_declared: bool = false
+    is_method: bool = false
+    /// A generic class is checked per instantiation (ADR 0040).
+    is_generic: bool = false
+}
+
+/// One `class C implements I`: the class has to provide `I`'s methods.
+pub class Implements {
+    owner: string
+    iface: string
+}
+
+/// Every member the program declares, and every `implements` relation.
+pub class Members {
+    list: [MemberField] = []
+    impls: [Implements] = []
+}
+
+pub fn collect_members(asts: [Ast], names: Names, members: Members) {
+    add_prelude(members, names)
+    // A wrong annotation is reported once by the walk, so the types resolved here go to
+    // a scratch list.
+    quiet: [Diag] = []
+    for ast in asts {
+        if ast.nodes.len() == 0 {
+            continue
+        }
+        for id in ast.nodes[0].kids {
+            kind = ast.nodes[id].kind
+            if kind == "Class" {
+                collect_class(ast, names, members, quiet, id)
+            } else if kind == "Interface" {
+                collect_interface(ast, names, members, quiet, id)
+            }
+        }
+    }
+}
+
+/// The classes the language provides, whose fields are part of a value's shape even
+/// though no file declares them (`crates/kode-sema/src/check/mod.rs` lists them beside
+/// `JsonKind`). Their order and types mirror the runtime's structs.
+fn add_prelude(members: Members, names: Names) {
+    if not names.classes.contains("Error") {
+        add_field(members, "Error", "message", type_prim("string"))
+        add_field(members, "Error", "code", type_prim("int"))
+    }
+    if not names.classes.contains("Json") {
+        add_field(members, "Json", "kind", type_named("JsonKind"))
+        add_field(members, "Json", "int_value", type_prim("int"))
+        add_field(members, "Json", "float_value", type_prim("float"))
+        add_field(members, "Json", "string_value", type_of("opt", type_prim("string")))
+        add_field(members, "Json", "list_value", type_of("opt", type_of("list", type_named("Json"))))
+        add_field(members, "Json", "map_value", type_of("opt", type_of("map", type_named("Json"))))
+    }
+    if not names.classes.contains("HttpResponse") {
+        add_field(members, "HttpResponse", "status", type_prim("int"))
+        add_field(members, "HttpResponse", "body", type_prim("string"))
+        add_field(members, "HttpResponse", "headers", type_of("map", type_prim("string")))
+    }
+    if not names.classes.contains("ProcessResult") {
+        add_field(members, "ProcessResult", "code", type_prim("int"))
+        add_field(members, "ProcessResult", "stdout", type_prim("string"))
+        add_field(members, "ProcessResult", "stderr", type_prim("string"))
+    }
+    if not names.classes.contains("Request") {
+        add_field(members, "Request", "method", type_prim("string"))
+        add_field(members, "Request", "path", type_prim("string"))
+        add_field(members, "Request", "params", type_of("map", type_prim("string")))
+        add_field(members, "Request", "query", type_of("map", type_prim("string")))
+        add_field(members, "Request", "headers", type_of("map", type_prim("string")))
+        add_field(members, "Request", "body", type_prim("string"))
+    }
+    if not names.classes.contains("Response") {
+        add_field(members, "Response", "status", type_prim("int"))
+        add_field(members, "Response", "body", type_prim("string"))
+        add_field(members, "Response", "content_type", type_prim("string"))
+    }
+    if not names.classes.contains("Router") {
+        add_field(members, "Router", "id", type_prim("int"))
+    }
+}
+
+fn add_field(members: Members, owner: string, name: string, ty: Type) {
+    members.list.add(MemberField(owner: owner, name: name, ty: ty))
+}
+
+fn collect_class(ast: Ast, names: Names, members: Members, quiet: [Diag], id: int) {
+    owner = ast.attr_text(id, "name")
+    generic = has_type_param(ast, id)
+    before = push_type_params(ast, names, id)
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Implements" {
+            members.impls.add(Implements(owner: owner, iface: ast.attr_text(kid, "name")))
+        } else if kind == "Field" {
+            members.list.add(MemberField(owner: owner, name: ast.attr_text(kid, "name"),
+                    ty: annotation_of(ast, names, quiet, kid), is_generic: generic))
+        } else if kind == "Method" {
+            members.list.add(method_of(ast, names, quiet, owner, kid, generic))
+        }
+    }
+    pop_type_params(names, before)
+}
+
+fn collect_interface(ast: Ast, names: Names, members: Members, quiet: [Diag], id: int) {
+    owner = ast.attr_text(id, "name")
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "IfaceMethod" {
+            members.list.add(method_of(ast, names, quiet, owner, kid, false))
+        }
+    }
+}
+
+/// A `Method` or an `IfaceMethod`: its parameters, and the result type when it writes
+/// one (the type node hangs directly off the method, after the parameters).
+fn method_of(ast: Ast, names: Names, quiet: [Diag], owner: string, id: int, generic: bool) -> MemberField {
+    one = MemberField(owner: owner, name: ast.attr_text(id, "name"), ty: type_any(),
+        is_method: true, is_generic: generic)
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Param" {
+            one.params.add(annotation_of(ast, names, quiet, kid))
+        } else if is_type_node(kind) {
+            one.ty = resolve_ann(ast, names, quiet, kid)
+            one.ret_declared = true
+        }
+    }
+    return one
+}
+
+/// The member `owner` declares under `name`, or one whose `name` is "" when it declares
+/// none.
+pub fn named_member(members: Members, owner: string, name: string) -> MemberField {
+    for one in members.list {
+        if one.owner == owner and one.name == name {
+            return one
+        }
+    }
+    return MemberField(owner: "", name: "", ty: type_any())
+}
+
+/// Every field and method name `owner` declares, in declaration order: what `E0217`
+/// suggests from.
+pub fn member_names(members: Members, owner: string) -> [string] {
+    out: [string] = []
+    for one in members.list {
+        if one.owner == owner {
+            out.add(one.name)
+        }
+    }
+    return out
+}
+
+/// The methods an interface requires, in declaration order.
+pub fn iface_methods(members: Members, owner: string) -> [MemberField] {
+    out: [MemberField] = []
+    for one in members.list {
+        if one.owner == owner and one.is_method {
+            out.add(one)
+        }
+    }
+    return out
+}
+
+/// `class C implements I`: every method `I` declares has to be in `C`, with the same
+/// parameter and result types (`E0234`, `E0235`).
+pub fn check_implements(asts: [Ast], names: Names, members: Members, diags: [Diag]) {
+    for ast in asts {
+        if ast.nodes.len() == 0 {
+            continue
+        }
+        for id in ast.nodes[0].kids {
+            if ast.nodes[id].kind != "Class" or has_type_param(ast, id) {
+                continue
+            }
+            owner = ast.attr_text(id, "name")
+            for kid in ast.nodes[id].kids {
+                if ast.nodes[kid].kind != "Implements" {
+                    continue
+                }
+                iname = ast.attr_text(kid, "name")
+                if not names.interfaces.contains(iname) {
+                    continue
+                }
+                for want in iface_methods(members, iname) {
+                    got = named_member(members, owner, want.name)
+                    if got.name == "" or not got.is_method {
+                        message = "`${owner}` implements `${iname}` but has no method `${want.name}`"
+                        rule_help(ast, diags, "E0234", message, id,
+                            "add the method with the same parameters and return type")
+                        continue
+                    }
+                    if not same_signature(got, want) {
+                        message = "`${owner}.${want.name}` does not match the signature of `${iname}.${want.name}`"
+                        rule_help(ast, diags, "E0235", message, id,
+                            "the parameter types and the return type must match exactly")
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn same_signature(got: MemberField, want: MemberField) -> bool {
+    if got.params.len() != want.params.len() or got.ret_declared != want.ret_declared {
+        return false
+    }
+    if got.ret_declared and not type_same(got.ty, want.ty) {
+        return false
+    }
+    i = 0
+    while i < got.params.len() {
+        if not type_same(got.params[i], want.params[i]) {
+            return false
+        }
+        i += 1
+    }
+    return true
+}
+
+/// Does an assignment from this expression declare nothing? A `.` the checker refuses
+/// (`E0217`, `E0218`, `E0417`) leaves the value unknown in the oracle too, so a later
+/// use of the name is `E0201` — which is why `x = a.z` binds nothing.
+pub fn member_fails(ast: Ast, frames: [[Local]], names: Names, members: Members, id: int) -> bool {
+    if ast.nodes[id].kind != "Member" {
+        return false
+    }
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 or ast.nodes[kids[0]].kind != "Ident" {
+        return false
+    }
+    base = ast.attr_text(kids[0], "name")
+    field = ast.attr_text(id, "name")
+    if local_in(frames, base).name == "" {
+        // The enum's own name: a payload variant is a constructor, not a value.
+        return names.enums.contains(base) and has_payload(names, base, field)
+    }
+    t = expr_type(ast, frames, names, kids[0])
+    if type_is_any(t) {
+        return false
+    }
+    if t.kind == "opt" {
+        t = type_inner(t)
+    }
+    if t.kind != "named" {
+        return true
+    }
+    if names.interfaces.contains(t.name) or names.enums.contains(t.name) {
+        return true
+    }
+    return named_member(members, t.name, field).name == ""
+}
+
+/// A diagnostic that points at a declaration's own name, with the oracle's hint.
+fn rule_help(ast: Ast, diags: [Diag], code: string, message: string, id: int, help: string) {
+    diag_at(ast, diags, code, message, id, "name_span", help)
+}

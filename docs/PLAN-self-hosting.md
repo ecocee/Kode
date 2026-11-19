@@ -523,6 +523,20 @@ typing rules came with it: `??` keeps an optional default (`env("A") ?? env("B")
 enum. The gate after it is **145/169** with **self-check 45/45**; `sema.kode` stayed at
 500 lines by moving the whole assignment decision to `binding.bind_target`.
 
+**Slice 11 is in: members.** `selfhost/members.kode` is the table a `.` reads: every
+field and method a class or interface declares, in declaration order, plus the prelude
+classes the language provides (`Json`, `ProcessResult`, `Error`, `Request`, `Response`,
+`HttpResponse`, `Router`) whose fields the runtime defines. `E0217` is a name the class
+does not have (with "did you mean" from `selfhost/suggest.kode`, a Levenshtein search
+that `E0201`/`E0206`/`E0225` will reuse), `E0218` is a receiver with no fields at all
+(an interface, with its own hint, or a number, a list, an enum), `E0417` is a payload
+variant written as a value, `E0228` is a parameter that shares a field's name, and
+`E0234`/`E0235` are `implements` obligations — a generic class is skipped because it is
+checked per instantiation (ADR 0040). Two cascades came with it: a failed `.` declares
+nothing (`x = a.z` makes the next `x` an `E0201`), and `?.` refuses a field that is not
+a reference (`E0219`, "`?.` on an int is not supported yet"). Gate: **152/169**,
+self-check **47/47**.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that

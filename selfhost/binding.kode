@@ -18,6 +18,7 @@ from "./ast" import Ast, is_type_node
 from "./diag" import Diag, diag, diag_help
 from "./containers" import literal_fails
 from "./functions" import call_fails
+from "./members" import Members, member_fails
 from "./names" import Names
 from "./scope" import Scope
 from "./signatures" import SigTable
@@ -26,13 +27,18 @@ from "./typing" import Local, coerce_value, expr_type, local_in, type_any
 /// `x = 1`: the binding an assignment to a name makes, declaring it in `scopes` when it
 /// stands. A call the checker refuses, or a value the rules refuse, declares nothing so
 /// the next line's use of the name is `E0201`, as in the oracle.
-pub fn bind_target(ast: Ast, scopes: Scope, names: Names, sigs: SigTable, diags: [Diag], id: int, target: int) {
+pub fn bind_target(ast: Ast, scopes: Scope, names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int, target: int) {
     kids = ast.nodes[id].kids
     value = -1
     if kids.len() >= 2 {
         value = kids[kids.len() - 1]
     }
     if value >= 0 and call_fails(ast, scopes.frames, names, sigs, value) {
+        return
+    }
+    // `x = a.z` or `x = Shape.Circle` fails to produce a value, so the oracle declares
+    // nothing and the next use of `x` is `E0201`.
+    if value >= 0 and member_fails(ast, scopes.frames, names, members, value) {
         return
     }
     one = bound_local(ast, scopes.frames, names, diags, id, target)

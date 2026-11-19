@@ -59,6 +59,28 @@ pub fn variant_of_field(names: Names, enum_name: string, field: string) -> strin
     return ""
 }
 
+/// Does `Enum.Variant` declare a payload field `field`?
+pub fn has_payload(names: Names, enum_name: string, variant: string) -> bool {
+    for one in names.payloads {
+        if one.enum_name == enum_name and one.variant == variant {
+            return true
+        }
+    }
+    return false
+}
+
+/// The field names `Enum.Variant` declares, in declaration order: what `E0417` prints as
+/// the constructor's arguments.
+pub fn payload_fields(names: Names, enum_name: string, variant: string) -> [string] {
+    out: [string] = []
+    for one in names.payloads {
+        if one.enum_name == enum_name and one.variant == variant {
+            out.add(one.field)
+        }
+    }
+    return out
+}
+
 /// Record one file's declarations, reporting the ones that cannot stand.
 pub fn collect(ast: Ast, names: Names, builtins: Builtins, diags: [Diag]) {
     if ast.nodes.len() == 0 {
@@ -139,6 +161,38 @@ fn declare_class(ast: Ast, names: Names, diags: [Diag], id: int) {
         names.generics.add(name)
     }
     declare_fields(ast, diags, id)
+    declare_field_params(ast, diags, id)
+}
+
+/// A method's parameter may not share a field's name: inside a method a field is used by
+/// its plain name, so the parameter would hide it (`E0228`). A generic class is checked
+/// per instantiation (ADR 0040).
+fn declare_field_params(ast: Ast, diags: [Diag], id: int) {
+    if has_type_param(ast, id) {
+        return
+    }
+    fields: [string] = []
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Field" {
+            fields.add(ast.attr_text(kid, "name"))
+        }
+    }
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Method" {
+            continue
+        }
+        for part in ast.nodes[kid].kids {
+            if ast.nodes[part].kind != "Param" {
+                continue
+            }
+            name = ast.attr_text(part, "name")
+            if fields.contains(name) {
+                message = "the parameter `${name}` has the same name as a field"
+                hint = "rename the parameter; inside a method a field is used by its plain name"
+                diag_at(ast, diags, "E0228", message, part, "name_span", hint)
+            }
+        }
+    }
 }
 
 fn declare_fields(ast: Ast, diags: [Diag], id: int) {
