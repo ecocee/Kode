@@ -19,7 +19,7 @@ from "./diag" import Diag, diag, diag_help
 from "./names" import Names
 from "./signatures" import ParamSig, SigTable, Signature
 from "./stdlib" import StdSig, builder_method, builtin, free_fn
-from "./typing" import Local, Type, expr_type, mixed_number, type_any, type_article, type_assignable, type_inner, type_name
+from "./typing" import Local, Type, expr_type, mixed_number, type_any, type_article, type_assignable, type_from_spec, type_inner, type_name
 
 // ---- a call ----
 
@@ -265,7 +265,7 @@ fn std_call(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], std: StdSi
     while i < args.len() {
         value = arg_value(ast, args[i])
         got = expr_type(ast, frames, names, value)
-        want = std.params[i]
+        want = type_from_spec(std.params[i])
         if is_builtin {
             // A builtin takes kinds, not types: `len` accepts a list of anything.
             if got.kind != "any" and not std.accepts.contains(got.kind) {

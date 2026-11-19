@@ -13,6 +13,7 @@
 from "./ast" import Ast
 from "./diag" import Diag, diag, diag_help
 from "./names" import Names
+from "./stdlib" import builtin, free_fn
 
 /// A value's type.
 pub class Type {
@@ -119,7 +120,13 @@ pub fn type_printable(t: Type) -> bool {
     if t.kind == "list" or t.kind == "map" {
         return type_printable(type_inner(t))
     }
-    if t.kind == "any" or t.kind == "opt" or t.kind == "none" {
+    // An optional prints only when its item is a scalar (`is_opt_scalar`): `int?`,
+    // `float?` and `bool?` show the number or `none`, while `string?` has no text of
+    // its own and a bare `none` has no type at all. `any` must stay quiet.
+    if t.kind == "opt" {
+        return type_inner(t).kind == "int" or type_inner(t).kind == "float" or type_inner(t).kind == "bool"
+    }
+    if t.kind == "any" {
         return true
     }
     return false
@@ -339,28 +346,39 @@ fn call_type(ast: Ast, names: Names, id: int) -> Type {
     if names.classes.contains(callee) {
         return type_named(callee)
     }
-    if callee == "bytes" {
-        return type_prim("bytes")
-    }
-    if callee == "len" {
-        return type_prim("int")
-    }
-    if callee == "int" {
-        return type_prim("int")
-    }
-    if callee == "float" {
-        return type_prim("float")
-    }
-    if callee == "string" or callee == "chr" {
-        return type_prim("string")
-    }
     if callee == "print" or callee == "stderr" {
         return type_prim("unit")
     }
     if callee == "StringBuilder" {
         return type_named("StringBuilder")
     }
+    std = free_fn(callee)
+    if std.name != "" {
+        return type_from_spec(std.ret)
+    }
+    one = builtin(callee)
+    if one.name != "" {
+        return type_from_spec(one.ret)
+    }
     return type_any()
+}
+
+/// A type written as the spec `selfhost/stdlib.kode` stores, since that module cannot
+/// import this one. "" is "this slice does not know".
+pub fn type_from_spec(spec: string) -> Type {
+    if spec == "" {
+        return type_any()
+    }
+    if spec == "[string]" {
+        return type_of("list", type_prim("string"))
+    }
+    if spec == "string?" {
+        return type_of("opt", type_prim("string"))
+    }
+    if spec == "ProcessResult" {
+        return type_named(spec)
+    }
+    return type_prim(spec)
 }
 
 /// `E0202`: a value that does not fit where it is stored. Returns whether it fits, so

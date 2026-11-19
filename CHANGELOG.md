@@ -20,7 +20,13 @@ language: a patch release fixes bugs, a minor release may add syntax.
   positionally ("argument 2 of `exec` should be `[string]`, found a string"), a
   builtin describes the value it wants ("`bytes` expects a length, found a string"),
   and a method of a class the program declares is a call like any other, named
-  parameter help included. Named arguments separate the two kinds of builtin: a free
+  parameter help included. Every row also carries what the call answers, so an
+  expression typed through it is checked like any other value: `print(exec(...))` is
+  `E0203` ``cannot print `ProcessResult` yet``, `print(assert(x))` is `E0205` "this call
+  returns nothing", and `print(env("HOME"))` is ``cannot print `string?` yet`` — the
+  print rule now tells a scalar optional (`int?`, `float?`, `bool?` print fine) from the
+  rest, and a bare `none`, as the oracle does. Named arguments separate the two kinds of
+  builtin: a free
   one refuses them once, at the first (`len(x: 1)` is `E0215`), while a builtin method
   takes a name the way a declared one does — `sb.push(s: "a")` is clean and
   `sb.push(x: 5)` reports only the type — and `sb.build(1)` is the plain arity

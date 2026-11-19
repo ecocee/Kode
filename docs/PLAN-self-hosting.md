@@ -471,6 +471,15 @@ a method of a class the program declares is a call like any other, help included
 free builtin refuses a named argument once, at the first one (`len(x: 1)`); a builtin
 method accepts a name the way a declared one does (`sb.push(s: "a")` is quiet,
 `sb.push(x: 5)` reports the type) and `sb.build(1)` is the plain arity `E0207`.
+A row also carries the call's result as a **spec** string (`"int"`, `"[string]"`,
+`"string?"`, `"ProcessResult"`), not a `Type`: `typing.kode` owns `Type` and has to read
+these rows, so the table cannot import it back; `typing.type_from_spec` reads one. That
+gives an expression its type through the table, and the print rule then reports what the
+oracle does: `print(exec(...))` is `E0203` ``cannot print `ProcessResult` yet``, a call
+that returns nothing is `E0205` "this call returns nothing, so there is nothing to
+print", and `print(env("HOME"))` is ``cannot print `string?` yet`` — an optional prints
+only when it holds a scalar, and a bare `none` never does.
+
 `Signature` gained `is_ctor`, because a constructor whose call is refused still builds
 the instance (`a = A()` leaves `a` declared) and so does a builtin (`b = bytes("four")`
 reports only the argument), while a refused function declares nothing. The gate after

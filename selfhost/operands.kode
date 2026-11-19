@@ -167,7 +167,9 @@ pub fn check_print(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id:
 fn check_print_value(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
     t = expr_type(ast, frames, names, id)
     if t.kind == "unit" {
-        // `E0205` is its own family: a call that returns nothing.
+        // A call that returns nothing has nothing to show (`E0205`, whose
+        // "cannot be stored" form lives in `selfhost/binding.kode`).
+        diag(ast, diags, "E0205", "this call returns nothing, so there is nothing to print", id)
         return
     }
     if type_printable(t) {
