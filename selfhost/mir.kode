@@ -30,6 +30,12 @@
 // a `StrConcat` whose old accumulator is released and whose int hole — an owned
 // `IntToStr` temporary — is released too, and a lone hole is only a `retain`.
 //
+// Slice 6 adds comparisons and `if`, the first shapes with more than one block: the
+// entry is `bb0`, the exit (releases and `return`) is `bb1`, and the blocks the walk
+// creates follow in creation order — an `if` makes its then-block, its join, and then
+// its else-block when there is one, each ending in `goto <join>`, with
+// `branch _1, <then>, <else>` at the split.
+//
 // A statement outside those shapes sets `ok = false` with a reason, and `main.kode`
 // says so and exits 2 rather than printing a MIR that would not run.
 
@@ -67,6 +73,7 @@ pub class Instr {
     callee: string = ""
     args: [Operand] = []
     target: string = ""
+    alt: string = ""
 }
 
 pub class Block {
@@ -101,10 +108,27 @@ pub class Builder {
     ast: Ast
     main: Function
     block: Block
+    /// The exit block (`bb1`), where the walk's last block jumps.
+    end: Block
+    /// The blocks the walk created, in creation order; the dump keeps that order.
+    blocks: [Block] = []
+    next_label: int = 2
     names: [string] = []
     slots: [int] = []
     ok: bool = true
     why: string = ""
+
+    /// A fresh block, labelled in creation order after the entry and the exit.
+    fn new_block() -> Block {
+        b = Block(label: "bb${next_label}")
+        next_label += 1
+        blocks.add(b)
+        return b
+    }
+
+    fn switch_to(b: Block) {
+        block = b
+    }
 
     /// A new temporary, of the given kind, optionally the variable it belongs to.
     fn temp(name: string, kind: string) -> int {
@@ -174,6 +198,17 @@ pub class Builder {
         }
         if kind == "Assign" {
             assign(id)
+            return
+        }
+        if kind == "Block" {
+            // A block is its statements, in place.
+            for kid in ast.nodes[id].kids {
+                stmt(kid)
+            }
+            return
+        }
+        if kind == "If" {
+            if_stmt(id)
             return
         }
         stop("statement `${kind}`")
@@ -309,6 +344,67 @@ pub class Builder {
         return acc
     }
 
+    /// `if`/`else`: the condition first, then a branch into the then-block, whose end
+    /// and the else-block's end both jump to the join.
+    fn if_stmt(id: int) {
+        kids = ast.nodes[id].kids
+        if kids.len() == 0 {
+            stop("an `if` without a condition")
+            return
+        }
+        cond = expr(kids[0])
+        if not ok {
+            return
+        }
+        if kind_of(cond) != "bool" {
+            stop("an `if` on a `${kind_of(cond)}`")
+            return
+        }
+        then_node = -1
+        else_node = -1
+        for kid in kids {
+            if ast.nodes[kid].kind == "Then" {
+                then_node = kid
+            } else if ast.nodes[kid].kind == "Else" {
+                else_node = kid
+            }
+        }
+        if then_node < 0 {
+            stop("an `if` without a body")
+            return
+        }
+        // The then-block, then the join, then the else-block: the oracle's numbering.
+        then_bb = new_block()
+        join = new_block()
+        else_bb = join
+        if else_node >= 0 {
+            else_bb = new_block()
+        }
+        block.instrs.add(Instr(kind: "branch", args: [cond], target: then_bb.label, alt: else_bb.label))
+        switch_to(then_bb)
+        body(then_node)
+        if ok {
+            block.instrs.add(Instr(kind: "goto", target: join.label))
+        }
+        if ok and else_node >= 0 {
+            switch_to(else_bb)
+            body(else_node)
+            if ok {
+                block.instrs.add(Instr(kind: "goto", target: join.label))
+            }
+        }
+        switch_to(join)
+    }
+
+    fn body(id: int) {
+        for kid in ast.nodes[id].kids {
+            if not ok {
+                return
+            }
+            stmt(kid)
+        }
+    }
+
     /// A hole: a name, as itself for a string or through `IntToStr` for an int.
     fn hole(id: int) -> Piece {
         kids = ast.nodes[id].kids
@@ -386,6 +482,15 @@ pub class Builder {
             block.instrs.add(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [left, right]))
             return Operand(is_temp: true, index: index)
         }
+        if compare_name(op) != "" {
+            if left_kind != "int" or right_kind != "int" {
+                stop("`${op}` on a `${left_kind}` and a `${right_kind}`")
+                return Operand()
+            }
+            index = temp("", "bool")
+            block.instrs.add(Instr(kind: compare_name(op), dest: index, args: [left, right]))
+            return Operand(is_temp: true, index: index)
+        }
         mnemonic = operator_name(op)
         if mnemonic == "" {
             stop("the operator `${op}`, which this slice cannot lower")
@@ -416,6 +521,29 @@ pub class Builder {
         }
         return Value(kind: "str", str_value: ast.attr_text(id, "value"))
     }
+}
+
+/// The instruction a comparison becomes, or "" when the operator is not one.
+fn compare_name(op: string) -> string {
+    if op == "<" {
+        return "lt"
+    }
+    if op == "<=" {
+        return "le"
+    }
+    if op == ">" {
+        return "gt"
+    }
+    if op == ">=" {
+        return "ge"
+    }
+    if op == "==" {
+        return "eq"
+    }
+    if op == "!=" {
+        return "ne"
+    }
+    return ""
 }
 
 /// The instruction a written operator becomes, or "" when this slice has no such
@@ -451,7 +579,9 @@ fn temp_kind(kind: string) -> string {
 pub fn build(ast: Ast) -> Mir {
     mir = Mir()
     main = Function(name: "<main>", entry: true)
-    b = Builder(ast: ast, main: main, block: Block(label: "bb0"))
+    entry = Block(label: "bb0")
+    exit = Block(label: "bb1")
+    b = Builder(ast: ast, main: main, block: entry, end: exit)
     if ast.nodes.len() > 0 {
         for id in ast.nodes[0].kids {
             b.stmt(id)
@@ -460,32 +590,42 @@ pub fn build(ast: Ast) -> Mir {
     if not b.ok {
         return Mir(functions: [], ok: false, why: b.why)
     }
-    // The oracle opens `bb0` with one zero per temporary, in index order: `0` for an
-    // int and `null` for a reference.
-    zeros: [Instr] = []
+    // The block the walk ends in falls out to the exit.
+    b.block.instrs.add(Instr(kind: "goto", target: "bb1"))
+    // The entry opens with one zero per temporary, in index order: `0` for an int,
+    // `false` for a bool and `null` for a reference.
+    head: [Instr] = []
     for k in 0..main.temps.len() {
-        start = Value(kind: "int")
-        if main.temps[k].kind == "ref" {
-            start = Value(kind: "null")
-        }
-        zeros.add(Instr(kind: "assign", dest: k, args: [Operand(value: start)]))
+        head.add(zero_init(k, main.temps[k].kind))
     }
-    for one in b.block.instrs {
-        zeros.add(one)
+    for one in entry.instrs {
+        head.add(one)
     }
-    zeros.add(Instr(kind: "goto", target: "bb1"))
-    main.blocks.add(Block(label: "bb0", instrs: zeros))
-    end = Block(label: "bb1")
+    main.blocks.add(Block(label: "bb0", instrs: head))
     // Every named reference is released once on the way out.
     for k in 0..main.temps.len() {
         if main.temps[k].kind == "ref" and main.temps[k].name != "" {
-            end.instrs.add(Instr(kind: "release", args: [Operand(is_temp: true, index: k)]))
+            exit.instrs.add(Instr(kind: "release", args: [Operand(is_temp: true, index: k)]))
         }
     }
-    end.instrs.add(Instr(kind: "return"))
-    main.blocks.add(end)
+    exit.instrs.add(Instr(kind: "return"))
+    main.blocks.add(exit)
+    for extra in b.blocks {
+        main.blocks.add(extra)
+    }
     mir.functions.add(main)
     return mir
+}
+
+/// The initialising assignment a temporary starts with.
+fn zero_init(k: int, kind: string) -> Instr {
+    start = Value(kind: "int")
+    if kind == "ref" {
+        start = Value(kind: "null")
+    } else if kind == "bool" {
+        start = Value(kind: "bool")
+    }
+    return Instr(kind: "assign", dest: k, args: [Operand(value: start)])
 }
 
 /// The dump's lines: the oracle's layout, the `let` block, then the blocks.
@@ -530,6 +670,9 @@ fn instr_text(i: Instr) -> string {
     }
     if i.kind == "retain" {
         return "retain ${operand_text(i.args[0])}"
+    }
+    if i.kind == "branch" {
+        return "branch ${operand_text(i.args[0])}, ${i.target}, ${i.alt}"
     }
     if i.dest >= 0 {
         if i.kind == "assign" {

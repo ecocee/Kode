@@ -823,6 +823,49 @@ literal *head* being released as the accumulator:
   name (an expression, a call, a nested interpolation), and interpolating floats and
   bools (their `FloatToStr`/`BoolToStr` calls are the same shape, another slice).
 
+**The plan for slice 6 — comparisons and `if`.** The first slice with more than one
+block. Probing `kode mir` gave the layout exactly:
+
+- The function is `bb0` first, then `bb1` — the exit block with its releases and
+  `return`, wherever it is branched to — and then the blocks the walk created, in
+  creation order. An `if` creates its then-block, then the join, and then the else
+  block when there is one (`branch _1, bb2, bb4`, `bb2` then, `bb3` join with the code
+  after the `if`, `bb4` the else); a then-block and an else-block each end with
+  `goto <join>`, and the block the walk ends in gets `goto bb1`.
+- A condition is `_1 = lt _0, 2` into a `bool` temporary (`let _1: bool`, zeroed to
+  `_1 = false`), then `branch _1, <then>, <else>`. Without an `else`, the else target is
+  the join.
+- Comparisons are `lt`, `le`, `gt`, `ge`, `eq`, `ne` on ints, and a `bool` prints
+  through `rt::PrintBool`.
+
+- **Files.** `selfhost/mir.kode`: blocks become a list the walk appends to (entry and
+  exit created up front), `branch` carries its two labels, `if` lowers its blocks and
+  joins them, comparisons allocate a `bool` temporary, and the zero block initialises a
+  `bool` to `false`. `selfhost/eval.kode`: a `State` holding the pending line and the
+  int, string and bool per temporary, and a program counter that follows `goto`,
+  `branch` and `return` instead of walking one block — the first real control flow in
+  the interpreter.
+- **Fixtures first.** Five more in `selfhost/spec/run/`: the six comparisons printed,
+  an `if` that runs, an `if` that is skipped, an `if`/`else`, and an `if` that assigns.
+- **Gates.** Unchanged: `mir` byte-identical, `run` output and exit code.
+- **Out of scope.** `while`/`for`, `and`/`or`/`not`, bool variables, string equality,
+  nested `if`s inside each other (a nested block numbering to verify on its own).
+
+**Slice 6 is in.** `selfhost/mir.kode` keeps its blocks in a list: `bb0`, then the exit
+`bb1`, then whatever the walk created, in creation order — exactly the oracle's dump.
+`if` creates its then-block, its join and (when there is one) its else-block, branches
+with `branch _1, bb2, bb4`, and both arms end in `goto <join>`; the block the walk ends
+in gets `goto bb1`. Comparisons lower to `lt`/`le`/`gt`/`ge`/`eq`/`ne` on a `bool`
+temporary, which `PrintBool` prints and which starts at `false`. `selfhost/eval.kode`
+stopped walking one block: it holds a `State` (pending line, `int`/`string`/`bool` per
+temporary) and a program counter that follows `goto`, `branch` and `return` — the
+`goto`/`return` placeholders are gone. Five fixtures came first in
+`selfhost/spec/run/` (the six comparisons, an `if` that runs, one that is skipped, an
+`if`/`else`, an `if` that assigns): the gates report **27/27** dumps byte-identical and
+**27/27** runs with the oracle's output and exit code. `while`, `and`/`or`/`not`, bool
+variables, string equality and nested `if`s are still out, and `selfhost/mir.kode` is
+now past 700 lines, so splitting it by idea (model, lowering, dump) is the next tidy-up.
+
 **Slice 5 is in.** `selfhost/mir.kode` lowers interpolation as a `print` argument: the
 pieces are lowered where they are concatenated, the head becomes the accumulator (a
 literal head released after its first concat, a borrowed variable head retained), and

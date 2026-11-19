@@ -1,113 +1,194 @@
 // The interpreter over that MIR (S4): what a program prints.
 //
-// The evaluator keeps one `int` and one `string` per temporary and walks the
-// instructions in order: an assignment or a `StrConcat` writes a temporary, an integer
-// operator writes the result of its operands, and the print primitives append to a
+// The evaluator keeps one `int`, one `string` and one `bool` per temporary, plus the
+// line being built, and it follows the blocks rather than walking them in order: a
+// `goto` or a `branch` picks the next block, and a `return` ends the function. Within a
+// block, an assignment or a `StrConcat` writes a temporary, an integer or comparison
+// operator writes the result of its operands, and the print primitives append to the
 // pending line — a separator appends a space, and `PrintNl` prints the line and clears
 // it, the separator and newline rule `print` has. `retain` and `release` are no-ops
-// here: the interpreter has no reference counts to drop, and the gate still checks
-// that the instruction is emitted. `goto` and `return` carry no work yet; the MIR is still one
-// straight block, and control flow arrives with the branch that needs it.
+// here: the interpreter has no reference counts to drop, and the gate still checks that
+// the instruction is emitted.
 
 from "./mir" import Block, Function, Instr, Mir, Operand, print_text
 
+/// What a running function holds: the pending line and one value per temporary.
+class State {
+    pending: string = ""
+    values: [int] = []
+    refs: [string] = []
+    bools: [bool] = []
+}
+
 /// Run `mir` and write its output, exactly as the program would.
 pub fn run(mir: Mir) {
-    pending = ""
     for f in mir.functions {
-        values: [int] = []
-        refs: [string] = []
+        st = State()
         for k in 0..f.temps.len() {
-            values.add(0)
-            refs.add("")
+            st.values.add(0)
+            st.refs.add("")
+            st.bools.add(false)
         }
-        for b in f.blocks {
-            for i in b.instrs {
-                pending = print_step(pending, f, i, values, refs)
-            }
+        pc = 0
+        while pc >= 0 {
+            pc = run_block(f, pc, st)
         }
     }
 }
 
-fn print_step(pending: string, f: Function, i: Instr, values: [int], refs: [string]) -> string {
+/// Run one block, returning the block to run next, or -1 when the function is done.
+fn run_block(f: Function, pc: int, st: State) -> int {
+    for i in f.blocks[pc].instrs {
+        if i.kind == "goto" {
+            return label_index(f.blocks, i.target)
+        }
+        if i.kind == "branch" {
+            if operand_bool(i.args[0], st) {
+                return label_index(f.blocks, i.target)
+            }
+            return label_index(f.blocks, i.alt)
+        }
+        if i.kind == "return" {
+            return -1
+        }
+        run_instr(f, i, st)
+    }
+    return -1
+}
+
+fn label_index(blocks: [Block], label: string) -> int {
+    for k in 0..blocks.len() {
+        if blocks[k].label == label {
+            return k
+        }
+    }
+    return -1
+}
+
+/// One instruction. `goto`, `branch` and `return` are the block loop's.
+fn run_instr(f: Function, i: Instr, st: State) {
     if i.kind == "release" or i.kind == "retain" {
-        return pending
+        return
     }
     if i.kind == "assign" {
         if f.temps[i.dest].kind == "ref" {
-            refs[i.dest] = operand_str(i.args[0], refs)
+            st.refs[i.dest] = operand_str(i.args[0], st)
+        } else if f.temps[i.dest].kind == "bool" {
+            st.bools[i.dest] = operand_bool(i.args[0], st)
         } else {
-            values[i.dest] = operand_int(i.args[0], values)
+            st.values[i.dest] = operand_int(i.args[0], st)
         }
-        return pending
+        return
     }
     if i.kind == "call" and i.dest >= 0 {
         // A call with a destination returns a string: the concat, or an int rendered.
         if i.callee == "rt::IntToStr" {
-            refs[i.dest] = "${operand_int(i.args[0], values)}"
+            st.refs[i.dest] = "${operand_int(i.args[0], st)}"
         } else {
-            refs[i.dest] = operand_str(i.args[0], refs) + operand_str(i.args[1], refs)
+            st.refs[i.dest] = operand_str(i.args[0], st) + operand_str(i.args[1], st)
         }
-        return pending
+        return
     }
     left = 0
     right = 0
     if i.kind == "add" or i.kind == "sub" or i.kind == "mul" or i.kind == "div" or i.kind == "rem" {
-        left = operand_int(i.args[0], values)
-        right = operand_int(i.args[1], values)
+        left = operand_int(i.args[0], st)
+        right = operand_int(i.args[1], st)
     }
     if i.kind == "add" {
-        values[i.dest] = left + right
-        return pending
+        st.values[i.dest] = left + right
+        return
     }
     if i.kind == "sub" {
-        values[i.dest] = left - right
-        return pending
+        st.values[i.dest] = left - right
+        return
     }
     if i.kind == "mul" {
-        values[i.dest] = left * right
-        return pending
+        st.values[i.dest] = left * right
+        return
     }
     if i.kind == "div" {
-        values[i.dest] = left / right
-        return pending
+        st.values[i.dest] = left / right
+        return
     }
     if i.kind == "rem" {
-        values[i.dest] = left % right
-        return pending
+        st.values[i.dest] = left % right
+        return
+    }
+    if i.kind == "lt" or i.kind == "le" or i.kind == "gt" or i.kind == "ge" or i.kind == "eq" or i.kind == "ne" {
+        st.bools[i.dest] = compare(i.kind, operand_int(i.args[0], st), operand_int(i.args[1], st))
+        return
     }
     if i.kind != "call" {
-        return pending
+        return
     }
     if i.callee == "rt::PrintNl" {
-        print(pending)
-        return ""
+        print(st.pending)
+        st.pending = ""
+        return
     }
     if i.callee == "rt::PrintSep" {
-        return pending + " "
+        st.pending += " "
+        return
     }
     if i.args.len() == 0 {
-        return pending
+        return
     }
     if i.callee == "rt::PrintInt" {
-        return pending + "${operand_int(i.args[0], values)}"
+        st.pending += "${operand_int(i.args[0], st)}"
+        return
+    }
+    if i.callee == "rt::PrintBool" {
+        if operand_bool(i.args[0], st) {
+            st.pending += "true"
+        } else {
+            st.pending += "false"
+        }
+        return
     }
     if i.callee == "rt::PrintStr" {
-        return pending + operand_str(i.args[0], refs)
+        st.pending += operand_str(i.args[0], st)
+        return
     }
-    return pending + print_text(i.args[0].value)
+    st.pending += print_text(i.args[0].value)
 }
 
-fn operand_int(o: Operand, values: [int]) -> int {
+fn compare(kind: string, left: int, right: int) -> bool {
+    if kind == "lt" {
+        return left < right
+    }
+    if kind == "le" {
+        return left <= right
+    }
+    if kind == "gt" {
+        return left > right
+    }
+    if kind == "ge" {
+        return left >= right
+    }
+    if kind == "eq" {
+        return left == right
+    }
+    return left != right
+}
+
+fn operand_int(o: Operand, st: State) -> int {
     if o.is_temp {
-        return values[o.index]
+        return st.values[o.index]
     }
     return o.value.int_value
 }
 
-fn operand_str(o: Operand, refs: [string]) -> string {
+fn operand_str(o: Operand, st: State) -> string {
     if o.is_temp {
-        return refs[o.index]
+        return st.refs[o.index]
     }
     return o.value.str_value
+}
+
+fn operand_bool(o: Operand, st: State) -> bool {
+    if o.is_temp {
+        return st.bools[o.index]
+    }
+    return o.value.bool_value
 }

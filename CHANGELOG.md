@@ -7,6 +7,18 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **S4 slice 6: comparisons and `if`, and real control flow in the interpreter.** MIR
+  now has more than one block: `bb0`, the exit `bb1`, then the blocks in creation order;
+  an `if` makes its then-block, its join and its else-block, splits with
+  `branch _1, bb2, bb4` and joins with `goto`. Comparisons lower to
+  `lt`/`le`/`gt`/`ge`/`eq`/`ne` into a `bool` temporary (`false` to start, printed by
+  `rt::PrintBool`). The interpreter holds a `State` and a program counter, following
+  `goto`, `branch` and `return` instead of the old one-block walk
+  (`selfhost/mir.kode`, `selfhost/eval.kode`). Five fixtures came first in
+  `selfhost/spec/run/`, so the gates report **27/27** dumps byte-identical and
+  **27/27** runs with the oracle's output and exit code. `while`, `and`/`or`/`not`,
+  bool variables and string equality are not in.
+
 - **S4 slice 5: string interpolation, including its literal-head release.** A `print`
   argument that is an interpolation lowers to a `StrConcat` chain: the head becomes the
   accumulator (a literal head is released after its first concat — the `release "hi "`
