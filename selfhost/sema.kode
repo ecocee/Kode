@@ -20,9 +20,9 @@
 
 from "./annotations" import resolve_ann
 from "./ast" import Ast, is_type_node
-from "./binding" import bound_local
+from "./binding" import bind_target
 from "./builtins" import Builtins
-from "./containers" import check_condition, check_expression, check_index_target, open_for_in
+from "./containers" import check_condition, check_container, check_index_target, open_for_in
 from "./diag" import Diag, diag, diag_help
 from "./functions" import call_fails, check_call, check_expr_body, check_method_call, check_paths, check_return
 from "./items" import pop_type_params, setup_class, setup_fn
@@ -30,12 +30,14 @@ from "./modules" import Alias, Module
 from "./names" import Names, collect
 from "./namespace" import alias_diags, check_alias
 from "./operands" import check_operator, check_print
+from "./optional" import Narrow, check_method_optional, check_optional, narrowing_of
 from "./patterns" import bind_arm_names
 from "./scope" import Scope
 from "./signatures" import SigTable, Signature, collect_signatures
 from "./typing" import type_any, type_prim
 
 pub class Sema {
+    narrows: [[Narrow]] = []
     /// Every file the program loads, the entry first, from `modules.kode`.
     asts: [Ast] = []
     /// The file being walked; `asts` drives it, so the visitors stay one-file code.
@@ -140,8 +142,7 @@ pub class Sema {
         pop_type_params(names, before)
     }
 
-    /// A method reads its class's fields and methods by bare name, so they are in
-    /// scope for the whole class.
+    /// A method reads its class's fields and methods by bare name.
     fn check_class(id: int) {
         class_name = ast.attr_text(id, "name")
         scopes.push()
@@ -250,7 +251,10 @@ pub class Sema {
             check_operator(ast, scopes.frames, names, diags, id)
         }
         if kind == "Index" or kind == "Slice" or kind == "List" or kind == "Map" {
-            check_expression(ast, scopes.frames, names, diags, id)
+            check_container(ast, scopes.frames, names, diags, id)
+        }
+        if kind == "Unwrap" or kind == "Coalesce" or kind == "Member" {
+            check_optional(ast, scopes.frames, names, narrows, diags, id)
         }
         for kid in ast.nodes[id].kids {
             visit(kid)
@@ -272,8 +276,7 @@ pub class Sema {
         }
     }
 
-    /// `x = 1` binds `x` to the value's type (`assign.kode`); `xs[0] = 1` and
-    /// `obj.name = 1` are reads of what they index into. The value is always walked.
+    /// `x = 1` binds `x` (`binding.kode`); `xs[0] = 1` is a read of what it indexes into.
     fn visit_assign(id: int) {
         kids = ast.nodes[id].kids
         if kids.len() == 0 {
@@ -281,19 +284,7 @@ pub class Sema {
         }
         target = kids[0]
         if ast.nodes[target].kind == "TargetVar" {
-            // A call the checker refuses declares nothing, so the next line's use of
-            // the name is unknown — the oracle's rule (and what makes
-            // `e0208_generic_mismatch` report `E0201`).
-            value = -1
-            if kids.len() >= 2 {
-                value = kids[kids.len() - 1]
-            }
-            if not call_fails(ast, scopes.frames, names, sigs, value) {
-                one = bound_local(ast, scopes.frames, names, diags, id, target)
-                if one.name != "" {
-                    scopes.declare(one.name, one.ty)
-                }
-            }
+            bind_target(ast, scopes, names, sigs, diags, id, target)
         } else {
             if ast.nodes[target].kind == "TargetIndex" {
                 check_index_target(ast, scopes.frames, names, diags, target)
@@ -333,6 +324,7 @@ pub class Sema {
             check_alias(ast, mods, aliases, names.decls, diags, id, base, callee)
         }
         check_method_call(ast, scopes.frames, names, sigs, diags, id)
+        check_method_optional(ast, scopes.frames, names, diags, id)
         for kid in kids {
             visit(kid)
         }
@@ -365,10 +357,9 @@ pub class Sema {
         scopes.pop()
     }
 
-    /// `for i in 0..3`: the variable is an attribute.
+    /// `for i in 0..3`: the variable counts, so it is an int.
     fn visit_for(id: int) {
         scopes.push()
-        // `for i in 0..n` counts, so its variable is an int.
         scopes.declare(ast.attr_text(id, "var"), type_prim("int"))
         loops += 1
         for kid in ast.nodes[id].kids {
@@ -392,22 +383,31 @@ pub class Sema {
         scopes.pop()
     }
 
-    /// `if cond { } else { }`: the condition is a bool, and an `else if` is another `If`
-    /// inside the `Else`, so it is checked the same way.
+    /// `if cond { } else { }`: the condition is a bool, `cond` may narrow a value for the
+    /// then branch, and an `else if` is another `If` inside the `Else`.
     fn visit_if(id: int) {
         kids = ast.nodes[id].kids
+        bound = Narrow(name: "", variant: "")
         if kids.len() > 0 {
             kind = ast.nodes[kids[0]].kind
             if kind != "Then" and kind != "Else" {
                 check_condition(ast, scopes.frames, names, diags, kids[0], "`if`")
             }
+            bound = narrowing_of(ast, kids[0])
         }
         for kid in kids {
-            visit(kid)
+            if ast.nodes[kid].kind == "Then" and bound.name != "" {
+                narrows.add([])
+                narrows[narrows.len() - 1].add(bound)
+                visit(kid)
+                narrows.pop()
+            } else {
+                visit(kid)
+            }
         }
     }
 
-    /// `while cond { }`: a loop, so `break` and `continue` work inside it.
+    /// `while cond { }`: a loop (`break`/`continue` work inside) with a bool condition.
     fn visit_while(id: int) {
         kids = ast.nodes[id].kids
         if kids.len() > 0 {

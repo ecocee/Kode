@@ -1,0 +1,172 @@
+// The optional rules (S3): what may be done with a value that may be `none`, and what
+// `??`, `?.` and `!` mean.
+//
+// `T?` is a value that may be none, so reaching inside it is unsafe until the program
+// says otherwise: `.` is `E0220` (use `?.`), a method call is `E0220`, an index is
+// `E0220` (in `containers.kode`), and `??` and `!` are the two ways out. Using `??` on
+// something that cannot be none (`E0221`), `?.` on the same, or `!` on the same, is the
+// mistake in the other direction.
+//
+// A payload enum's field read is `E0419` until the value is narrowed: `if s is Shape.Circle`
+// makes `s.radius` safe inside the branch (ADR 0039 §4.4), which is what the `Narrow`
+// stack tracks. A field of a *class* is `E0217`'s family, a later slice, and a receiver
+// this slice cannot name is `any`: it says nothing.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag, diag_help
+from "./names" import Names, variant_of_field
+from "./typing" import Local, expr_type, type_article, type_assignable, type_inner, type_is_any
+
+/// `s` narrowed to `Shape.Circle` inside a branch.
+pub class Narrow {
+    name: string
+    variant: string
+}
+
+/// The narrowing an `if` condition gives its true branch: `s is Shape.Circle`. Anything
+/// else — `a and b`, a bool variable, an equality test — narrows nothing here.
+pub fn narrowing_of(ast: Ast, cond: int) -> Narrow {
+    if ast.nodes[cond].kind != "Is" {
+        return Narrow(name: "", variant: "")
+    }
+    kids = ast.nodes[cond].kids
+    if kids.len() < 1 {
+        return Narrow(name: "", variant: "")
+    }
+    value = kids[0]
+    if ast.nodes[value].kind != "Ident" {
+        return Narrow(name: "", variant: "")
+    }
+    return Narrow(name: ast.attr_text(value, "name"),
+        variant: ast.attr_text(cond, "enum") + "." + ast.attr_text(cond, "variant"))
+}
+
+/// Is `name` narrowed to `variant` here?
+pub fn is_narrowed(narrows: [[Narrow]], name: string, variant: string) -> bool {
+    i = narrows.len() - 1
+    while i >= 0 {
+        for one in narrows[i] {
+            if one.name == name and one.variant == variant {
+                return true
+            }
+        }
+        i -= 1
+    }
+    return false
+}
+
+/// The optional rules that one walk of the tree reports from one place.
+pub fn check_optional(ast: Ast, frames: [[Local]], names: Names, narrows: [[Narrow]], diags: [Diag], id: int) {
+    kind = ast.nodes[id].kind
+    if kind == "Unwrap" {
+        check_unwrap(ast, frames, names, diags, id)
+        return
+    }
+    if kind == "Coalesce" {
+        check_coalesce(ast, frames, names, diags, id)
+        return
+    }
+    if kind == "Member" {
+        check_member(ast, frames, names, narrows, diags, id)
+    }
+}
+
+/// `x!`: the value inside, which needs an optional.
+pub fn check_unwrap(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return
+    }
+    t = expr_type(ast, frames, names, kids[0])
+    if type_is_any(t) or t.kind == "opt" {
+        return
+    }
+    diag_help(ast, diags, "E0220", "`!` needs an optional, found ${type_article(t)}", id,
+        "only values of a type like `User?` can be none")
+}
+
+/// `x.field`, `x?.field`: a `.` on an optional, a `?.` on a value that cannot be none,
+/// and a payload field read without the narrowing that makes it safe.
+pub fn check_member(ast: Ast, frames: [[Local]], names: Names, narrows: [[Narrow]], diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return
+    }
+    obj = kids[0]
+    t = expr_type(ast, frames, names, obj)
+    if type_is_any(t) {
+        return
+    }
+    safe = ast.attr_raw(id, "safe") == "true"
+    if t.kind == "opt" {
+        if safe {
+            return
+        }
+        diag_help(ast, diags, "E0220", "this may be none, so `.` is not allowed", obj,
+            "use `?.`, `x ?? default` or `x!`")
+        return
+    }
+    if safe {
+        diag(ast, diags, "E0221", "`?.` needs an optional, found ${type_article(t)}", obj)
+        return
+    }
+    if t.kind != "named" or not names.enums.contains(t.name) {
+        return
+    }
+    // A payload field belongs to one variant, so reading it needs the value narrowed to
+    // that variant. Only a named receiver is reported, as in the oracle.
+    if ast.nodes[obj].kind != "Ident" {
+        return
+    }
+    field = ast.attr_text(id, "name")
+    variant = variant_of_field(names, t.name, field)
+    if variant == "" {
+        return
+    }
+    who = ast.attr_text(obj, "name")
+    if is_narrowed(narrows, who, "${t.name}.${variant}") {
+        return
+    }
+    message = "`${who}.${field}` is only valid when `${who}` holds `${t.name}.${variant}`"
+    hint = "narrow first: `if ${who} is ${t.name}.${variant} { ... }`"
+    diag_help(ast, diags, "E0419", message, id, hint)
+}
+
+/// `x.m(...)`: a method call on an optional.
+pub fn check_method_optional(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return
+    }
+    t = expr_type(ast, frames, names, kids[0])
+    if t.kind != "opt" {
+        return
+    }
+    diag_help(ast, diags, "E0220", "this may be none, so you cannot call a method on it", kids[0],
+        "use `x!` or `x ?? default` first")
+}
+
+/// `x ?? def`: the left side may be none, and the right side has to be what is inside.
+pub fn check_coalesce(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return
+    }
+    l = expr_type(ast, frames, names, kids[0])
+    r = expr_type(ast, frames, names, kids[1])
+    if type_is_any(l) or type_is_any(r) {
+        return
+    }
+    if l.kind != "opt" {
+        message = "`??` needs an optional on the left, found ${type_article(l)}"
+        diag_help(ast, diags, "E0221", message, kids[0],
+            "only values of a type like `User?` can be none")
+        return
+    }
+    want = type_inner(l)
+    if type_assignable(r, want) or type_assignable(r, l) {
+        return
+    }
+    message = "the default should be ${type_article(want)}, found ${type_article(r)}"
+    diag(ast, diags, "E0221", message, id)
+}

@@ -19,7 +19,7 @@ from "./typing" import Local, Type, expr_type, loop_vars, type_any, type_article
 
 /// The container rules that a single walk of the tree reports from one place, so the
 /// statement walker in `sema.kode` stays a walker.
-pub fn check_expression(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+pub fn check_container(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
     kind = ast.nodes[id].kind
     if kind == "Index" {
         check_index(ast, frames, names, diags, id)
@@ -117,6 +117,8 @@ fn check_index_pair(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], ob
         return
     }
     if ot.kind == "opt" {
+        diag_help(ast, diags, "E0220", "this may be none, so it cannot be indexed", obj,
+            "use `x!` or `x ?? default` first")
         return
     }
     diag(ast, diags, "E0211", "${type_article(ot)} cannot be indexed", obj)

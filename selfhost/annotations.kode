@@ -13,7 +13,7 @@
 from "./ast" import Ast
 from "./diag" import Diag, diag_help
 from "./names" import Names, is_type_name
-from "./typing" import Type, type_any, type_is_any, type_named, type_of, type_of_name
+from "./typing" import Type, type_any, type_inner, type_is_any, type_named, type_name, type_of, type_of_name
 
 /// The type an annotation names, reporting `E0303` when it names nothing.
 pub fn resolve_ann(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
@@ -23,17 +23,66 @@ pub fn resolve_ann(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
     }
     if kind == "TypeList" {
         inner = ann_child(ast, names, diags, id)
+        if opt_scalar(inner) {
+            diag_help(ast, diags, "E0219", "a list of `${type_name(inner)}` is not supported yet", id,
+                "keep the value and a `bool` in a class or two separate lists for now")
+            return refused()
+        }
         return type_of("list", inner)
     }
     if kind == "TypeMap" {
         inner = ann_child(ast, names, diags, id)
+        if opt_scalar(inner) {
+            diag_help(ast, diags, "E0219", "a map of `${type_name(inner)}` is not supported yet", id,
+                "keep the value and a `bool` in a class for now")
+            return refused()
+        }
         return type_of("map", inner)
     }
     if kind == "TypeOpt" {
         inner = ann_child(ast, names, diags, id)
+        if not opt_item_ok(inner) {
+            diag_help(ast, diags, "E0219", "`${type_name(inner)}?` is not supported yet", id,
+                "optionals work for string, lists, maps and classes")
+            return refused()
+        }
         return type_of("opt", inner)
     }
     return type_any()
+}
+
+/// `int?`, `float?` and `bool?`: the optionals a list or a map cannot hold yet
+/// (`crates/kode-sema/src/types.rs`, `is_opt_scalar`).
+fn opt_scalar(t: Type) -> bool {
+    if t.kind != "opt" {
+        return false
+    }
+    inner = type_inner(t)
+    return inner.kind == "int" or inner.kind == "float" or inner.kind == "bool"
+}
+
+/// An optional wraps a reference or a scalar; anything else is `E0219`.
+fn opt_item_ok(t: Type) -> bool {
+    if type_is_any(t) {
+        return true
+    }
+    if t.kind == "int" or t.kind == "float" or t.kind == "bool" {
+        return true
+    }
+    if t.kind == "string" or t.kind == "list" or t.kind == "map" or t.kind == "named" {
+        return true
+    }
+    return false
+}
+
+/// The annotation a rule refused: the declaration goes on as if nothing had been
+/// written, which is what the oracle does (it then reports the value on its own).
+fn refused() -> Type {
+    return type_prim_invalid()
+}
+
+fn type_prim_invalid() -> Type {
+    return Type(kind: "invalid")
 }
 
 /// The annotation inside a `[T]`, `{string: T}` or `T?`: its first type child.

@@ -12,6 +12,15 @@ from "./ast" import Ast, has_type_param, is_type_node
 from "./builtins" import Builtins
 from "./diag" import Diag, diag_at, diag_help
 
+/// One payload field a variant declares: `Shape.Circle(radius: float)` has
+/// (`Shape`, `Circle`, `radius`). `selfhost/optional.kode` needs it to tell a payload
+/// field read without narrowing (`E0419`).
+pub class Payload {
+    enum_name: string
+    variant: string
+    field: string
+}
+
 pub class Names {
     /// Every top-level name in the shared namespace, `from`-import names included:
     /// what a name is resolved against.
@@ -28,6 +37,8 @@ pub class Names {
     /// The type parameters of the item being walked (`fn id<T>`), which its own
     /// annotations may name.
     params: [string] = []
+    /// Every payload field the program's enums declare.
+    payloads: [Payload] = []
 }
 
 /// Is `name` a declared type: a class, an enum or an interface?
@@ -36,6 +47,16 @@ pub fn is_type_name(names: Names, name: string) -> bool {
         return true
     }
     return names.interfaces.contains(name)
+}
+
+/// The variant that owns a payload field of `enum_name`, or "" when no variant does.
+pub fn variant_of_field(names: Names, enum_name: string, field: string) -> string {
+    for one in names.payloads {
+        if one.enum_name == enum_name and one.field == field {
+            return one.variant
+        }
+    }
+    return ""
 }
 
 /// Record one file's declarations, reporting the ones that cannot stand.
@@ -146,6 +167,18 @@ fn declare_named(ast: Ast, names: Names, diags: [Diag], id: int) {
     add_decl(names, name)
     if ast.nodes[id].kind == "Enum" {
         names.enums.add(name)
+        for variant in ast.nodes[id].kids {
+            if ast.nodes[variant].kind != "Variant" {
+                continue
+            }
+            variant_name = ast.attr_text(variant, "name")
+            for part in ast.nodes[variant].kids {
+                if ast.nodes[part].kind == "Param" {
+                    names.payloads.add(Payload(enum_name: name, variant: variant_name,
+                            field: ast.attr_text(part, "name")))
+                }
+            }
+        }
     } else {
         names.interfaces.add(name)
     }

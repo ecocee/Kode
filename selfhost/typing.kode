@@ -242,6 +242,49 @@ pub fn expr_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
     if kind == "Map" {
         return map_type(ast, frames, names, id)
     }
+    if kind == "Member" {
+        return member_type(ast, frames, names, id)
+    }
+    if kind == "MethodCall" {
+        return method_type(ast, frames, names, id)
+    }
+    if kind == "Unwrap" {
+        t = type_any()
+        for kid in ast.nodes[id].kids {
+            t = expr_type(ast, frames, names, kid)
+            break
+        }
+        if t.kind == "opt" {
+            return type_inner(t)
+        }
+        return type_any()
+    }
+    if kind == "Coalesce" {
+        lhs = type_any()
+        for kid in ast.nodes[id].kids {
+            lhs = expr_type(ast, frames, names, kid)
+            break
+        }
+        if lhs.kind != "opt" {
+            return type_any()
+        }
+        // The default decides: one that fits the item gives the item, one that is itself
+        // optional gives the optional (`env("A") ?? env("B")`), anything else is unknown.
+        rhs = type_any()
+        if ast.nodes[id].kids.len() > 1 {
+            rhs = expr_type(ast, frames, names, ast.nodes[id].kids[1])
+        }
+        if type_assignable(rhs, type_inner(lhs)) {
+            return type_inner(lhs)
+        }
+        if type_assignable(rhs, lhs) {
+            return lhs
+        }
+        return type_any()
+    }
+    if kind == "Is" {
+        return type_prim("bool")
+    }
     if kind == "Index" {
         return index_type(ast, frames, names, id)
     }
@@ -344,6 +387,39 @@ fn map_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
         }
     }
     return type_of("map", element)
+}
+
+/// `x.field`: this slice knows the field of one thing — a variant of an enum, which is
+/// a value of that enum (`Shape.Circle`). Everything else is `any`.
+fn member_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    if ast.nodes[id].kids.len() == 0 {
+        return type_any()
+    }
+    obj = ast.nodes[id].kids[0]
+    if ast.nodes[obj].kind != "Ident" {
+        return type_any()
+    }
+    name = ast.attr_text(obj, "name")
+    if names.enums.contains(name) {
+        return type_named(name)
+    }
+    return type_any()
+}
+
+/// `Shape.Circle(radius: 1.0)`: a payload variant builds a value of its enum.
+fn method_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    if ast.nodes[id].kids.len() == 0 {
+        return type_any()
+    }
+    obj = ast.nodes[id].kids[0]
+    if ast.nodes[obj].kind != "Ident" {
+        return type_any()
+    }
+    name = ast.attr_text(obj, "name")
+    if names.enums.contains(name) {
+        return type_named(name)
+    }
+    return type_any()
 }
 
 /// `x[i]`: the item of a list, the value of a map, and for a `Json` value another

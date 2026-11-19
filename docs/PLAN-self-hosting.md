@@ -506,6 +506,23 @@ loop over `[Color]` is silent. The gate after it is **138/169** with **self-chec
 44/44**. `sema.kode` stayed under 500 lines by moving the call-fails question to
 `functions.call_fails` and the loop's binding to `containers.open_for_in`.
 
+**Slice 10 is in: optionals and `none`.** `selfhost/optional.kode` holds the rules for a
+value that may be none. `E0219` covers the shapes that are not supported yet — a list of
+`int?`, a map of `int?`, an optional of something that is neither a reference nor a
+scalar — and `none` written without a type; `E0222` an empty list or map with no type to
+take (both of them report only for a *new* name, since `x = none` on an existing optional
+is a plain assignment). `E0220` is reaching inside: `.` without `?.`, a method call, an
+index (in `containers.kode`), and `!` on a value that cannot be none. `E0221` is the other
+direction: `??` or `?.` on a value that cannot be none, and a default of the wrong type.
+`E0419` is the payload-enum rule — `s.radius` is only valid where `s` is narrowed to
+`Shape.Circle` — and the walker now carries a `Narrow` stack for the then branch of an `is`
+test (ADR 0039 §4.4), which is what keeps `enum_is.kode` clean; an `else` branch narrows
+nothing yet, so a field read there is still reported, exactly as the oracle does. Two
+typing rules came with it: `??` keeps an optional default (`env("A") ?? env("B")` is a
+`string?`), and an enum variant (`Shape.Circle`, `Shape.Circle(radius: 1.0)`) types as its
+enum. The gate after it is **145/169** with **self-check 45/45**; `sema.kode` stayed at
+500 lines by moving the whole assignment decision to `binding.bind_target`.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that

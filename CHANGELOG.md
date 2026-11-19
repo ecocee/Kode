@@ -7,6 +7,20 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's checker knows what may be none.** `selfhost/optional.kode` ports the
+  optional rules: `E0219` for the shapes that are not supported yet (a list of `int?`, a
+  map of `int?`, an optional of something that is neither a reference nor a scalar) and
+  for `none` written without a type, `E0222` for an empty list or map that has no type to
+  take, `E0220` for reaching inside a value that may be none (`.` without `?.`, a method
+  call, an index, and `!` on something that cannot be none), `E0221` for going the other
+  way (`??` or `?.` on a value that cannot be none, and a default of the wrong type), and
+  `E0313` for writing a type on a name that already exists. `E0419` is the payload-enum
+  rule: reading `s.radius` is only valid where `s` is narrowed to `Shape.Circle`, which
+  the walker now tracks for the then branch of an `is` test (ADR 0039 §4.4), so
+  `tests/run-pass/enum_is.kode` stays clean. `??` keeps an optional default
+  (`env("A") ?? env("B")` is a `string?`), an enum variant types as its enum, and a `Json`
+  value or an optional says what it is. Gate: 138 → **145/169**, self-check **45/45**.
+
 - **The port's checker knows what may be indexed, sliced, collected and looped over.**
   `selfhost/containers.kode` ports the rules whose subject is a value's shape:
   `E0209` for a condition that is not a bool (the oracle's `if` and `while` wording, the
