@@ -96,6 +96,7 @@ pub class Loader {
             return
         }
         loaded.asts.add(parsed.ast)
+        parsed.ast.file = file
         module = Module(key: key, file: file, ast: parsed.ast)
         module.names = declared_names(parsed.ast)
         module.exports = exported_names(parsed.ast)

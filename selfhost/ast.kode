@@ -28,6 +28,8 @@ pub class Node {
 }
 
 pub class Ast {
+    /// The file this tree was parsed from, as the report prints it.
+    file: string = ""
     nodes: [Node] = []
     /// `Program expr_count=`: how many expression nodes the parser made.
     expr_count: int = 0

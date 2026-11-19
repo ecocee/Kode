@@ -8,6 +8,8 @@
 from "./ast" import Ast
 
 pub class Diag {
+    /// The file the span belongs to, as the report prints it.
+    file: string = ""
     code: string
     message: string
     start: int
@@ -30,7 +32,7 @@ pub fn diag_help(ast: Ast, diags: [Diag], code: string, message: string, id: int
         start = span[0]
         end = span[1]
     }
-    diags.add(Diag(code: code, message: message, start: start, end: end, help: help))
+    diags.add(Diag(file: ast.file, code: code, message: message, start: start, end: end, help: help))
 }
 
 /// A diagnostic pointing at a named span attribute: an `Import` keeps its path in
@@ -43,5 +45,5 @@ pub fn diag_at(ast: Ast, diags: [Diag], code: string, message: string, id: int, 
         start = span[0]
         end = span[1]
     }
-    diags.add(Diag(code: code, message: message, start: start, end: end, help: help))
+    diags.add(Diag(file: ast.file, code: code, message: message, start: start, end: end, help: help))
 }

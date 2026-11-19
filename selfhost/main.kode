@@ -13,7 +13,7 @@ from "./dump" import position, tokens_lines
 from "./lexer" import lex
 from "./modules" import Loader
 from "./parser" import parse
-from "./report" import from_lex, render
+from "./report" import from_lex, render, render_diag
 from "./sema" import Sema
 
 argv = args()
@@ -71,10 +71,11 @@ if command == "check" {
     checker.run()
     if checker.diags.len() > 0 {
         for diag in checker.diags {
-            stderr("error[${diag.code}]: ${diag.message}")
-            if diag.help.len() > 0 {
-                stderr("  = help: ${diag.help}")
+            src_of = src
+            if diag.file != "" and diag.file != file {
+                src_of = read_file(diag.file)
             }
+            stderr(render_diag(diag.file, src_of, diag))
         }
         exit(1)
     }

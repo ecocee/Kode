@@ -9,18 +9,29 @@
 from "./bytes" import is_continuation
 from "./chars" import CR, LF
 from "./cursor" import ParseError
+from "./diag" import Diag
 from "./tokens" import LexError
 
 /// One diagnostic, ending in a newline. The caller adds the blank line that
 /// separates reports, as the CLI's `eprintln` over a string does.
 pub fn render(file: string, src: string, err: ParseError) -> string {
-    start = snap(src, err.start)
+    return render_parts(file, src, err.code, err.message, err.start, err.end, err.help)
+}
+
+/// A checker's diagnostic renders exactly like a parse error: the same code, the same
+/// position and source line, the same carets and hint.
+pub fn render_diag(file: string, src: string, d: Diag) -> string {
+    return render_parts(file, src, d.code, d.message, d.start, d.end, d.help)
+}
+
+fn render_parts(file: string, src: string, code: string, message: string, start_at: int, end_at: int, help: string) -> string {
+    start = snap(src, start_at)
     text_start = line_start(src, start)
     text_end = line_end(src, start)
     number = "${line_of(src, start)}"
     pad = " ".repeat(number.len())
     column = src.slice(text_start, start).len() + 1
-    end = snap(src, err.end)
+    end = snap(src, end_at)
     if end > text_end {
         end = text_end
     }
@@ -35,13 +46,13 @@ pub fn render(file: string, src: string, err: ParseError) -> string {
     if text.size() > 0 and text.byte_at(text.size() - 1) == CR {
         text = text.slice(0, text.size() - 1)
     }
-    out = "error[${err.code}]: ${err.message}\n"
+    out = "error[${code}]: ${message}\n"
     out += "${pad}--> ${file}:${number}:${column}\n"
     out += "${pad} |\n"
     out += "${number} | ${text}\n"
     out += "${pad} | ${" ".repeat(column - 1)}${"^".repeat(width)}\n"
-    if err.help.len() > 0 {
-        out += "${pad} = help: ${err.help}\n"
+    if help.len() > 0 {
+        out += "${pad} = help: ${help}\n"
     }
     return out
 }

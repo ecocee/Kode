@@ -7,6 +7,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port renders a diagnostic the way the oracle does.** `check` now prints the
+  whole report — `error[CODE]: message`, the `--> file:line:column` line, the offending
+  source line with its carets, and the hint — instead of the bare code and message. The
+  tree carries its file (`Ast.file`), a `Diag` names it, and `report.render_diag` shares
+  one renderer with the parser's errors. `./scripts/selfhost.sh check` reports how many
+  programs are byte-identical (`check text`), so a wrong span or missing hint is visible
+  before it becomes a gate: **79/111** today, the rest being the wording gaps and the
+  families S3 has not reached.
+
 - **A user call and a class field now have a type.** `members.value_type` answers what
   `typing.kode` cannot on its own: a function's or method's declared result, a class
   constructor's instance, and a field's type — through `?.` too. The operators and

@@ -144,9 +144,10 @@ check_parse() {
 # ones (`E0102` after a parser error, `E0201` after a failed call), so comparing with
 # it would fail a port that agrees with Stage 0. Codes are compared as sets; message,
 # span and order (the JSON form) are the next step of S3, not this one, so a family
-# lands when this count moves.
+# lands when this count moves. The rendered text is counted next to it ("check text")
+# so a wrong span or a missing hint is visible before it becomes a gate.
 check_sema() {
-    local total=0 pass=0 file expected got name
+    local total=0 pass=0 file expected got name text_ok=0
     local log="$OUT/check.log" oracle="$OUT/oracle.log" mismatches=""
     if [[ ! -x "$STAGE0" ]]; then
         echo "  no Stage 0 oracle: run ./scripts/selfhost.sh stage0 first" >&2
@@ -159,6 +160,9 @@ check_sema() {
         expected="$(grep -o '[EW]0[0-9][0-9][0-9]' "$oracle" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
         "$STAGE1" check "$file" >/dev/null 2>"$log" || true
         got="$(grep -o '[EW]0[0-9][0-9][0-9]' "$log" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
+        if diff -q "$oracle" "$log" >/dev/null 2>&1; then
+            text_ok=$((text_ok + 1))
+        fi
         if [[ "$got" == "$expected" ]]; then
             pass=$((pass + 1))
         else
@@ -176,6 +180,7 @@ check_sema() {
         fi
     done
     echo "  check cases: $pass/$total report the expected code set"
+    echo "  check text: $text_ok/$total diagnostics byte-identical"
     if [[ "$pass" -ne "$total" ]]; then
         echo "  first mismatches (S3 is in progress, one family per commit):"
         printf '%s' "$mismatches" | head -n 8

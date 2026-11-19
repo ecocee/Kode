@@ -546,6 +546,16 @@ result is `E0205`, and `y = f()` binds a typed name instead of `any`. Two shapes
 `any` on purpose: a result written in the callee's own type parameters and a generic
 class's fields (ADR 0030) — the gate holds at **152/169**.
 
+**Slice 13 is in: the report.** `check` used to print a bare `error[CODE]: message` and
+a hint; it now prints what the oracle prints — the position line, the offending source
+line and the carets under the span, then the hint — because `report.kode` has one
+renderer for a parse error and a checker diagnostic. That needed two small things: the
+tree carries its file (`Ast.file`, set where a module is loaded) and a `Diag` names it,
+so one program's diagnostics can render from several files. `./scripts/selfhost.sh check`
+now also prints `check text: N/169`, which counts byte-identical output rather than code
+sets; it is reported, not gated, because 32 programs still differ: the families below and
+the missing hints (`E0201`). It is the number that will make the last of S3 honest.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that
