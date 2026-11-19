@@ -66,6 +66,10 @@ pub class Mir {
     /// False when the program is outside this slice; `why` says which part.
     ok: bool = true
     why: string = ""
+    /// Every construct the walk could not lower, once each, in the order it met
+    /// them: filled in only by `kode-stage1 report`, which keeps walking after a
+    /// refusal instead of stopping at the first one.
+    problems: [string] = []
 }
 
 /// The lowering state: the tree, the function being filled, and the names in scope.

@@ -154,7 +154,7 @@ jobs:
   # enough: the port is platform independent, and the point of the job is to catch
   # a parity regression the moment it lands, not to test four architectures of it.
   selfhost:
-    name: selfhost (stage0 -> stage1 -> parse -> check -> mir -> run -> corpus)
+    name: selfhost (stage0 -> stage1 -> parse -> check -> mir -> run -> report -> corpus)
     runs-on: ubuntu-latest
     # The port can hang on a program it mis-lowers, so the job has a ceiling
     # rather than the runner's six hours.
@@ -197,6 +197,11 @@ jobs:
       # The interpreter's stdout and exit code.
       - name: Stage 1 runs the fixtures; output and exit code must match
         run: ./scripts/selfhost.sh run
+
+      # The report walk lists every unsupported construct, not just the first; the
+      # fixtures pin it on programs that need several things.
+      - name: The walk reports every unsupported construct
+        run: ./scripts/selfhost.sh report
 
       # The real corpus, with the programs the walk cannot lower yet listed by
       # reason in selfhost/spec/corpus-out-of-scope.txt. The gate fails if that

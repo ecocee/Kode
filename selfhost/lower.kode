@@ -66,6 +66,15 @@ pub class Builder {
     slots: [int] = []
     ok: bool = true
     why: string = ""
+    /// Whether to record every unsupported construct and keep walking, instead of
+    /// stopping at the first one (`kode-stage1 report`).
+    collecting: bool = false
+    /// What the walk could not lower, once each, in the order it met them.
+    problems: [string] = []
+    /// Names whose declaration was refused. Reading one is a consequence of that
+    /// refusal, so it is not reported again (and the ledger does not churn when a
+    /// variable is renamed).
+    unknown_names: [string] = []
 
     /// Whether the current block already ends in a terminator.
     fn terminated() -> bool {
@@ -101,6 +110,16 @@ pub class Builder {
         index = main.temps.len()
         main.temps.add(Temp(kind: kind, name: name))
         return index
+    }
+
+    /// Whether a name is in a list of names: `slot`'s linear scan, for strings.
+    fn has_name(pool: [string], name: string) -> bool {
+        for one in pool {
+            if one == name {
+                return true
+            }
+        }
+        return false
     }
 
     fn slot(name: string) -> int {
@@ -141,6 +160,18 @@ pub class Builder {
     }
 
     fn stop(reason: string) {
+        // Collecting: remember it once and let the walk continue, so a program that
+        // needs five things reports five rather than one. Otherwise the first refusal
+        // ends the walk, which is what `mir` and `run` still do.
+        if collecting {
+            for seen in problems {
+                if seen == reason {
+                    return
+                }
+            }
+            problems.add(reason)
+            return
+        }
         if ok {
             ok = false
             why = reason
@@ -225,6 +256,12 @@ pub class Builder {
             return
         }
         kind = kind_of(operand)
+        // A refused value is already reported; its kind is not a second finding. The
+        // name still counts as declared, so reads of it are not either.
+        if kind == "?" {
+            unknown_names.add(var_name)
+            return
+        }
         if kind != "int" and kind != "str" {
             stop("`${var_name}` holding a `${kind}`")
             return
@@ -274,6 +311,9 @@ pub class Builder {
             if not ok {
                 return
             }
+            if kind_of(operand) == "?" {
+                continue
+            }
             emit(Instr(kind: "call", callee: print_primitive(operand), args: [operand]))
             // A variable lives to the end of the function; an intermediate dies here.
             if operand.is_temp and main.temps[operand.index].kind == "ref" and main.temps[operand.index].name == "" {
@@ -304,7 +344,7 @@ pub class Builder {
                 }
             } else {
                 stop("a piece of an interpolation that is a `${kind}`")
-                return Operand()
+                return Operand(value: Value(kind: "?"))
             }
             if not have {
                 // The head is the accumulator, and the accumulation owns it: a borrowed
@@ -340,6 +380,15 @@ pub class Builder {
         }
         cond = expr(kids[0])
         if not ok {
+            return
+        }
+        if kind_of(cond) == "?" {
+            // The condition is already reported; walk the bodies for their own.
+            for kid in kids {
+                if ast.nodes[kid].kind == "Then" or ast.nodes[kid].kind == "Else" {
+                    body(kid)
+                }
+            }
             return
         }
         if kind_of(cond) != "bool" {
@@ -398,6 +447,11 @@ pub class Builder {
         if not ok {
             return
         }
+        if kind_of(cond) == "?" {
+            // As in `if`: the condition is reported, the body still gets walked.
+            body(kids[1])
+            return
+        }
         if kind_of(cond) != "bool" {
             stop("a `while` on a `${kind_of(cond)}`")
             return
@@ -429,18 +483,20 @@ pub class Builder {
         kids = ast.nodes[id].kids
         if kids.len() != 1 {
             stop("a hole without one value")
-            return Piece(op: Operand())
+            return Piece(op: Operand(value: Value(kind: "?")))
         }
         node = kids[0]
         if ast.nodes[node].kind != "Ident" {
             stop("a hole that is a `${ast.nodes[node].kind}`")
-            return Piece(op: Operand())
+            return Piece(op: Operand(value: Value(kind: "?")))
         }
         name = ast.attr_text(node, "name")
         index = slot(name)
         if index < 0 {
-            stop("a hole reading `${name}`, which this slice cannot bind")
-            return Piece(op: Operand())
+            if not has_name(unknown_names, name) {
+                stop("a hole reading `${name}`, which this slice cannot bind")
+            }
+            return Piece(op: Operand(value: Value(kind: "?")))
         }
         if main.temps[index].kind == "ref" {
             return Piece(op: Operand(is_temp: true, index: index))
@@ -464,8 +520,10 @@ pub class Builder {
             name = ast.attr_text(id, "name")
             index = slot(name)
             if index < 0 {
-                stop("a read of `${name}`, which this slice cannot bind")
-                return Operand()
+                if not has_name(unknown_names, name) {
+                    stop("a read of `${name}`, which this slice cannot bind")
+                }
+                return Operand(value: Value(kind: "?"))
             }
             return Operand(is_temp: true, index: index)
         }
@@ -473,7 +531,7 @@ pub class Builder {
             return binary(id)
         }
         stop("an expression of kind `${kind}`")
-        return Operand()
+        return Operand(value: Value(kind: "?"))
     }
 
     /// `a <op> b`: `+` on strings is a concat, the five integer operators are one
@@ -483,19 +541,23 @@ pub class Builder {
         kids = ast.nodes[id].kids
         if kids.len() != 2 {
             stop("a `${op}` without two operands")
-            return Operand()
+            return Operand(value: Value(kind: "?"))
         }
         left = expr(kids[0])
         right = expr(kids[1])
         if not ok {
-            return Operand()
+            return Operand(value: Value(kind: "?"))
         }
         left_kind = kind_of(left)
         right_kind = kind_of(right)
+        // An operand that was already reported is not a second finding.
+        if left_kind == "?" or right_kind == "?" {
+            return Operand(value: Value(kind: "?"))
+        }
         if op == "+" and (left_kind == "str" or right_kind == "str") {
             if left_kind != "str" or right_kind != "str" {
                 stop("`+` between a `${left_kind}` and a `${right_kind}`")
-                return Operand()
+                return Operand(value: Value(kind: "?"))
             }
             index = temp("", "ref")
             emit(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [left, right]))
@@ -504,7 +566,7 @@ pub class Builder {
         if compare_name(op) != "" {
             if left_kind != "int" or right_kind != "int" {
                 stop("`${op}` on a `${left_kind}` and a `${right_kind}`")
-                return Operand()
+                return Operand(value: Value(kind: "?"))
             }
             index = temp("", "bool")
             emit(Instr(kind: compare_name(op), dest: index, args: [left, right]))
@@ -513,11 +575,11 @@ pub class Builder {
         mnemonic = operator_name(op)
         if mnemonic == "" {
             stop("the operator `${op}`, which this slice cannot lower")
-            return Operand()
+            return Operand(value: Value(kind: "?"))
         }
         if left_kind != "int" or right_kind != "int" {
             stop("`${op}` on a `${left_kind}` and a `${right_kind}`")
-            return Operand()
+            return Operand(value: Value(kind: "?"))
         }
         index = temp("", "int")
         emit(Instr(kind: mnemonic, dest: index, args: [left, right]))
@@ -595,12 +657,12 @@ fn temp_kind(kind: string) -> string {
 }
 
 /// Lower a program to the one function these slices can build.
-pub fn build(ast: Ast) -> Mir {
+pub fn build(ast: Ast, collecting: bool) -> Mir {
     mir = Mir()
     main = Function(name: "<main>", entry: true)
     entry = Block(label: "bb0")
     exit = Block(label: "bb1")
-    b = Builder(ast: ast, main: main, block: entry, end: exit)
+    b = Builder(ast: ast, main: main, block: entry, end: exit, collecting: collecting)
     if ast.nodes.len() > 0 {
         for id in ast.nodes[0].kids {
             b.stmt(id)
@@ -633,6 +695,7 @@ pub fn build(ast: Ast) -> Mir {
         main.blocks.add(extra)
     }
     mir.functions.add(main)
+    mir.problems = b.problems
     return mir
 }
 

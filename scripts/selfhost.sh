@@ -10,8 +10,10 @@
 #   ./scripts/selfhost.sh check      the S3 checker: its codes against the oracle, over tests/{compile-fail,run-pass}
 #   ./scripts/selfhost.sh mir        the S4 MIR dump against `kode mir`, over selfhost/spec/run
 #   ./scripts/selfhost.sh run        the S4 interpreter's output against every .out
+#   ./scripts/selfhost.sh report     the walk lists every unsupported construct, not just the first
 #   ./scripts/selfhost.sh corpus     the same two checks over tests/run-pass, with the
 #                                    out-of-scope programs recorded and re-asserted
+#   ./scripts/selfhost.sh ledger     regenerate selfhost/spec/corpus-out-of-scope.txt
 #   ./scripts/selfhost.sh gates      every work packet: target declared vs today
 #   ./scripts/selfhost.sh readiness  the readiness level reached, and what is next
 #   ./scripts/selfhost.sh all        Stage 0, Stage 1, then the work packets
@@ -321,41 +323,104 @@ check_run() {
 }
 
 
-# The same two comparisons as `mir` and `run`, over the real corpus in
-# `tests/run-pass` instead of the hand-written fixtures. A program the walk cannot
-# lower is not skipped: it is listed in `selfhost/spec/corpus-out-of-scope.txt` with
-# the reason it gives, and this gate fails if the list and the port disagree in either
-# direction — a stale line when a program starts lowering, a missing line when one
-# starts refusing.
-check_corpus() {
-    local dir="$ROOT/tests/run-pass" out="$OUT/corpus" total=0 bad=0 listed=0 file
-    local expected reason got oracle_rc port_rc name
+# The generated ledger: a header, then `<program>\t<reason>` once per unsupported
+# construct, in the order the walk meets them. The port produces it, so the list
+# cannot drift from what the port actually does.
+generate_ledger() {
+    cat <<'HEADER'
+# `tests/run-pass` programs the S4 walk cannot lower yet: one line per program and
+# unsupported construct, `<program>\t<reason>`, in the order the walk meets them.
+#
+# Generated from the port, never edited by hand:
+#
+#     ./scripts/selfhost.sh ledger
+#
+# `corpus` regenerates it and fails when the file differs, so a program cannot
+# quietly leave the list (it lowers now) or join it (it stopped lowering) without
+# the commit saying so. `report` is the per-program view behind it.
+HEADER
+    local file name reasons reason
+    for file in "$ROOT"/tests/run-pass/*.kode; do
+        name="$(basename "$file")"
+        reasons="$(with_timeout "$STAGE1" report "$file" 2>/dev/null || true)"
+        [[ -n "$reasons" ]] || continue
+        while IFS= read -r reason; do
+            printf '%s\t%s\n' "$name" "$reason"
+        done <<<"$reasons"
+    done
+}
+
+# `selfhost/spec/report/*.kode` next to a `.report`: `kode-stage1 report` must list
+# exactly those constructs, in that order. The fixtures pin the walk's behaviour on
+# a program that needs several things (not just the first) and on one whose refused
+# declaration is then read (which is a consequence, not a second finding).
+check_report() {
+    local dir="$ROOT/selfhost/spec/report" total=0 bad=0 file name expected
     if [[ ! -x "$STAGE1" ]]; then
         echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
         return 2
     fi
-    if [[ ! -f "$CORPUS_OUT_OF_SCOPE" ]]; then
-        echo "  no $CORPUS_OUT_OF_SCOPE: list the out-of-scope programs" >&2
+    for file in "$dir"/*.kode; do
+        [[ -e "$file" ]] || continue
+        total=$((total + 1))
+        name="$(basename "$file")"
+        expected="${file%.kode}.report"
+        if [[ ! -f "$expected" ]]; then
+            bad=$((bad + 1))
+            echo "  $name: no .report next to it"
+            continue
+        fi
+        if ! with_timeout "$STAGE1" report "$file" >"$OUT/report.txt" 2>"$OUT/report.err"; then
+            bad=$((bad + 1))
+            echo "  $name: report exited nonzero"
+            sed 's/^/    /' "$OUT/report.err"
+            continue
+        fi
+        if ! diff -u "$expected" "$OUT/report.txt" >"$OUT/report.diff"; then
+            bad=$((bad + 1))
+            echo "  $name: the report differs"
+            head -20 "$OUT/report.diff" | sed 's/^/    /'
+        fi
+    done
+    if [[ "$total" -eq 0 ]]; then
+        echo "  no report cases in $dir" >&2
+        return 2
+    fi
+    echo "  report cases: $((total - bad))/$total unsupported constructs listed exactly"
+    [[ "$bad" -eq 0 ]]
+}
+
+# The same two comparisons as `mir` and `run`, over the real corpus in
+# `tests/run-pass` instead of the hand-written fixtures. Nothing is skipped: a
+# program the walk cannot lower is in `selfhost/spec/corpus-out-of-scope.txt` (which
+# this gate regenerates and compares), and an in-scope program's dump, output and
+# exit code must match the oracle's.
+check_corpus() {
+    local dir="$ROOT/tests/run-pass" out="$OUT/corpus" total=0 bad=0 listed=0 file
+    local expected got oracle_rc port_rc name reasons
+    if [[ ! -x "$STAGE1" ]]; then
+        echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
         return 2
     fi
     rm -rf "$out"
     mkdir -p "$out"
+    generate_ledger >"$out/ledger.txt"
+    if ! diff -u "$CORPUS_OUT_OF_SCOPE" "$out/ledger.txt" >"$out/ledger.diff"; then
+        bad=$((bad + 1))
+        echo "  the out-of-scope ledger is stale: ./scripts/selfhost.sh ledger"
+        head -20 "$out/ledger.diff" | sed 's/^/    /'
+    fi
     for file in "$dir"/*.kode; do
         name="$(basename "$file")"
-        reason="$(awk -F'\t' -v n="$name" '$1 == n {print $2}' "$CORPUS_OUT_OF_SCOPE")"
-        if [[ -n "$reason" ]]; then
+        reasons="$(awk -F'\t' -v n="$name" '$1 == n {print $2}' "$CORPUS_OUT_OF_SCOPE")"
+        if [[ -n "$reasons" ]]; then
             listed=$((listed + 1))
-            got="$(with_timeout "$STAGE1" mir "$file" 2>&1 >/dev/null | head -1)"
-            got="${got#kode-stage1: MIR is not implemented for }"
-            got="${got% yet}"
-            if [[ -z "$got" ]]; then
+            # Listed means it must really still refuse at the first blocker.
+            got=0
+            with_timeout "$STAGE1" mir "$file" >/dev/null 2>"$out/refusal.err" || got=$?
+            if [[ "$got" -ne 2 ]]; then
                 bad=$((bad + 1))
-                echo "  $name: lowers now, so its line in corpus-out-of-scope.txt is stale"
-            elif [[ "$got" != "$reason" ]]; then
-                bad=$((bad + 1))
-                echo "  $name: refuses for a different reason"
-                echo "    recorded: $reason"
-                echo "    today:    $got"
+                echo "  $name: listed as out of scope, but mir exited $got instead of 2"
             fi
             continue
         fi
@@ -364,7 +429,7 @@ check_corpus() {
         if ! diff -u <(with_timeout "$STAGE0" mir "$file" 2>/dev/null) \
             <(with_timeout "$STAGE1" mir "$file" 2>/dev/null) >"$out/diff.txt"; then
             bad=$((bad + 1))
-            echo "  $name: dump differs, and it is not listed as out of scope"
+            echo "  $name: dump differs"
             head -20 "$out/diff.txt" | sed 's/^/    /'
             continue
         fi
@@ -392,7 +457,7 @@ check_corpus() {
         echo "  no corpus programs found in $dir" >&2
         return 2
     fi
-    echo "  corpus cases: $((total - bad))/$total in scope, $listed recorded as out of scope"
+    echo "  corpus cases: $((total - bad))/$total in scope, $listed programs recorded out of scope ($(awk -F'\t' 'NF == 2' "$CORPUS_OUT_OF_SCOPE" | wc -l | tr -d ' ') constructs)"
     [[ "$bad" -eq 0 ]]
 }
 
@@ -650,9 +715,21 @@ run)
     echo "S4: the port's interpreter against every .out"
     check_run || exit $?
     ;;
+report)
+    echo "S4: the walk's list of unsupported constructs, not just the first"
+    check_report || exit $?
+    ;;
 corpus)
     echo "S4: the real corpus in tests/run-pass, with its out-of-scope list"
     check_corpus || exit $?
+    ;;
+ledger)
+    if [[ ! -x "$STAGE1" ]]; then
+        echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
+        exit 2
+    fi
+    generate_ledger >"$CORPUS_OUT_OF_SCOPE"
+    echo "ledger: $(awk -F'\t' 'NF == 2' "$CORPUS_OUT_OF_SCOPE" | wc -l | tr -d ' ') constructs in $(awk -F'\t' 'NF == 2 {print $1}' "$CORPUS_OUT_OF_SCOPE" | sort -u | wc -l | tr -d ' ') programs"
     ;;
 all)
     bash "${BASH_SOURCE[0]}" stage0
@@ -661,6 +738,7 @@ all)
     bash "${BASH_SOURCE[0]}" check
     bash "${BASH_SOURCE[0]}" mir
     bash "${BASH_SOURCE[0]}" run
+    bash "${BASH_SOURCE[0]}" report
     bash "${BASH_SOURCE[0]}" corpus
     bash "${BASH_SOURCE[0]}" gates
     ;;

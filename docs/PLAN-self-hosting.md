@@ -687,7 +687,9 @@ before any of them has to deal with locals, temporaries or reference counting.
   `PrintBool` append to a pending line, `rt::PrintSep` appends a space and
   `rt::PrintNl` prints the line and clears it, which is exactly the separator and
   newline rule `print` has.
-- **CLI.** `kode-stage1 mir <file>` and `kode-stage1 run <file>`. A program outside
+- **CLI.** `kode-stage1 mir <file>`, `kode-stage1 run <file>` and `kode-stage1 report
+  <file>` (which lists every unsupported construct instead of stopping at the first). A
+  program outside
   the slice says so on stderr and exits 2, the way an unimplemented mode does today.
 - **Fixtures first.** `selfhost/spec/run/` holds a program and its `.out` for each
   shape: one string, two scalars across two lines, several arguments with a
@@ -902,42 +904,54 @@ now proves the port's report for it byte for byte. A `mir`-mode refusal cannot b
 own stop reason, and `check_mir` compares stdout. Gates after these pins: parse
 **173/173**, check **170/170** with **170/170** reports, mir **33/33**, run **33/33**.
 
-**The corpus is the gate, and it names the next slices.** `./scripts/selfhost.sh corpus`
+**The walk reports every blocker, not just the first.** `kode-stage1 report <file>` walks
+the whole program and prints each construct it cannot lower, once each, in the order it
+meets them. `mir` and `run` still stop at the first refusal and exit 2, so the
+byte-identical gates did not move. Collecting takes two pieces in `selfhost/lower.kode`:
+`stop` records the reason instead of ending the walk, and every refusal hands back a
+**poison** operand (`kind: "?"`) so the caller does not report the same failure again as
+a wrong type (`b` holding a `any`, `==` on a `any`). A refused declaration also registers
+its name, so reading it afterwards counts as a consequence rather than a second finding —
+which also keeps the ledger stable when a variable is renamed. Three fixtures in
+`selfhost/spec/report/` pin that behaviour: several blockers in one program, a loop body
+that keeps being walked after a refusal, and a refused declaration that is then read.
+
+**The corpus is the gate, and now it says how much is left.** `./scripts/selfhost.sh corpus`
 runs the `mir` and `run` comparisons over `tests/run-pass` rather than the hand-written
 fixtures. Today **2 of 58** programs lower — `hello` and `nesting_ok`, both byte-identical
-and running — and the other 56 are recorded in
-`selfhost/spec/corpus-out-of-scope.txt` with the reason the port gives. CI runs every gate
-(`parse`, `check`, `mir`, `run`, `corpus`), so a regression in any of them fails the job.
-The gate fails if
-that list and the port disagree in either direction: a stale line when a program starts
-lowering, a missing line when one starts refusing. A program stops at its first blocker,
-so these counts are a floor:
+and running — and the other 56 need **296 constructs** between them, 78 distinct. These
+are not first-blocker floors any more: `report` walks past a refusal, so each program's
+list is complete for the shapes the walk knows how to name.
 
-| the walk's reason | programs | what it means |
+| what is missing | constructs | programs |
 |---|---|---|
-| `statement \`Fn\`` | 11 | user functions |
-| `an expression of kind \`Call\`` | 9 | calling them |
-| `an expression of kind \`List\`` | 6 | list literals |
-| `statement \`Class\`` | 5 | classes |
-| `statement \`Enum\`` | 5 | enums |
-| `an expression of kind \`Unary\`` | 2 | `-x`, `not x` |
-| `a call other than \`print\`` | 2 | runtime and builtin calls |
-| `an expression of kind \`MethodCall\`` | 2 | methods |
-| `an expression of kind \`None\`` | 2 | optionals |
-| a `bool` or `float` variable | 4 | bool and float locals |
-| `&`, `Closure`, `Coalesce`, `Map`, `Import`, `Try`, `For`, `Interface` | 8 | one each |
+| calling: `Call`, a call other than `print` | 41, 19 | 41, 19 |
+| declaring: `statement \`Fn\`` | 24 | 24 |
+| methods and fields: `MethodCall`, `Member` | 25, 15 | 25, 15 |
+| collections: `List`, `Map`, `Index` | 16, 5, 15 | 16, 5, 15 |
+| loops beyond `while`: `statement \`For\``, `ForIn` | 13, 9 | 13, 9 |
+| targets: an assignment to something other than a name | 9 | 9 |
+| errors: `Catch`, `Try` | 8, 5 | 8, 5 |
+| classes and enums: `Class`, `Enum` | 7, 5 | 7, 5 |
+| optionals: `None`, `Coalesce`, `Unwrap` | 5, 5, 2 | 5, 5, 2 |
+| `Unary`, `Closure`, `Spawn`, `Import`, `Match`, `Const`, `Interface` and the operators `&`/`|`/`^`/`<<`/`>>`/`and`/`or`/`in` | 20 | 20 |
 
-The ledger is also the per-program map — `ledger` above, one line per program — and both
-the table and the ledger regenerate from the port's own reasons:
+The ledger is the per-program detail — `selfhost/spec/corpus-out-of-scope.txt`, one
+`<program>\t<construct>` line per finding, generated from the port by
+`./scripts/selfhost.sh ledger` and never edited by hand (`corpus` regenerates it and fails
+when the file differs, so a program cannot quietly leave or join the list). The table above
+regenerates with:
 
 ```sh
 awk -F'\t' 'NF == 2 {print $2}' selfhost/spec/corpus-out-of-scope.txt | sort | uniq -c | sort -rn
 ```
 
-So the next S4 slices, in the order the corpus asks for them: user `fn` and calls (22
-programs name one of those first), then list and map literals, then classes, then enums
-and `match`, then bool/float locals and the remaining operators. That is a different
-order from "whatever MIR shape comes next", and it is the one that moves this number.
+So the next S4 slices, in the order the corpus asks for them: user `fn` and calls (41
+programs call something, 24 declare a function), then members and indexing (methods 25,
+`Index` 15, `Member` 15 — the largest single block after calls), then `for` loops, then
+classes and enums with `match`, then bool/float locals, optionals and the remaining
+operators. That is a different order from "whatever MIR shape comes next", and it is the
+one that moves this number.
 
 **Known divergences — what green does not cover.** The port refuses shapes it cannot
 lower with its own message and exit 2, where the oracle has already rejected the program
@@ -946,6 +960,9 @@ or dumped it: no gate compares that wording, and `check_mir` compares stdout onl
 what they do. The dump comparison is byte-identical today, but the plan still allows the
 oracle's temporary numbering to differ, which would need a structural comparison. WP-07
 (`weak`), WP-08b (fixed-width ints) and WP-12 (streaming `exec`) are deferred on purpose.
+The `report` vocabulary is the port's own: it is not compared with the oracle, which has
+no equivalent list, so a wording change there is a ledger change and a review comment,
+not a gate failure.
 
 **Slice 6 is in.** `selfhost/mir.kode` keeps its blocks in a list: `bb0`, then the exit
 `bb1`, then whatever the walk created, in creation order — exactly the oracle's dump.

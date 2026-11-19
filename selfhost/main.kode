@@ -30,7 +30,7 @@ if argv.len() == 0 {
 
 command = argv[0]
 
-if command != "tokens" and command != "ast" and command != "check" and command != "mir" and command != "run" {
+if command != "tokens" and command != "ast" and command != "check" and command != "mir" and command != "run" and command != "report" {
     print("kode-stage1: `${command}` is not implemented yet; `tokens`, `ast`, `check`, `mir` and `run` exist")
     exit(2)
 }
@@ -104,6 +104,24 @@ if command == "ast" {
     exit(0)
 }
 
+// `report` walks the whole program and prints every construct this slice cannot
+// lower, one per line and once each, so the corpus ledger is generated from the
+// port instead of maintained by hand. Finding them is the point, so it exits 0.
+if command == "report" {
+    parsed = parse(src, lx)
+    if parsed.errors.len() > 0 {
+        for err in parsed.errors {
+            stderr(render(file, src, err))
+        }
+        exit(1)
+    }
+    lowered = build(parsed.ast, true)
+    for reason in lowered.problems {
+        print(reason)
+    }
+    exit(0)
+}
+
 // `mir` and `run` are S4 (`selfhost/mir.kode`, `selfhost/eval.kode`): the first
 // slice lowers `print` of literals, so a program outside that shape stops here.
 if command == "mir" or command == "run" {
@@ -114,7 +132,7 @@ if command == "mir" or command == "run" {
         }
         exit(1)
     }
-    lowered = build(parsed.ast)
+    lowered = build(parsed.ast, false)
     if not lowered.ok {
         stderr("kode-stage1: MIR is not implemented for ${lowered.why} yet")
         exit(2)
