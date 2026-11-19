@@ -925,6 +925,13 @@ so these counts are a floor:
 | a `bool` or `float` variable | 4 | bool and float locals |
 | `&`, `Closure`, `Coalesce`, `Map`, `Import`, `Try`, `For`, `Interface` | 8 | one each |
 
+The ledger is also the per-program map — `ledger` above, one line per program — and both
+the table and the ledger regenerate from the port's own reasons:
+
+```sh
+awk -F'\t' 'NF == 2 {print $2}' selfhost/spec/corpus-out-of-scope.txt | sort | uniq -c | sort -rn
+```
+
 So the next S4 slices, in the order the corpus asks for them: user `fn` and calls (22
 programs name one of those first), then list and map literals, then classes, then enums
 and `match`, then bool/float locals and the remaining operators. That is a different
@@ -1015,9 +1022,11 @@ gate.
 
 ### S6 — Stage 1 compiles the corpus (branch `selfhost/s6-stage1`)
 
-Acceptance: Stage 1, running as a compiled Kode program, passes `stage1`: 46
-run-pass outputs, 98 compile-fail codes, leak-clean, `kode fmt` unchanged. Rust
-`cargo test --workspace` stays green throughout.
+Acceptance: Stage 1, running as a compiled Kode program, passes `stage1` and
+`corpus`: 58 run-pass outputs, 112 compile-fail codes, leak-clean, `kode fmt`
+unchanged. Rust `cargo test --workspace` stays green throughout. (The corpus was
+46 programs and 98 codes when this plan was written; it moves, so read the counts
+from the gate, not from here.)
 
 ### S7 — Stage 2 and reproducibility (branch `selfhost/s7-stage2`)
 
