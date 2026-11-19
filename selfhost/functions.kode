@@ -34,12 +34,12 @@ pub fn check_call(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, dia
     }
     std = free_fn(callee)
     if std.name != "" {
-        std_call(ast, frames, names, diags, std, id, false)
+        std_call(ast, frames, names, diags, std, id, false, false)
         return
     }
     one = builtin(callee)
     if one.name != "" {
-        std_call(ast, frames, names, diags, one, id, true)
+        std_call(ast, frames, names, diags, one, id, true, false)
     }
 }
 
@@ -59,7 +59,7 @@ pub fn check_method_call(ast: Ast, frames: [[Local]], names: Names, sigs: SigTab
     if recv.name == "StringBuilder" {
         std = builder_method(name)
         if std.name != "" {
-            std_call(ast, frames, names, diags, std, id, true)
+            std_call(ast, frames, names, diags, std, id, true, true)
         }
         return
     }
@@ -236,11 +236,20 @@ fn type_bare(t: Type) -> string {
 /// A runtime function or a builtin: `exec(...)`, `bytes(...)`, `sb.push(...)`. The
 /// oracle names a runtime function's arguments positionally and describes a builtin's
 /// single argument in words.
-fn std_call(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], std: StdSig, id: int, is_builtin: bool) {
+///
+/// `is_method` is what makes the arguments nameless: a builtin method is called the
+/// way a declared one is, and the oracle lets a name through (`sb.push(s: "a")` is
+/// clean, `sb.push(x: 5)` only reports the type), while a free builtin says
+/// "`len` does not take named arguments".
+fn std_call(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], std: StdSig, id: int, is_builtin: bool, is_method: bool) {
     args = arg_nodes(ast, id)
-    for arg in args {
-        if ast.attr_text(arg, "name") != "" {
-            diag(ast, diags, "E0215", "`${std.name}` does not take named arguments", arg)
+    if not is_method {
+        // Once, at the first named argument, as the oracle does.
+        for arg in args {
+            if ast.attr_text(arg, "name") != "" {
+                diag(ast, diags, "E0215", "`${std.name}` does not take named arguments", arg)
+                break
+            }
         }
     }
     if args.len() != std.params.len() {

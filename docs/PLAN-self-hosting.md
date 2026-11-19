@@ -467,7 +467,10 @@ through its receiver's type (`StringBuilder()` types as its own class now, not `
 and the three message shapes are kept apart on purpose: a runtime function names its
 arguments positionally ("argument 2 of `exec` should be `[string]`, found a string"), a
 builtin describes the value it wants ("`bytes` expects a length, found a string"), and
-a method of a class the program declares is a call like any other, help included.
+a method of a class the program declares is a call like any other, help included. A
+free builtin refuses a named argument once, at the first one (`len(x: 1)`); a builtin
+method accepts a name the way a declared one does (`sb.push(s: "a")` is quiet,
+`sb.push(x: 5)` reports the type) and `sb.build(1)` is the plain arity `E0207`.
 `Signature` gained `is_ctor`, because a constructor whose call is refused still builds
 the instance (`a = A()` leaves `a` declared) and so does a builtin (`b = bytes("four")`
 reports only the argument), while a refused function declares nothing. The gate after
