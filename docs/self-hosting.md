@@ -75,7 +75,8 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   interpolation and comparisons with the oracle's temporaries and retain/release
   lines, plus `if`/`else` and `while` blocks with `break`/`continue`, and
   `selfhost/eval.kode` interprets it (`kode-stage1 mir` and `run`, 33/33 fixtures
-  each), and no native backend exists in Kode yet.
+  each), the real corpus stands at 2/58 programs with the other 56 listed by reason in
+  `selfhost/spec/corpus-out-of-scope.txt`, and no native backend exists in Kode yet.
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
   timeouts and no sorting with a comparator. `stderr(...)` exists (ADR 0045), so
   the port reports diagnostics without a device file.

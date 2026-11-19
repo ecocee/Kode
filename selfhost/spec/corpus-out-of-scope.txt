@@ -1,0 +1,62 @@
+# `tests/run-pass` programs the S4 walk cannot lower yet, with the port's reason.
+# The corpus gate (`./scripts/selfhost.sh corpus`) requires each one to keep
+# refusing for the recorded reason, and fails if a listed program starts lowering
+# (delete its line) or an unlisted one starts refusing (add it). The table in
+# docs/PLAN-self-hosting.md is the count of these lines by reason.
+
+bitops.kode	the operator `&`, which this slice cannot lower
+bool_lists.kode	an expression of kind `List`
+bools_logic.kode	`a` holding a `bool`
+bytes_buffers.kode	an expression of kind `Call`
+channel_heap.kode	an expression of kind `Call`
+channels.kode	an expression of kind `Call`
+channels_threads.kode	an expression of kind `Call`
+classes.kode	statement `Class`
+closures.kode	an expression of kind `Closure`
+collection_print.kode	an expression of kind `List`
+collections_memory.kode	statement `Fn`
+control_flow.kode	statement `For`
+early_return_strings.kode	statement `Fn`
+enum_is.kode	statement `Enum`
+enum_match_bindings.kode	statement `Enum`
+enum_payloads.kode	statement `Enum`
+enum_print.kode	statement `Enum`
+enums_match.kode	statement `Enum`
+errors.kode	statement `Fn`
+file_io.kode	an expression of kind `Coalesce`
+finally.kode	statement `Fn`
+floats.kode	`x` holding a `float`
+fn_values.kode	statement `Fn`
+functions.kode	statement `Fn`
+generic_classes.kode	statement `Class`
+generic_methods.kode	statement `Class`
+generics.kode	statement `Fn`
+generics_nested.kode	statement `Fn`
+hex_literals.kode	an expression of kind `Unary`
+int_arith.kode	an expression of kind `Unary`
+interfaces.kode	statement `Interface`
+json.kode	an expression of kind `Call`
+lines_comments.kode	a call other than `print`
+list_map_filter.kode	an expression of kind `List`
+list_slice.kode	an expression of kind `List`
+lists.kode	an expression of kind `List`
+maps.kode	an expression of kind `Map`
+modules.kode	an expression of kind `MethodCall`
+modules_alias.kode	statement `Import`
+optional_fields.kode	statement `Class`
+optional_numbers.kode	an expression of kind `None`
+optional_params.kode	statement `Fn`
+optional_scalar_print.kode	an expression of kind `None`
+optionals.kode	statement `Class`
+process.kode	`missing` holding a `bool`
+process_failures.kode	statement `Try`
+process_posix.kode	an expression of kind `Call`
+request_response.kode	an expression of kind `Call`
+stderr_stream.kode	a call other than `print`
+stdlib_collections.kode	an expression of kind `List`
+string_builder.kode	an expression of kind `Call`
+string_memory.kode	statement `Fn`
+strings.kode	an expression of kind `Call`
+strings_std.kode	an expression of kind `MethodCall`
+tasks.kode	statement `Fn`
+variables_scope.kode	`z` holding a `float`

@@ -7,6 +7,16 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **A corpus gate, with the out-of-scope programs recorded rather than skipped.**
+  `./scripts/selfhost.sh corpus` runs the `mir` and `run` comparisons over
+  `tests/run-pass` instead of the hand-written fixtures, and it fails in both directions
+  against `selfhost/spec/corpus-out-of-scope.txt`: a stale line when a listed program
+  starts lowering, a missing line when an unlisted one starts refusing. Today **2 of 58**
+  programs are in scope (`hello`, `nesting_ok`, both byte-identical and running) and 56
+  are recorded with the reason the port gives; the plan now carries that table, which
+  ranks the remaining S4 work (functions and calls first, 22 programs). Both failure
+  directions were exercised on a scratch copy of the list before committing.
+
 - **Split `selfhost/mir.kode` by idea.** The MIR model and its dump stay in
   `selfhost/mir.kode` (198 lines); the walk that builds them moves to
   `selfhost/lower.kode` (645), and `main.kode` imports `build` from there. Behaviour is

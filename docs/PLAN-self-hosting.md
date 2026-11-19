@@ -902,6 +902,42 @@ now proves the port's report for it byte for byte. A `mir`-mode refusal cannot b
 own stop reason, and `check_mir` compares stdout. Gates after these pins: parse
 **173/173**, check **170/170** with **170/170** reports, mir **33/33**, run **33/33**.
 
+**The corpus is the gate, and it names the next slices.** `./scripts/selfhost.sh corpus`
+runs the `mir` and `run` comparisons over `tests/run-pass` rather than the hand-written
+fixtures. Today **2 of 58** programs lower — `hello` and `nesting_ok`, both byte-identical
+and running — and the other 56 are recorded in
+`selfhost/spec/corpus-out-of-scope.txt` with the reason the port gives. The gate fails if
+that list and the port disagree in either direction: a stale line when a program starts
+lowering, a missing line when one starts refusing. A program stops at its first blocker,
+so these counts are a floor:
+
+| the walk's reason | programs | what it means |
+|---|---|---|
+| `statement \`Fn\`` | 11 | user functions |
+| `an expression of kind \`Call\`` | 9 | calling them |
+| `an expression of kind \`List\`` | 6 | list literals |
+| `statement \`Class\`` | 5 | classes |
+| `statement \`Enum\`` | 5 | enums |
+| `an expression of kind \`Unary\`` | 2 | `-x`, `not x` |
+| `a call other than \`print\`` | 2 | runtime and builtin calls |
+| `an expression of kind \`MethodCall\`` | 2 | methods |
+| `an expression of kind \`None\`` | 2 | optionals |
+| a `bool` or `float` variable | 4 | bool and float locals |
+| `&`, `Closure`, `Coalesce`, `Map`, `Import`, `Try`, `For`, `Interface` | 8 | one each |
+
+So the next S4 slices, in the order the corpus asks for them: user `fn` and calls (22
+programs name one of those first), then list and map literals, then classes, then enums
+and `match`, then bool/float locals and the remaining operators. That is a different
+order from "whatever MIR shape comes next", and it is the one that moves this number.
+
+**Known divergences — what green does not cover.** The port refuses shapes it cannot
+lower with its own message and exit 2, where the oracle has already rejected the program
+or dumped it: no gate compares that wording, and `check_mir` compares stdout only.
+`release`/`retain` are no-ops in the interpreter — the dumps prove they are emitted, not
+what they do. The dump comparison is byte-identical today, but the plan still allows the
+oracle's temporary numbering to differ, which would need a structural comparison. WP-07
+(`weak`), WP-08b (fixed-width ints) and WP-12 (streaming `exec`) are deferred on purpose.
+
 **Slice 6 is in.** `selfhost/mir.kode` keeps its blocks in a list: `bb0`, then the exit
 `bb1`, then whatever the walk created, in creation order — exactly the oracle's dump.
 `if` creates its then-block, its join and (when there is one) its else-block, branches

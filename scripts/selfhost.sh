@@ -10,6 +10,8 @@
 #   ./scripts/selfhost.sh check      the S3 checker: its codes against the oracle, over tests/{compile-fail,run-pass}
 #   ./scripts/selfhost.sh mir        the S4 MIR dump against `kode mir`, over selfhost/spec/run
 #   ./scripts/selfhost.sh run        the S4 interpreter's output against every .out
+#   ./scripts/selfhost.sh corpus     the same two checks over tests/run-pass, with the
+#                                    out-of-scope programs recorded and re-asserted
 #   ./scripts/selfhost.sh gates      every work packet: target declared vs today
 #   ./scripts/selfhost.sh readiness  the readiness level reached, and what is next
 #   ./scripts/selfhost.sh all        Stage 0, Stage 1, then the work packets
@@ -32,6 +34,19 @@ PORT="$ROOT/selfhost/main.kode"
 # `selfhost/spec` holds the cases the port needs but the language suite does not
 # cover: every escape, a 4-byte character, a hole with a brace in a string.
 CORPUS=(tests/run-pass tests/compile-fail examples benchmarks selfhost/spec)
+# `tests/run-pass` programs the S4 walk cannot lower yet, with the port's reason. The
+# corpus gate keeps this list honest in both directions.
+CORPUS_OUT_OF_SCOPE="$ROOT/selfhost/spec/corpus-out-of-scope.txt"
+
+# `timeout` is not in a stock macOS userland, so use it when it is there and run
+# without it otherwise (a hang then shows up as a stuck job, not a wrong result).
+with_timeout() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 30 "$@"
+    else
+        "$@"
+    fi
+}
 
 usage() {
     grep '^#   \./scripts/selfhost.sh' "${BASH_SOURCE[0]}" | sed 's/^# *//'
@@ -305,6 +320,82 @@ check_run() {
     [[ "$bad" -eq 0 ]]
 }
 
+
+# The same two comparisons as `mir` and `run`, over the real corpus in
+# `tests/run-pass` instead of the hand-written fixtures. A program the walk cannot
+# lower is not skipped: it is listed in `selfhost/spec/corpus-out-of-scope.txt` with
+# the reason it gives, and this gate fails if the list and the port disagree in either
+# direction — a stale line when a program starts lowering, a missing line when one
+# starts refusing.
+check_corpus() {
+    local dir="$ROOT/tests/run-pass" out="$OUT/corpus" total=0 bad=0 listed=0 file
+    local expected reason got oracle_rc port_rc name
+    if [[ ! -x "$STAGE1" ]]; then
+        echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
+        return 2
+    fi
+    if [[ ! -f "$CORPUS_OUT_OF_SCOPE" ]]; then
+        echo "  no $CORPUS_OUT_OF_SCOPE: list the out-of-scope programs" >&2
+        return 2
+    fi
+    rm -rf "$out"
+    mkdir -p "$out"
+    for file in "$dir"/*.kode; do
+        name="$(basename "$file")"
+        reason="$(awk -F'\t' -v n="$name" '$1 == n {print $2}' "$CORPUS_OUT_OF_SCOPE")"
+        if [[ -n "$reason" ]]; then
+            listed=$((listed + 1))
+            got="$(with_timeout "$STAGE1" mir "$file" 2>&1 >/dev/null | head -1)"
+            got="${got#kode-stage1: MIR is not implemented for }"
+            got="${got% yet}"
+            if [[ -z "$got" ]]; then
+                bad=$((bad + 1))
+                echo "  $name: lowers now, so its line in corpus-out-of-scope.txt is stale"
+            elif [[ "$got" != "$reason" ]]; then
+                bad=$((bad + 1))
+                echo "  $name: refuses for a different reason"
+                echo "    recorded: $reason"
+                echo "    today:    $got"
+            fi
+            continue
+        fi
+        total=$((total + 1))
+        expected="${file%.kode}.out"
+        if ! diff -u <(with_timeout "$STAGE0" mir "$file" 2>/dev/null) \
+            <(with_timeout "$STAGE1" mir "$file" 2>/dev/null) >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $name: dump differs, and it is not listed as out of scope"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+            continue
+        fi
+        oracle_rc=0
+        port_rc=0
+        with_timeout "$STAGE0" run "$file" >"$out/oracle.txt" 2>/dev/null || oracle_rc=$?
+        with_timeout "$STAGE1" run "$file" >"$out/actual.txt" 2>"$out/actual.err" || port_rc=$?
+        if [[ "$oracle_rc" -ne 0 ]]; then
+            bad=$((bad + 1))
+            echo "  $name: kode run exited $oracle_rc, not 0"
+        elif ! diff -u "$expected" "$out/oracle.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $name: the corpus .out is not what kode run prints"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        elif [[ "$port_rc" -ne "$oracle_rc" ]]; then
+            bad=$((bad + 1))
+            echo "  $name: exit $port_rc where the oracle exits $oracle_rc"
+        elif ! diff -u "$expected" "$out/actual.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $name: the interpreter's output differs"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        fi
+    done
+    if [[ "$total" -eq 0 && "$listed" -eq 0 ]]; then
+        echo "  no corpus programs found in $dir" >&2
+        return 2
+    fi
+    echo "  corpus cases: $((total - bad))/$total in scope, $listed recorded as out of scope"
+    [[ "$bad" -eq 0 ]]
+}
+
 readiness() {
     echo "Self-host readiness (docs/PLAN-self-hosting.md)"
     if [[ -d "$OUT/dumps/stage0" ]]; then
@@ -559,6 +650,10 @@ run)
     echo "S4: the port's interpreter against every .out"
     check_run || exit $?
     ;;
+corpus)
+    echo "S4: the real corpus in tests/run-pass, with its out-of-scope list"
+    check_corpus || exit $?
+    ;;
 all)
     bash "${BASH_SOURCE[0]}" stage0
     bash "${BASH_SOURCE[0]}" stage1
@@ -566,6 +661,7 @@ all)
     bash "${BASH_SOURCE[0]}" check
     bash "${BASH_SOURCE[0]}" mir
     bash "${BASH_SOURCE[0]}" run
+    bash "${BASH_SOURCE[0]}" corpus
     bash "${BASH_SOURCE[0]}" gates
     ;;
 __dump)
