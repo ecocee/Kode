@@ -7,6 +7,12 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **CI runs every self-hosting gate, not three of them.** The `selfhost` job stopped at
+  `parse`; it now runs `check` (codes, reports and the self-check), `mir`, `run` and
+  `corpus` as well, records the work packets and readiness level informationally, and has
+  a 30-minute ceiling because the port can hang on a program it mis-lowers. Nothing else
+  in the job changed.
+
 - **A corpus gate, with the out-of-scope programs recorded rather than skipped.**
   `./scripts/selfhost.sh corpus` runs the `mir` and `run` comparisons over
   `tests/run-pass` instead of the hand-written fixtures, and it fails in both directions

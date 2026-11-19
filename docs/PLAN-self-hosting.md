@@ -906,7 +906,9 @@ own stop reason, and `check_mir` compares stdout. Gates after these pins: parse
 runs the `mir` and `run` comparisons over `tests/run-pass` rather than the hand-written
 fixtures. Today **2 of 58** programs lower — `hello` and `nesting_ok`, both byte-identical
 and running — and the other 56 are recorded in
-`selfhost/spec/corpus-out-of-scope.txt` with the reason the port gives. The gate fails if
+`selfhost/spec/corpus-out-of-scope.txt` with the reason the port gives. CI runs every gate
+(`parse`, `check`, `mir`, `run`, `corpus`), so a regression in any of them fails the job.
+The gate fails if
 that list and the port disagree in either direction: a stale line when a program starts
 lowering, a missing line when one starts refusing. A program stops at its first blocker,
 so these counts are a floor:

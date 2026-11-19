@@ -154,8 +154,11 @@ jobs:
   # enough: the port is platform independent, and the point of the job is to catch
   # a parity regression the moment it lands, not to test four architectures of it.
   selfhost:
-    name: selfhost (stage0 -> stage1 -> parse)
+    name: selfhost (stage0 -> stage1 -> parse -> check -> mir -> run -> corpus)
     runs-on: ubuntu-latest
+    # The port can hang on a program it mis-lowers, so the job has a ceiling
+    # rather than the runner's six hours.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -180,6 +183,34 @@ jobs:
       # of what a parser must refuse, and the gate that keeps recovery honest.
       - name: Stage 1 parses the corpus; trees and diagnostics must match
         run: ./scripts/selfhost.sh parse
+
+      # Codes, then the report itself, then the port's own sources: the S3
+      # gate runs `kode check` on both sides of the comparison and includes
+      # the self-check over `selfhost/*.kode`.
+      - name: Stage 1 checks the corpus; codes, reports and self-check must match
+        run: ./scripts/selfhost.sh check
+
+      # The S4 dump, byte for byte, over the hand-written fixtures.
+      - name: Stage 1 lowers the MIR fixtures; dumps must match
+        run: ./scripts/selfhost.sh mir
+
+      # The interpreter's stdout and exit code.
+      - name: Stage 1 runs the fixtures; output and exit code must match
+        run: ./scripts/selfhost.sh run
+
+      # The real corpus, with the programs the walk cannot lower yet listed by
+      # reason in selfhost/spec/corpus-out-of-scope.txt. The gate fails if that
+      # list goes stale in either direction, so a program cannot quietly leave
+      # (or silently join) the out-of-scope set.
+      - name: Stage 1 runs the real corpus, and its out-of-scope list is current
+        run: ./scripts/selfhost.sh corpus
+
+      # Informational: which work packets are met, and the readiness level. A
+      # blocked packet is the plan's own state, not a CI failure, so this step
+      # is allowed to report it and the gates above decide the job.
+      - name: Record the work packets and the readiness level (informational)
+        continue-on-error: true
+        run: ./scripts/selfhost.sh readiness
 
       - name: Keep the measurements
         uses: actions/upload-artifact@v4
