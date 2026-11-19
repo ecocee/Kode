@@ -746,6 +746,40 @@ and the oracle's rules for them are exact, so the dump can stay byte-identical:
   `release`), typed annotations, reassignment (`x = x + 1` on an existing local),
   blocks, branches and calls to user functions.
 
+**The plan for slice 3 — reassignment and the rest of the integer operators.** The
+shapes it adds are `x = <int expression>` where `x` already exists, and `- * / %` on
+ints. Probing the oracle settled two rules the slice must follow:
+
+- **A declaration lowers its value first.** `x = 1 + 2` allocates the `add`'s
+  temporary before the variable's (`_0 = add 1, 2`, then `_1 = _0`, and `let _1: int
+  // x`), which slice 2 only got right by accident (`x = 41` has no value temporary).
+- **Reassignment writes the existing slot, after the value.** `x = x + 1` is
+  `_1 = add _0, 1`, then `_0 = _1` — no new temporary, so `let` has no second entry.
+
+Operators are the oracle's mnemonics: `sub`, `mul`, `div`, `rem`, and `div` truncates
+toward zero (`0 - 7 / 2` is `-3`), which is what Kode's own `/` does. Unary minus is
+out of scope; `0 - x` is the shape that exists.
+
+- **Files.** `selfhost/mir.kode`: `assign` lowers the value before it allocates or
+  writes anything, `expr` maps the five operators to their instruction, and
+  `instr_text` prints any `dest` instruction as `_N = <op> a, b`. `selfhost/eval.kode`
+  gains `sub`/`mul`/`div`/`rem`.
+- **Fixtures first.** Five more in `selfhost/spec/run/`: a declaration whose value is
+  a sum, a reassignment, the four new operators, a sum of two locals multiplied, and
+  a truncating division.
+- **Gates.** Unchanged: `mir` byte-identical, `run` output and exit code.
+
+**Slice 3 is in.** `selfhost/mir.kode` lowers a declaration by lowering its value
+first (`x = 1 + 2` is `_0 = add 1, 2` then `_1 = _0`, with `let _1: int  // x`), a
+reassignment into the existing slot (`x = x + 1` is `_1 = add _0, 1` then `_0 = _1`,
+no new temporary), and all five integer operators as the oracle's mnemonics (`add`,
+`sub`, `mul`, `div`, `rem`). `selfhost/eval.kode` runs them, and `div`/`rem` truncate
+toward zero like the language does (`0 - 7 / 2` is `-3`). Five fixtures came first in
+`selfhost/spec/run/` (a sum as a declaration's value, a reassignment, the four new
+operators, a product of two locals, and a truncating division): the gates report
+**12/12** dumps byte-identical and **12/12** runs with the oracle's output and exit
+code. Unary minus, comparison, `and`/`or` and the string operators are still out.
+
 **Slice 2 is in.** `selfhost/mir.kode` now lowers a local (`x = 41`), a name read and
 `+`, with the oracle's temporaries exactly: one per variable and per `add`, numbered
 in walk order, `    let _N: int  // x` for a variable and a bare `let` for an

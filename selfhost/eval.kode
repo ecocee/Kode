@@ -30,8 +30,30 @@ fn print_step(pending: string, i: Instr, values: [int]) -> string {
         values[i.dest] = operand_int(i.args[0], values)
         return pending
     }
+    left = 0
+    right = 0
+    if i.kind == "add" or i.kind == "sub" or i.kind == "mul" or i.kind == "div" or i.kind == "rem" {
+        left = operand_int(i.args[0], values)
+        right = operand_int(i.args[1], values)
+    }
     if i.kind == "add" {
-        values[i.dest] = operand_int(i.args[0], values) + operand_int(i.args[1], values)
+        values[i.dest] = left + right
+        return pending
+    }
+    if i.kind == "sub" {
+        values[i.dest] = left - right
+        return pending
+    }
+    if i.kind == "mul" {
+        values[i.dest] = left * right
+        return pending
+    }
+    if i.kind == "div" {
+        values[i.dest] = left / right
+        return pending
+    }
+    if i.kind == "rem" {
+        values[i.dest] = left % right
         return pending
     }
     if i.kind != "call" {

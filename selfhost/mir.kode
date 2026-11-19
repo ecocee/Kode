@@ -140,18 +140,13 @@ pub class Builder {
             stop("an assignment to something other than a name")
             return
         }
-        if slot(var_name) >= 0 {
-            stop("a second assignment to `${var_name}`")
-            return
-        }
         value = ast.nodes[id].kids[ast.nodes[id].kids.len() - 1]
         if value == var_id {
             stop("an assignment with no value")
             return
         }
-        index = temp(var_name)
-        names.add(var_name)
-        slots.add(index)
+        // The oracle lowers the value first, so its temporaries come before the
+        // variable's: `x = 1 + 2` is `_0 = add 1, 2` then `_1 = _0`.
         operand = expr(value)
         if not ok {
             return
@@ -159,6 +154,12 @@ pub class Builder {
         if not is_int(operand) {
             stop("`${var_name}` holding something other than an int")
             return
+        }
+        index = slot(var_name)
+        if index < 0 {
+            index = temp(var_name)
+            names.add(var_name)
+            slots.add(index)
         }
         block.instrs.add(Instr(kind: "assign", dest: index, args: [operand]))
     }
@@ -198,17 +199,24 @@ pub class Builder {
             }
             return Operand(is_temp: true, index: index)
         }
-        if kind == "Binary" and ast.attr_raw(id, "op") == "+" {
-            return add(id)
+        if kind == "Binary" {
+            return binary(id)
         }
         stop("an expression of kind `${kind}`")
         return Operand()
     }
 
-    fn add(id: int) -> Operand {
+    /// `a <op> b` for one of the five integer operators, one instruction each.
+    fn binary(id: int) -> Operand {
+        op = ast.attr_raw(id, "op")
+        mnemonic = operator_name(op)
+        if mnemonic == "" {
+            stop("the operator `${op}`, which this slice cannot lower")
+            return Operand()
+        }
         kids = ast.nodes[id].kids
         if kids.len() != 2 {
-            stop("a `+` without two operands")
+            stop("a `${op}` without two operands")
             return Operand()
         }
         left = expr(kids[0])
@@ -217,11 +225,11 @@ pub class Builder {
             return Operand()
         }
         if not is_int(left) or not is_int(right) {
-            stop("an addition of something other than int")
+            stop("`${op}` on something other than int")
             return Operand()
         }
         index = temp("")
-        block.instrs.add(Instr(kind: "add", dest: index, args: [left, right]))
+        block.instrs.add(Instr(kind: mnemonic, dest: index, args: [left, right]))
         return Operand(is_temp: true, index: index)
     }
 
@@ -241,6 +249,27 @@ pub class Builder {
         }
         return Value(kind: "str", str_value: ast.attr_text(id, "value"))
     }
+}
+
+/// The instruction a written operator becomes, or "" when this slice has no such
+/// instruction (`div` truncates toward zero, which is what Kode's own `/` does).
+fn operator_name(op: string) -> string {
+    if op == "+" {
+        return "add"
+    }
+    if op == "-" {
+        return "sub"
+    }
+    if op == "*" {
+        return "mul"
+    }
+    if op == "/" {
+        return "div"
+    }
+    if op == "%" {
+        return "rem"
+    }
+    return ""
 }
 
 /// A bool operand that is an int: an int literal, or a temporary (only `add` and an
@@ -338,10 +367,10 @@ fn instr_text(i: Instr) -> string {
         return "return"
     }
     if i.dest >= 0 {
-        if i.kind == "add" {
-            return "_${i.dest} = add ${operand_text(i.args[0])}, ${operand_text(i.args[1])}"
+        if i.kind == "assign" {
+            return "_${i.dest} = ${operand_text(i.args[0])}"
         }
-        return "_${i.dest} = ${operand_text(i.args[0])}"
+        return "_${i.dest} = ${i.kind} ${operand_text(i.args[0])}, ${operand_text(i.args[1])}"
     }
     parts = ""
     for arg in i.args {

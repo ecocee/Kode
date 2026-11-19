@@ -7,6 +7,16 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **S4 slice 3: reassignment and the rest of the integer operators.** A declaration
+  now lowers its value before it allocates the variable (`x = 1 + 2` is
+  `_0 = add 1, 2` then `_1 = _0`, which slice 2 only got right by accident), a
+  reassignment writes the existing temporary (`x = x + 1` is `_1 = add _0, 1` then
+  `_0 = _1`), and `- * / %` lower to the oracle's `sub`/`mul`/`div`/`rem` alongside
+  `add` (`selfhost/mir.kode`, `selfhost/eval.kode`). `div` and `rem` truncate toward
+  zero, as the language does: `0 - 7 / 2` is `-3`. Five fixtures came first in
+  `selfhost/spec/run/`, so the gates report **12/12** dumps byte-identical and
+  **12/12** runs with the oracle's output and exit code.
+
 - **S4 slice 2: a local, a name read and `+`, with the oracle's temporaries.** The
   self-hosted MIR now lowers `x = <int expression>` and `print(<int expression>)`
   (`selfhost/mir.kode`, learning the oracle's rules: one temporary per variable and per
