@@ -453,14 +453,32 @@ in the oracle. Two type rules were wrong and are fixed: `int?` fits `int?`, and 
 parameter inside a container is recognised. The gate after it is **122/165** with
 **self-check 42/42**.
 
+**Slice 8 is in: builtins, runtime functions and methods.** `selfhost/stdlib.kode` is
+the third signature table. It mirrors `crates/kode-sema/src/std_fns.rs` and the builtin
+arms of the oracle's checker: the runtime functions a program calls by name (`exec`,
+`read_file`, `args`, ...), the one-argument builtins with the words the oracle uses to
+describe each (`len` "a string, a list or a map", `bytes` "a length"), and
+`StringBuilder`'s `push` and `build`. A builtin takes kinds rather than types — `len`
+accepts a list of anything — so a row carries the kinds one argument may be.
+`signatures.kode` records a method as `Class.method` with the class's type parameters
+in scope for its annotations, and keeps the bare name for return messages, because the
+oracle says `m` there but `P.m` in a call. `functions.kode` resolves a method call
+through its receiver's type (`StringBuilder()` types as its own class now, not `any`),
+and the three message shapes are kept apart on purpose: a runtime function names its
+arguments positionally ("argument 2 of `exec` should be `[string]`, found a string"), a
+builtin describes the value it wants ("`bytes` expects a length, found a string"), and
+a method of a class the program declares is a call like any other, help included.
+`Signature` gained `is_ctor`, because a constructor whose call is refused still builds
+the instance (`a = A()` leaves `a` declared) and so does a builtin (`b = bytes("four")`
+reports only the argument), while a refused function declares nothing. The gate after
+it is **126/165** with **self-check 43/43**.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that
 agreed with Stage 0 could fail on that. It now compares with the oracle's own output, so
 the parser fixtures and the named-argument ones became green by measuring the right
-thing. Methods, builtins, runtime functions and closures are silent: their signatures
-are not in the table yet, which is the next family (`E0208` for `builder.push`,
-`bytes`, `exec`).
+thing. A closure stays silent: its parameters are not in the table yet.
 
 Every rule stays quiet when it cannot prove the mistake: an operand that is `any` (a
 call, a method call, an index), an optional operand (narrowing is a later slice) and

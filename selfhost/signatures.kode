@@ -32,11 +32,17 @@ pub class ParamSig {
 /// A callee's shape. `ret` is none when the function declares no return type, which
 /// is not the same as declaring nothing to return.
 pub class Signature {
+    /// The name a return message prints: a function's own name, or a method's.
     name: string
+    /// The name a call message prints: `P.m` for a method, the name itself otherwise.
+    label: string = ""
     params: [ParamSig] = []
     ret: Type? = none
     /// The function's own type parameters (`fn pair<T>`); an argument binds one.
     type_params: [string] = []
+    /// True for a class's constructor: a call that fails still builds the instance,
+    /// so the name it is assigned to stays declared (a failed function gives nothing).
+    is_ctor: bool = false
 }
 
 /// Every signature in the program, looked up by name.
@@ -49,9 +55,9 @@ pub class SigTable {
 
     /// The signature `name` declares, or one whose `name` is "" when it declares
     /// none — which is what a builtin, a runtime function and a method answer.
-    fn find(name: string) -> Signature {
+    fn find(label: string) -> Signature {
         for sig in list {
-            if sig.name == name {
+            if sig.label == label {
                 return sig
             }
         }
@@ -71,6 +77,11 @@ pub fn collect_signatures(asts: [Ast], names: Names, table: SigTable) {
                 table.add(fn_signature(ast, names, quiet, id))
             } else if kind == "Class" {
                 table.add(class_signature(ast, names, quiet, id))
+                for member in ast.nodes[id].kids {
+                    if ast.nodes[member].kind == "Method" {
+                        table.add(method_signature(ast, names, quiet, id, member))
+                    }
+                }
             }
         }
     }
@@ -80,6 +91,7 @@ pub fn collect_signatures(asts: [Ast], names: Names, table: SigTable) {
 /// the type parameters its own annotations may name.
 fn fn_signature(ast: Ast, names: Names, quiet: [Diag], id: int) -> Signature {
     sig = Signature(name: ast.attr_text(id, "name"))
+    sig.label = sig.name
     for kid in ast.nodes[id].kids {
         if ast.nodes[kid].kind == "TypeParam" {
             sig.type_params.add(ast.attr_text(kid, "name"))
@@ -104,6 +116,8 @@ fn fn_signature(ast: Ast, names: Names, quiet: [Diag], id: int) -> Signature {
 /// so a required `y` after it is still missing.
 fn class_signature(ast: Ast, names: Names, quiet: [Diag], id: int) -> Signature {
     sig = Signature(name: ast.attr_text(id, "name"), ret: type_named(ast.attr_text(id, "name")))
+    sig.label = sig.name
+    sig.is_ctor = true
     for kid in ast.nodes[id].kids {
         if ast.nodes[kid].kind == "TypeParam" {
             sig.type_params.add(ast.attr_text(kid, "name"))
@@ -117,6 +131,34 @@ fn class_signature(ast: Ast, names: Names, quiet: [Diag], id: int) -> Signature 
         param = ParamSig(name: ast.attr_text(kid, "name"), ty: annotation_of(ast, names, quiet, kid))
         param.optional = has_default(ast, kid)
         sig.params.add(param)
+    }
+    pop_type_params(names, before)
+    return sig
+}
+
+/// A method: the same shape as a function, keyed by `Class.method` for a call and by
+/// its own name for a return, with the class's type parameters in scope for its
+/// annotations (`class Box<T> { fn get() -> T }`).
+fn method_signature(ast: Ast, names: Names, quiet: [Diag], class_id: int, id: int) -> Signature {
+    name = ast.attr_text(id, "name")
+    sig = Signature(name: name, label: ast.attr_text(class_id, "name") + "." + name)
+    before = push_type_params(ast, names, class_id)
+    for one in names.params {
+        sig.type_params.add(one)
+    }
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "TypeParam" {
+            names.params.add(ast.attr_text(kid, "name"))
+            sig.type_params.add(ast.attr_text(kid, "name"))
+        }
+    }
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Param" {
+            sig.params.add(ParamSig(name: ast.attr_text(kid, "name"), ty: annotation_of(ast, names, quiet, kid)))
+        } else if is_type_node(kind) {
+            sig.ret = resolve_ann(ast, names, quiet, kid)
+        }
     }
     pop_type_params(names, before)
     return sig

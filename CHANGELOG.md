@@ -7,6 +7,25 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's checker knows the builtins, the runtime functions and methods.**
+  `selfhost/stdlib.kode` mirrors the oracle's tables: the runtime functions a program
+  calls by name (`exec` and its `(string, [string], string)` among them), the
+  one-argument builtins with the words the oracle uses for each (`len` "a string, a
+  list or a map", `bytes` "a length", `int`, `float`, `string`, `assert`), and
+  `StringBuilder`'s `push`/`build`. `selfhost/signatures.kode` records every method as
+  `Class.method`, with its class's type parameters in scope, and keeps the bare name
+  for a return message — the oracle prints `` `m` `` there but `` `P.m` `` in a call.
+  `selfhost/functions.kode` resolves a method call through its receiver's type and
+  reports the three shapes the oracle uses: a runtime function names its arguments
+  positionally ("argument 2 of `exec` should be `[string]`, found a string"), a
+  builtin describes the value it wants ("`bytes` expects a length, found a string"),
+  and a method of a class the program declares is a call like any other, named
+  parameter help included. A call that fails still binds the name when it is a
+  builtin or a constructor (`b = bytes("four")` reports only the argument), which the
+  oracle confirms; a refused function still declares nothing. The wrong-number-width
+  hint ("numbers never convert automatically") now also appears on a user call.
+  Gate: 122 → **126/165**, self-check **43/43**.
+
 - **The port's checker knows what a function promises.** `selfhost/signatures.kode`
   records every function's parameters and result, and every class's constructor — its
   fields in declaration order, the ones with a default value optional but still taking

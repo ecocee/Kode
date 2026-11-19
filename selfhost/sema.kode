@@ -23,7 +23,7 @@ from "./ast" import Ast, is_type_node
 from "./binding" import bound_local
 from "./builtins" import Builtins
 from "./diag" import Diag, diag, diag_help
-from "./functions" import check_call, check_expr_body, check_paths, check_return
+from "./functions" import check_call, check_expr_body, check_method_call, check_paths, check_return
 from "./items" import pop_type_params, setup_class, setup_fn
 from "./modules" import Alias, Module
 from "./names" import Names, collect
@@ -95,7 +95,7 @@ pub class Sema {
     fn check_item(id: int) {
         kind = ast.nodes[id].kind
         if kind == "Fn" {
-            check_fn(id, false)
+            check_fn(id, ast.attr_text(id, "name"))
         } else if kind == "Class" {
             check_class(id)
         } else if kind == "Const" {
@@ -109,17 +109,17 @@ pub class Sema {
         }
     }
 
-    /// `is_method`: a method's signature is not in the table yet (its receiver's
-    /// class is not resolved here), so a method is walked without argument and
-    /// return rules rather than against the free function that shares its name.
-    fn check_fn(id: int, is_method: bool) {
+    /// `label` is what the signature table keys the item by — its name, or
+    /// `Class.method` — so a method is never checked against a free function that
+    /// shares its name. "" walks the item without signature rules.
+    fn check_fn(id: int, label: string) {
         scopes.push()
         before = setup_fn(ast, names, scopes, diags, id)
         was = in_fn
         in_fn = true
         sig = Signature(name: "")
-        if not is_method {
-            sig = sigs.find(ast.attr_text(id, "name"))
+        if label != "" {
+            sig = sigs.find(label)
         }
         previous = current
         current = sig
@@ -142,12 +142,13 @@ pub class Sema {
     /// A method reads its class's fields and methods by bare name, so they are in
     /// scope for the whole class.
     fn check_class(id: int) {
+        class_name = ast.attr_text(id, "name")
         scopes.push()
         before = setup_class(ast, names, scopes, diags, id)
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
             if kind == "Method" {
-                check_fn(kid, true)
+                check_fn(kid, "${class_name}.${ast.attr_text(kid, "name")}")
             }
             if kind == "Field" {
                 for part in ast.nodes[kid].kids {
@@ -296,12 +297,20 @@ pub class Sema {
     /// Would the assignment's value be a call the checker refuses? Asked before the
     /// name is declared, with a scratch list so the call is reported once, later, by
     /// `visit_call`.
+    ///
+    /// Only a function the program declares can refuse this way. A builtin still gives
+    /// its result (`b = bytes("four")` binds a buffer and the oracle only reports the
+    /// argument), and so does a class constructor (`a = A()` still makes an `A`).
     fn value_fails(kids: [int]) -> bool {
         if kids.len() < 2 {
             return false
         }
         value = kids[kids.len() - 1]
         if ast.nodes[value].kind != "Call" {
+            return false
+        }
+        sig = sigs.find(ast.attr_text(value, "callee"))
+        if sig.name == "" or sig.is_ctor {
             return false
         }
         scratch: [Diag] = []
@@ -332,6 +341,7 @@ pub class Sema {
             base = ast.attr_text(kids[0], "name")
             check_alias(ast, mods, aliases, names.decls, diags, id, base, callee)
         }
+        check_method_call(ast, scopes.frames, names, sigs, diags, id)
         for kid in kids {
             visit(kid)
         }

@@ -18,16 +18,59 @@ from "./ast" import Ast
 from "./diag" import Diag, diag, diag_help
 from "./names" import Names
 from "./signatures" import ParamSig, SigTable, Signature
-from "./typing" import Local, Type, expr_type, type_any, type_article, type_assignable, type_inner, type_name
+from "./stdlib" import StdSig, builder_method, builtin, free_fn
+from "./typing" import Local, Type, expr_type, mixed_number, type_any, type_article, type_assignable, type_inner, type_name
 
 // ---- a call ----
 
-/// `f(1, 2)`, `A(1)`: the arguments against the callee's signature.
+/// `f(1, 2)`, `A(1)`, `bytes(4)`, `exec(...)`: the arguments against the callee,
+/// whichever of the three tables knows it.
 pub fn check_call(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, diags: [Diag], id: int) {
-    sig = sigs.find(ast.attr_text(id, "callee"))
-    if sig.name == "" {
+    callee = ast.attr_text(id, "callee")
+    sig = sigs.find(callee)
+    if sig.name != "" {
+        user_call(ast, frames, names, diags, sig, id)
         return
     }
+    std = free_fn(callee)
+    if std.name != "" {
+        std_call(ast, frames, names, diags, std, id, false)
+        return
+    }
+    one = builtin(callee)
+    if one.name != "" {
+        std_call(ast, frames, names, diags, one, id, true)
+    }
+}
+
+/// `obj.push(1)`, `p.m("x")`: a method of a builtin class, or of a class the program
+/// declares. A receiver whose type this slice cannot name (a module alias, a call it
+/// cannot type) is left alone.
+pub fn check_method_call(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() == 0 {
+        return
+    }
+    name = ast.attr_text(id, "name")
+    recv = expr_type(ast, frames, names, kids[0])
+    if recv.kind != "named" {
+        return
+    }
+    if recv.name == "StringBuilder" {
+        std = builder_method(name)
+        if std.name != "" {
+            std_call(ast, frames, names, diags, std, id, true)
+        }
+        return
+    }
+    sig = sigs.find("${recv.name}.${name}")
+    if sig.name != "" {
+        user_call(ast, frames, names, diags, sig, id)
+    }
+}
+
+/// A call to a function or class the program declares, or to one of its methods.
+fn user_call(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], sig: Signature, id: int) {
     args = arg_nodes(ast, id)
     if args.len() > sig.params.len() {
         takes = "arguments"
@@ -35,7 +78,7 @@ pub fn check_call(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, dia
             takes = "argument"
         }
         // The count found carries no noun: `takes 1 argument, found 2`.
-        message = "`${sig.name}` takes ${sig.params.len()} ${takes}, found ${args.len()}"
+        message = "`${sig.label}` takes ${sig.params.len()} ${takes}, found ${args.len()}"
         diag_help(ast, diags, "E0207", message, id, "its parameters are (${param_list(sig)})")
         return
     }
@@ -49,7 +92,7 @@ pub fn check_call(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, dia
         if name != "" {
             index = param_index(sig, name)
             if index < 0 {
-                diag(ast, diags, "E0215", "`${sig.name}` has no parameter `${name}`", arg)
+                diag(ast, diags, "E0215", "`${sig.label}` has no parameter `${name}`", arg)
                 continue
             }
         } else {
@@ -66,7 +109,7 @@ pub fn check_call(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, dia
         if p.optional or used.contains(p.name) {
             continue
         }
-        message = "missing argument `${p.name}` for `${sig.name}`"
+        message = "missing argument `${p.name}` for `${sig.label}`"
         diag_help(ast, diags, "E0216", message, id, "pass it like `${p.name}: ...`")
     }
 }
@@ -90,15 +133,15 @@ fn check_argument(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], sig:
         if type_assignable(slot.ty, found) {
             return
         }
-        message = "argument ${index + 1} of `${sig.name}` should be ${type_bare(found)}, found ${type_article(got)}"
+        message = "argument ${index + 1} of `${sig.label}` should be ${type_bare(found)}, found ${type_article(got)}"
         diag_help(ast, diags, "E0208", message, value, "the type arguments come from the arguments, so they must agree")
         return
     }
     if type_assignable(got, want) {
         return
     }
-    message = "argument `${sig.params[index].name}` of `${sig.name}` should be ${type_article(want)}, found ${type_article(got)}"
-    diag(ast, diags, "E0208", message, value)
+    message = "argument `${sig.params[index].name}` of `${sig.label}` should be ${type_article(want)}, found ${type_article(got)}"
+    report_argument(ast, diags, message, got, want, value)
 }
 
 fn arg_nodes(ast: Ast, id: int) -> [int] {
@@ -188,6 +231,58 @@ fn type_bare(t: Type) -> string {
         return name
     }
     return "`${name}`"
+}
+
+/// A runtime function or a builtin: `exec(...)`, `bytes(...)`, `sb.push(...)`. The
+/// oracle names a runtime function's arguments positionally and describes a builtin's
+/// single argument in words.
+fn std_call(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], std: StdSig, id: int, is_builtin: bool) {
+    args = arg_nodes(ast, id)
+    for arg in args {
+        if ast.attr_text(arg, "name") != "" {
+            diag(ast, diags, "E0215", "`${std.name}` does not take named arguments", arg)
+        }
+    }
+    if args.len() != std.params.len() {
+        takes = "arguments"
+        if std.params.len() == 1 {
+            takes = "argument"
+        }
+        message = "`${std.name}` takes ${std.params.len()} ${takes}, found ${args.len()}"
+        diag(ast, diags, "E0207", message, id)
+        return
+    }
+    i = 0
+    while i < args.len() {
+        value = arg_value(ast, args[i])
+        got = expr_type(ast, frames, names, value)
+        want = std.params[i]
+        if is_builtin {
+            // A builtin takes kinds, not types: `len` accepts a list of anything.
+            if got.kind != "any" and not std.accepts.contains(got.kind) {
+                expects = std.expects
+                if expects == "" {
+                    expects = type_article(want)
+                }
+                message = "`${std.name}` expects ${expects}, found ${type_article(got)}"
+                diag(ast, diags, "E0208", message, value)
+            }
+        } else if not type_assignable(got, want) {
+            message = "argument ${i + 1} of `${std.name}` should be ${type_article(want)}, found ${type_article(got)}"
+            report_argument(ast, diags, message, got, want, value)
+        }
+        i += 1
+    }
+}
+
+/// `E0208` for an argument, with the help the oracle adds when a number is only the
+/// wrong width: numbers never convert on their own.
+fn report_argument(ast: Ast, diags: [Diag], message: string, got: Type, want: Type, value: int) {
+    if mixed_number(got, want) {
+        diag_help(ast, diags, "E0208", message, value, "numbers never convert automatically; use int(x) or float(x)")
+        return
+    }
+    diag(ast, diags, "E0208", message, value)
 }
 
 // ---- a return ----

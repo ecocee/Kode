@@ -357,6 +357,9 @@ fn call_type(ast: Ast, names: Names, id: int) -> Type {
     if callee == "print" or callee == "stderr" {
         return type_prim("unit")
     }
+    if callee == "StringBuilder" {
+        return type_named("StringBuilder")
+    }
     return type_any()
 }
 
