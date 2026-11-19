@@ -22,7 +22,7 @@ language: a patch release fixes bugs, a minor release may add syntax.
   assigned to is unknown on the next line, as in the oracle. Two type rules grew the
   fix the families needed: `int?` is assignable to `int?` (it was not), and a type
   parameter nested in a container is recognised. Gate: 109 → **122/165**, self-check
-  **41/41**. Methods, builtins and closures are silent: their signatures are not in the
+  **42/42**. Methods, builtins and closures are silent: their signatures are not in the
   table yet.
 
   The `check` gate now compares the port's codes with the **oracle's own**, not with

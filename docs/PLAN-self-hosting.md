@@ -433,7 +433,7 @@ the interface after `E0236`. The `parse` gate now covers the whole compile-fail
 corpus as well as the slice's own cases: **169/169** cases and **39/39** of the
 port's own files, and the gate after it is **109/165**.
 
-**Slice 6 is in: signatures, calls and returns.** `selfhost/signatures.kode` records
+**Slice 7 is in: signatures, calls and returns.** `selfhost/signatures.kode` records
 what every function and every class constructor takes and gives back — parameters and
 their types, the declared result, and the type parameters an argument can bind — before
 any file is walked, because the namespace is program-wide. A class's constructor is its
@@ -451,7 +451,7 @@ last line (a `return` or `throw` at the end, both branches of an `if`, every arm
 checker refuses declares nothing, so the assigned name is unknown on the next line, as
 in the oracle. Two type rules were wrong and are fixed: `int?` fits `int?`, and a type
 parameter inside a container is recognised. The gate after it is **122/165** with
-**self-check 41/41**.
+**self-check 42/42**.
 
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the

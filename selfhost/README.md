@@ -47,6 +47,7 @@ against the oracle; S2 slice 1 — the arena and a subset parser — is in as we
 | `operands.kode` | which operands each operator accepts, and what `print`/`stderr` can show (`E0203`, `E0204`, `E0210`) |
 | `signatures.kode` | what a function and a class constructor take and give back: parameters in order, the declared result, and the type parameters, collected program-wide before the walk |
 | `functions.kode` | a call against that record (`E0207`, `E0215`, `E0216`, `E0208`) and a return against the declared result (`E0304`, `E0305`, `E0310`) |
+| `patterns.kode` | what a `match` arm's pattern binds: the arguments of `Shape.Circle(r)` are names, the `Shape` before the dot is a reference |
 | `names.kode` | the program's names and the rules about declaring one: `E0301`, `E0302`, `E0306`, `E0307`, `E0308` |
 | `sema.kode` | the checker (S3): name resolution (`E0201`/`E0206`), alias members, `return`/`break`/`continue` outside their place (`E0311`/`E0314`), and the walk that ties the rules together |
 | `namespace.kode` | the import namespace: a module alias may not repeat (`E0408`) or hide a declaration (`E0409`), and the first in load order is the one a member call resolves through |

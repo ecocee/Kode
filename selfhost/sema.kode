@@ -29,6 +29,7 @@ from "./modules" import Alias, Module
 from "./names" import Names, collect
 from "./namespace" import alias_diags, check_alias
 from "./operands" import check_operator, check_print
+from "./patterns" import bind_arm_names
 from "./scope" import Scope
 from "./signatures" import SigTable, Signature, collect_signatures
 from "./typing" import type_any
@@ -464,7 +465,7 @@ pub class Sema {
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
             if kind == "PatternValue" {
-                bind_pattern(kid)
+                bind_arm_names(ast, scopes, kid)
             } else {
                 visit(kid)
             }
@@ -472,25 +473,6 @@ pub class Sema {
         scopes.pop()
     }
 
-    /// The names an arm pattern binds: the arguments of `Shape.Circle(r)` are
-    /// bindings, while the `Shape` before the dot is a reference.
-    fn bind_pattern(id: int) {
-        for kid in ast.nodes[id].kids {
-            if ast.nodes[kid].kind != "MethodCall" {
-                continue
-            }
-            for arg in ast.nodes[kid].kids {
-                if ast.nodes[arg].kind != "Arg" {
-                    continue
-                }
-                for inner in ast.nodes[arg].kids {
-                    if ast.nodes[inner].kind == "Ident" {
-                        scopes.declare(ast.attr_text(inner, "name"), type_any())
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// The node kinds that declare a name for the whole program.
