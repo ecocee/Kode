@@ -483,7 +483,10 @@ only when it holds a scalar, and a bare `none` never does.
 `Signature` gained `is_ctor`, because a constructor whose call is refused still builds
 the instance (`a = A()` leaves `a` declared) and so does a builtin (`b = bytes("four")`
 reports only the argument), while a refused function declares nothing. The gate after
-it is **126/165** with **self-check 43/43**.
+it is **126/165** with **self-check 43/43**, and **130/169** once four fixtures cover
+the new rules (`e0203_print_process_result`, `e0205_print_nothing`,
+`e0203_print_optional_string` and the run-pass `optional_scalar_print`, which prints a
+`none` `int?`, a `float?` and a `bool?`).
 
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the

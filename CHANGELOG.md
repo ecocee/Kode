@@ -34,7 +34,12 @@ language: a patch release fixes bugs, a minor release may add syntax.
   builtin or a constructor (`b = bytes("four")` reports only the argument), which the
   oracle confirms; a refused function still declares nothing. The wrong-number-width
   hint ("numbers never convert automatically") now also appears on a user call.
-  Gate: 122 → **126/165**, self-check **43/43**.
+  Gate: 122 → **126/165**, self-check **43/43**. Four fixtures keep the result-type and
+  print rules honest: `tests/compile-fail/e0203_print_process_result.kode`,
+  `e0205_print_nothing.kode` and `e0203_print_optional_string.kode`, plus
+  `tests/run-pass/optional_scalar_print.kode` (an `int?`, a `float?` and a `bool?`, none
+  included, print as `none`, `4`, `true`), so the gate is **130/169** with the same
+  self-check.
 
 - **The port's checker knows what a function promises.** `selfhost/signatures.kode`
   records every function's parameters and result, and every class's constructor — its
