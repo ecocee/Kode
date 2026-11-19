@@ -408,6 +408,11 @@ pub class Sema {
 
     fn visit_call(id: int) {
         callee = ast.attr_text(id, "callee")
+        // A variable that holds a closure and is called is read, so `greet("Bob")`
+        // counts as a use of `greet` (`W0001`).
+        if callee != "" {
+            mark_used(unused, callee)
+        }
         if callee != "" and not is_bound(callee) {
             message = "unknown function `${callee}`"
             close = closest(callee, callee_names())

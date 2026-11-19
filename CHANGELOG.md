@@ -7,6 +7,18 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`check text` is a gate, and it is green: 169/169.** The oracle prints
+  `checked in 0.38 ms` on success, which is a wall-clock measurement rather than
+  diagnostic text, so `./scripts/selfhost.sh check` drops that one line (and only it)
+  before comparing, and now compares the rendered report for the run-pass programs too,
+  not just the compile-fail ones. Every case's report — code, message, position, source
+  line, carets, hint, order — is byte-identical to the oracle's, and `check` exits
+  nonzero when a case's codes, its report or the port's self-check differs. Measuring the
+  clean programs turned up one false warning: a variable holding a closure that is
+  called (`greet("Bob")`, `f(21)`) is read, so it no longer says `W0001` — which had made
+  `closures.kode`, `fn_values.kode` and `optional_params.kode` warn. `check text`
+  **111 → 169/169**.
+
 - **`E0408` and `E0409` name their file.** Both are recorded while the module graph
   loads, before any file is walked, so the `import ... as` alias now carries the file it
   is written in (`Alias.file`) and the report's `-->` line no longer reads `--> :2:25`.

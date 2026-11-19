@@ -138,17 +138,24 @@ check_parse() {
 
 # The level reached (PLAN-self-hosting.md §2), from the artefacts on disk and the
 # packet table. This reports; it never pretends a stage exists.
+# The oracle prints `checked in 0.38 ms` on success. That line is a wall-clock
+# measurement, not diagnostic text, so it is dropped before the two reports are compared:
+# a clean program's report is otherwise identical.
+strip_timing() {
+    sed -E '/^checked in [0-9.]+ ms$/d' "$1"
+}
+
 # The S3 gate: the port's code set must be the oracle's, and a run-pass program must
 # report nothing. The expectation is the oracle itself, not the `.err` file: a `.err`
 # names the codes the Rust conformance test looks for and may leave out the follow-on
 # ones (`E0102` after a parser error, `E0201` after a failed call), so comparing with
-# it would fail a port that agrees with Stage 0. Codes are compared as sets; message,
-# span and order (the JSON form) are the next step of S3, not this one, so a family
-# lands when this count moves. The rendered text is counted next to it ("check text")
-# so a wrong span or a missing hint is visible before it becomes a gate.
+# it would fail a port that agrees with Stage 0. Codes are compared as sets, so a
+# family lands when that count moves; the rendered text is gated too ("check text"),
+# because the port is now expected to print the oracle's message, span, carets and hint
+# byte for byte, in the oracle's order, with the wall-clock line dropped.
 check_sema() {
-    local total=0 pass=0 file expected got name text_ok=0
-    local log="$OUT/check.log" oracle="$OUT/oracle.log" mismatches=""
+    local total=0 pass=0 file expected got name text_ok=0 rc=0
+    local log="$OUT/check.log" oracle="$OUT/oracle.log" mismatches="" text_bad=""
     if [[ ! -x "$STAGE0" ]]; then
         echo "  no Stage 0 oracle: run ./scripts/selfhost.sh stage0 first" >&2
         return 2
@@ -160,8 +167,10 @@ check_sema() {
         expected="$(grep -o '[EW]0[0-9][0-9][0-9]' "$oracle" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
         "$STAGE1" check "$file" >/dev/null 2>"$log" || true
         got="$(grep -o '[EW]0[0-9][0-9][0-9]' "$log" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
-        if diff -q "$oracle" "$log" >/dev/null 2>&1; then
+        if diff -q <(strip_timing "$oracle") <(strip_timing "$log") >/dev/null 2>&1; then
             text_ok=$((text_ok + 1))
+        else
+            text_bad+="    $name"$'\n'
         fi
         if [[ "$got" == "$expected" ]]; then
             pass=$((pass + 1))
@@ -172,7 +181,15 @@ check_sema() {
     for file in "$ROOT"/tests/run-pass/*.kode; do
         total=$((total + 1))
         name="$(basename "${file%.kode}")"
-        if "$STAGE1" check "$file" >/dev/null 2>"$log"; then
+        "$STAGE0" check "$file" >/dev/null 2>"$oracle" || true
+        rc=0
+        "$STAGE1" check "$file" >/dev/null 2>"$log" || rc=$?
+        if diff -q <(strip_timing "$oracle") <(strip_timing "$log") >/dev/null 2>&1; then
+            text_ok=$((text_ok + 1))
+        else
+            text_bad+="    $name (run-pass)"$'\n'
+        fi
+        if [[ "$rc" -eq 0 ]]; then
             pass=$((pass + 1))
         else
             got="$(grep -o '[EW]0[0-9][0-9][0-9]' "$log" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
@@ -180,10 +197,14 @@ check_sema() {
         fi
     done
     echo "  check cases: $pass/$total report the expected code set"
-    echo "  check text: $text_ok/$total diagnostics byte-identical"
+    echo "  check text: $text_ok/$total reports byte-identical"
     if [[ "$pass" -ne "$total" ]]; then
-        echo "  first mismatches (S3 is in progress, one family per commit):"
+        echo "  cases whose code set differs:"
         printf '%s' "$mismatches" | head -n 8
+    fi
+    if [[ "$text_ok" -ne "$total" ]]; then
+        echo "  cases whose report differs (message, span, carets, hint or order):"
+        printf '%s' "$text_bad" | head -n 8
     fi
     # The port's own sources are the one program big enough to need the module
     # graph, so they are checked too: a name the checker cannot resolve in
@@ -201,9 +222,9 @@ check_sema() {
     if [[ "$self_pass" -ne "$self_total" ]]; then
         printf '%s' "$self_bad" | head -n 8
     fi
-    printf 'check_pass=%s\ncheck_total=%s\nself_pass=%s\nself_total=%s\n' \
-        "$pass" "$total" "$self_pass" "$self_total" >"$OUT/check.txt"
-    return 0
+    printf 'check_pass=%s\ncheck_total=%s\ntext_pass=%s\nself_pass=%s\nself_total=%s\n' \
+        "$pass" "$total" "$text_ok" "$self_pass" "$self_total" >"$OUT/check.txt"
+    [[ "$pass" -eq "$total" && "$text_ok" -eq "$total" && "$self_pass" -eq "$self_total" ]]
 }
 
 readiness() {

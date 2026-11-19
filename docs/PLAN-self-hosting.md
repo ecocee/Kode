@@ -609,6 +609,19 @@ is `any`: it cannot prove the parameter is missing. `E0206` gained the oracle's 
 callee name). Gate: **169/169** — every compile-fail fixture and every run-pass program
 report the oracle's own code set; `check text` **103/169**, `self-check` **52/52**.
 
+**Slice 19 is in: the report is exact.** The remaining report diffs were spans, one
+missing file name and one measurement. `E0215` underlines the argument's name, `E0305`
+the function's name, `E0419` the field and `E0218` the receiver — each the token the
+oracle's caret sits under. `Alias` now carries the file an `import ... as` is written in,
+so `E0408`/`E0409` (recorded while the module graph loads, before any file is walked)
+name it in the `-->` line. The last family was not the port's at all: the oracle prints
+`checked in 0.38 ms` on success, so `check` drops exactly that line before comparing and
+counts the run-pass reports too, which it had not been counting. That found a real
+`W0001` false positive — a variable holding a closure and called (`greet("Bob")`) is
+read, so three run-pass programs had been warning. `check text` is now a gate as well:
+**169/169** reports byte-identical, and `check` exits nonzero if a case's codes, its
+report or the port's self-check differs.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that
