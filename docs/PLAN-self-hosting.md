@@ -695,11 +695,14 @@ before any of them has to deal with locals, temporaries or reference counting.
   every `selfhost/spec/run/*.kode` (byte-identical; the oracle's temporary numbering
   is free to differ, but slice 1 emits no temporaries), and `run` compares three
   things per program: the oracle's `kode run` stdout with the `.out`, the port's
-  stdout with the `.out`, and so the port with the oracle. Both join `all` after
-  `check`.
+  stdout with the `.out`, and so the port with the oracle. `run` compares the **exit
+  status** too: a fixture whose `kode run` does not exit 0 fails, and so does a port
+  whose status differs from the oracle's, because right text followed by a different
+  exit code is still a wrong program. Both gates join `all` after `check`.
 - **Out of scope, deliberately.** Locals (`let _0: int`), temporaries, arithmetic,
   strings built at run time (and the `release`/`retain` lines they bring), control
-  flow, calls to user functions, and the exit code. The next slice adds a local and
+  flow, calls to user functions, and a program's own `exit(...)` (the gate still
+  requires the port's status to equal the oracle's, which for these fixtures is 0). The next slice adds a local and
   an `add`, which is where temporary numbering and the first comparison against
   `kode mir` structure (not text) begin.
 - **Risk.** Float and string formatting is the runtime's, not the port's: a float is
@@ -711,8 +714,8 @@ before any of them has to deal with locals, temporaries or reference counting.
 `selfhost/eval.kode` runs it; `kode-stage1 mir` and `kode-stage1 run` are wired into
 `main.kode`, and a program outside the slice says why on stderr and exits 2.
 `./scripts/selfhost.sh mir` reports **3/3** dumps byte-identical and `run` **3/3**
-outputs byte-identical, with each `.out` proven against the oracle's `kode run`
-first. Both joined `all`. The one thing the plan let differ — temporary numbering —
+cases with byte-identical output and the oracle's exit code, with each `.out` proven
+against the oracle's `kode run` first. Both joined `all`. The one thing the plan let differ — temporary numbering —
 does not arise yet, so the dump comparison starts out exact, and the next slice (a
 local and an `add`) is where it becomes a structural comparison.
 

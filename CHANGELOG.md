@@ -17,8 +17,10 @@ language: a patch release fixes bugs, a minor release may add syntax.
   A program outside the slice stops with a reason on stderr and exit 2 rather than
   dumping MIR that would not run. The fixtures came first: `selfhost/spec/run/` holds
   three programs and their `.out`, and `./scripts/selfhost.sh mir` reports **3/3**
-  dumps byte-identical while `run` reports **3/3** outputs byte-identical, checking
-  each `.out` against the oracle's own `kode run` as well as against the port.
+  dumps byte-identical while `run` reports **3/3** cases whose output is
+  byte-identical and whose exit code equals the oracle's — each `.out` is checked
+  against the oracle's own `kode run`, and a run that does not exit 0 fails the gate,
+  so printing the right text and then leaving differently is caught.
 
 - **`check text` is a gate, and it is green: 169/169.** The oracle prints
   `checked in 0.38 ms` on success, which is a wall-clock measurement rather than

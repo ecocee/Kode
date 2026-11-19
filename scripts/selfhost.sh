@@ -263,6 +263,7 @@ check_mir() {
 # hide a wrong interpreter.
 check_run() {
     local dir="$ROOT/selfhost/spec/run" out="$OUT/run" total=0 bad=0 file expected
+    local oracle_rc=0 port_rc=0
     if [[ ! -x "$STAGE1" ]]; then
         echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
         return 2
@@ -272,12 +273,24 @@ check_run() {
     for file in "$dir"/*.kode; do
         total=$((total + 1))
         expected="${file%.kode}.out"
-        "$STAGE0" run "$file" >"$out/oracle.txt" 2>/dev/null || true
-        "$STAGE1" run "$file" >"$out/actual.txt" 2>"$out/actual.err" || true
-        if ! diff -u "$expected" "$out/oracle.txt" >"$out/diff.txt"; then
+        oracle_rc=0
+        port_rc=0
+        "$STAGE0" run "$file" >"$out/oracle.txt" 2>/dev/null || oracle_rc=$?
+        "$STAGE1" run "$file" >"$out/actual.txt" 2>"$out/actual.err" || port_rc=$?
+        if [[ "$oracle_rc" -ne 0 ]]; then
+            # A run-pass fixture has to exit 0, or the .out proves nothing about a
+            # successful run.
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): kode run exited $oracle_rc, not 0"
+        elif ! diff -u "$expected" "$out/oracle.txt" >"$out/diff.txt"; then
             bad=$((bad + 1))
             echo "  $(basename "$file"): the fixture's .out is not what kode run prints"
             head -20 "$out/diff.txt" | sed 's/^/    /'
+        elif [[ "$port_rc" -ne "$oracle_rc" ]]; then
+            # An interpreter that prints the right text and then exits differently is
+            # still wrong: the gate compares the status too, not only stdout.
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): exit $port_rc where the oracle exits $oracle_rc"
         elif ! diff -u "$expected" "$out/actual.txt" >"$out/diff.txt"; then
             bad=$((bad + 1))
             echo "  $(basename "$file"): the interpreter's output differs"
@@ -288,7 +301,7 @@ check_run() {
         echo "  no S4 cases in $dir" >&2
         return 2
     fi
-    echo "  run cases: $((total - bad))/$total outputs byte-identical"
+    echo "  run cases: $((total - bad))/$total outputs byte-identical and exit codes equal"
     [[ "$bad" -eq 0 ]]
 }
 
