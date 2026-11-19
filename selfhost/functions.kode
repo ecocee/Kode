@@ -93,7 +93,7 @@ fn user_call(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], sig: Sign
         if name != "" {
             index = param_index(sig, name)
             if index < 0 {
-                diag(ast, diags, "E0215", "`${sig.label}` has no parameter `${name}`", arg)
+                diag_at(ast, diags, "E0215", "`${sig.label}` has no parameter `${name}`", arg, "name_span", "")
                 continue
             }
         } else {
@@ -277,7 +277,7 @@ fn std_call(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], std: StdSi
         // Once, at the first named argument, as the oracle does.
         for arg in args {
             if ast.attr_text(arg, "name") != "" {
-                diag(ast, diags, "E0215", "`${std.name}` does not take named arguments", arg)
+                diag_at(ast, diags, "E0215", "`${std.name}` does not take named arguments", arg, "name_span", "")
                 break
             }
         }
@@ -336,7 +336,7 @@ pub fn check_paths(ast: Ast, diags: [Diag], id: int, body: int, sig: Signature) 
     }
     ret = sig.ret ?? type_any()
     message = "`${sig.name}` must return ${type_article(ret)} on every path"
-    diag_help(ast, diags, "E0305", message, id,
+    diag_at(ast, diags, "E0305", message, id, "name_span",
         "end the function with a `return`, or give both branches of the last `if` a `return`")
 }
 

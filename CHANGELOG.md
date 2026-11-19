@@ -7,6 +7,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Diagnostics point where the oracle points.** Four rules were underlining more than
+  the oracle does: `E0215` (a named argument, or any named argument to a builtin) now
+  underlines the argument's name, `E0305` (a function whose body can fall off its end)
+  the function's name rather than its whole signature, `E0419` (a payload field read
+  without the narrowing that makes it safe) the field rather than the whole `s.radius`,
+  and `E0218` (`x.y` on a value with no fields) the receiver. The interface form of
+  `E0218` keeps pointing at the field, because there the field is the mistake. `check
+  text` over the compile-fail corpus: 103 → **110/169**.
+
 - **Generic calls and generic annotations are checked, and S3 is complete.** The gate now
   reports **169/169** programs with the oracle's own code set — every compile-fail fixture
   and every run-pass program. `selfhost/generics.kode` infers: a free function's type

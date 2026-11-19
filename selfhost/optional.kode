@@ -126,7 +126,7 @@ pub fn check_member(ast: Ast, frames: [[Local]], names: Names, narrows: [[Narrow
                 "use `?.`, `x ?? default` or `x!`")
             return
         }
-        check_safe_field(ast, names, members, diags, id, type_inner(t), field)
+        check_safe_field(ast, names, members, diags, id, obj, type_inner(t), field)
         return
     }
     if safe {
@@ -151,7 +151,7 @@ fn payload_args(names: Names, enum_name: string, variant: string) -> string {
 /// `x.field`: a class's field, or the rule that says why there is none.
 fn check_plain_field(ast: Ast, names: Names, narrows: [[Narrow]], members: Members, diags: [Diag], id: int, t: Type, obj: int, field: string) {
     if t.kind != "named" {
-        no_fields(ast, diags, id, t)
+        no_fields(ast, diags, obj, t)
         return
     }
     if names.interfaces.contains(t.name) {
@@ -175,13 +175,13 @@ fn check_plain_field(ast: Ast, names: Names, narrows: [[Narrow]], members: Membe
 /// narrowed to that variant. Only a named receiver is reported, as in the oracle.
 fn check_enum_field(ast: Ast, names: Names, narrows: [[Narrow]], diags: [Diag], id: int, t: Type, obj: int, field: string) {
     if ast.nodes[obj].kind != "Ident" {
-        no_fields(ast, diags, id, t)
+        no_fields(ast, diags, obj, t)
         return
     }
     who = ast.attr_text(obj, "name")
     variant = variant_of_field(names, t.name, field)
     if variant == "" {
-        no_fields(ast, diags, id, t)
+        no_fields(ast, diags, obj, t)
         return
     }
     if is_narrowed(narrows, who, "${t.name}.${variant}") {
@@ -189,14 +189,14 @@ fn check_enum_field(ast: Ast, names: Names, narrows: [[Narrow]], diags: [Diag], 
     }
     message = "`${who}.${field}` is only valid when `${who}` holds `${t.name}.${variant}`"
     hint = "narrow first: `if ${who} is ${t.name}.${variant} { ... }`"
-    diag_help(ast, diags, "E0419", message, id, hint)
+    diag_at(ast, diags, "E0419", message, id, "name_span", hint)
 }
 
 /// `a?.field`: the field of the optional's item, which has to be a reference for the
 /// result to stay an optional (`E0219` is the shapes that are not supported yet).
-fn check_safe_field(ast: Ast, names: Names, members: Members, diags: [Diag], id: int, inner: Type, field: string) {
+fn check_safe_field(ast: Ast, names: Names, members: Members, diags: [Diag], id: int, obj: int, inner: Type, field: string) {
     if inner.kind != "named" {
-        no_fields(ast, diags, id, inner)
+        no_fields(ast, diags, obj, inner)
         return
     }
     if names.interfaces.contains(inner.name) {
@@ -206,7 +206,7 @@ fn check_safe_field(ast: Ast, names: Names, members: Members, diags: [Diag], id:
         return
     }
     if names.enums.contains(inner.name) {
-        no_fields(ast, diags, id, inner)
+        no_fields(ast, diags, obj, inner)
         return
     }
     one = named_member(members, inner.name, field)
@@ -222,9 +222,11 @@ fn check_safe_field(ast: Ast, names: Names, members: Members, diags: [Diag], id:
         "use `(x!).field`, or check `x != none` first")
 }
 
-/// `${type_article(t)} has no fields`: an int, a list, an enum — nothing to reach.
-fn no_fields(ast: Ast, diags: [Diag], id: int, t: Type) {
-    diag_at(ast, diags, "E0218", "${type_article(t)} has no fields", id, "name_span", "")
+/// `${type_article(t)} has no fields`: an int, a list, an enum — nothing to reach. The
+/// caret goes under the receiver (`x` in `x.y`), as the oracle's does; the interface form
+/// of `E0218` points at the field instead, because there the field is the mistake.
+fn no_fields(ast: Ast, diags: [Diag], obj: int, t: Type) {
+    diag(ast, diags, "E0218", "${type_article(t)} has no fields", obj)
 }
 
 /// `a.zzz`: the class has neither a field nor a method of that name, and the oracle
