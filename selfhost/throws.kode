@@ -1,0 +1,69 @@
+// `throw` and an expression's `catch` (S3): what may be thrown, and what a handler has
+// to give back.
+//
+// `throw` carries a message or an `Error` (`E0226` is anything else). A `catch` block
+// that follows an expression with a value has to produce one of that type (`E0227`),
+// because the whole `x = f() catch e { ... }` is either the value or the handler's
+// answer: a block that ends in something with no value — a `print`, say — or in no
+// value at all is refused, and so is one that ends in a value of the wrong type.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag, diag_at, diag_help
+from "./members" import Members, value_type
+from "./names" import Names
+from "./signatures" import SigTable
+from "./typing" import Local, type_article, type_assignable, type_is_any
+
+pub fn check_throw(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return
+    }
+    t = value_type(ast, frames, names, sigs, members, kids[0])
+    if type_is_any(t) or t.kind == "string" {
+        return
+    }
+    if t.kind == "named" and t.name == "Error" {
+        return
+    }
+    message = "`throw` needs a string or an `Error`, found ${type_article(t)}"
+    diag_help(ast, diags, "E0226", message, kids[0],
+        "write `throw \"message\"` or `throw Error(message: \"...\", code: 404)`")
+}
+
+pub fn check_catch(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return
+    }
+    t = value_type(ast, frames, names, sigs, members, kids[0])
+    if type_is_any(t) or t.kind == "unit" {
+        return
+    }
+    block = kids[kids.len() - 1]
+    if ast.nodes[block].kind != "Block" or ast.nodes[block].kids.len() == 0 {
+        return
+    }
+    last = ast.nodes[block].kids[ast.nodes[block].kids.len() - 1]
+    kind = ast.nodes[last].kind
+    value = -1
+    if kind == "ExprStmt" and ast.nodes[last].kids.len() > 0 {
+        value = ast.nodes[last].kids[0]
+    }
+    if value < 0 {
+        // `return`, `break`, `continue` and `throw` leave the expression with the
+        // function, the loop or an error, so the handler owes no value.
+        if kind == "Return" or kind == "Break" or kind == "Continue" or kind == "Throw" {
+            return
+        }
+        message = "the catch block must end with a value, `return`, `break`, `continue` or `throw`"
+        diag_help(ast, diags, "E0227", message, kids[0], "the expression has type ${type_article(t)}")
+        return
+    }
+    got = value_type(ast, frames, names, sigs, members, value)
+    if type_assignable(got, t) {
+        return
+    }
+    message = "the value of the catch block should be ${type_article(t)}, found ${type_article(got)}"
+    diag(ast, diags, "E0227", message, value)
+}

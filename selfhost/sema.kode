@@ -22,7 +22,7 @@ from "./annotations" import resolve_ann
 from "./ast" import Ast, is_type_node
 from "./binding" import bind_target
 from "./builtins" import Builtins
-from "./containers" import check_condition, check_container, check_index_target, open_for_in
+from "./containers" import check_callback, check_condition, check_container, check_index_target, open_for_in
 from "./diag" import Diag, diag, diag_help
 from "./functions" import call_fails, check_call, check_expr_body, check_method_call, check_paths, check_return
 from "./items" import pop_type_params, setup_class, setup_fn
@@ -35,7 +35,9 @@ from "./operands" import check_operator, check_print
 from "./optional" import Narrow, check_method_optional, check_optional, narrowing_of
 from "./patterns" import bind_arm_names
 from "./suggest" import closest
+from "./throws" import check_catch, check_throw
 from "./scope" import Scope
+from "./server" import check_router, check_serve
 from "./signatures" import SigTable, Signature, collect_signatures
 from "./typing" import type_any, type_prim
 
@@ -245,6 +247,9 @@ pub class Sema {
             visit_loop_keyword(id)
             return
         }
+        if kind == "Throw" {
+            check_throw(ast, scopes.frames, names, sigs, members, diags, id)
+        }
         if kind == "TargetVar" {
             scopes.declare(ast.attr_text(id, "name"), type_any())
             return
@@ -375,6 +380,7 @@ pub class Sema {
                     "define it first with `fn name(...) { ... }`")
             }
         }
+        check_serve(ast, scopes.frames, names, sigs, members, diags, id)
         if callee == "print" or callee == "stderr" {
             check_print(ast, scopes.frames, names, sigs, members, diags, id)
         } else {
@@ -395,6 +401,8 @@ pub class Sema {
         }
         check_method_call(ast, scopes.frames, names, sigs, diags, id)
         check_method_optional(ast, scopes.frames, names, diags, id)
+        check_callback(ast, scopes.frames, names, sigs, members, diags, id)
+        check_router(ast, scopes.frames, names, sigs, members, diags, id)
         for kid in kids {
             visit(kid)
         }
@@ -405,6 +413,7 @@ pub class Sema {
     fn visit_catch(id: int) {
         scopes.push()
         scopes.declare(ast.attr_text(id, "var"), type_any())
+        check_catch(ast, scopes.frames, names, sigs, members, diags, id)
         for kid in ast.nodes[id].kids {
             visit(kid)
         }

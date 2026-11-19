@@ -575,6 +575,17 @@ suggestion) and `E0420` (`==` on a payload enum, whose value is a reference) cam
 them, and `names.kode` now records every variant and whether it carries payloads. Gate:
 **156/169**, `check text` **90/169**.
 
+**Slice 16 is in: throws, callbacks and the web layer.** `selfhost/throws.kode` carries
+`E0226` (a `throw` of anything but a string or an `Error`) and `E0227` (a `catch` block
+that does not answer with the expression's type, including one that ends in nothing at
+all). The list callbacks (`xs.map`, `xs.filter`) check their function in
+`containers.kode`: a closure's written parameter, or a named function's signature, has to
+take one item of the list and give one back (`E0242`). `selfhost/server.kode` is the web
+layer: a route needs `fn name(req: Request) -> Response` (`E0233`) and `serve`/`serve_tls`
+needs a `Router` or `fn name(method: string, path: string, body: string) -> string`
+(`E0232`), which is also why `Router()` now types as a `Router` rather than `any`. Gate:
+161/169, `check text` 95/169.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that

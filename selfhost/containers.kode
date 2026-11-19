@@ -11,11 +11,14 @@
 // decision out loud. A rule stays silent when the type is `any`, and an optional is
 // left to `E0220`'s own family, which is a later slice.
 
-from "./ast" import Ast
+from "./annotations" import resolve_ann
+from "./ast" import Ast, is_type_node
 from "./diag" import Diag, diag, diag_help
+from "./members" import Members, value_type
 from "./names" import Names
+from "./signatures" import SigTable, Signature
 from "./scope" import Scope
-from "./typing" import Local, Type, expr_type, loop_vars, type_any, type_article, type_assignable, type_is_any
+from "./typing" import Local, Type, expr_type, loop_vars, type_any, type_article, type_assignable, type_inner, type_is_any, type_name, type_prim
 
 /// The container rules that a single walk of the tree reports from one place, so the
 /// statement walker in `sema.kode` stays a walker.
@@ -258,4 +261,106 @@ pub fn iter_node(ast: Ast, id: int) -> int {
         }
     }
     return -1
+}
+
+/// `xs.map(f)` and `xs.filter(f)`: the callback takes one value of the list's item type
+/// and gives one back (`E0242`). A closure's parameter is written (`|x: int| ...`), a
+/// named function has a signature, and anything else is not a function at all.
+pub fn check_callback(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
+    name = ast.attr_text(id, "name")
+    if name != "map" and name != "filter" {
+        return
+    }
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return
+    }
+    rt = value_type(ast, frames, names, sigs, members, kids[0])
+    if rt.kind != "list" {
+        return
+    }
+    item = type_inner(rt)
+    if type_is_any(item) {
+        return
+    }
+    arg = -1
+    for kid in kids {
+        if ast.nodes[kid].kind == "Arg" and ast.nodes[kid].kids.len() > 0 {
+            arg = ast.nodes[kid].kids[0]
+            break
+        }
+    }
+    if arg < 0 {
+        return
+    }
+    kind = ast.nodes[arg].kind
+    if kind == "Closure" {
+        closure_callback(ast, names, diags, id, arg, name, item)
+        return
+    }
+    if kind == "Ident" {
+        sig = sigs.find(ast.attr_text(arg, "name"))
+        if sig.name != "" {
+            named_callback(ast, diags, id, arg, name, item, sig)
+            return
+        }
+    }
+    t = value_type(ast, frames, names, sigs, members, arg)
+    if type_is_any(t) or t.kind == "named" {
+        return
+    }
+    message = "`${name}` needs a function, found ${type_article(t)}"
+    diag_help(ast, diags, "E0242", message, arg,
+        "write it like `xs.map(|x: int| x * 2)` or `xs.map(double)`")
+}
+
+/// A closure argument: one parameter of the item type, and a body with a value.
+fn closure_callback(ast: Ast, names: Names, diags: [Diag], id: int, arg: int, name: string, item: Type) {
+    quiet: [Diag] = []
+    params: [Type] = []
+    body = -1
+    for kid in ast.nodes[arg].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "ClosureParam" {
+            ty = type_any()
+            for part in ast.nodes[kid].kids {
+                if is_type_node(ast.nodes[part].kind) {
+                    ty = resolve_ann(ast, names, quiet, part)
+                }
+            }
+            params.add(ty)
+        } else {
+            body = kid
+        }
+    }
+    if params.len() != 1 or not type_assignable(params[0], item) {
+        takes = "the function given to `${name}` must take one `${type_name(item)}` value"
+        diag_help(ast, diags, "E0242", takes, arg, "write it like `|x: int| x * 2`")
+        return
+    }
+    if body >= 0 and body_kind(ast, names, body) == "unit" {
+        message = "the function given to `${name}` must return a value"
+        diag(ast, diags, "E0242", message, arg)
+    }
+}
+
+/// A named function argument: one parameter of the item type, and a result.
+fn named_callback(ast: Ast, diags: [Diag], id: int, arg: int, name: string, item: Type, sig: Signature) {
+    if sig.params.len() != 1 or not type_assignable(sig.params[0].ty, item) {
+        takes = "the function given to `${name}` must take one `${type_name(item)}` value"
+        diag_help(ast, diags, "E0242", takes, arg, "write it like `|x: int| x * 2`")
+        return
+    }
+    r = sig.ret ?? type_prim("unit")
+    if r.kind == "unit" {
+        message = "the function given to `${name}` must return a value"
+        diag(ast, diags, "E0242", message, arg)
+    }
+}
+
+/// What a closure body is: only "nothing" matters here, and `typing.kode` can say that
+/// for a call (`print(...)`) without the closure's own parameters in scope.
+fn body_kind(ast: Ast, names: Names, body: int) -> string {
+    empty: [[Local]] = []
+    return expr_type(ast, empty, names, body).kind
 }

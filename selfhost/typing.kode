@@ -548,6 +548,9 @@ fn call_type(ast: Ast, names: Names, id: int) -> Type {
     if callee == "StringBuilder" {
         return type_named("StringBuilder")
     }
+    if callee == "Router" {
+        return type_named("Router")
+    }
     std = free_fn(callee)
     if std.name != "" {
         return type_from_spec(std.ret)

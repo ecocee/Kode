@@ -10,7 +10,7 @@
 pub class Builtins {
     names: [string] = [
         "print", "stderr", "len", "bytes", "StringBuilder", "int", "float", "string",
-        "assert", "channel", "send", "recv", "close",
+        "assert", "channel", "send", "recv", "close", "serve", "serve_tls",
         "read_file", "write_file", "args", "env", "exit", "sleep", "now_ms", "now_ns",
         "chr", "exec", "json_parse", "json_null", "json_bool", "json_int", "json_float",
         "json_string", "json_list", "json_map", "json_encode", "math_sqrt", "math_abs",

@@ -7,6 +7,18 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`throw`, `catch`, the list callbacks and the web layer are checked.**
+  `selfhost/throws.kode` refuses a `throw` that is neither a string nor an `Error`
+  (`E0226`), and a `catch` block that does not answer with the expression's type
+  (`E0227`) — including a block that ends in nothing at all. `xs.map(f)` and
+  `xs.filter(f)` demand a callback that takes one item and gives one back (`E0242`),
+  whether it is a closure with a written parameter or a named function.
+  `selfhost/server.kode` knows the two shapes of a handler: a route's
+  `fn name(req: Request) -> Response` (`E0233`) and `serve`/`serve_tls`'s `Router` or
+  `fn name(method: string, path: string, body: string) -> string` (`E0232`), and a
+  `Router()` value now has that name instead of `any`. Gate: 156 → **161/169**,
+  `check text` **95/169**.
+
 - **`match` is checked.** What may be matched, what a pattern has to be, and what a
   `match` has to cover: `E0223` refuses a value that is not an int, a string, a bool or an
   enum (and a pattern of the wrong type), `E0224` counts the missing cases — an enum's
