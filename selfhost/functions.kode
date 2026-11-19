@@ -16,6 +16,7 @@
 
 from "./ast" import Ast
 from "./diag" import Diag, diag, diag_help
+from "./generics" import call_problem, value_problem
 from "./names" import Names
 from "./signatures" import ParamSig, SigTable, Signature
 from "./stdlib" import StdSig, builder_method, builtin, free_fn
@@ -241,8 +242,17 @@ fn type_bare(t: Type) -> string {
 /// result (`b = bytes("four")` binds a buffer and the oracle only reports the argument),
 /// and so does a class constructor (`a = A()` still makes an `A`).
 pub fn call_fails(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, id: int) -> bool {
+    // A generic function used as a value is no value at all (`E0251`).
+    if value_problem(ast, sigs, id).found {
+        return true
+    }
     if ast.nodes[id].kind != "Call" {
         return false
+    }
+    // A call whose type parameters cannot be inferred produces nothing either (`E0250`,
+    // `E0422`).
+    if call_problem(ast, sigs, id).found {
+        return true
     }
     sig = sigs.find(ast.attr_text(id, "callee"))
     if sig.name == "" or sig.is_ctor {

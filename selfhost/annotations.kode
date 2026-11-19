@@ -10,9 +10,9 @@
 // `Task<T>`, `Channel<T>`, `fn(int) -> int`, and the bare name of a generic class —
 // is `any`: the annotation is valid, its uses are just not checked yet.
 
-from "./ast" import Ast
+from "./ast" import Ast, is_type_node
 from "./diag" import Diag, diag_help
-from "./names" import Names, is_type_name
+from "./names" import Names, generic_params_of, is_type_name
 from "./typing" import Type, type_any, type_inner, type_is_any, type_named, type_name, type_of, type_of_name
 
 /// The type an annotation names, reporting `E0303` when it names nothing.
@@ -39,6 +39,9 @@ pub fn resolve_ann(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
         }
         return type_of("map", inner)
     }
+    if kind == "TypeGeneric" {
+        return resolve_generic(ast, names, diags, id)
+    }
     if kind == "TypeOpt" {
         inner = ann_child(ast, names, diags, id)
         if not opt_item_ok(inner) {
@@ -49,6 +52,34 @@ pub fn resolve_ann(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
         return type_of("opt", inner)
     }
     return type_any()
+}
+
+/// `Box<int>`: as many type arguments as the class declares. A form this slice does not
+/// instantiate (`Task<int>`, `Channel<T>`) stays `any`; a generic class with the wrong
+/// count is `E0421`, and its declaration goes on as if unannotated.
+fn resolve_generic(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
+    name = ast.attr_text(id, "name")
+    count = 0
+    for kid in ast.nodes[id].kids {
+        if is_type_node(ast.nodes[kid].kind) {
+            count += 1
+            resolve_ann(ast, names, diags, kid)
+        }
+    }
+    want = generic_params_of(names, name)
+    if want.len() == 0 {
+        return type_any()
+    }
+    if count != want.len() {
+        arguments = "type arguments"
+        if want.len() == 1 {
+            arguments = "type argument"
+        }
+        message = "`${name}` takes ${want.len()} ${arguments}, found ${count}"
+        diag_help(ast, diags, "E0421", message, id, "write `${name}<int>`")
+        return refused()
+    }
+    return type_named(name)
 }
 
 /// `int?`, `float?` and `bool?`: the optionals a list or a map cannot hold yet
@@ -103,8 +134,10 @@ fn resolve_type_name(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
         return type_named(name)
     }
     if names.generics.contains(name) {
-        // `Box` alone needs its arguments (`E0423`), so this slice says nothing.
-        return type_any()
+        // `Box` alone needs its arguments (`E0423`).
+        message = "`${name}` is a generic class, so it needs type arguments"
+        diag_help(ast, diags, "E0423", message, id, "write `${name}<int>`, not `${name}`")
+        return refused()
     }
     if is_type_name(names, name) or prelude_type(name) {
         return type_named(name)

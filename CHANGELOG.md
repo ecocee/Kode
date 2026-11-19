@@ -7,6 +7,21 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Generic calls and generic annotations are checked, and S3 is complete.** The gate now
+  reports **169/169** programs with the oracle's own code set — every compile-fail fixture
+  and every run-pass program. `selfhost/generics.kode` infers: a free function's type
+  parameter has to appear in a parameter type (`E0250`), a generic class's in one of its
+  fields at the constructor (`E0422`), and a method of a generic class already has its
+  class's parameters from the receiver, so only the ones it declares itself are asked for
+  — which is also why a generic class's method may not declare any of its own yet
+  (`E0252`, in `names.kode`). A generic function used as a value is `E0251`. Annotations
+  follow: `Box<int, int>` is `` `Box` takes 1 type argument, found 2`` (`E0421`) and a
+  bare `Box` is `` `Box` is a generic class, so it needs type arguments`` (`E0423`), both
+  of which leave the declaration unannotated so the value is reported next, exactly as
+  the oracle does. A parameter whose type the slice cannot read (`fn(T) -> U`) silences
+  the inference rule rather than guessing. `E0206` now points at the callee name, not the
+  whole call. `check text` moves 95 → **103/169**; `self-check` 51 → **52/52**.
+
 - **Warnings exist, and `W0001` is the first.** A `Diag` now says whether it is an error
   or a warning: it renders as `warning[W0001]: ...` and `check` exits 0 when nothing but
   warnings was found. `selfhost/unused.kode` records every name an assignment declared and

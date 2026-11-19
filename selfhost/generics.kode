@@ -1,0 +1,120 @@
+// Inferring a generic call's type parameters (S3): `E0250`, `E0251`, `E0422`.
+//
+// A call can only be made when the type parameters it needs can be read off the
+// arguments: a function's `T` has to appear in a parameter type (`E0250`), and a generic
+// class's `T` in one of its fields, which is what the constructor has (`E0422`). A
+// method of a generic class already has its class's parameters from the receiver, so
+// only the ones it declares itself are asked for. A generic function used as a value —
+// `f = identity` — is refused (`E0251`): there is no type to instantiate it at.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag_help
+from "./members" import Members, value_type
+from "./names" import Names
+from "./signatures" import SigTable, Signature
+from "./typing" import Local, Type, type_inner
+
+/// The inference mistake one node carries, if any.
+pub class InferProblem {
+    code: string
+    message: string
+    help: string
+    found: bool = false
+}
+
+pub fn report(ast: Ast, diags: [Diag], id: int, p: InferProblem) {
+    if not p.found {
+        return
+    }
+    diag_help(ast, diags, p.code, p.message, id, p.help)
+}
+
+/// `Id(n: 1)` or `empty()`: can the callee's type parameters be inferred?
+pub fn call_problem(ast: Ast, sigs: SigTable, id: int) -> InferProblem {
+    sig = sigs.find(ast.attr_text(id, "callee"))
+    if sig.name == "" or sig.type_params.len() == 0 {
+        return no_problem()
+    }
+    if sig.is_ctor {
+        return missing(sig, sig.type_params, "E0422",
+            "no field mentions it; use a class without type parameters")
+    }
+    return missing(sig, sig.type_params, "E0250", fn_help())
+}
+
+/// `b.get()`: the method's own type parameters only — its class's come from the
+/// receiver.
+pub fn method_problem(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, id: int) -> InferProblem {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return no_problem()
+    }
+    recv = value_type(ast, frames, names, sigs, members, kids[0])
+    if recv.kind != "named" {
+        return no_problem()
+    }
+    sig = sigs.find("${recv.name}.${ast.attr_text(id, "name")}")
+    if sig.name == "" or sig.own_params.len() == 0 {
+        return no_problem()
+    }
+    return missing(sig, sig.own_params, "E0250", fn_help())
+}
+
+/// `f = identity`: a generic function has no single type to be a value of.
+pub fn value_problem(ast: Ast, sigs: SigTable, id: int) -> InferProblem {
+    if ast.nodes[id].kind != "Ident" {
+        return no_problem()
+    }
+    sig = sigs.find(ast.attr_text(id, "name"))
+    if sig.name == "" or sig.is_ctor or sig.is_method or sig.type_params.len() == 0 {
+        return no_problem()
+    }
+    message = "the generic function `${sig.name}` cannot be used as a value"
+    return InferProblem(code: "E0251", message: message,
+        help: "call it, or wrap the concrete call in a closure", found: true)
+}
+
+fn missing(sig: Signature, params: [string], code: string, help: string) -> InferProblem {
+    // A parameter whose type this slice cannot read (`fn(T) -> U`) may mention anything,
+    // so nothing here can be proven missing.
+    for one in sig.params {
+        if one.ty.kind == "any" {
+            return no_problem()
+        }
+    }
+    for tp in params {
+        if not in_parameters(sig, tp) {
+            message = "cannot infer the type parameter `${tp}` of `${sig.name}`"
+            return InferProblem(code: code, message: message, help: help, found: true)
+        }
+    }
+    return no_problem()
+}
+
+/// Does `tp` appear in one of the callee's parameter types?
+fn in_parameters(sig: Signature, tp: string) -> bool {
+    for one in sig.params {
+        if type_mentions(one.ty, tp) {
+            return true
+        }
+    }
+    return false
+}
+
+fn type_mentions(t: Type, name: string) -> bool {
+    if t.kind == "named" and t.name == name {
+        return true
+    }
+    if t.kind == "list" or t.kind == "map" or t.kind == "opt" {
+        return type_mentions(type_inner(t), name)
+    }
+    return false
+}
+
+fn fn_help() -> string {
+    return "it does not appear in a parameter type; pass a value that mentions it, or use a non-generic function"
+}
+
+fn no_problem() -> InferProblem {
+    return InferProblem(code: "", message: "", help: "")
+}

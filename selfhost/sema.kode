@@ -25,6 +25,7 @@ from "./builtins" import Builtins
 from "./containers" import check_callback, check_condition, check_container, check_index_target, open_for_in
 from "./diag" import Diag, diag, diag_help
 from "./functions" import call_fails, check_call, check_expr_body, check_method_call, check_paths, check_return
+from "./generics" import call_problem, method_problem, report, value_problem
 from "./items" import pop_type_params, setup_class, setup_fn
 from "./matching" import check_match
 from "./members" import Members, check_implements, collect_members
@@ -312,6 +313,11 @@ pub class Sema {
     /// probably meant, and anything else is a name not created yet.
     fn visit_ident(id: int) {
         name = ast.attr_text(id, "name")
+        generic = value_problem(ast, sigs, id)
+        if generic.found {
+            report(ast, diags, id, generic)
+            return
+        }
         if name != "" and is_bound(name) {
             mark_used(unused, name)
             return
@@ -406,13 +412,14 @@ pub class Sema {
             message = "unknown function `${callee}`"
             close = closest(callee, callee_names())
             if close != "" {
-                diag_help(ast, diags, "E0206", message, id, "did you mean `${close}`?")
+                diag_at(ast, diags, "E0206", message, id, "callee_span", "did you mean `${close}`?")
             } else {
-                diag_help(ast, diags, "E0206", message, id,
+                diag_at(ast, diags, "E0206", message, id, "callee_span",
                     "define it first with `fn name(...) { ... }`")
             }
         }
         check_serve(ast, scopes.frames, names, sigs, members, diags, id)
+        report(ast, diags, id, call_problem(ast, sigs, id))
         if callee == "print" or callee == "stderr" {
             check_print(ast, scopes.frames, names, sigs, members, diags, id)
         } else {
@@ -435,6 +442,7 @@ pub class Sema {
         check_method_optional(ast, scopes.frames, names, diags, id)
         check_callback(ast, scopes.frames, names, sigs, members, diags, id)
         check_router(ast, scopes.frames, names, sigs, members, diags, id)
+        report(ast, diags, id, method_problem(ast, scopes.frames, names, sigs, members, id))
         for kid in kids {
             visit(kid)
         }

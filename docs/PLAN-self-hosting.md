@@ -59,7 +59,7 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
 Measured today: **R1** — 270 token dumps byte-identical, including the work packet
-probes, and the S2 parser is byte-identical on 51/51 cases and on all 25 files of
+probes, and the S2 parser is byte-identical on 172/172 cases and on all 52 files of
 the port itself. R2 is open only on the two deferred packets: `gates` reports
 11 met, 2 blocked (WP-07 `weak` and WP-08b `u8`/`i32`, both off the path).
 
@@ -592,6 +592,22 @@ the port could not produce before. `selfhost/unused.kode` keeps the names an ass
 declared and `sema.kode` marks the ones a read reached, so `x = 1` with no later use is
 `W0001` with the oracle's hint; a name starting with `_` is exempt, and a program with
 errors reports none of its warnings, exactly as the oracle does. Gate: **162/169**.
+
+**Slice 18 is in: generics, and S3 closes.** `selfhost/generics.kode` answers one
+question for a call: can the type parameters it needs be read off the arguments? A free
+function's `T` has to appear in a parameter type (`E0250`), a generic class's `T` in one
+of its fields — that is what the constructor has (`E0422`) — and a method of a generic
+class already knows its class's parameters from the receiver, so only the ones it
+declares itself (`own_params`) are asked for. A generic function used as a value is
+`E0251`: there is no type to instantiate it at. A class whose method declares its own
+type parameters is `E0252`, reported once at the method's name. `annotations.kode` reads
+`Box<int>` (as many arguments as the class declares, `E0421` for the wrong count) and
+refuses a bare `Box` (`E0423`); both leave the declaration unannotated, so the value is
+reported next and the name stays undeclared, as the oracle does. Because a `fn(T) -> U`
+parameter type is still `any`, the inference rule stays silent whenever a parameter type
+is `any`: it cannot prove the parameter is missing. `E0206` gained the oracle's span (the
+callee name). Gate: **169/169** — every compile-fail fixture and every run-pass program
+report the oracle's own code set; `check text` **103/169**, `self-check` **52/52**.
 
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the

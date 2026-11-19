@@ -43,6 +43,11 @@ pub class Signature {
     /// True for a class's constructor: a call that fails still builds the instance,
     /// so the name it is assigned to stays declared (a failed function gives nothing).
     is_ctor: bool = false
+    /// True for a method: its receiver's type parameters are already known, so only the
+    /// ones it declares itself have to be inferred from arguments (`E0250`).
+    is_method: bool = false
+    /// The type parameters the method declares itself, without its class's.
+    own_params: [string] = []
 }
 
 /// Every signature in the program, looked up by name.
@@ -142,6 +147,7 @@ fn class_signature(ast: Ast, names: Names, quiet: [Diag], id: int) -> Signature 
 fn method_signature(ast: Ast, names: Names, quiet: [Diag], class_id: int, id: int) -> Signature {
     name = ast.attr_text(id, "name")
     sig = Signature(name: name, label: ast.attr_text(class_id, "name") + "." + name)
+    sig.is_method = true
     before = push_type_params(ast, names, class_id)
     for one in names.params {
         sig.type_params.add(one)
@@ -150,6 +156,7 @@ fn method_signature(ast: Ast, names: Names, quiet: [Diag], class_id: int, id: in
         if ast.nodes[kid].kind == "TypeParam" {
             names.params.add(ast.attr_text(kid, "name"))
             sig.type_params.add(ast.attr_text(kid, "name"))
+            sig.own_params.add(ast.attr_text(kid, "name"))
         }
     }
     for kid in ast.nodes[id].kids {

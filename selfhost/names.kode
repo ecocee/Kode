@@ -21,6 +21,13 @@ pub class Payload {
     field: string
 }
 
+/// A class that takes type parameters, and what they are called: the annotation rules
+/// need the count (`E0421`) and the name (`E0423`).
+pub class GenericClass {
+    name: string
+    params: [string] = []
+}
+
 /// One variant an enum declares, and whether it carries payload fields.
 pub class VariantName {
     enum_name: string
@@ -46,6 +53,8 @@ pub class Names {
     params: [string] = []
     /// Every payload field the program's enums declare.
     payloads: [Payload] = []
+    /// The type parameters of every generic class, in declaration order.
+    generic_params: [GenericClass] = []
     /// Every variant the program's enums declare, in declaration order: what `match`
     /// has to cover and what `Enum.Name` may name (`E0224`, `E0225`).
     variants: [VariantName] = []
@@ -67,6 +76,17 @@ pub fn variant_of_field(names: Names, enum_name: string, field: string) -> strin
         }
     }
     return ""
+}
+
+/// The type parameters `name` declares, or an empty list when it is not a generic class.
+pub fn generic_params_of(names: Names, name: string) -> [string] {
+    for one in names.generic_params {
+        if one.name == name {
+            return one.params
+        }
+    }
+    out: [string] = []
+    return out
 }
 
 /// Every variant `enum_name` declares, in declaration order.
@@ -200,9 +220,41 @@ fn declare_class(ast: Ast, names: Names, diags: [Diag], id: int) {
     names.classes.add(name)
     if has_type_param(ast, id) {
         names.generics.add(name)
+        one = GenericClass(name: name)
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "TypeParam" {
+                one.params.add(ast.attr_text(kid, "name"))
+            }
+        }
+        names.generic_params.add(one)
     }
+    declare_generic_methods(ast, diags, id)
     declare_fields(ast, diags, id)
     declare_field_params(ast, diags, id)
+}
+
+/// A generic class's method may not declare type parameters of its own yet (`E0252`):
+/// the two substitutions are kept apart in the oracle (ADR 0040 slice 1c).
+fn declare_generic_methods(ast: Ast, diags: [Diag], id: int) {
+    if not has_type_param(ast, id) {
+        return
+    }
+    class_name = ast.attr_text(id, "name")
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Method" {
+            continue
+        }
+        for part in ast.nodes[kid].kids {
+            if ast.nodes[part].kind != "TypeParam" {
+                continue
+            }
+            method = ast.attr_text(kid, "name")
+            message = "the method `${class_name}.${method}` cannot have type parameters yet: `${class_name}` already has its own"
+            hint = "take the class's type parameter instead, or move the method out as a free `fn`"
+            diag_at(ast, diags, "E0252", message, kid, "name_span", hint)
+            break
+        }
+    }
 }
 
 /// A method's parameter may not share a field's name: inside a method a field is used by
