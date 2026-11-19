@@ -564,6 +564,17 @@ the name is created first. An unknown callee is compared with the program's func
 its classes and every builtin, and a module that holds code says what it may contain.
 `check text` moves **79 → 86/169**; the gate holds at **152/169**.
 
+**Slice 15 is in: `match`.** `selfhost/matching.kode` walks an arm list twice: once to
+check what the scrutinee may be and what each pattern is (`E0223`, which also catches a
+pattern of the wrong type, with the oracle's second wording), then to see whether the
+arms cover everything (`E0224`: every variant of an enum by name, both bools, the `_`
+arm an int or a string needs). A payload pattern (`Shape.Circle(r)`) names its variant
+without being a value, so it is read from the tree; a pattern's bool is an attribute
+without quotes, which `attr_raw` reads. `E0225` (an enum has no such variant, with a
+suggestion) and `E0420` (`==` on a payload enum, whose value is a reference) came with
+them, and `names.kode` now records every variant and whether it carries payloads. Gate:
+**156/169**, `check text` **90/169**.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that

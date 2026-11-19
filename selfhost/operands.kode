@@ -11,6 +11,7 @@ from "./ast" import Ast
 from "./diag" import Diag, diag, diag_help
 from "./names" import Names
 from "./members" import Members, value_type
+from "./names" import enum_has_payloads
 from "./signatures" import SigTable
 from "./typing" import Local, Type, expr_type, mixed_number, same_type, type_article, type_is_any, type_printable
 
@@ -93,6 +94,13 @@ fn check_binary(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, membe
     }
     if op == "==" or op == "!=" {
         if l.kind == "none" or r.kind == "none" {
+            return
+        }
+        // A payload enum is a reference to a heap value, so `==` would compare
+        // addresses (ADR 0039 §2).
+        if l.kind == "named" and names.enums.contains(l.name) and enum_has_payloads(names, l.name) {
+            message = "`${op}` does not work on `${l.name}`, which has payloads"
+            diag_help(ast, diags, "E0420", message, id, "use `match`, or `is` to compare the variant")
             return
         }
         // A class and one of its interfaces compare fine, and this slice cannot see

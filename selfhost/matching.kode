@@ -1,0 +1,141 @@
+// The `match` rules (S3): what may be matched, what each pattern has to be, and what a
+// `match` has to cover.
+//
+// `match` works on ints, strings, bools and enums (`E0223` is the rest), a pattern has
+// to be the scrutinee's type (`E0223` again, with the other wording), and the arms have
+// to cover every case (`E0224`): every variant of an enum, both bools, or a `_` arm —
+// which an int or a string always needs. A payload pattern (`Shape.Circle(r)`) names its
+// variant without being a value, so it is read from the tree rather than typed.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag_at, diag_help
+from "./members" import Members, value_type
+from "./names" import Names, has_variant, variants_of, variant_of_field
+from "./signatures" import SigTable
+from "./typing" import Local, Type, type_any, type_article, type_is_any, type_same
+
+pub fn check_match(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    scrutinee = -1
+    for kid in kids {
+        if ast.nodes[kid].kind == "Scrutinee" and ast.nodes[kid].kids.len() > 0 {
+            scrutinee = ast.nodes[kid].kids[0]
+        }
+    }
+    t = type_any()
+    if scrutinee >= 0 {
+        t = value_type(ast, frames, names, sigs, members, scrutinee)
+    }
+    if not type_is_any(t) and not matchable(t, names) {
+        message = "cannot `match` on ${type_article(t)}"
+        diag_help(ast, diags, "E0223", message, scrutinee, "match works on ints, strings, bools and enums")
+    }
+    has_wild = false
+    covered: [string] = []
+    saw_true = false
+    saw_false = false
+    for kid in kids {
+        if ast.nodes[kid].kind != "Arm" {
+            continue
+        }
+        pattern = pattern_of(ast, kid)
+        if pattern < 0 {
+            continue
+        }
+        if ast.nodes[pattern].kind == "Wildcard" {
+            has_wild = true
+            continue
+        }
+        if ast.nodes[pattern].kids.len() == 0 {
+            continue
+        }
+        value = ast.nodes[pattern].kids[0]
+        if ast.nodes[value].kind == "MethodCall" {
+            // `Shape.Circle(r)`: a payload variant, which binds its fields.
+            variant = variant_named(ast, names, t, value)
+            if variant != "" {
+                covered.add(variant)
+            }
+            continue
+        }
+        pt = value_type(ast, frames, names, sigs, members, value)
+        if not type_is_any(t) and not type_is_any(pt) and not type_same(pt, t) {
+            message = "this pattern is ${type_article(pt)} but the value is ${type_article(t)}"
+            diag_at(ast, diags, "E0223", message, kid, "pattern_span", "")
+            continue
+        }
+        if ast.nodes[value].kind == "Member" {
+            variant = variant_named(ast, names, t, value)
+            if variant != "" {
+                covered.add(variant)
+            }
+        } else if ast.nodes[value].kind == "Bool" {
+            if ast.attr_raw(value, "value") == "true" {
+                saw_true = true
+            } else {
+                saw_false = true
+            }
+        }
+    }
+    if has_wild or type_is_any(t) {
+        return
+    }
+    missing = ""
+    if t.kind == "named" and names.enums.contains(t.name) {
+        absent: [string] = []
+        for one in variants_of(names, t.name) {
+            if not covered.contains(one) {
+                absent.add(one)
+            }
+        }
+        if absent.len() > 0 {
+            missing = "these cases are missing: ${absent.join(", ")}"
+        }
+    } else if t.kind == "bool" {
+        if not (saw_true and saw_false) {
+            missing = "both true and false must be covered"
+        }
+    } else if t.kind == "int" or t.kind == "string" {
+        missing = "add a `_ =>` arm for all other values"
+    }
+    if missing != "" {
+        diag_help(ast, diags, "E0224", "this `match` does not cover every case", id, missing)
+    }
+}
+
+fn matchable(t: Type, names: Names) -> bool {
+    if t.kind == "int" or t.kind == "string" or t.kind == "bool" {
+        return true
+    }
+    return t.kind == "named" and names.enums.contains(t.name)
+}
+
+/// An arm's pattern: its `PatternValue` or `Wildcard` child.
+fn pattern_of(ast: Ast, arm: int) -> int {
+    for kid in ast.nodes[arm].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "PatternValue" or kind == "Wildcard" {
+            return kid
+        }
+    }
+    return -1
+}
+
+/// The variant a pattern names when it is `Enum.Variant`, and "" otherwise: the
+/// scrutinee has to be that same enum, as in the oracle.
+fn variant_named(ast: Ast, names: Names, t: Type, id: int) -> string {
+    if t.kind != "named" or not names.enums.contains(t.name) {
+        return ""
+    }
+    if ast.nodes[id].kids.len() == 0 or ast.nodes[ast.nodes[id].kids[0]].kind != "Ident" {
+        return ""
+    }
+    if ast.attr_text(ast.nodes[id].kids[0], "name") != t.name {
+        return ""
+    }
+    name = ast.attr_text(id, "name")
+    if has_variant(names, t.name, name) {
+        return name
+    }
+    return ""
+}

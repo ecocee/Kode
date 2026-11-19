@@ -21,6 +21,13 @@ pub class Payload {
     field: string
 }
 
+/// One variant an enum declares, and whether it carries payload fields.
+pub class VariantName {
+    enum_name: string
+    name: string
+    payload: bool = false
+}
+
 pub class Names {
     /// Every top-level name in the shared namespace, `from`-import names included:
     /// what a name is resolved against.
@@ -39,6 +46,9 @@ pub class Names {
     params: [string] = []
     /// Every payload field the program's enums declare.
     payloads: [Payload] = []
+    /// Every variant the program's enums declare, in declaration order: what `match`
+    /// has to cover and what `Enum.Name` may name (`E0224`, `E0225`).
+    variants: [VariantName] = []
 }
 
 /// Is `name` a declared type: a class, an enum or an interface?
@@ -57,6 +67,37 @@ pub fn variant_of_field(names: Names, enum_name: string, field: string) -> strin
         }
     }
     return ""
+}
+
+/// Every variant `enum_name` declares, in declaration order.
+pub fn variants_of(names: Names, enum_name: string) -> [string] {
+    out: [string] = []
+    for one in names.variants {
+        if one.enum_name == enum_name {
+            out.add(one.name)
+        }
+    }
+    return out
+}
+
+pub fn has_variant(names: Names, enum_name: string, variant: string) -> bool {
+    for one in names.variants {
+        if one.enum_name == enum_name and one.name == variant {
+            return true
+        }
+    }
+    return false
+}
+
+/// Does any variant of `enum_name` carry payload fields? A payload enum is a reference,
+/// so `==` compares addresses and is refused (`E0420`).
+pub fn enum_has_payloads(names: Names, enum_name: string) -> bool {
+    for one in names.variants {
+        if one.enum_name == enum_name and one.payload {
+            return true
+        }
+    }
+    return false
 }
 
 /// Does `Enum.Variant` declare a payload field `field`?
@@ -226,12 +267,15 @@ fn declare_named(ast: Ast, names: Names, diags: [Diag], id: int) {
                 continue
             }
             variant_name = ast.attr_text(variant, "name")
+            carries = false
             for part in ast.nodes[variant].kids {
                 if ast.nodes[part].kind == "Param" {
+                    carries = true
                     names.payloads.add(Payload(enum_name: name, variant: variant_name,
                             field: ast.attr_text(part, "name")))
                 }
             }
+            names.variants.add(VariantName(enum_name: name, name: variant_name, payload: carries))
         }
     } else {
         names.interfaces.add(name)

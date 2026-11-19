@@ -15,7 +15,7 @@
 from "./ast" import Ast
 from "./diag" import Diag, diag, diag_at, diag_help
 from "./members" import Members, member_names, named_member
-from "./names" import Names, has_payload, payload_fields, variant_of_field
+from "./names" import Names, has_payload, has_variant, payload_fields, variant_of_field, variants_of
 from "./suggest" import closest
 from "./typing" import Local, Type, expr_type, local_in, type_article, type_assignable, type_inner, type_is_any, type_is_ref
 
@@ -106,7 +106,12 @@ pub fn check_member(ast: Ast, frames: [[Local]], names: Names, narrows: [[Narrow
                 message = "`${base}.${field}` is a constructor, not a value"
                 hint = "write `${base}.${field}(${payload_args(names, base, field)})`"
                 diag_at(ast, diags, "E0417", message, id, "name_span", hint)
+                return
             }
+            if has_variant(names, base, field) {
+                return
+            }
+            unknown_variant(ast, names, diags, id, base, field)
             return
         }
     }
@@ -232,6 +237,18 @@ fn unknown_field(ast: Ast, names: Names, members: Members, diags: [Diag], id: in
         return
     }
     diag_at(ast, diags, "E0217", message, id, "name_span", "")
+}
+
+/// `Enum.Nope`: the enum has no variant of that name (`E0225`), and the oracle offers
+/// the closest one it does declare.
+fn unknown_variant(ast: Ast, names: Names, diags: [Diag], id: int, owner: string, variant: string) {
+    message = "`${owner}` has no variant `${variant}`"
+    close = closest(variant, variants_of(names, owner))
+    if close != "" {
+        diag_at(ast, diags, "E0225", message, id, "name_span", "did you mean `${close}`?")
+        return
+    }
+    diag_at(ast, diags, "E0225", message, id, "name_span", "")
 }
 
 /// `x.m(...)`: a method call on an optional.

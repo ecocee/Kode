@@ -26,6 +26,7 @@ from "./containers" import check_condition, check_container, check_index_target,
 from "./diag" import Diag, diag, diag_help
 from "./functions" import call_fails, check_call, check_expr_body, check_method_call, check_paths, check_return
 from "./items" import pop_type_params, setup_class, setup_fn
+from "./matching" import check_match
 from "./members" import Members, check_implements, collect_members
 from "./modules" import Alias, Module
 from "./names" import Names, collect
@@ -536,6 +537,7 @@ pub class Sema {
     }
 
     fn visit_match(id: int) {
+        check_match(ast, scopes.frames, names, sigs, members, diags, id)
         for kid in ast.nodes[id].kids {
             if ast.nodes[kid].kind == "Arm" {
                 visit_arm(kid)

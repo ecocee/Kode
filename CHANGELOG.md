@@ -7,6 +7,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`match` is checked.** What may be matched, what a pattern has to be, and what a
+  `match` has to cover: `E0223` refuses a value that is not an int, a string, a bool or an
+  enum (and a pattern of the wrong type), `E0224` counts the missing cases — an enum's
+  variants by name, both bools, or the `_` arm an int or a string needs — and `E0225`
+  reports a variant an enum does not declare, with the closest one it does. `E0420`
+  refuses `==` and `!=` on a payload enum, whose value is a reference. `selfhost/names.kode`
+  now records every variant (and whether it carries payloads), which is what all four
+  read. Gate: 152 → **156/169**, `check text` **90/169**.
+
 - **The port's hints match the oracle's.** An unknown name (`E0201`) now says which
   mistake it probably is: a module needs `.member`, an enum value is written
   `Enum.Variant`, a near miss gets `did you mean ...?` (the same Levenshtein search the
