@@ -59,8 +59,8 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
 Measured today: **R1** — 283 token dumps byte-identical, including the work packet
-probes, the S2 parser is byte-identical on 172/172 cases and on all 54 files of
-the port itself, and S3 is done (169/169 reports byte-identical). R2 is open
+probes, the S2 parser is byte-identical on 173/173 cases and on all 54 files of
+the port itself, and S3 is done (170/170 reports byte-identical). R2 is open
 only on the two deferred packets: `gates` reports
 11 met, 2 blocked (WP-07 `weak` and WP-08b `u8`/`i32`, both off the path).
 
@@ -888,6 +888,17 @@ program counter already followed `goto` and `branch`. Five fixtures came first i
 `break`, nested loops, a body that never runs): the gates report **32/32** dumps
 byte-identical and **32/32** runs with the oracle's output and exit code. `for` (both
 forms), `else` on a loop and `break`/`continue` inside a `match` arm are still out.
+
+Three cases the slice introduced had no fixture, and probing them settled where each
+belongs. A loop inside an `if` arm is a run case (`while_in_if`, dump identical, prints
+`0 1 2 3`). `break`/`continue` outside a loop and a `while` on a non-bool are
+**checker** errors in the oracle (`E0314` for the first two, `E0209` for the third) and
+never reach MIR, so they belong in `tests/compile-fail`, not `spec/run`; `continue`
+outside a loop was the one missing (`e0314_continue_outside`), and the `check text` gate
+now proves the port's report for it byte for byte. A `mir`-mode refusal cannot be a
+`spec/run` fixture at all: the oracle prints its error on stderr, the port prints its
+own stop reason, and `check_mir` compares stdout. Gates after these pins: parse
+**173/173**, check **170/170** with **170/170** reports, mir **33/33**, run **33/33**.
 
 **Slice 6 is in.** `selfhost/mir.kode` keeps its blocks in a list: `bb0`, then the exit
 `bb1`, then whatever the walk created, in creation order — exactly the oracle's dump.

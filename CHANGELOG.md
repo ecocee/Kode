@@ -7,6 +7,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Pins for the cases slice 7 introduced.** `selfhost/spec/run/while_in_if.kode` runs a
+  loop inside an `if` arm (dump identical to the oracle; prints `0 1 2 3`), and
+  `tests/compile-fail/e0314_continue_outside` covers the one missing rejection —
+  `continue` outside a loop was only covered for `break`. Probing showed the other two
+  cases cannot be run fixtures: `break`/`continue` outside a loop and `while` on a
+  non-bool are checker errors (`E0314`, `E0209`) that never reach MIR. Gates: parse
+  **173/173**, check **170/170** with **170/170** reports, mir **33/33**, run **33/33**,
+  and `cargo test -p kode-cli --test conformance` still passes.
+
 - **S4 slice 7: `while`, `break` and `continue`.** A loop creates its condition, body
   and exit blocks in that order, ends the code before it with `goto <cond>`, and sends
   `continue` to the condition and `break` to the exit through a stack of loop targets;
