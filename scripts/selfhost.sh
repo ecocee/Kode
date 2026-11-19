@@ -8,6 +8,8 @@
 #   ./scripts/selfhost.sh compare    diff the dumps that already exist
 #   ./scripts/selfhost.sh parse      the S2 subset and the port's own source, case by case
 #   ./scripts/selfhost.sh check      the S3 checker: its codes against the oracle, over tests/{compile-fail,run-pass}
+#   ./scripts/selfhost.sh mir        the S4 MIR dump against `kode mir`, over selfhost/spec/run
+#   ./scripts/selfhost.sh run        the S4 interpreter's output against every .out
 #   ./scripts/selfhost.sh gates      every work packet: target declared vs today
 #   ./scripts/selfhost.sh readiness  the readiness level reached, and what is next
 #   ./scripts/selfhost.sh all        Stage 0, Stage 1, then the work packets
@@ -225,6 +227,69 @@ check_sema() {
     printf 'check_pass=%s\ncheck_total=%s\ntext_pass=%s\nself_pass=%s\nself_total=%s\n' \
         "$pass" "$total" "$text_ok" "$self_pass" "$self_total" >"$OUT/check.txt"
     [[ "$pass" -eq "$total" && "$text_ok" -eq "$total" && "$self_pass" -eq "$self_total" ]]
+}
+
+# The S4 slice 1 gate: `kode mir` on the programs a straight line of `print` calls
+# over literals builds. Compared byte for byte, because slice 1 emits no temporaries
+# — the one thing PLAN-self-hosting §5 lets differ is numbering, and there is none.
+check_mir() {
+    local dir="$ROOT/selfhost/spec/run" out="$OUT/mir" total=0 bad=0 file
+    if [[ ! -x "$STAGE1" ]]; then
+        echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
+        return 2
+    fi
+    rm -rf "$out"
+    mkdir -p "$out"
+    for file in "$dir"/*.kode; do
+        total=$((total + 1))
+        "$STAGE0" mir "$file" >"$out/expected.txt" 2>"$out/expected.err"
+        "$STAGE1" mir "$file" >"$out/actual.txt" 2>"$out/actual.err"
+        if ! diff -u "$out/expected.txt" "$out/actual.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): dump differs"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        fi
+    done
+    if [[ "$total" -eq 0 ]]; then
+        echo "  no S4 cases in $dir" >&2
+        return 2
+    fi
+    echo "  mir cases: $((total - bad))/$total dumps byte-identical"
+    [[ "$bad" -eq 0 ]]
+}
+
+# The S4 slice 1 interpreter: the port's output has to be the fixture's `.out`, and
+# the fixture has to be the oracle's own `kode run` output — so a wrong `.out` cannot
+# hide a wrong interpreter.
+check_run() {
+    local dir="$ROOT/selfhost/spec/run" out="$OUT/run" total=0 bad=0 file expected
+    if [[ ! -x "$STAGE1" ]]; then
+        echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
+        return 2
+    fi
+    rm -rf "$out"
+    mkdir -p "$out"
+    for file in "$dir"/*.kode; do
+        total=$((total + 1))
+        expected="${file%.kode}.out"
+        "$STAGE0" run "$file" >"$out/oracle.txt" 2>/dev/null || true
+        "$STAGE1" run "$file" >"$out/actual.txt" 2>"$out/actual.err" || true
+        if ! diff -u "$expected" "$out/oracle.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): the fixture's .out is not what kode run prints"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        elif ! diff -u "$expected" "$out/actual.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): the interpreter's output differs"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        fi
+    done
+    if [[ "$total" -eq 0 ]]; then
+        echo "  no S4 cases in $dir" >&2
+        return 2
+    fi
+    echo "  run cases: $((total - bad))/$total outputs byte-identical"
+    [[ "$bad" -eq 0 ]]
 }
 
 readiness() {
@@ -473,11 +538,21 @@ check)
     echo "S3: the port's checker against the expected codes"
     check_sema || exit $?
     ;;
+mir)
+    echo "S4: the port's MIR dump against the oracle's"
+    check_mir || exit $?
+    ;;
+run)
+    echo "S4: the port's interpreter against every .out"
+    check_run || exit $?
+    ;;
 all)
     bash "${BASH_SOURCE[0]}" stage0
     bash "${BASH_SOURCE[0]}" stage1
     bash "${BASH_SOURCE[0]}" parse
     bash "${BASH_SOURCE[0]}" check
+    bash "${BASH_SOURCE[0]}" mir
+    bash "${BASH_SOURCE[0]}" run
     bash "${BASH_SOURCE[0]}" gates
     ;;
 __dump)

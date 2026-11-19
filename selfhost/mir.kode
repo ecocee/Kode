@@ -1,0 +1,242 @@
+// The MIR an interpreter runs (S4, slice 1): `kode mir`'s first shape.
+//
+// A program whose statements are `print(...)` calls over scalar literals lowers to
+// one function, `<main>`, with two blocks: `bb0` calls the runtime's print
+// primitives — `rt::PrintInt`, `PrintFloat`, `PrintBool`, `PrintStr` — with a
+// `rt::PrintSep` between two arguments and a `rt::PrintNl` after the last, then
+// `goto bb1`, which returns. That is the whole of slice 1: no locals, no
+// temporaries, no strings built at run time, so nothing to retain or release.
+//
+// A statement outside that shape sets `ok = false` with a reason, and `main.kode`
+// says so and exits 2 rather than printing a MIR that would not run.
+
+from "./ast" import Ast
+from "./diag" import Diag
+from "./literals" import parse_int
+
+/// A literal an instruction carries, with the value it stands for.
+pub class Value {
+    kind: string
+    int_value: int = 0
+    float_value: float = 0.0
+    bool_value: bool = false
+    str_value: string = ""
+}
+
+/// One instruction: a call (`callee`, `args`), a `goto` (`target`) or a `return`.
+pub class Instr {
+    kind: string
+    callee: string = ""
+    args: [Value] = []
+    target: string = ""
+}
+
+pub class Block {
+    label: string
+    instrs: [Instr] = []
+}
+
+pub class Function {
+    name: string
+    ret: string = "unit"
+    entry: bool = false
+    blocks: [Block] = []
+}
+
+pub class Mir {
+    functions: [Function] = []
+    /// False when the program is outside this slice; `why` says which part.
+    ok: bool = true
+    why: string = ""
+}
+
+/// Lower a program to the one function slice 1 can build.
+pub fn build(ast: Ast) -> Mir {
+    mir = Mir()
+    main = Function(name: "<main>", entry: true)
+    block = Block(label: "bb0")
+    if ast.nodes.len() > 0 {
+        for id in ast.nodes[0].kids {
+            lower_stmt(ast, mir, block, id)
+        }
+    }
+    block.instrs.add(Instr(kind: "goto", target: "bb1"))
+    main.blocks.add(block)
+    end = Block(label: "bb1")
+    end.instrs.add(Instr(kind: "return"))
+    main.blocks.add(end)
+    mir.functions.add(main)
+    return mir
+}
+
+/// One statement: a `print` call of literals, or a reason this slice stops.
+fn lower_stmt(ast: Ast, mir: Mir, block: Block, id: int) {
+    if not mir.ok {
+        return
+    }
+    kind = ast.nodes[id].kind
+    if kind != "ExprStmt" {
+        stop(mir, "statement `${kind}`")
+        return
+    }
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Call" or ast.attr_text(kid, "callee") != "print" {
+            stop(mir, "a call other than `print`")
+            return
+        }
+        lower_print(ast, mir, block, kid)
+    }
+}
+
+fn lower_print(ast: Ast, mir: Mir, block: Block, call: int) {
+    first = true
+    for arg in ast.nodes[call].kids {
+        if not first {
+            block.instrs.add(Instr(kind: "call", callee: "rt::PrintSep"))
+        }
+        first = false
+        if ast.nodes[arg].kids.len() < 1 {
+            stop(mir, "an argument with no value")
+            return
+        }
+        value = literal(ast, mir, ast.nodes[arg].kids[0])
+        if not mir.ok {
+            return
+        }
+        block.instrs.add(Instr(kind: "call", callee: print_primitive(value.kind), args: [value]))
+    }
+    block.instrs.add(Instr(kind: "call", callee: "rt::PrintNl"))
+}
+
+/// The runtime call that prints a value of that kind.
+fn print_primitive(kind: string) -> string {
+    if kind == "int" {
+        return "rt::PrintInt"
+    }
+    if kind == "float" {
+        return "rt::PrintFloat"
+    }
+    if kind == "bool" {
+        return "rt::PrintBool"
+    }
+    return "rt::PrintStr"
+}
+
+fn literal(ast: Ast, mir: Mir, id: int) -> Value {
+    kind = ast.nodes[id].kind
+    if kind == "Int" {
+        return Value(kind: "int", int_value: parse_int(ast.attr_raw(id, "value")))
+    }
+    if kind == "Float" {
+        text = ast.attr_text(id, "value")
+        return Value(kind: "float", float_value: text.to_float() catch e {
+                0.0
+        })
+    }
+    if kind == "Bool" {
+        return Value(kind: "bool", bool_value: ast.attr_raw(id, "value") == "true")
+    }
+    if kind == "Str" {
+        return Value(kind: "str", str_value: ast.attr_text(id, "value"))
+    }
+    stop(mir, "a value of kind `${kind}`")
+    return Value(kind: "any")
+}
+
+fn stop(mir: Mir, what: string) {
+    if mir.ok {
+        mir.ok = false
+        mir.why = what
+    }
+}
+
+/// The dump's lines: the oracle's layout, one function, its blocks and instructions.
+pub fn dump_lines(mir: Mir) -> [string] {
+    lines: [string] = []
+    for f in mir.functions {
+        head = "fn ${f.name}() -> ${f.ret} {"
+        if f.entry {
+            head += "  // entry"
+        }
+        lines.add(head)
+        for b in f.blocks {
+            lines.add("  ${b.label}:")
+            for i in b.instrs {
+                lines.add("    ${instr_text(i)}")
+            }
+        }
+        lines.add("}")
+        // The oracle ends its dump with a blank line; `main` joins these with a
+        // newline and `print` adds the last one.
+        lines.add("")
+    }
+    return lines
+}
+
+fn instr_text(i: Instr) -> string {
+    if i.kind == "goto" {
+        return "goto ${i.target}"
+    }
+    if i.kind == "return" {
+        return "return"
+    }
+    parts = ""
+    for arg in i.args {
+        if parts != "" {
+            parts += ", "
+        }
+        parts += value_text(arg)
+    }
+    return "call ${i.callee}(${parts})"
+}
+
+/// A value the way the dump writes it: a string quoted, a float in its shortest form.
+pub fn value_text(v: Value) -> string {
+    if v.kind == "int" {
+        return "${v.int_value}"
+    }
+    if v.kind == "float" {
+        return "${v.float_value}"
+    }
+    if v.kind == "bool" {
+        if v.bool_value {
+            return "true"
+        }
+        return "false"
+    }
+    if v.kind == "str" {
+        return "\"${quoted(v.str_value)}\""
+    }
+    return "null"
+}
+
+/// A value the way the program prints it: a string is its own text, where a dump
+/// quotes and escapes it.
+pub fn print_text(v: Value) -> string {
+    if v.kind == "str" {
+        return v.str_value
+    }
+    return value_text(v)
+}
+
+/// A string with the escapes a dump writes: quote, backslash, tab, newline, return.
+fn quoted(text: string) -> string {
+    out = ""
+    for k in 0..text.size() {
+        b = text.byte_at(k)
+        if b == 34 {
+            out += "\\\""
+        } else if b == 92 {
+            out += "\\\\"
+        } else if b == 9 {
+            out += "\\t"
+        } else if b == 10 {
+            out += "\\n"
+        } else if b == 13 {
+            out += "\\r"
+        } else {
+            out += text.slice(k, k + 1)
+        }
+    }
+    return out
+}

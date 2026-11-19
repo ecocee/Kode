@@ -4,13 +4,17 @@
 //   kode-stage1 tokens <file.kode>
 //   kode-stage1 ast <file.kode>
 //   kode-stage1 check <file.kode>
+//   kode-stage1 mir <file.kode>
+//   kode-stage1 run <file.kode>
 //
 // `check` is the first slice of S3 (`selfhost/sema.kode`): name resolution only, so
 // its diagnostics are codes and messages until the JSON format lands.
 
 from "./ast" import ast_lines
 from "./dump" import position, tokens_lines
+from "./eval" import run
 from "./lexer" import lex
+from "./mir" import build, dump_lines
 from "./modules" import Loader
 from "./parser" import parse
 from "./report" import from_lex, render, render_diag
@@ -25,8 +29,8 @@ if argv.len() == 0 {
 
 command = argv[0]
 
-if command != "tokens" and command != "ast" and command != "check" {
-    print("kode-stage1: `${command}` is not implemented yet; `tokens`, `ast` and `check` exist")
+if command != "tokens" and command != "ast" and command != "check" and command != "mir" and command != "run" {
+    print("kode-stage1: `${command}` is not implemented yet; `tokens`, `ast`, `check`, `mir` and `run` exist")
     exit(2)
 }
 
@@ -96,6 +100,29 @@ if command == "ast" {
         exit(1)
     }
     print(ast_lines(parsed.ast).join("\n"))
+    exit(0)
+}
+
+// `mir` and `run` are S4 (`selfhost/mir.kode`, `selfhost/eval.kode`): the first
+// slice lowers `print` of literals, so a program outside that shape stops here.
+if command == "mir" or command == "run" {
+    parsed = parse(src, lx)
+    if parsed.errors.len() > 0 {
+        for err in parsed.errors {
+            stderr(render(file, src, err))
+        }
+        exit(1)
+    }
+    lowered = build(parsed.ast)
+    if not lowered.ok {
+        stderr("kode-stage1: MIR is not implemented for ${lowered.why} yet")
+        exit(2)
+    }
+    if command == "mir" {
+        print(dump_lines(lowered).join("\n"))
+        exit(0)
+    }
+    run(lowered)
     exit(0)
 }
 

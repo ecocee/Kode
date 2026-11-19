@@ -58,9 +58,10 @@ A level is reached when its gate is green, not when its code "mostly works".
 | **R5** | the front end interprets programs | every run-pass `.out` through the Kode evaluator |
 | **R6** | bootstrapped | Stage 1 and Stage 2 agree on everything, leak-clean |
 
-Measured today: **R1** — 270 token dumps byte-identical, including the work packet
-probes, and the S2 parser is byte-identical on 172/172 cases and on all 52 files of
-the port itself. R2 is open only on the two deferred packets: `gates` reports
+Measured today: **R1** — 283 token dumps byte-identical, including the work packet
+probes, the S2 parser is byte-identical on 172/172 cases and on all 54 files of
+the port itself, and S3 is done (169/169 reports byte-identical). R2 is open
+only on the two deferred packets: `gates` reports
 11 met, 2 blocked (WP-07 `weak` and WP-08b `u8`/`i32`, both off the path).
 
 ## 3. Work packets
@@ -667,6 +668,53 @@ generation exists and runs every run-pass program against its `.out` without a
 linker.
 
 Acceptance: `kode mir` dumps match structurally; every run-pass `.out` matches.
+
+**The plan for slice 1 — `print` of literals.** The first slice is the smallest
+program shape whose MIR is still real: a straight line of `print(...)` calls over
+scalar literals, and nothing else. It puts the three pieces of S4 in place — a MIR,
+a dump that matches `kode mir`, and an evaluator that produces the program's stdout —
+before any of them has to deal with locals, temporaries or reference counting.
+
+- **Files.** `selfhost/mir.kode` is the builder and the printer: an arena of
+  `Function` → `Block` → `Instr` (`call`, `goto`, `return`), a typed `Value` for an
+  instruction's arguments (`int`, `float`, `bool`, `str`), `build(ast)` for a
+  program whose statements are `print` calls of literals, and `dump(mir)` printing
+  the oracle's text — `fn <main>() -> unit {  // entry`, `  bb0:`, four-space
+  instructions, `goto bb1`, `bb1: return`, and the blank line the oracle ends with.
+  `selfhost/eval.kode` walks that MIR: `rt::PrintStr`/`PrintInt`/`PrintFloat`/
+  `PrintBool` append to a pending line, `rt::PrintSep` appends a space and
+  `rt::PrintNl` prints the line and clears it, which is exactly the separator and
+  newline rule `print` has.
+- **CLI.** `kode-stage1 mir <file>` and `kode-stage1 run <file>`. A program outside
+  the slice says so on stderr and exits 2, the way an unimplemented mode does today.
+- **Fixtures first.** `selfhost/spec/run/` holds a program and its `.out` for each
+  shape: one string, two scalars across two lines, several arguments with a
+  separator and an empty `print()`. They are written before the code, and the
+  harness proves the `.out` against the oracle as well as against the port.
+- **Gates.** `./scripts/selfhost.sh mir` diffs `kode mir` with `kode-stage1 mir` on
+  every `selfhost/spec/run/*.kode` (byte-identical; the oracle's temporary numbering
+  is free to differ, but slice 1 emits no temporaries), and `run` compares three
+  things per program: the oracle's `kode run` stdout with the `.out`, the port's
+  stdout with the `.out`, and so the port with the oracle. Both join `all` after
+  `check`.
+- **Out of scope, deliberately.** Locals (`let _0: int`), temporaries, arithmetic,
+  strings built at run time (and the `release`/`retain` lines they bring), control
+  flow, calls to user functions, and the exit code. The next slice adds a local and
+  an `add`, which is where temporary numbering and the first comparison against
+  `kode mir` structure (not text) begin.
+- **Risk.** Float and string formatting is the runtime's, not the port's: a float is
+  printed in its shortest form and a string literal is unescaped before it is
+  printed. Mitigation: the values are read with the same helpers the parser and the
+  dumps already use (`float_text`, `parse_string`), and the fixtures cover both.
+
+**Slice 1 is in.** `selfhost/mir.kode` builds and prints the MIR and
+`selfhost/eval.kode` runs it; `kode-stage1 mir` and `kode-stage1 run` are wired into
+`main.kode`, and a program outside the slice says why on stderr and exits 2.
+`./scripts/selfhost.sh mir` reports **3/3** dumps byte-identical and `run` **3/3**
+outputs byte-identical, with each `.out` proven against the oracle's `kode run`
+first. Both joined `all`. The one thing the plan let differ — temporary numbering —
+does not arise yet, so the dump comparison starts out exact, and the next slice (a
+local and an `add`) is where it becomes a structural comparison.
 
 ### S5 — native code generation (branch `selfhost/s5-backend`)
 

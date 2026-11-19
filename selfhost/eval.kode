@@ -1,0 +1,39 @@
+// The interpreter over that MIR (S4, slice 1): what a program prints.
+//
+// Slice 1's MIR is straight-line calls in one block, so the evaluator is a loop over
+// the instructions in order: the four print primitives append to a pending line, a
+// separator appends a space, and `PrintNl` prints the line and clears it — the
+// separator and newline rule `print` has. `goto` and `return` carry no work yet;
+// they are in the dump for the shape, and control flow arrives with the branch that
+// needs them.
+
+from "./mir" import Instr, Mir, print_text
+
+/// Run `mir` and write its output, exactly as the program would.
+pub fn run(mir: Mir) {
+    pending = ""
+    for f in mir.functions {
+        for b in f.blocks {
+            for i in b.instrs {
+                pending = print_step(pending, i)
+            }
+        }
+    }
+}
+
+fn print_step(pending: string, i: Instr) -> string {
+    if i.kind != "call" {
+        return pending
+    }
+    if i.callee == "rt::PrintNl" {
+        print(pending)
+        return ""
+    }
+    if i.callee == "rt::PrintSep" {
+        return pending + " "
+    }
+    if i.args.len() == 0 {
+        return pending
+    }
+    return pending + print_text(i.args[0])
+}

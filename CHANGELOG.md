@@ -7,6 +7,19 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **S4 has begun: a MIR, a dump and an interpreter for `print` of literals.** The
+  self-hosted compiler's first S4 slice lowers a program whose statements are
+  `print(...)` calls over scalar literals into one function, `<main>`, with `bb0`
+  calling the runtime print primitives (`rt::PrintStr`, `PrintInt`, `PrintFloat`,
+  `PrintBool`, `PrintSep`, `PrintNl`) and `goto bb1; return` after them
+  (`selfhost/mir.kode`), prints that MIR in `kode mir`'s own layout, and runs it
+  (`selfhost/eval.kode`), so `kode-stage1 mir` and `kode-stage1 run` are new modes.
+  A program outside the slice stops with a reason on stderr and exit 2 rather than
+  dumping MIR that would not run. The fixtures came first: `selfhost/spec/run/` holds
+  three programs and their `.out`, and `./scripts/selfhost.sh mir` reports **3/3**
+  dumps byte-identical while `run` reports **3/3** outputs byte-identical, checking
+  each `.out` against the oracle's own `kode run` as well as against the port.
+
 - **`check text` is a gate, and it is green: 169/169.** The oracle prints
   `checked in 0.38 ms` on success, which is a wall-clock measurement rather than
   diagnostic text, so `./scripts/selfhost.sh check` drops that one line (and only it)
