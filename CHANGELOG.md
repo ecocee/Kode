@@ -7,6 +7,11 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`E0408` and `E0409` name their file.** Both are recorded while the module graph
+  loads, before any file is walked, so the `import ... as` alias now carries the file it
+  is written in (`Alias.file`) and the report's `-->` line no longer reads `--> :2:25`.
+  Compile-fail reports byte-identical: 110 → **111/169**.
+
 - **Diagnostics point where the oracle points.** Four rules were underlining more than
   the oracle does: `E0215` (a named argument, or any named argument to a builtin) now
   underlines the argument's name, `E0305` (a function whose body can fall off its end)

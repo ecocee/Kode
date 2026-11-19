@@ -48,6 +48,8 @@ pub class Alias {
     /// The alias token's extent, which is where `E0408` and `E0409` point.
     start: int = 0
     end: int = 0
+    /// The file the `import` is written in, which is the file the report names.
+    file: string = ""
 }
 
 pub class Loaded {
@@ -155,7 +157,7 @@ pub class Loader {
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
             if kind == "Alias" {
-                alias = Alias(name: ast.attr_text(kid, "name"), target: target)
+                alias = Alias(name: ast.attr_text(kid, "name"), target: target, file: ast.file)
                 span = ast.attr_span_named(kid, "span")
                 if span.len() == 2 {
                     alias.start = span[0]

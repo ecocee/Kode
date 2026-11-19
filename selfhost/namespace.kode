@@ -20,11 +20,11 @@ pub fn alias_diags(aliases: [Alias], globals: [string]) -> [Diag] {
     seen: [string] = []
     for alias in aliases {
         if seen.contains(alias.name) {
-            diags.add(Diag(code: "E0408",
+            diags.add(Diag(file: alias.file, code: "E0408",
                     message: "the module name `${alias.name}` is imported twice",
                     start: alias.start, end: alias.end))
         } else if globals.contains(alias.name) {
-            diags.add(Diag(code: "E0409",
+            diags.add(Diag(file: alias.file, code: "E0409",
                     message: "the module name `${alias.name}` hides another declaration",
                     start: alias.start, end: alias.end,
                     help: "choose another name, for example `import \"...\" as pkg`"))
