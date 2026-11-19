@@ -15,16 +15,16 @@ from "./tokens" import LexError
 /// One diagnostic, ending in a newline. The caller adds the blank line that
 /// separates reports, as the CLI's `eprintln` over a string does.
 pub fn render(file: string, src: string, err: ParseError) -> string {
-    return render_parts(file, src, err.code, err.message, err.start, err.end, err.help)
+    return render_parts(file, src, err.code, err.message, err.start, err.end, err.help, false)
 }
 
 /// A checker's diagnostic renders exactly like a parse error: the same code, the same
 /// position and source line, the same carets and hint.
 pub fn render_diag(file: string, src: string, d: Diag) -> string {
-    return render_parts(file, src, d.code, d.message, d.start, d.end, d.help)
+    return render_parts(file, src, d.code, d.message, d.start, d.end, d.help, d.warning)
 }
 
-fn render_parts(file: string, src: string, code: string, message: string, start_at: int, end_at: int, help: string) -> string {
+fn render_parts(file: string, src: string, code: string, message: string, start_at: int, end_at: int, help: string, warning: bool) -> string {
     start = snap(src, start_at)
     text_start = line_start(src, start)
     text_end = line_end(src, start)
@@ -46,7 +46,11 @@ fn render_parts(file: string, src: string, code: string, message: string, start_
     if text.size() > 0 and text.byte_at(text.size() - 1) == CR {
         text = text.slice(0, text.size() - 1)
     }
-    out = "error[${code}]: ${message}\n"
+    word = "error"
+    if warning {
+        word = "warning"
+    }
+    out = "${word}[${code}]: ${message}\n"
     out += "${pad}--> ${file}:${number}:${column}\n"
     out += "${pad} |\n"
     out += "${number} | ${text}\n"

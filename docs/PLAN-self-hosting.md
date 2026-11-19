@@ -586,6 +586,13 @@ needs a `Router` or `fn name(method: string, path: string, body: string) -> stri
 (`E0232`), which is also why `Router()` now types as a `Router` rather than `any`. Gate:
 161/169, `check text` 95/169.
 
+**Slice 17 is in: warnings.** A `Diag` now carries a severity, so the report can say
+`warning[W0001]` and `check` can exit 0 with nothing but warnings — the first output shape
+the port could not produce before. `selfhost/unused.kode` keeps the names an assignment
+declared and `sema.kode` marks the ones a read reached, so `x = 1` with no later use is
+`W0001` with the oracle's hint; a name starting with `_` is exempt, and a program with
+errors reports none of its warnings, exactly as the oracle does. Gate: **162/169**.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that

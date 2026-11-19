@@ -7,6 +7,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Warnings exist, and `W0001` is the first.** A `Diag` now says whether it is an error
+  or a warning: it renders as `warning[W0001]: ...` and `check` exits 0 when nothing but
+  warnings was found. `selfhost/unused.kode` records every name an assignment declared and
+  `sema.kode` marks the ones read (a name starting with `_` is exempt), so an unused
+  variable says `variable `x` is assigned but never used` with the oracle's hint. The
+  oracle suppresses warnings for a program that has errors, and so does the port. Gate:
+  161 → **162/169**; `tests/compile-fail/w0001_unused.kode` is identical but for the
+  oracle's timing line.
+
 - **`throw`, `catch`, the list callbacks and the web layer are checked.**
   `selfhost/throws.kode` refuses a `throw` that is neither a string nor an `Error`
   (`E0226`), and a `catch` block that does not answer with the expression's type

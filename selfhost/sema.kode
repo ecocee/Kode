@@ -36,6 +36,7 @@ from "./optional" import Narrow, check_method_optional, check_optional, narrowin
 from "./patterns" import bind_arm_names
 from "./suggest" import closest
 from "./throws" import check_catch, check_throw
+from "./unused" import UnusedVar, mark_used, record
 from "./scope" import Scope
 from "./server" import check_router, check_serve
 from "./signatures" import SigTable, Signature, collect_signatures
@@ -70,6 +71,8 @@ pub class Sema {
     /// `return` needs a function (`E0311`) and `break`/`continue` a loop (`E0314`).
     in_fn: bool = false
     loops: int = 0
+    /// Every name an assignment declared, for `W0001` (`unused.kode`).
+    unused: [UnusedVar] = []
 
     /// Check a loaded program; the caller prints `diags`.
     fn run() {
@@ -93,6 +96,28 @@ pub class Sema {
             walk_program()
         }
         scopes.pop()
+        report_unused()
+    }
+
+    /// `W0001`: a name an assignment declared and nothing ever read. It is a warning, so
+    /// it does not stop the program and does not make `check` fail.
+    fn report_unused() {
+        // The oracle reports warnings only when the program has no errors: a broken
+        // program has bigger things to say.
+        for one in diags {
+            if not one.warning {
+                return
+            }
+        }
+        for one in unused {
+            if one.used {
+                continue
+            }
+            message = "variable `${one.name}` is assigned but never used"
+            hint = "remove it, or start the name with `_` if this is intentional"
+            diags.add(Diag(file: one.file, code: "W0001", message: message, start: one.start,
+                    end: one.end, help: hint, warning: true))
+        }
     }
 
     fn walk_program() {
@@ -287,7 +312,11 @@ pub class Sema {
     /// probably meant, and anything else is a name not created yet.
     fn visit_ident(id: int) {
         name = ast.attr_text(id, "name")
-        if name == "" or is_bound(name) {
+        if name != "" and is_bound(name) {
+            mark_used(unused, name)
+            return
+        }
+        if name == "" {
             return
         }
         message = "unknown variable `${name}`"
@@ -352,7 +381,10 @@ pub class Sema {
         }
         target = kids[0]
         if ast.nodes[target].kind == "TargetVar" {
-            bind_target(ast, scopes, names, sigs, members, diags, id, target)
+            one = bind_target(ast, scopes, names, sigs, members, diags, id, target)
+            if one.name != "" {
+                record(ast, unused, target)
+            }
         } else {
             if ast.nodes[target].kind == "TargetIndex" {
                 check_index_target(ast, scopes.frames, names, diags, target)

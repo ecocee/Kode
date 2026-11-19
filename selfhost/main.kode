@@ -69,14 +69,18 @@ if command == "check" {
     }
     checker = Sema(asts: graph.asts, mods: graph.modules, aliases: graph.aliases)
     checker.run()
-    if checker.diags.len() > 0 {
-        for diag in checker.diags {
-            src_of = src
-            if diag.file != "" and diag.file != file {
-                src_of = read_file(diag.file)
-            }
-            stderr(render_diag(diag.file, src_of, diag))
+    errors = 0
+    for diag in checker.diags {
+        src_of = src
+        if diag.file != "" and diag.file != file {
+            src_of = read_file(diag.file)
         }
+        stderr(render_diag(diag.file, src_of, diag))
+        if not diag.warning {
+            errors += 1
+        }
+    }
+    if errors > 0 {
         exit(1)
     }
     stderr("ok: ${file} has no errors")

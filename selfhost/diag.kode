@@ -16,6 +16,8 @@ pub class Diag {
     end: int
     /// The oracle's `= help:` line, when the diagnostic has one.
     help: string = ""
+    /// True for a warning: it is reported the same way and does not fail the check.
+    warning: bool = false
 }
 
 /// A diagnostic pointing at a node's own `span`.
