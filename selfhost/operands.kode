@@ -10,24 +10,26 @@
 from "./ast" import Ast
 from "./diag" import Diag, diag, diag_help
 from "./names" import Names
+from "./members" import Members, value_type
+from "./signatures" import SigTable
 from "./typing" import Local, Type, expr_type, mixed_number, same_type, type_article, type_is_any, type_printable
 
 /// The operand rules, plus the unary operators.
-pub fn check_operator(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+pub fn check_operator(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
     if ast.nodes[id].kind == "Unary" {
-        check_unary(ast, frames, names, diags, id)
+        check_unary(ast, frames, names, sigs, members, diags, id)
         return
     }
-    check_binary(ast, frames, names, diags, id)
+    check_binary(ast, frames, names, sigs, members, diags, id)
 }
 
-fn check_unary(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+fn check_unary(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
     kids = ast.nodes[id].kids
     if kids.len() < 1 {
         return
     }
     op = ast.attr_raw(id, "op")
-    t = expr_type(ast, frames, names, kids[0])
+    t = value_type(ast, frames, names, sigs, members, kids[0])
     if type_is_any(t) {
         return
     }
@@ -51,14 +53,14 @@ fn check_unary(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int
     }
 }
 
-fn check_binary(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+fn check_binary(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
     kids = ast.nodes[id].kids
     if kids.len() < 2 {
         return
     }
     op = ast.attr_raw(id, "op")
-    l = expr_type(ast, frames, names, kids[0])
-    r = expr_type(ast, frames, names, kids[1])
+    l = value_type(ast, frames, names, sigs, members, kids[0])
+    r = value_type(ast, frames, names, sigs, members, kids[1])
     if type_is_any(l) or type_is_any(r) {
         return
     }
@@ -153,19 +155,19 @@ fn bad_operands(ast: Ast, diags: [Diag], id: int, op: string, l: Type, r: Type, 
 
 /// `print` and `stderr` take what the runtime can format, which is what makes
 /// `print(users)` with a list of class instances an error rather than a wall of fields.
-pub fn check_print(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+pub fn check_print(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
     for kid in ast.nodes[id].kids {
         if ast.nodes[kid].kind != "Arg" {
             continue
         }
         for part in ast.nodes[kid].kids {
-            check_print_value(ast, frames, names, diags, part)
+            check_print_value(ast, frames, names, sigs, members, diags, part)
         }
     }
 }
 
-fn check_print_value(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
-    t = expr_type(ast, frames, names, id)
+fn check_print_value(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
+    t = value_type(ast, frames, names, sigs, members, id)
     if t.kind == "unit" {
         // A call that returns nothing has nothing to show (`E0205`, whose
         // "cannot be stored" form lives in `selfhost/binding.kode`).

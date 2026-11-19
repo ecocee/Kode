@@ -537,6 +537,15 @@ nothing (`x = a.z` makes the next `x` an `E0201`), and `?.` refuses a field that
 a reference (`E0219`, "`?.` on an int is not supported yet"). Gate: **152/169**,
 self-check **47/47**.
 
+**Slice 12 is in: results.** `members.value_type` is the typed answer `typing.kode`
+could not give: a function's or method's declared result, a constructor's instance, and a
+class field's type — including `?.field`, which is an optional of the field. `operands`
+(operators and `print`) and `binding` ask it, so a user call's result takes part in the
+arithmetic rules (`f() + "a"` is `E0203`), `print(f())` on a function with no declared
+result is `E0205`, and `y = f()` binds a typed name instead of `any`. Two shapes stay
+`any` on purpose: a result written in the callee's own type parameters and a generic
+class's fields (ADR 0030) — the gate holds at **152/169**.
+
 The gate itself changed what it measures. It compared the port's codes with the `.err`
 file, which names what the Rust conformance test looks for and may leave out the
 follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that

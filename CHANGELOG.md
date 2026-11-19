@@ -7,6 +7,14 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **A user call and a class field now have a type.** `members.value_type` answers what
+  `typing.kode` cannot on its own: a function's or method's declared result, a class
+  constructor's instance, and a field's type — through `?.` too. The operators and
+  `print` ask it, so `f() + "a"` is `E0203`, `print(f())` on a function that declares no
+  result is `E0205`, and `y = f()` binds a typed `y`. A result written in the callee's
+  own type parameters (`fn id<T>() -> T`) stays `any`, as do a generic class's fields
+  (ADR 0030), so no rule guesses. Gate holds at **152/169**, self-check **47/47**.
+
 - **The port's checker knows what a class has.** `selfhost/members.kode` collects every
   field and method a class or interface declares (and the fields of the prelude classes
   `Json`, `ProcessResult`, `Error`, `Request`, `Response`, `HttpResponse` and `Router`),

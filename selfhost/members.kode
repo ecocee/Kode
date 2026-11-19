@@ -18,7 +18,7 @@ from "./ast" import Ast, has_type_param, is_type_node
 from "./diag" import Diag, diag_at
 from "./items" import pop_type_params, push_type_params
 from "./names" import Names, has_payload
-from "./signatures" import annotation_of
+from "./signatures" import SigTable, Signature, annotation_of
 from "./suggest" import closest
 from "./typing" import Local, Type, expr_type, local_in, type_any, type_article, type_inner, type_is_any, type_named, type_of, type_prim, type_same
 
@@ -251,6 +251,104 @@ fn same_signature(got: MemberField, want: MemberField) -> bool {
         i += 1
     }
     return true
+}
+
+/// The type of an expression, with what the program declares on top of what
+/// `typing.kode` knows alone: a class field, a user call's result, a method's result.
+/// `any` when this slice cannot name it, so every rule stays quiet rather than guessing.
+pub fn value_type(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, id: int) -> Type {
+    kind = ast.nodes[id].kind
+    if kind == "Member" {
+        return field_type(ast, frames, names, sigs, members, id)
+    }
+    if kind == "Call" {
+        return call_result(ast, frames, names, sigs, members, id)
+    }
+    if kind == "MethodCall" {
+        return method_result(ast, frames, names, sigs, members, id)
+    }
+    return expr_type(ast, frames, names, id)
+}
+
+/// `a.x`: the type of the field `a` has. A payload field's type is not in the table
+/// yet, and a method read as a field is not a value, so both stay `any`.
+fn field_type(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return type_any()
+    }
+    obj = kids[0]
+    if ast.nodes[obj].kind == "Ident" {
+        base = ast.attr_text(obj, "name")
+        if local_in(frames, base).name == "" and names.enums.contains(base) {
+            // `Shape.Circle`: a variant is a value of its enum.
+            return expr_type(ast, frames, names, id)
+        }
+    }
+    t = value_type(ast, frames, names, sigs, members, obj)
+    if t.kind == "opt" {
+        if ast.attr_raw(id, "safe") != "true" {
+            return type_any()
+        }
+        t = type_inner(t)
+    }
+    if t.kind != "named" or names.enums.contains(t.name) {
+        return type_any()
+    }
+    one = named_member(members, t.name, ast.attr_text(id, "name"))
+    if one.name == "" or one.is_method or one.is_generic {
+        return type_any()
+    }
+    return one.ty
+}
+
+/// `f(...)`: a function or method's declared result, and a class constructor's instance.
+/// A function that declares no result gives nothing back.
+fn call_result(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, id: int) -> Type {
+    sig = sigs.find(ast.attr_text(id, "callee"))
+    if sig.name != "" {
+        return declared_result(sig)
+    }
+    return expr_type(ast, frames, names, id)
+}
+
+/// `a.m(...)`: the method's declared result. A receiver this slice cannot name keeps
+/// `typing.kode`'s answer, which is what a payload variant's constructor is.
+fn method_result(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return type_any()
+    }
+    recv = value_type(ast, frames, names, sigs, members, kids[0])
+    if recv.kind != "named" {
+        return expr_type(ast, frames, names, id)
+    }
+    sig = sigs.find("${recv.name}.${ast.attr_text(id, "name")}")
+    if sig.name == "" {
+        return expr_type(ast, frames, names, id)
+    }
+    return declared_result(sig)
+}
+
+/// What a call gives back: the declared result, or nothing. A result written in the
+/// callee's own type parameters (`fn id<T>() -> T`) is not a type this slice can name,
+/// so it is `any` — the answer of a generic call is a later slice's (ADR 0030).
+fn declared_result(sig: Signature) -> Type {
+    t = sig.ret ?? type_prim("unit")
+    if mentions(t, sig.type_params) {
+        return type_any()
+    }
+    return t
+}
+
+fn mentions(t: Type, params: [string]) -> bool {
+    if t.kind == "named" and params.contains(t.name) {
+        return true
+    }
+    if t.kind == "list" or t.kind == "map" or t.kind == "opt" {
+        return mentions(type_inner(t), params)
+    }
+    return false
 }
 
 /// Does an assignment from this expression declare nothing? A `.` the checker refuses

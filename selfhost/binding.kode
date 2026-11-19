@@ -18,7 +18,7 @@ from "./ast" import Ast, is_type_node
 from "./diag" import Diag, diag, diag_help
 from "./containers" import literal_fails
 from "./functions" import call_fails
-from "./members" import Members, member_fails
+from "./members" import Members, member_fails, value_type
 from "./names" import Names
 from "./scope" import Scope
 from "./signatures" import SigTable
@@ -41,7 +41,7 @@ pub fn bind_target(ast: Ast, scopes: Scope, names: Names, sigs: SigTable, member
     if value >= 0 and member_fails(ast, scopes.frames, names, members, value) {
         return
     }
-    one = bound_local(ast, scopes.frames, names, diags, id, target)
+    one = bound_local(ast, scopes.frames, names, sigs, members, diags, id, target)
     if one.name != "" {
         scopes.declare(one.name, one.ty)
     }
@@ -58,7 +58,7 @@ fn empty_collection(ast: Ast, id: int) -> bool {
 
 /// The binding one `name = value` makes: `name` is "" when the name already existed or
 /// the value did not fit, so the caller declares nothing.
-pub fn bound_local(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int, target: int) -> Local {
+pub fn bound_local(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int, target: int) -> Local {
     name = ast.attr_text(target, "name")
     if names.consts.contains(name) {
         diag(ast, diags, "E0312", "`${name}` is a constant and cannot be changed", target)
@@ -78,7 +78,7 @@ pub fn bound_local(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id:
     }
     vt = type_any()
     if value >= 0 {
-        vt = expr_type(ast, frames, names, value)
+        vt = value_type(ast, frames, names, sigs, members, value)
     }
     // A list or map literal the checker refuses declares nothing, which is what makes
     // the next line's use of the name `E0201` (`e0213_mixed_list`).

@@ -254,7 +254,7 @@ pub class Sema {
             return
         }
         if kind == "Binary" or kind == "Unary" {
-            check_operator(ast, scopes.frames, names, diags, id)
+            check_operator(ast, scopes.frames, names, sigs, members, diags, id)
         }
         if kind == "Index" or kind == "Slice" or kind == "List" or kind == "Map" {
             check_container(ast, scopes.frames, names, diags, id)
@@ -312,7 +312,7 @@ pub class Sema {
             diag(ast, diags, "E0206", "unknown function `${callee}`", id)
         }
         if callee == "print" or callee == "stderr" {
-            check_print(ast, scopes.frames, names, diags, id)
+            check_print(ast, scopes.frames, names, sigs, members, diags, id)
         } else {
             check_call(ast, scopes.frames, names, sigs, diags, id)
         }
