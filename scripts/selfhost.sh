@@ -7,7 +7,7 @@
 #   ./scripts/selfhost.sh stage2     Stage 1 compiles itself; compare with Stage 1
 #   ./scripts/selfhost.sh compare    diff the dumps that already exist
 #   ./scripts/selfhost.sh parse      the S2 subset and the port's own source, case by case
-#   ./scripts/selfhost.sh check      the S3 checker: expected codes over tests/{compile-fail,run-pass}
+#   ./scripts/selfhost.sh check      the S3 checker: its codes against the oracle, over tests/{compile-fail,run-pass}
 #   ./scripts/selfhost.sh gates      every work packet: target declared vs today
 #   ./scripts/selfhost.sh readiness  the readiness level reached, and what is next
 #   ./scripts/selfhost.sh all        Stage 0, Stage 1, then the work packets
@@ -138,17 +138,25 @@ check_parse() {
 
 # The level reached (PLAN-self-hosting.md §2), from the artefacts on disk and the
 # packet table. This reports; it never pretends a stage exists.
-# The S3 gate: a compile-fail program must report the code its `.err` names, and a
-# run-pass program must report nothing. Codes are compared as sets; message, span
-# and order (the JSON form) are the next step of S3, not this one, so a family
+# The S3 gate: the port's code set must be the oracle's, and a run-pass program must
+# report nothing. The expectation is the oracle itself, not the `.err` file: a `.err`
+# names the codes the Rust conformance test looks for and may leave out the follow-on
+# ones (`E0102` after a parser error, `E0201` after a failed call), so comparing with
+# it would fail a port that agrees with Stage 0. Codes are compared as sets; message,
+# span and order (the JSON form) are the next step of S3, not this one, so a family
 # lands when this count moves.
 check_sema() {
     local total=0 pass=0 file expected got name
-    local log="$OUT/check.log" mismatches=""
+    local log="$OUT/check.log" oracle="$OUT/oracle.log" mismatches=""
+    if [[ ! -x "$STAGE0" ]]; then
+        echo "  no Stage 0 oracle: run ./scripts/selfhost.sh stage0 first" >&2
+        return 2
+    fi
     for file in "$ROOT"/tests/compile-fail/*.kode; do
         total=$((total + 1))
         name="$(basename "${file%.kode}")"
-        expected="$(grep -o '[EW]0[0-9][0-9][0-9]' "${file%.kode}.err" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
+        "$STAGE0" check "$file" >/dev/null 2>"$oracle" || true
+        expected="$(grep -o '[EW]0[0-9][0-9][0-9]' "$oracle" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
         "$STAGE1" check "$file" >/dev/null 2>"$log" || true
         got="$(grep -o '[EW]0[0-9][0-9][0-9]' "$log" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
         if [[ "$got" == "$expected" ]]; then

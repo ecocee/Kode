@@ -7,6 +7,30 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's checker knows what a function promises.** `selfhost/signatures.kode`
+  records every function's parameters and result, and every class's constructor — its
+  fields in declaration order, the ones with a default value optional but still taking
+  their position — before any file is walked, because a program's namespace is shared
+  across modules. `selfhost/functions.kode` then checks a call against it: `E0207` for
+  too many arguments (with the oracle's singular and plural), `E0215` for an argument
+  the callee has no parameter for, `E0216` for a parameter the call leaves out,
+  `E0208` for the wrong type — including the oracle's second form for a type
+  parameter, which is bound at its first argument (`T`, `[T]`, `{string: T}`, `T?`) and
+  has to agree at the rest — and `E0304`/`E0305`/`E0310` for a body that gives nothing
+  where a result was declared, a function that can fall off its last line, and a
+  `return` of the wrong type. A failed call declares nothing, so the name it was
+  assigned to is unknown on the next line, as in the oracle. Two type rules grew the
+  fix the families needed: `int?` is assignable to `int?` (it was not), and a type
+  parameter nested in a container is recognised. Gate: 109 → **122/165**, self-check
+  **41/41**. Methods, builtins and closures are silent: their signatures are not in the
+  table yet.
+
+  The `check` gate now compares the port's codes with the **oracle's own**, not with
+  the `.err` file: a `.err` names the codes the Rust conformance test looks for and may
+  leave out the follow-on ones (`E0102` after a parser error, `E0201` after a failed
+  call), so the old comparison failed a port that agreed with Stage 0. Six parser
+  fixtures and the named-argument ones became green by measuring the right thing.
+
 - **The port's parser refuses what the oracle refuses.** `selfhost/depth.kode`
   enforces the 128-level nesting limit (ADR 0032) the way the oracle does, in two
   places: a guard on entry to the expression, block and type productions, which

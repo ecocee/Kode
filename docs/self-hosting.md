@@ -67,7 +67,8 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
   `selfhost/depth.kode`), and the checker resolves names across a loaded module
   graph (`selfhost/sema.kode`, `modules.kode`, `namespace.kode`, `names.kode`,
   `typing.kode`, `annotations.kode`, `items.kode`, `binding.kode`, `operands.kode`,
-  `scope.kode`; S3, 109/165 programs on its gate and 39/39 of the port's own files
+  `scope.kode`, `signatures.kode`, `functions.kode`; S3, 122/165 programs on its gate
+  and 41/41 of the port's own files
   clean); no MIR builder, evaluator or native backend exists in Kode.
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
   timeouts and no sorting with a comparator. `stderr(...)` exists (ADR 0045), so

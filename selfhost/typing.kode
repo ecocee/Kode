@@ -133,6 +133,11 @@ pub fn type_assignable(got: Type, to: Type) -> bool {
     if got.kind == "none" {
         return true
     }
+    // An optional fits an optional when what it wraps fits: `int?` is assignable to
+    // `int?`, which is not the same question as `int` fitting `int?`.
+    if to.kind == "opt" and got.kind == "opt" {
+        return type_assignable(type_inner(got), type_inner(to))
+    }
     if to.kind == "opt" {
         return type_assignable(got, type_inner(to))
     }

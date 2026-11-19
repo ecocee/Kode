@@ -433,6 +433,35 @@ the interface after `E0236`. The `parse` gate now covers the whole compile-fail
 corpus as well as the slice's own cases: **169/169** cases and **39/39** of the
 port's own files, and the gate after it is **109/165**.
 
+**Slice 6 is in: signatures, calls and returns.** `selfhost/signatures.kode` records
+what every function and every class constructor takes and gives back — parameters and
+their types, the declared result, and the type parameters an argument can bind — before
+any file is walked, because the namespace is program-wide. A class's constructor is its
+fields in declaration order; a field with a default value may be left out but keeps its
+position, so `class A { x: int = 0, y: int }` still needs `A(1, ...)` for `y`.
+`selfhost/functions.kode` then checks a call against that record: `E0207` for too many
+arguments, `E0215` for an argument the callee has no parameter for, `E0216` for a
+parameter left out, and `E0208` for the wrong type — with the oracle's second form when
+the parameter is one of the callee's type parameters, bound at its first argument
+(`T`, `[T]`, `{string: T}` and `T?` all bind) and compared at the rest. A return is
+checked the same way: `E0305` when a function that declares a result can fall off its
+last line (a `return` or `throw` at the end, both branches of an `if`, every arm of a
+`match` — a `try` never counts), `E0310` for the wrong value or for a bare `return`, and
+`E0304` for an `=>` body that gives a value the declaration never mentioned. A call the
+checker refuses declares nothing, so the assigned name is unknown on the next line, as
+in the oracle. Two type rules were wrong and are fixed: `int?` fits `int?`, and a type
+parameter inside a container is recognised. The gate after it is **122/165** with
+**self-check 41/41**.
+
+The gate itself changed what it measures. It compared the port's codes with the `.err`
+file, which names what the Rust conformance test looks for and may leave out the
+follow-on codes (`E0102` after a parser error, `E0201` after a failed call); a port that
+agreed with Stage 0 could fail on that. It now compares with the oracle's own output, so
+the parser fixtures and the named-argument ones became green by measuring the right
+thing. Methods, builtins, runtime functions and closures are silent: their signatures
+are not in the table yet, which is the next family (`E0208` for `builder.push`,
+`bytes`, `exec`).
+
 Every rule stays quiet when it cannot prove the mistake: an operand that is `any` (a
 call, a method call, an index), an optional operand (narrowing is a later slice) and
 two named types (this slice does not read `implements`, so a class stored as one of

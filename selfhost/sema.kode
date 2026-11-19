@@ -23,12 +23,14 @@ from "./ast" import Ast, is_type_node
 from "./binding" import bound_local
 from "./builtins" import Builtins
 from "./diag" import Diag, diag, diag_help
+from "./functions" import check_call, check_expr_body, check_paths, check_return
 from "./items" import pop_type_params, setup_class, setup_fn
 from "./modules" import Alias, Module
 from "./names" import Names, collect
 from "./namespace" import alias_diags, check_alias
 from "./operands" import check_operator, check_print
 from "./scope" import Scope
+from "./signatures" import SigTable, Signature, collect_signatures
 from "./typing" import type_any
 
 pub class Sema {
@@ -48,6 +50,11 @@ pub class Sema {
     scopes: Scope = Scope()
     /// The names a program starts with, in their own file (`builtins.kode`).
     builtins: Builtins = Builtins()
+    /// Every function's and class's parameters and result (`signatures.kode`).
+    sigs: SigTable = SigTable()
+    /// The signature of the function being walked, which `return` reads; a name of
+    /// "" means no function (a method, or the top level).
+    current: Signature = Signature(name: "")
     /// `return` needs a function (`E0311`) and `break`/`continue` a loop (`E0314`).
     in_fn: bool = false
     loops: int = 0
@@ -58,6 +65,9 @@ pub class Sema {
             ast = one
             collect(ast, names, builtins, diags)
         }
+        // Calls are checked against a program-wide table, so it is built before any
+        // file is walked (`signatures.kode`).
+        collect_signatures(asts, names, sigs)
         // An alias is a program-wide name, so its rules run once every file's
         // declarations exist (`namespace.kode`).
         for d in alias_diags(aliases, names.decls) {
@@ -84,7 +94,7 @@ pub class Sema {
     fn check_item(id: int) {
         kind = ast.nodes[id].kind
         if kind == "Fn" {
-            check_fn(id)
+            check_fn(id, false)
         } else if kind == "Class" {
             check_class(id)
         } else if kind == "Const" {
@@ -98,17 +108,31 @@ pub class Sema {
         }
     }
 
-    fn check_fn(id: int) {
+    /// `is_method`: a method's signature is not in the table yet (its receiver's
+    /// class is not resolved here), so a method is walked without argument and
+    /// return rules rather than against the free function that shares its name.
+    fn check_fn(id: int, is_method: bool) {
         scopes.push()
         before = setup_fn(ast, names, scopes, diags, id)
         was = in_fn
         in_fn = true
+        sig = Signature(name: "")
+        if not is_method {
+            sig = sigs.find(ast.attr_text(id, "name"))
+        }
+        previous = current
+        current = sig
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
-            if kind == "Block" or kind == "ExprBody" {
+            if kind == "Block" {
                 visit(kid)
+                check_paths(ast, diags, id, kid, sig)
+            } else if kind == "ExprBody" {
+                visit(kid)
+                check_expr_body(ast, scopes.frames, names, diags, id, kid, sig)
             }
         }
+        current = previous
         in_fn = was
         scopes.pop()
         pop_type_params(names, before)
@@ -122,7 +146,7 @@ pub class Sema {
         for kid in ast.nodes[id].kids {
             kind = ast.nodes[kid].kind
             if kind == "Method" {
-                check_fn(kid)
+                check_fn(kid, true)
             }
             if kind == "Field" {
                 for part in ast.nodes[kid].kids {
@@ -247,9 +271,14 @@ pub class Sema {
         }
         target = kids[0]
         if ast.nodes[target].kind == "TargetVar" {
-            one = bound_local(ast, scopes.frames, names, diags, id, target)
-            if one.name != "" {
-                scopes.declare(one.name, one.ty)
+            // A call the checker refuses declares nothing, so the next line's use of
+            // the name is unknown — the oracle's rule (and what makes
+            // `e0208_generic_mismatch` report `E0201`).
+            if not value_fails(kids) {
+                one = bound_local(ast, scopes.frames, names, diags, id, target)
+                if one.name != "" {
+                    scopes.declare(one.name, one.ty)
+                }
             }
         } else {
             visit(target)
@@ -263,6 +292,22 @@ pub class Sema {
         }
     }
 
+    /// Would the assignment's value be a call the checker refuses? Asked before the
+    /// name is declared, with a scratch list so the call is reported once, later, by
+    /// `visit_call`.
+    fn value_fails(kids: [int]) -> bool {
+        if kids.len() < 2 {
+            return false
+        }
+        value = kids[kids.len() - 1]
+        if ast.nodes[value].kind != "Call" {
+            return false
+        }
+        scratch: [Diag] = []
+        check_call(ast, scopes.frames, names, sigs, scratch, value)
+        return scratch.len() > 0
+    }
+
     fn visit_call(id: int) {
         callee = ast.attr_text(id, "callee")
         if callee != "" and not is_bound(callee) {
@@ -270,6 +315,8 @@ pub class Sema {
         }
         if callee == "print" or callee == "stderr" {
             check_print(ast, scopes.frames, names, diags, id)
+        } else {
+            check_call(ast, scopes.frames, names, sigs, diags, id)
         }
         for kid in ast.nodes[id].kids {
             visit(kid)
@@ -361,6 +408,7 @@ pub class Sema {
             diag_help(ast, diags, "E0311", "`return` can only be used inside a function", id,
                 "top-level code simply runs to the end")
         }
+        check_return(ast, scopes.frames, names, diags, id, current)
         for kid in ast.nodes[id].kids {
             visit(kid)
         }
