@@ -24,6 +24,12 @@
 //   * `x + y` on strings is `_N = call rt::StrConcat(x, y)`; a literal argument is
 //     borrowed, and a result stored into a variable is moved, not released.
 //
+// Slice 5 adds interpolation as a `print` argument: the pieces are its non-empty
+// literals and holes, the head becomes the accumulator (a literal head is released
+// after its first concat, a variable head is retained first), each following piece is
+// a `StrConcat` whose old accumulator is released and whose int hole — an owned
+// `IntToStr` temporary — is released too, and a lone hole is only a `retain`.
+//
 // A statement outside those shapes sets `ok = false` with a reason, and `main.kode`
 // says so and exits 2 rather than printing a MIR that would not run.
 
@@ -44,6 +50,13 @@ pub class Operand {
     is_temp: bool = false
     index: int = 0
     value: Value = Value(kind: "any")
+}
+
+/// A piece of an interpolation: an operand, and whether the concatenation owns it
+/// (a hole that became a temporary) or only borrows it (a variable, a literal).
+pub class Piece {
+    op: Operand
+    owned: bool = false
 }
 
 /// One instruction: an assignment (`dest = arg`), an `add` into `dest`, a call, a
@@ -224,7 +237,19 @@ pub class Builder {
                 stop("an argument with no value")
                 return
             }
-            operand = expr(ast.nodes[arg].kids[0])
+            node = ast.nodes[arg].kids[0]
+            if ast.nodes[node].kind == "Interp" {
+                // The interpolation is already a reference: print it, then release the
+                // value it owns.
+                operand = interp(node)
+                if not ok {
+                    return
+                }
+                block.instrs.add(Instr(kind: "call", callee: "rt::PrintStr", args: [operand]))
+                block.instrs.add(Instr(kind: "release", args: [operand]))
+                continue
+            }
+            operand = expr(node)
             if not ok {
                 return
             }
@@ -235,6 +260,83 @@ pub class Builder {
             }
         }
         block.instrs.add(Instr(kind: "call", callee: "rt::PrintNl"))
+    }
+
+    /// An interpolation as one owned reference: its pieces are lowered where they are
+    /// concatenated, in order, with the head becoming the accumulator.
+    fn interp(id: int) -> Operand {
+        acc = Operand()
+        have = false
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            piece = Piece(op: Operand())
+            if kind == "Lit" {
+                text = ast.attr_text(kid, "text")
+                if text == "" {
+                    continue
+                }
+                piece = Piece(op: Operand(value: Value(kind: "str", str_value: text)))
+            } else if kind == "Hole" {
+                piece = hole(kid)
+                if not ok {
+                    return Operand()
+                }
+            } else {
+                stop("a piece of an interpolation that is a `${kind}`")
+                return Operand()
+            }
+            if not have {
+                // The head is the accumulator, and the accumulation owns it: a borrowed
+                // variable is retained for that, a literal needs nothing.
+                acc = piece.op
+                have = true
+                if acc.is_temp and not piece.owned {
+                    block.instrs.add(Instr(kind: "retain", args: [acc]))
+                }
+                continue
+            }
+            index = temp("", "ref")
+            block.instrs.add(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [acc, piece.op]))
+            block.instrs.add(Instr(kind: "release", args: [acc]))
+            if piece.owned {
+                block.instrs.add(Instr(kind: "release", args: [piece.op]))
+            }
+            acc = Operand(is_temp: true, index: index)
+        }
+        if not have {
+            stop("an interpolation with nothing in it")
+        }
+        return acc
+    }
+
+    /// A hole: a name, as itself for a string or through `IntToStr` for an int.
+    fn hole(id: int) -> Piece {
+        kids = ast.nodes[id].kids
+        if kids.len() != 1 {
+            stop("a hole without one value")
+            return Piece(op: Operand())
+        }
+        node = kids[0]
+        if ast.nodes[node].kind != "Ident" {
+            stop("a hole that is a `${ast.nodes[node].kind}`")
+            return Piece(op: Operand())
+        }
+        name = ast.attr_text(node, "name")
+        index = slot(name)
+        if index < 0 {
+            stop("a hole reading `${name}`, which this slice cannot bind")
+            return Piece(op: Operand())
+        }
+        if main.temps[index].kind == "ref" {
+            return Piece(op: Operand(is_temp: true, index: index))
+        }
+        if main.temps[index].kind != "int" {
+            stop("a `${main.temps[index].kind}` hole")
+            return Piece(op: Operand())
+        }
+        text = temp("", "ref")
+        block.instrs.add(Instr(kind: "call", dest: text, callee: "rt::IntToStr", args: [Operand(is_temp: true, index: index)]))
+        return Piece(op: Operand(is_temp: true, index: text), owned: true)
     }
 
     /// An expression as an operand: a literal, a name, or a `+` of two of those.
@@ -425,6 +527,9 @@ fn instr_text(i: Instr) -> string {
     }
     if i.kind == "release" {
         return "release ${operand_text(i.args[0])}"
+    }
+    if i.kind == "retain" {
+        return "retain ${operand_text(i.args[0])}"
     }
     if i.dest >= 0 {
         if i.kind == "assign" {

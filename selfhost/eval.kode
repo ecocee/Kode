@@ -4,9 +4,9 @@
 // instructions in order: an assignment or a `StrConcat` writes a temporary, an integer
 // operator writes the result of its operands, and the print primitives append to a
 // pending line — a separator appends a space, and `PrintNl` prints the line and clears
-// it, the separator and newline rule `print` has. `release` is a no-op here: the
-// interpreter has no reference counts to drop, and the gate still checks that the
-// instruction is emitted. `goto` and `return` carry no work yet; the MIR is still one
+// it, the separator and newline rule `print` has. `retain` and `release` are no-ops
+// here: the interpreter has no reference counts to drop, and the gate still checks
+// that the instruction is emitted. `goto` and `return` carry no work yet; the MIR is still one
 // straight block, and control flow arrives with the branch that needs it.
 
 from "./mir" import Block, Function, Instr, Mir, Operand, print_text
@@ -30,7 +30,7 @@ pub fn run(mir: Mir) {
 }
 
 fn print_step(pending: string, f: Function, i: Instr, values: [int], refs: [string]) -> string {
-    if i.kind == "release" {
+    if i.kind == "release" or i.kind == "retain" {
         return pending
     }
     if i.kind == "assign" {
@@ -42,8 +42,12 @@ fn print_step(pending: string, f: Function, i: Instr, values: [int], refs: [stri
         return pending
     }
     if i.kind == "call" and i.dest >= 0 {
-        // In this slice the only call with a destination is the concat.
-        refs[i.dest] = operand_str(i.args[0], refs) + operand_str(i.args[1], refs)
+        // A call with a destination returns a string: the concat, or an int rendered.
+        if i.callee == "rt::IntToStr" {
+            refs[i.dest] = "${operand_int(i.args[0], values)}"
+        } else {
+            refs[i.dest] = operand_str(i.args[0], refs) + operand_str(i.args[1], refs)
+        }
         return pending
     }
     left = 0

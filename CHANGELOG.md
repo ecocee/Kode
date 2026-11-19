@@ -7,6 +7,17 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **S4 slice 5: string interpolation, including its literal-head release.** A `print`
+  argument that is an interpolation lowers to a `StrConcat` chain: the head becomes the
+  accumulator (a literal head is released after its first concat — the `release "hi "`
+  line — and a variable head is retained), each further piece releases the old
+  accumulator, an int hole is an owned `rt::IntToStr` temporary released right after its
+  concat, and a lone hole is only a `retain`. The print releases the value it read
+  (`selfhost/mir.kode`); the interpreter renders ints and treats `retain` as a no-op
+  (`selfhost/eval.kode`). Five fixtures came first in `selfhost/spec/run/`, so the gates
+  report **22/22** dumps byte-identical and **22/22** runs with the oracle's output and
+  exit code. Interpolation as a value, non-name holes and float/bool holes are not in.
+
 - **S4 slice 4: strings built at run time, with the oracle's retain/release lines.**
   MIR temporaries now have a type, so a string is a `ref`: `let _0: ref`, zeroed to
   `null`, released before every store (including the first one) and once more in `bb1`;

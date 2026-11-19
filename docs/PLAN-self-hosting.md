@@ -795,6 +795,47 @@ slice adds the retain/release lines the oracle emits. Probing `kode mir` pinned 
 - **Out of scope.** Interpolation (`"hi ${name}"` also releases its literal head —
   a different rule, its own slice), string comparison, `map`/`filter`, functions.
 
+**The plan for slice 5 — interpolation.** `"hi ${name}"` is a `Interp` node whose kids
+are `Lit text="hi "` and `Hole` (one kid, the expression). Probing `kode mir` shows it
+is a concat chain with its own ownership rule — the `release "literal"` line is a
+literal *head* being released as the accumulator:
+
+- The pieces are the non-empty `Lit`s and the holes, in order. The head becomes the
+  accumulator and is made owned: a literal head needs nothing (it is released after
+  its first concat — `_2 = call rt::StrConcat("hi ", _0)`, `release "hi "`), while a
+  head that is a variable is retained first (`retain _0`) and released after.
+- Each following piece is `_t = call rt::StrConcat(acc, piece)`; then the old
+  accumulator is released, then the piece if it is owned. A literal piece that is not
+  the head is borrowed and never released (`", "` and `"!"` in
+  `"hi ${name}, ${n}!"`); an int hole is owned, because it goes through
+  `_t = call rt::IntToStr(_n)` first and is released right after the concat.
+- A lone hole is no concat at all: `retain _0`, then the print, then `release _0`.
+- The result is an owned reference, so the print that reads it releases it after.
+
+- **Files.** `selfhost/mir.kode`: a `Piece` (operand and whether it is owned), the
+  `interp`/`piece`/`hole` lowering, `retain` as an instruction, an `IntToStr` call with
+  a destination, and interpolation as a `print` argument. `selfhost/eval.kode`:
+  `retain` is a no-op like `release`, and `rt::IntToStr` renders an int.
+- **Fixtures first.** Five more in `selfhost/spec/run/`: text with a string hole, text
+  with an int hole, two holes with no text, a lone hole, and `"hi ${name}, ${n}!"`.
+- **Gates.** Unchanged: `mir` byte-identical, `run` output and exit code.
+- **Out of scope.** Interpolation as a value (`x = "hi ${n}"`), a hole that is not a
+  name (an expression, a call, a nested interpolation), and interpolating floats and
+  bools (their `FloatToStr`/`BoolToStr` calls are the same shape, another slice).
+
+**Slice 5 is in.** `selfhost/mir.kode` lowers interpolation as a `print` argument: the
+pieces are lowered where they are concatenated, the head becomes the accumulator (a
+literal head released after its first concat, a borrowed variable head retained), and
+every further piece is `_t = call rt::StrConcat(acc, piece)` with the old accumulator
+released and an owned int hole released too — `release "hi "` is exactly that literal
+head. A lone hole is only `retain _0`, and the print releases the value it read.
+`selfhost/eval.kode` adds `rt::IntToStr` and treats `retain` like `release`, as a no-op.
+Five fixtures came first in `selfhost/spec/run/`: text with a string hole, text with an
+int hole, two holes with no text, a lone hole, and `"hi ${name}, ${n}!"`. The gates
+report **22/22** dumps byte-identical and **22/22** runs with the oracle's output and
+exit code. Still out: interpolation as a value, holes that are not names, and float or
+bool holes.
+
 **Slice 4 is in.** `selfhost/mir.kode` now types its temporaries (`int` or `ref`), so
 a string variable is `let _0: ref`, zeroed to `null`, released before every store, and
 released once in `bb1`; an intermediate reference is released right after its last use
