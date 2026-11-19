@@ -22,7 +22,9 @@ language: a patch release fixes bugs, a minor release may add syntax.
   with a body ends the whole interface after `E0236`. The `parse` gate now compares
   the entire `tests/compile-fail` corpus, not only the slice's own cases, so a
   recovery that drifts is caught where it happens: **169/169** trees and
-  diagnostics byte-identical, **39/39** of the port's own files.
+  diagnostics byte-identical, **39/39** of the port's own files. CI runs it too:
+  the `selfhost` job now ends with `./scripts/selfhost.sh parse` after `stage1`,
+  which adds 1.8 s (416 processes over 208 programs) on the development machine.
 
 - **The port's checker learns declarations.** `selfhost/names.kode` collects every
   name a program declares — functions, constants, classes, enums, interfaces, `from`

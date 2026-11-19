@@ -149,11 +149,12 @@ jobs:
 
   # The self-hosting harness (docs/PLAN-self-hosting.md). Stage 0 records the
   # oracle, Stage 0 then compiles the Kode port, and the two token dumps must
-  # agree byte for byte on every corpus file. One runner is enough: the port is
-  # platform independent, and the point of the job is to catch a parity
-  # regression the moment it lands, not to test four architectures of it.
+  # agree byte for byte on every corpus file. The parser is compared too, over
+  # the whole compile-fail corpus, so what S2 refuses cannot drift. One runner is
+  # enough: the port is platform independent, and the point of the job is to catch
+  # a parity regression the moment it lands, not to test four architectures of it.
   selfhost:
-    name: selfhost (stage0 -> stage1)
+    name: selfhost (stage0 -> stage1 -> parse)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -173,6 +174,12 @@ jobs:
 
       - name: Stage 0 builds the Kode lexer; token dumps must match
         run: ./scripts/selfhost.sh stage1
+
+      # Trees and diagnostics, byte for byte: the S2 cases, the port's own
+      # sources, and every `tests/compile-fail` program — the oracle's own list
+      # of what a parser must refuse, and the gate that keeps recovery honest.
+      - name: Stage 1 parses the corpus; trees and diagnostics must match
+        run: ./scripts/selfhost.sh parse
 
       - name: Keep the measurements
         uses: actions/upload-artifact@v4
