@@ -13,6 +13,17 @@
 //   * `a + b` lowers `a`, then `b`, then emits `_N = add a, b`, where an operand
 //     prints as itself (`1`) or as its temporary (`_0`).
 //
+// Slice 4 makes a string a reference (`ref`), which is what the retain/release lines
+// are about:
+//
+//   * a string temporary is `    let _0: ref` and is zeroed to `_0 = null`;
+//   * storing into a string variable releases the old value first, always, including
+//     the first store over the null (`release _0`, then `_0 = "a"`);
+//   * an intermediate reference is released at its last use (`call rt::PrintStr(_1)`
+//     then `release _1`), while a variable is released once in `bb1`, in index order;
+//   * `x + y` on strings is `_N = call rt::StrConcat(x, y)`; a literal argument is
+//     borrowed, and a result stored into a variable is moved, not released.
+//
 // A statement outside those shapes sets `ok = false` with a reason, and `main.kode`
 // says so and exits 2 rather than printing a MIR that would not run.
 
@@ -82,10 +93,10 @@ pub class Builder {
     ok: bool = true
     why: string = ""
 
-    /// A new temporary, optionally the variable it belongs to.
-    fn temp(name: string) -> int {
+    /// A new temporary, of the given kind, optionally the variable it belongs to.
+    fn temp(name: string, kind: string) -> int {
         index = main.temps.len()
-        main.temps.add(Temp(name: name))
+        main.temps.add(Temp(kind: kind, name: name))
         return index
     }
 
@@ -96,6 +107,34 @@ pub class Builder {
             }
         }
         return -1
+    }
+
+    /// The type of an operand's value: the temporary's, or the literal's kind. A
+    /// reference temporary holds a string, so it reads as `str` here, while its slot
+    /// stays declared `ref`.
+    fn kind_of(o: Operand) -> string {
+        if o.is_temp {
+            if main.temps[o.index].kind == "ref" {
+                return "str"
+            }
+            return main.temps[o.index].kind
+        }
+        return o.value.kind
+    }
+
+    /// The runtime call that prints a value of that kind.
+    fn print_primitive(o: Operand) -> string {
+        kind = kind_of(o)
+        if kind == "int" {
+            return "rt::PrintInt"
+        }
+        if kind == "float" {
+            return "rt::PrintFloat"
+        }
+        if kind == "bool" {
+            return "rt::PrintBool"
+        }
+        return "rt::PrintStr"
     }
 
     fn stop(reason: string) {
@@ -151,15 +190,25 @@ pub class Builder {
         if not ok {
             return
         }
-        if not is_int(operand) {
-            stop("`${var_name}` holding something other than an int")
+        kind = kind_of(operand)
+        if kind != "int" and kind != "str" {
+            stop("`${var_name}` holding a `${kind}`")
             return
         }
+        slot_kind = temp_kind(kind)
         index = slot(var_name)
         if index < 0 {
-            index = temp(var_name)
+            index = temp(var_name, slot_kind)
             names.add(var_name)
             slots.add(index)
+        } else if main.temps[index].kind != slot_kind {
+            stop("`${var_name}` changing from `${main.temps[index].kind}` to `${slot_kind}`")
+            return
+        }
+        // A reference slot releases what it held before it is overwritten — for the
+        // first store too, where the oracle releases the null it was zeroed with.
+        if slot_kind == "ref" {
+            block.instrs.add(Instr(kind: "release", args: [Operand(is_temp: true, index: index)]))
         }
         block.instrs.add(Instr(kind: "assign", dest: index, args: [operand]))
     }
@@ -180,6 +229,10 @@ pub class Builder {
                 return
             }
             block.instrs.add(Instr(kind: "call", callee: print_primitive(operand), args: [operand]))
+            // A variable lives to the end of the function; an intermediate dies here.
+            if operand.is_temp and main.temps[operand.index].kind == "ref" and main.temps[operand.index].name == "" {
+                block.instrs.add(Instr(kind: "release", args: [operand]))
+            }
         }
         block.instrs.add(Instr(kind: "call", callee: "rt::PrintNl"))
     }
@@ -206,14 +259,10 @@ pub class Builder {
         return Operand()
     }
 
-    /// `a <op> b` for one of the five integer operators, one instruction each.
+    /// `a <op> b`: `+` on strings is a concat, the five integer operators are one
+    /// instruction each.
     fn binary(id: int) -> Operand {
         op = ast.attr_raw(id, "op")
-        mnemonic = operator_name(op)
-        if mnemonic == "" {
-            stop("the operator `${op}`, which this slice cannot lower")
-            return Operand()
-        }
         kids = ast.nodes[id].kids
         if kids.len() != 2 {
             stop("a `${op}` without two operands")
@@ -224,11 +273,27 @@ pub class Builder {
         if not ok {
             return Operand()
         }
-        if not is_int(left) or not is_int(right) {
-            stop("`${op}` on something other than int")
+        left_kind = kind_of(left)
+        right_kind = kind_of(right)
+        if op == "+" and (left_kind == "str" or right_kind == "str") {
+            if left_kind != "str" or right_kind != "str" {
+                stop("`+` between a `${left_kind}` and a `${right_kind}`")
+                return Operand()
+            }
+            index = temp("", "ref")
+            block.instrs.add(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [left, right]))
+            return Operand(is_temp: true, index: index)
+        }
+        mnemonic = operator_name(op)
+        if mnemonic == "" {
+            stop("the operator `${op}`, which this slice cannot lower")
             return Operand()
         }
-        index = temp("")
+        if left_kind != "int" or right_kind != "int" {
+            stop("`${op}` on a `${left_kind}` and a `${right_kind}`")
+            return Operand()
+        }
+        index = temp("", "int")
         block.instrs.add(Instr(kind: mnemonic, dest: index, args: [left, right]))
         return Operand(is_temp: true, index: index)
     }
@@ -272,13 +337,12 @@ fn operator_name(op: string) -> string {
     return ""
 }
 
-/// A bool operand that is an int: an int literal, or a temporary (only `add` and an
-/// int assignment make one, so a temporary is an int in this slice).
-fn is_int(o: Operand) -> bool {
-    if o.is_temp {
-        return true
+/// The temporary kind a value's kind needs: a string is a reference.
+fn temp_kind(kind: string) -> string {
+    if kind == "str" {
+        return "ref"
     }
-    return o.value.kind == "int"
+    return "int"
 }
 
 /// Lower a program to the one function these slices can build.
@@ -294,10 +358,15 @@ pub fn build(ast: Ast) -> Mir {
     if not b.ok {
         return Mir(functions: [], ok: false, why: b.why)
     }
-    // The oracle opens `bb0` with one zero per temporary, in index order.
+    // The oracle opens `bb0` with one zero per temporary, in index order: `0` for an
+    // int and `null` for a reference.
     zeros: [Instr] = []
     for k in 0..main.temps.len() {
-        zeros.add(Instr(kind: "assign", dest: k, args: [Operand(value: Value(kind: "int"))]))
+        start = Value(kind: "int")
+        if main.temps[k].kind == "ref" {
+            start = Value(kind: "null")
+        }
+        zeros.add(Instr(kind: "assign", dest: k, args: [Operand(value: start)]))
     }
     for one in b.block.instrs {
         zeros.add(one)
@@ -305,28 +374,16 @@ pub fn build(ast: Ast) -> Mir {
     zeros.add(Instr(kind: "goto", target: "bb1"))
     main.blocks.add(Block(label: "bb0", instrs: zeros))
     end = Block(label: "bb1")
+    // Every named reference is released once on the way out.
+    for k in 0..main.temps.len() {
+        if main.temps[k].kind == "ref" and main.temps[k].name != "" {
+            end.instrs.add(Instr(kind: "release", args: [Operand(is_temp: true, index: k)]))
+        }
+    }
     end.instrs.add(Instr(kind: "return"))
     main.blocks.add(end)
     mir.functions.add(main)
     return mir
-}
-
-/// The runtime call that prints a value of that kind.
-fn print_primitive(o: Operand) -> string {
-    kind = o.value.kind
-    if o.is_temp {
-        return "rt::PrintInt"
-    }
-    if kind == "int" {
-        return "rt::PrintInt"
-    }
-    if kind == "float" {
-        return "rt::PrintFloat"
-    }
-    if kind == "bool" {
-        return "rt::PrintBool"
-    }
-    return "rt::PrintStr"
 }
 
 /// The dump's lines: the oracle's layout, the `let` block, then the blocks.
@@ -366,12 +423,22 @@ fn instr_text(i: Instr) -> string {
     if i.kind == "return" {
         return "return"
     }
+    if i.kind == "release" {
+        return "release ${operand_text(i.args[0])}"
+    }
     if i.dest >= 0 {
         if i.kind == "assign" {
             return "_${i.dest} = ${operand_text(i.args[0])}"
         }
+        if i.kind == "call" {
+            return "_${i.dest} = call ${i.callee}(${call_args(i)})"
+        }
         return "_${i.dest} = ${i.kind} ${operand_text(i.args[0])}, ${operand_text(i.args[1])}"
     }
+    return "call ${i.callee}(${call_args(i)})"
+}
+
+fn call_args(i: Instr) -> string {
     parts = ""
     for arg in i.args {
         if parts != "" {
@@ -379,7 +446,7 @@ fn instr_text(i: Instr) -> string {
         }
         parts += operand_text(arg)
     }
-    return "call ${i.callee}(${parts})"
+    return parts
 }
 
 fn operand_text(o: Operand) -> string {

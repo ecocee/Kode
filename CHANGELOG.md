@@ -7,6 +7,17 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **S4 slice 4: strings built at run time, with the oracle's retain/release lines.**
+  MIR temporaries now have a type, so a string is a `ref`: `let _0: ref`, zeroed to
+  `null`, released before every store (including the first one) and once more in `bb1`;
+  an intermediate is released right after its last use; `+` on strings lowers to
+  `_N = call rt::StrConcat(a, b)` with borrowed literals and a moved result
+  (`selfhost/mir.kode`). The interpreter keeps a string per reference temporary and
+  treats `release` as a no-op, since it has no counts to drop (`selfhost/eval.kode`).
+  Five fixtures came first in `selfhost/spec/run/`, so the gates report **17/17** dumps
+  byte-identical and **17/17** runs with the oracle's output and exit code.
+  Interpolation is not in yet: it also releases its literal head, a rule of its own.
+
 - **S4 slice 3: reassignment and the rest of the integer operators.** A declaration
   now lowers its value before it allocates the variable (`x = 1 + 2` is
   `_0 = add 1, 2` then `_1 = _0`, which slice 2 only got right by accident), a

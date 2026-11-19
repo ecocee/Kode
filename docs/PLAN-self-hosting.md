@@ -769,6 +769,45 @@ out of scope; `0 - x` is the shape that exists.
   a truncating division.
 - **Gates.** Unchanged: `mir` byte-identical, `run` output and exit code.
 
+**The plan for slice 4 — strings built at run time.** A string is a reference, so the
+slice adds the retain/release lines the oracle emits. Probing `kode mir` pinned them:
+
+- A string temporary is a `ref`: `    let _0: ref  // x`, zeroed to `_0 = null`.
+- Storing into a string *variable* releases the old value first, always — including
+  the first store over the null: `release _0`, then `_0 = "a"`. A reassignment is the
+  same: `release _0`, `_0 = "b"`.
+- An *intermediate* reference is released at its last use: `call rt::PrintStr(_1)`
+  then `release _1`. A variable is not released after a print; every named string
+  variable is released once in `bb1`, in index order, before `return`.
+- `x + y` on strings is `_N = call rt::StrConcat(x, y)`; a literal argument is
+  borrowed and never released, and a result stored into a variable is moved, not
+  released (`_1 = call rt::StrConcat(_0, "b")`, `release _2`, `_2 = _1`).
+
+- **Files.** `selfhost/mir.kode`: `Temp.kind` becomes real (`int`/`ref`), a `release`
+  instruction and a `dest`-carrying `call`, `x + y` dispatches on the operand's type,
+  and `assign` emits the release-before-store it learned. `selfhost/eval.kode` keeps a
+  string per ref temporary; `release` is a no-op there, because the interpreter has no
+  reference counts to drop (the gate still checks the instruction is emitted).
+- **Fixtures first.** Five more in `selfhost/spec/run/`: a string variable, two string
+  variables concatenated, a variable plus a literal, a reassignment with a print in
+  between, and `print("a" + "b")`.
+- **Gates.** Unchanged: `mir` byte-identical, `run` output and exit code.
+- **Out of scope.** Interpolation (`"hi ${name}"` also releases its literal head —
+  a different rule, its own slice), string comparison, `map`/`filter`, functions.
+
+**Slice 4 is in.** `selfhost/mir.kode` now types its temporaries (`int` or `ref`), so
+a string variable is `let _0: ref`, zeroed to `null`, released before every store, and
+released once in `bb1`; an intermediate reference is released right after its last use
+(`call rt::PrintStr(_2)`, then `release _2`), and `+` on strings is
+`_N = call rt::StrConcat(a, b)` with borrowed literal arguments and a moved result.
+`selfhost/eval.kode` keeps a string per reference temporary and treats `release` as a
+no-op, because the interpreter has no counts to drop — the gate still checks the
+instruction is emitted, byte for byte. Five fixtures came first in
+`selfhost/spec/run/` (a string variable, two concatenated, a variable plus a literal, a
+reassignment with prints in between, and `print("a" + "b")`): the gates report
+**17/17** dumps byte-identical and **17/17** runs with the oracle's output and exit
+code. Interpolation is the next slice, with its own literal-head release rule.
+
 **Slice 3 is in.** `selfhost/mir.kode` lowers a declaration by lowering its value
 first (`x = 1 + 2` is `_0 = add 1, 2` then `_1 = _0`, with `let _1: int  // x`), a
 reassignment into the existing slot (`x = x + 1` is `_1 = add _0, 1` then `_0 = _1`,

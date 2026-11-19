@@ -1,11 +1,13 @@
 // The interpreter over that MIR (S4): what a program prints.
 //
-// The evaluator keeps one `int` per temporary and walks the instructions in order:
-// an assignment writes a temporary, an `add` writes the sum of its operands, and the
-// print primitives append to a pending line — a separator appends a space, and
-// `PrintNl` prints the line and clears it, the separator and newline rule `print`
-// has. `goto` and `return` carry no work yet; slice 2's MIR is still one straight
-// block, and control flow arrives with the branch that needs it.
+// The evaluator keeps one `int` and one `string` per temporary and walks the
+// instructions in order: an assignment or a `StrConcat` writes a temporary, an integer
+// operator writes the result of its operands, and the print primitives append to a
+// pending line — a separator appends a space, and `PrintNl` prints the line and clears
+// it, the separator and newline rule `print` has. `release` is a no-op here: the
+// interpreter has no reference counts to drop, and the gate still checks that the
+// instruction is emitted. `goto` and `return` carry no work yet; the MIR is still one
+// straight block, and control flow arrives with the branch that needs it.
 
 from "./mir" import Block, Function, Instr, Mir, Operand, print_text
 
@@ -14,20 +16,34 @@ pub fn run(mir: Mir) {
     pending = ""
     for f in mir.functions {
         values: [int] = []
+        refs: [string] = []
         for k in 0..f.temps.len() {
             values.add(0)
+            refs.add("")
         }
         for b in f.blocks {
             for i in b.instrs {
-                pending = print_step(pending, i, values)
+                pending = print_step(pending, f, i, values, refs)
             }
         }
     }
 }
 
-fn print_step(pending: string, i: Instr, values: [int]) -> string {
+fn print_step(pending: string, f: Function, i: Instr, values: [int], refs: [string]) -> string {
+    if i.kind == "release" {
+        return pending
+    }
     if i.kind == "assign" {
-        values[i.dest] = operand_int(i.args[0], values)
+        if f.temps[i.dest].kind == "ref" {
+            refs[i.dest] = operand_str(i.args[0], refs)
+        } else {
+            values[i.dest] = operand_int(i.args[0], values)
+        }
+        return pending
+    }
+    if i.kind == "call" and i.dest >= 0 {
+        // In this slice the only call with a destination is the concat.
+        refs[i.dest] = operand_str(i.args[0], refs) + operand_str(i.args[1], refs)
         return pending
     }
     left = 0
@@ -72,6 +88,9 @@ fn print_step(pending: string, i: Instr, values: [int]) -> string {
     if i.callee == "rt::PrintInt" {
         return pending + "${operand_int(i.args[0], values)}"
     }
+    if i.callee == "rt::PrintStr" {
+        return pending + operand_str(i.args[0], refs)
+    }
     return pending + print_text(i.args[0].value)
 }
 
@@ -80,4 +99,11 @@ fn operand_int(o: Operand, values: [int]) -> int {
         return values[o.index]
     }
     return o.value.int_value
+}
+
+fn operand_str(o: Operand, refs: [string]) -> string {
+    if o.is_temp {
+        return refs[o.index]
+    }
+    return o.value.str_value
 }
