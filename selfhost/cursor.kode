@@ -23,6 +23,12 @@ pub class Cursor {
     /// a closing token.
     last_end: int = 0
     errors: [ParseError] = []
+    /// How many expression, block and type productions are open right now: the
+    /// nesting level `depth.kode` limits.
+    depth: int = 0
+    /// Set by the first nesting error. From then on the tree is unreliable, so
+    /// nothing else is reported and the parse unwinds.
+    fatal: bool = false
 
     fn peek() -> TokenKind {
         if at < tokens.len() {
@@ -159,6 +165,11 @@ pub class Cursor {
     }
 
     fn fail(code: string, message: string, start: int, end: int, help: string) {
+        // One report is enough once the nesting limit was hit: every enclosing
+        // production would otherwise fail too.
+        if fatal {
+            return
+        }
         errors.add(
             ParseError(code: code, message: message, start: start, end: end, help: help)
         )

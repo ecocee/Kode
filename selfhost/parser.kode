@@ -10,6 +10,7 @@
 from "./ast" import Ast
 from "./cursor" import Cursor, ParseError
 from "./decls" import Decls
+from "./depth" import MAX_NESTING, too_deep
 from "./tokens" import Lexed
 
 pub class Parsed {
@@ -46,6 +47,20 @@ pub class Parser {
                 // recovery: the next item is reported, not the rest of this one.
                 // The parser below has usually skipped already.
                 c.recover_line()
+            }
+        }
+        // The parser guards its own recursion; this catches what a loop built, and
+        // only a clean tree is walked, exactly as the oracle does.
+        if c.errors.len() == 0 {
+            span = too_deep(ast)
+            if span.len() == 2 {
+                c.fail(
+                    "E0118",
+                    "this nests deeper than ${MAX_NESTING} levels",
+                    span[0],
+                    span[1],
+                    "split it up: bind part of it to a variable on its own line, or use a loop",
+                )
             }
         }
         return Parsed(ast: ast, errors: c.errors)

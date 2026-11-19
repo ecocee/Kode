@@ -78,14 +78,16 @@ check_gates() {
     echo "  work packets: $met met, $blocked blocked ($out)"
 }
 
-# Compare `kode ast` with the port's parser: trees in `selfhost/spec/parse`, and
-# trees plus diagnostics in `selfhost/spec/parse-errors` (where stderr is the point).
-# Both are compared byte for byte, stdout and stderr. Only those directories: S2
-# parses a subset, so running the whole corpus would compare files the port does not
-# handle yet. A case is the acceptance test for the slice it came with; this refuses
-# to report success when there are no cases at all.
+# Compare `kode ast` with the port's parser: trees in `selfhost/spec/parse`, trees
+# plus diagnostics in `selfhost/spec/parse-errors` (where stderr is the point), and
+# the whole `tests/compile-fail` corpus. The corpus is there to catch drift: those
+# programs are the oracle's own list of what a parser must refuse, so a recovery
+# that starts reporting an extra or a different code changes the count here, not
+# months later in a slice. All three are compared byte for byte, stdout and stderr.
+# A case is the acceptance test for the slice it came with; this refuses to report
+# success when there are no cases at all.
 check_parse() {
-    local dirs=("$ROOT/selfhost/spec/parse" "$ROOT/selfhost/spec/parse-errors")
+    local dirs=("$ROOT/selfhost/spec/parse" "$ROOT/selfhost/spec/parse-errors" "$ROOT/tests/compile-fail")
     local out="$OUT/parse" total=0 bad=0 dir file
     if [[ ! -x "$STAGE1" ]]; then
         echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2

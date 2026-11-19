@@ -7,6 +7,23 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port's parser refuses what the oracle refuses.** `selfhost/depth.kode`
+  enforces the 128-level nesting limit (ADR 0032) the way the oracle does, in two
+  places: a guard on entry to the expression, block and type productions, which
+  catches `((((1))))` and a tower of `if`s at the token the oracle points at, and a
+  walk over the finished tree with an explicit stack (mirroring
+  `crates/kode-syntax/src/depth.rs`, push order and transparent wrappers included),
+  which catches what a loop built — `1 + 1 + ...` is left-deep and costs the later
+  passes one frame per term. Both report `E0118`, and the walk only runs on a clean
+  tree. Recovery now matches the oracle on four productions: `fn` without a name and
+  `for` without a loop variable report `E0110` and skip the line (which is why the
+  closing `}` is then a statement, `E0102`); a type the oracle refused ends a typed
+  declaration instead of reporting `E0107` on the `:` it stopped at; and a signature
+  with a body ends the whole interface after `E0236`. The `parse` gate now compares
+  the entire `tests/compile-fail` corpus, not only the slice's own cases, so a
+  recovery that drifts is caught where it happens: **169/169** trees and
+  diagnostics byte-identical, **39/39** of the port's own files.
+
 - **The port's checker learns declarations.** `selfhost/names.kode` collects every
   name a program declares — functions, constants, classes, enums, interfaces, `from`
   names — before any file is walked, and reports the declarations that cannot stand:

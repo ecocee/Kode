@@ -11,8 +11,10 @@
 // `contracts.kode`; interpolated strings are in `interp.kode`.
 
 from "./ast" import Ast
+from "./collections" import Collections
 from "./contracts" import Blocks, Expressions
 from "./cursor" import Cursor
+from "./depth" import guard
 from "./infix" import BP_NOT, BP_UNARY, infix_of
 from "./literals" import float_text, parse_int
 from "./closures" import Forms
@@ -47,7 +49,23 @@ pub class Exprs implements Expressions {
         return Interp(c: c, ast: ast, exprs: Exprs(c: c, ast: ast, blocks: blocks))
     }
 
+    fn colls() -> Collections {
+        return Collections(c: c, ast: ast, exprs: Exprs(c: c, ast: ast, blocks: blocks))
+    }
+
+    /// Every recursive descent into an expression comes through here, so the
+    /// nesting guard lives here and not in the operators.
     fn expr_bp(min_bp: int) -> int {
+        if guard(c) {
+            return -1
+        }
+        c.depth += 1
+        value = expr_at(min_bp)
+        c.depth -= 1
+        return value
+    }
+
+    fn expr_at(min_bp: int) -> int {
         lhs = prefix()
         if lhs < 0 {
             return lhs
@@ -244,10 +262,10 @@ pub class Exprs implements Expressions {
             return inner
         }
         if kind == TokenKind.LBracket {
-            return list_expr()
+            return colls().list_expr()
         }
         if kind == TokenKind.LBrace {
-            return map_expr()
+            return colls().map_expr()
         }
         token = c.at
         c.fail(
@@ -428,72 +446,4 @@ pub class Exprs implements Expressions {
         return args
     }
 
-    fn list_expr() -> int {
-        open_at = c.at
-        c.advance()
-        c.skip_newlines()
-        id = ast.counted("List")
-        while c.peek() != TokenKind.RBracket {
-            item = expr()
-            if item < 0 {
-                return -1
-            }
-            ast.kid(id, item)
-            c.skip_newlines()
-            if c.peek() == TokenKind.Comma {
-                c.advance()
-                c.skip_newlines()
-            } else {
-                break
-            }
-        }
-        c.expect_close(TokenKind.RBracket, "`]` or `,`")
-        ast.span(id, "span", c.token_start(open_at), c.last_end)
-        return id
-    }
-
-    fn map_expr() -> int {
-        open_at = c.at
-        c.advance()
-        c.skip_newlines()
-        id = ast.counted("Map")
-        while c.peek() != TokenKind.RBrace {
-            entry = ast.add("Entry")
-            key = expr()
-            if key < 0 {
-                return -1
-            }
-            ast.kid(entry, key)
-            if c.peek() == TokenKind.Colon {
-                c.advance()
-            } else {
-                c.fail(
-                    "E0103",
-                    "expected `:` between a key and its value, found ${c.describe(c.at)}",
-                    c.token_start(c.at),
-                    c.token_end(c.at),
-                    "",
-                )
-            }
-            c.skip_newlines()
-            value = expr()
-            if value < 0 {
-                return -1
-            }
-            ast.kid(entry, value)
-            ast.kid(id, entry)
-            c.skip_newlines()
-            if c.peek() == TokenKind.Comma {
-                c.advance()
-                c.skip_newlines()
-            } else {
-                break
-            }
-        }
-        c.expect_close(TokenKind.RBrace, "`}` or `,`")
-        ast.span(id, "span", c.token_start(open_at), c.last_end)
-        return id
-    }
-
-    // ---- helpers ----
 }

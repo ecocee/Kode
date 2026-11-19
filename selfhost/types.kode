@@ -11,14 +11,26 @@
 
 from "./ast" import Ast
 from "./cursor" import Cursor
+from "./depth" import guard
 from "./tokens" import TokenKind
 
 pub class Types {
     c: Cursor
     ast: Ast
 
-    /// A type annotation, with the `?` suffix wrapping the whole thing.
+    /// A type annotation, with the `?` suffix wrapping the whole thing. `[int]`,
+    /// `{string: [int]}` and `fn(int) -> int` recurse, so the nesting guard is here.
     fn type_ann() -> int {
+        if guard(c) {
+            return -1
+        }
+        c.depth += 1
+        value = type_at()
+        c.depth -= 1
+        return value
+    }
+
+    fn type_at() -> int {
         start = c.at
         kind = c.peek()
         if kind == TokenKind.Fn {

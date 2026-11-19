@@ -118,7 +118,11 @@ pub class Enums {
                     c.advance()
                 }
                 if c.peek() == TokenKind.Fn {
-                    iface_method(id)
+                    if not iface_method(id) {
+                        // The oracle gives up on the interface at a signature that has
+                        // a body, so the closing `}` is reported as a statement.
+                        return -1
+                    }
                 } else {
                     c.fail(
                         "E0114",
@@ -136,7 +140,8 @@ pub class Enums {
     }
 
     /// `fn area() -> float`: parameters and an optional return type, no body.
-    fn iface_method(iface_id: int) {
+    /// False when the signature had a body, which ends the whole interface.
+    fn iface_method(iface_id: int) -> bool {
         fn_at = c.at
         c.advance()
         name_at = c.at
@@ -148,7 +153,7 @@ pub class Enums {
         ast.kid(iface_id, m)
         if c.peek() != TokenKind.LParen {
             c.fail("E0102", "expected `(` to open the parameter list", c.token_start(c.at), c.token_end(c.at), "write `fn area() -> float`")
-            return
+            return true
         }
         c.advance()
         c.skip_newlines()
@@ -182,6 +187,9 @@ pub class Enums {
                 c.token_end(name_at),
                 "write only the signature; the implementing class writes the body",
             )
+            c.recover_line()
+            return false
         }
+        return true
     }
 }

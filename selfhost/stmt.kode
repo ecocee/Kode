@@ -11,6 +11,7 @@ from "./assign" import Assigns
 from "./ast" import Ast
 from "./contracts" import Blocks
 from "./cursor" import Cursor
+from "./depth" import guard
 from "./expr" import Exprs
 from "./matches" import Matches
 from "./tokens" import TokenKind, starts_value
@@ -103,6 +104,16 @@ pub class Stmts implements Blocks {
 
     /// `{ ... }` with one statement per line. Returns the `Block` node.
     fn block() -> int {
+        if guard(c) {
+            return -1
+        }
+        c.depth += 1
+        id = block_at()
+        c.depth -= 1
+        return id
+    }
+
+    fn block_at() -> int {
         open_at = c.at
         id = ast.add("Block")
         if c.peek() != TokenKind.LBrace {
@@ -196,6 +207,17 @@ pub class Stmts implements Blocks {
     /// operator, so `..` is not swallowed (`BP_ARITH`).
     fn for_stmt() -> int {
         c.advance()
+        if c.peek() != TokenKind.Ident {
+            c.fail(
+                "E0110",
+                "expected a loop variable name, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "",
+            )
+            c.recover_line()
+            return -1
+        }
         names: [int] = []
         names.add(c.at)
         c.advance()

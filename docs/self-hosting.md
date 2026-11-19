@@ -63,10 +63,11 @@ acceptance tests are in [PLAN-self-hosting.md](PLAN-self-hosting.md).
 - **Cycle-safe memory management.** Reference counting only; no `weak`, no
   arenas, no regions.
 - **A compiler written in Kode.** The lexer and parser do (`selfhost/lexer.kode` S1,
-  `selfhost/parser.kode` S2), and the checker resolves names across a loaded module
+  `selfhost/parser.kode` S2, with the 128-level nesting limit in
+  `selfhost/depth.kode`), and the checker resolves names across a loaded module
   graph (`selfhost/sema.kode`, `modules.kode`, `namespace.kode`, `names.kode`,
   `typing.kode`, `annotations.kode`, `items.kode`, `binding.kode`, `operands.kode`,
-  `scope.kode`; S3, 105/165 programs on its gate and 37/37 of the port's own files
+  `scope.kode`; S3, 109/165 programs on its gate and 39/39 of the port's own files
   clean); no MIR builder, evaluator or native backend exists in Kode.
 - **Compiler-scale standard library.** No binary IO, no process streaming, no
   timeouts and no sorting with a comparator. `stderr(...)` exists (ADR 0045), so

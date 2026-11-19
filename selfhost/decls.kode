@@ -78,6 +78,19 @@ pub class Decls {
     /// the same node with the kind `Method`.
     fn fn_decl(fn_at: int, is_pub: bool, kind: string) -> int {
         c.advance()
+        if c.peek() != TokenKind.Ident {
+            // The oracle asks for the name before anything else, and gives no hint
+            // for a token that is not a name.
+            c.fail(
+                "E0110",
+                "expected a function name, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "",
+            )
+            c.recover_line()
+            return -1
+        }
         name_at = c.at
         c.advance()
         id = ast.add(kind)

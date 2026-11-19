@@ -416,6 +416,23 @@ it is inside a function and how many loops deep, so `return` at the top level is
 `E0204` for a literal division by zero. Every new rule is silent when it cannot prove
 the mistake, and the gate after it is **105/165** with **self-check 37/37**.
 
+**Slice 6 is in: the nesting limit, and the corpus in the parse gate.**
+`selfhost/depth.kode` ports ADR 0032 the way the oracle enforces it, in two places.
+A guard on entry to the expression, block and type productions reports `E0118` at the
+token the oracle points at and, once it has, stops the parse — the tree is unreliable
+from there, so nothing else is reported. A walk over the finished tree, with an
+explicit stack and the oracle's own push order, catches what a loop built: a long
+`1 + 1 + ...` is left-deep and costs the type checker, MIR lowering and the code
+generator one frame per term even though the parser never recursed. Both use one
+`MAX_NESTING`; the walk runs only on a tree the parser produced without errors.
+Recovery for four productions was wrong in the same way — it reported one error past
+the one the oracle gives: a `fn` without a name and a `for` without a loop variable
+now report `E0110` and skip the line, a type the oracle refused ends its typed
+declaration instead of adding `E0107`, and an interface signature with a body ends
+the interface after `E0236`. The `parse` gate now covers the whole compile-fail
+corpus as well as the slice's own cases: **169/169** cases and **39/39** of the
+port's own files, and the gate after it is **109/165**.
+
 Every rule stays quiet when it cannot prove the mistake: an operand that is `any` (a
 call, a method call, an index), an optional operand (narrowing is a later slice) and
 two named types (this slice does not read `implements`, so a class stored as one of

@@ -46,9 +46,13 @@ pub class Assigns {
         ast.span(target, "span", c.token_start(name_at), c.token_end(name_at))
         ast.kid(id, target)
         ty = Types(c: c, ast: ast).type_ann()
-        if ty >= 0 {
-            ast.kid(id, ty)
+        if ty < 0 {
+            // A type the oracle refused ends the declaration: it never reaches the
+            // `=` and does not report a second error for it.
+            c.recover_line()
+            return -1
         }
+        ast.kid(id, ty)
         if c.peek() != TokenKind.Assign {
             c.fail(
                 "E0107",
