@@ -7,6 +7,26 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Lists: literals, `Index`, `len`, `for … in` — with element ownership.** Four shapes
+  pinned from `kode mir` first, and one of them was not what it looked like:
+  `rt::ListGet(xs, i, line)`'s third operand is the **source line**, not a version or an
+  element kind (the oracle builds it as `vec![list, index, self.line_of(e.span.start)]`),
+  which is why probing two programs gave 2 and then 4. A literal is
+  `rt::ListNew(kind)` plus a `ListPush` per element (a borrowed element retained first,
+  since the list holds a count); `for x in xs` is four blocks — cond, body, step, exit —
+  over a copy of the list, with the copy released in `bb1` beside the named references
+  and the loop variable retaining the element it borrowed. `len` is `rt::ListLen` for a
+  list and `rt::StrLen` for a string. The interpreter keeps each list's elements in
+  `Owned.items` and drops them with the list, so the shadow counts prove the ownership
+  (the string for-in fixture would leak or double-free otherwise). Fixtures `list_int`,
+  `list_string`, `for_in_list`, `for_in_string`: mir and run **67/67**; the mutation gate
+  now catches **4** of its mutants rather than 2. The `report` fixtures had used a list
+  literal as their blocker and now use a map literal. Honest number: the ledger **rose**
+  from 293 to **305** constructs in the same 52 programs — 56 retired, 68 newly reachable,
+  because a list no longer stops the walk before what comes after it. `eval.kode` split
+  into `eval.kode` (468) and `own.kode` (130) to stay under the line budget, and
+  `readiness`'s fallback line finally names the real next step instead of S3.
+
 - **Bool locals, short-circuit `and`/`or`, the bitwise operators and `const`.** Four
   shapes, all pinned from `kode mir` first. A bool is a local like an int (`let _0: bool`,
   `_0 = false`, then the value); `a and b` / `a or b` allocate the result temporary

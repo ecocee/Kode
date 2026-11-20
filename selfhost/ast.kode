@@ -30,6 +30,9 @@ pub class Node {
 pub class Ast {
     /// The file this tree was parsed from, as the report prints it.
     file: string = ""
+    /// The file's text: a node's span is a byte offset into it, and the lowering needs
+    /// the line an offset falls on (`rt::ListGet` takes one).
+    src: string = ""
     nodes: [Node] = []
     /// `Program expr_count=`: how many expression nodes the parser made.
     expr_count: int = 0

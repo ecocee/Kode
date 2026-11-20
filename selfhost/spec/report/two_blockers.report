@@ -1,2 +1,2 @@
-an expression of kind `List`
-an expression of kind `Index`
+an expression of kind `Map`
+an index on a value this slice cannot type

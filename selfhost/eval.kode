@@ -19,40 +19,7 @@
 // `release` that printed the same bytes.
 
 from "./mir" import Block, Function, Instr, Mir, Operand, print_text
-
-/// A value crossing a call boundary: the argument into a frame, or the result out.
-class Slot {
-    kind: string = "unit"
-    i: int = 0
-    x: float = 0.0
-    s: string = ""
-    b: bool = false
-    /// The reference object the value is, for the ownership check (0 for a literal).
-    obj: int = 0
-}
-
-/// What a running function holds: the pending line, one value per temporary, and the
-/// value its `return` handed back. `objects` says which reference object a temporary
-/// holds (0 for null and for a static literal).
-class State {
-    pending: string = ""
-    values: [int] = []
-    floats: [float] = []
-    refs: [string] = []
-    bools: [bool] = []
-    objects: [int] = []
-    ret: Slot = Slot()
-}
-
-/// The shadow reference counts the whole run shares: one count per object, whether it
-/// has been freed, and the first violation found.
-class Owned {
-    counts: [int] = []
-    freed: [bool] = []
-    /// The fields of each reference object, in field order: object 0 (null) has none.
-    fields: [[Slot]] = []
-    failure: string = ""
-}
+from "./own" import Owned, Slot, State, check_use, drop_fields, field_index, list_of, new_object, objects_of, own_fail
 
 /// Run `mir` and write its output, exactly as the program would. False when the
 /// ownership check saw a release that had nothing to release, a use after release, or a
@@ -64,6 +31,7 @@ pub fn run(mir: Mir) -> bool {
     owned.counts.add(0)
     owned.freed.add(true)
     owned.fields.add(empty)
+    owned.items.add(empty)
     for f in mir.functions {
         // A declaration is not a program: only `main` runs.
         if not f.entry {
@@ -303,7 +271,33 @@ fn run_runtime(f: Function, i: Instr, st: State, owned: Owned) {
             st.objects[i.dest] = new_object(owned, 0)
         } else if i.callee == "rt::ObjNewClass" {
             st.objects[i.dest] = new_object(owned, operand_int(i.args[0], st))
+        } else if i.callee == "rt::ListNew" {
+            st.objects[i.dest] = new_object(owned, 0)
+        } else if i.callee == "rt::ListLen" {
+            st.values[i.dest] = list_of(owned, f, i.args[0], st).len()
+        } else if i.callee == "rt::StrLen" {
+            check_use(owned, f, i.args[0], st)
+            st.values[i.dest] = operand_str(i.args[0], st).len()
+        } else if i.callee == "rt::ListGet" {
+            check_use(owned, f, i.args[0], st)
+            object = objects_of(f, i.args[0], st)
+            at = operand_int(i.args[1], st)
+            if object == 0 or at < 0 or at >= owned.items[object].len() {
+                own_fail(owned, "a list index out of bounds")
+                return
+            }
+            write_slot(f, i.dest, owned.items[object][at], st)
         }
+        return
+    }
+    if i.callee == "rt::ListPush" {
+        object = objects_of(f, i.args[0], st)
+        if object == 0 {
+            own_fail(owned, "a push into a list that is not there")
+            return
+        }
+        check_use(owned, f, i.args[1], st)
+        owned.items[object].add(read_operand(f, i.args[1], st))
         return
     }
     if i.callee == "rt::PrintNl" {
@@ -338,52 +332,6 @@ fn run_runtime(f: Function, i: Instr, st: State, owned: Owned) {
     st.pending += print_text(i.args[0].value)
 }
 
-/// A new reference object, with the one count its destination holds and `count` fields
-/// (zero: no object, no value).
-fn new_object(owned: Owned, count: int) -> int {
-    owned.counts.add(1)
-    owned.freed.add(false)
-    slots: [Slot] = []
-    for k in 0..count {
-        slots.add(Slot())
-    }
-    owned.fields.add(slots)
-    return owned.counts.len() - 1
-}
-
-/// The field a byte offset names: the header is 24 bytes and a field is 8.
-fn field_index(offset: int) -> int {
-    return (offset - 24) / 8
-}
-
-/// An object's reference fields go with it: the object held one count of each, and the
-/// runtime drops them when the header dies.
-fn drop_fields(owned: Owned, id: int) {
-    for field in owned.fields[id] {
-        if field.kind != "ref" or field.obj == 0 {
-            continue
-        }
-        if owned.counts[field.obj] > 0 {
-            owned.counts[field.obj] -= 1
-        }
-        if owned.counts[field.obj] == 0 and not owned.freed[field.obj] {
-            owned.freed[field.obj] = true
-            drop_fields(owned, field.obj)
-        }
-    }
-}
-
-/// The object an operand holds, if it is a temporary that names one.
-fn objects_of(f: Function, o: Operand, st: State) -> int {
-    if not o.is_temp {
-        return 0
-    }
-    if f.temps[o.index].kind != "ref" {
-        return 0
-    }
-    return st.objects[o.index]
-}
-
 /// A `release`: it takes one count from the object the operand holds, and it must not
 /// take a count that is not there. A literal is static, so releasing one is nothing.
 fn release_ref(owned: Owned, f: Function, o: Operand, st: State) {
@@ -405,16 +353,6 @@ fn release_ref(owned: Owned, f: Function, o: Operand, st: State) {
 }
 
 /// A use of a reference whose count already reached zero: the object is gone.
-fn check_use(owned: Owned, f: Function, o: Operand, st: State) {
-    id = objects_of(f, o, st)
-    if id == 0 {
-        return
-    }
-    if owned.freed[id] and owned.failure == "" {
-        owned.failure = "a use of a reference after its last release"
-    }
-}
-
 /// What an operand stands for right now, as a value that can cross a frame boundary.
 fn read_operand(f: Function, o: Operand, st: State) -> Slot {
     if not o.is_temp {

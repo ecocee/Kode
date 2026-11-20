@@ -1,0 +1,80 @@
+// Lists in the lowering (S4): the element kind a list value carries, and the line
+// number the runtime takes.
+//
+// `kode mir` writes `rt::ListGet(list, index, line)`: the third operand is the source
+// line of the index expression, not a version or a kind — `print(xs[0])` on line 2 is
+// `ListGet(_1, 0, 2)`. `ListSet` takes the same operand for the same reason.
+
+from "./ast" import Ast
+from "./bytes" import byte_at
+from "./lower_core" import Builder
+
+/// The one-based line a byte offset falls on, as `LineMap::line_of` counts it.
+pub fn line_at(src: string, offset: int) -> int {
+    line = 1
+    stop = offset
+    // `size()` is bytes and a span is a byte offset; `len()` counts characters.
+    if stop > src.size() {
+        stop = src.size()
+    }
+    k = 0
+    while k < stop {
+        if byte_at(src, k) == 10 {
+            line += 1
+        }
+        k += 1
+    }
+    return line
+}
+
+/// The element kind a list literal holds, from its first element: `""` when this slice
+/// cannot say (the checker has already proved the list is homogeneous).
+pub fn list_elem_of(b: Builder, node: int) -> string {
+    if b.ast.nodes[node].kind != "List" {
+        return ""
+    }
+    if b.ast.nodes[node].kids.len() == 0 {
+        return ""
+    }
+    first = b.ast.nodes[node].kids[0]
+    kind = b.ast.nodes[first].kind
+    if kind == "Str" {
+        return "str"
+    }
+    if kind == "Int" {
+        return "int"
+    }
+    if kind == "Ident" {
+        slot = b.slot(b.ast.attr_text(first, "name"))
+        if slot < 0 {
+            return ""
+        }
+        if b.main.temps[slot].kind == "ref" {
+            return "str"
+        }
+        return "int"
+    }
+    return ""
+}
+
+/// Record that the variable at `index` now holds the list `node` builds, so an index or
+/// a `for` over it knows its elements. Everything else leaves it as it was.
+pub fn record_elem(b: Builder, index: int, node: int) {
+    kind = b.ast.nodes[node].kind
+    if kind == "List" {
+        elem = list_elem_of(b, node)
+        if elem != "" {
+            b.set_elem(index, elem)
+        }
+        return
+    }
+    if kind == "Ident" {
+        origin = b.slot(b.ast.attr_text(node, "name"))
+        if origin >= 0 {
+            elem = b.elem_of(origin)
+            if elem != "" {
+                b.set_elem(index, elem)
+            }
+        }
+    }
+}

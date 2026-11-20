@@ -7,7 +7,8 @@ from "./consts" import find_const
 from "./lower_core" import Builder
 from "./mir" import Instr, Operand, Piece, Value
 from "./pieces" import lower_interp, lower_literal, release_args
-from "./ops" import compare_name, operator_name
+from "./lists" import line_at, list_elem_of
+from "./ops" import compare_name, elem_slot, list_new_code, operator_name
 
 pub fn lower_stmt_call(b: Builder, id: int) {
     lower_call_expr(b, id)
@@ -15,6 +16,10 @@ pub fn lower_stmt_call(b: Builder, id: int) {
 
 pub fn lower_call_expr(b: Builder, id: int) -> Operand {
     name = b.ast.attr_text(id, "callee")
+    // `len`: the list's length, or the string's.
+    if name == "len" {
+        return lower_len(b, id)
+    }
     // `P()` is not a call: it builds an object, and the oracle's shape for that is
     // `rt::ObjNewClass` plus one `store` per field's default.
     ci = find_class(b.classes, name)
@@ -49,6 +54,92 @@ pub fn lower_call_expr(b: Builder, id: int) -> Operand {
     dest = b.temp("", ret)
     b.emit(Instr(kind: "call", callee: name, dest: dest, args: args))
     release_args(b, args)
+    return Operand(is_temp: true, index: dest)
+}
+
+/// `len(x)`: `rt::ListLen` for a list, `rt::StrLen` for a string, one instruction.
+fn lower_len(b: Builder, id: int) -> Operand {
+    kids = b.ast.nodes[id].kids
+    if kids.len() != 1 or b.ast.nodes[kids[0]].kids.len() != 1 {
+        b.stop("a `len` with no argument")
+        return Operand(value: Value(kind: "?"))
+    }
+    arg_node = b.ast.nodes[kids[0]].kids[0]
+    arg = lower_expr(b, arg_node)
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", "int")
+    if arg.is_temp and b.elem_of(arg.index) != "" {
+        b.emit(Instr(kind: "call", dest: dest, callee: "rt::ListLen", args: [arg]))
+        return Operand(is_temp: true, index: dest)
+    }
+    if b.kind_of(arg) == "str" {
+        b.emit(Instr(kind: "call", dest: dest, callee: "rt::StrLen", args: [arg]))
+        return Operand(is_temp: true, index: dest)
+    }
+    b.stop("a `len` of a `${b.kind_of(arg)}`")
+    return Operand(value: Value(kind: "?"))
+}
+
+/// `[a, b, c]`: `rt::ListNew` and one `rt::ListPush` per element. A borrowed reference
+/// is retained first — the list holds a count of it.
+fn lower_list(b: Builder, id: int) -> Operand {
+    kids = b.ast.nodes[id].kids
+    elem = list_elem_of(b, id)
+    if elem == "" {
+        b.stop("a list whose elements this slice cannot type")
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", "ref")
+    b.set_elem(dest, elem)
+    b.emit(Instr(kind: "call", dest: dest, callee: "rt::ListNew", args: [Operand(value: Value(kind: "int", int_value: list_new_code(elem)))]))
+    for kid in kids {
+        op = lower_expr(b, kid)
+        if not b.ok {
+            return Operand(value: Value(kind: "?"))
+        }
+        if elem == "str" and b.borrowed(op) {
+            b.emit(Instr(kind: "retain", args: [op]))
+        }
+        b.emit(Instr(kind: "call", callee: "rt::ListPush", args: [Operand(is_temp: true, index: dest), op]))
+    }
+    return Operand(is_temp: true, index: dest)
+}
+
+/// `xs[i]`: `rt::ListGet(xs, i, line)`, a borrow of what the list owns.
+fn lower_index(b: Builder, id: int) -> Operand {
+    kids = b.ast.nodes[id].kids
+    if kids.len() != 2 {
+        b.stop("an index without two operands")
+        return Operand(value: Value(kind: "?"))
+    }
+    base = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    elem = ""
+    if base.is_temp {
+        elem = b.elem_of(base.index)
+    }
+    if elem == "" {
+        b.stop("an index on a value this slice cannot type")
+        return Operand(value: Value(kind: "?"))
+    }
+    idx = lower_expr(b, kids[1])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(idx) != "int" {
+        b.stop("an index that is a `${b.kind_of(idx)}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", elem_slot(elem))
+    line = line_at(b.ast.src, b.ast.nodes[id].start)
+    b.emit(Instr(kind: "call", dest: dest, callee: "rt::ListGet", args: [base, idx, Operand(value: Value(kind: "int", int_value: line))]))
+    if elem == "str" {
+        b.main.temps[dest].borrowed = true
+    }
     return Operand(is_temp: true, index: dest)
 }
 
@@ -113,6 +204,12 @@ pub fn lower_expr(b: Builder, id: int) -> Operand {
             return Operand(value: Value(kind: "?"))
         }
         return Operand(is_temp: true, index: index)
+    }
+    if kind == "List" {
+        return lower_list(b, id)
+    }
+    if kind == "Index" {
+        return lower_index(b, id)
     }
     if kind == "Call" {
         return lower_call_expr(b, id)

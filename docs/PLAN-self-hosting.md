@@ -804,6 +804,31 @@ slice adds the retain/release lines the oracle emits. Probing `kode mir` pinned 
   variable argument still lives in its own slot. Fixtures: `interp_assign`,
   `interp_assign_sole`, `interp_assign_int`, `interp_arg`, `interp_return`; the corpus
   drops one construct (`errors.kode`'s `Interp`), 318 → 317.
+- **Lists (slice 15).** The oracle's list shape, read off `kode mir` before a line was
+  written: `xs = [1, 2, 3]` is `_0 = call rt::ListNew(0)` (the argument is 1 when the
+  elements are references) and one `call rt::ListPush(_0, e)` per element, where a
+  borrowed element is retained first because the list holds a count of it; `xs[i]` is
+  `_n = call rt::ListGet(xs, i, line)` and **the third operand is the source line**, not a
+  version or a kind (`print(xs[0])` on line 2 is `ListGet(_1, 0, 2)`; a `ListSet` passes
+  the same operand, which is why adding a write shifts the numbers) — `kode-mir` builds
+  it as `vec![list, index, self.line_of(e.span.start)]`, and the port recovers the line
+  from the span with `line_at`, which counts bytes (`size()`) rather than characters
+  (`len()`: the first version crashed on a file with an em dash); `len(xs)` is
+  `rt::ListLen`, `len(s)` is `rt::StrLen`; and `for x in xs` is four blocks — a copy of
+  the list (`retain`, `release`, `assign`), its length, an index from 0, then `cond`
+  (`lt i, n`, branch), `body` (`ListGet`, the loop variable, the statements, `goto step`),
+  `step` (`i = add i, 1`, `goto cond`) and `exit` — with the loop variable a named
+  temporary of the element's kind, a reference element retained into it, and the list
+  copy released with the named references in `bb1` (`Builder.at_end` is the new list of
+  unnamed temporaries that own a reference to the end). Element ownership in the
+  interpreter: `Owned.items` holds each list's elements, a push moves the count the
+  `retain` made, a `ListGet` is a borrow, and dropping a list drops its items. Fixtures
+  `list_int`, `list_string`, `for_in_list`, `for_in_string`: mir/run **67/67**. The
+  `report` fixtures used a list literal as their blocker, so they now use a map literal
+  (`an expression of kind \`Map\``), which is the next block; the ledger **rose** from 293
+  to 305 constructs in the same 52 programs — 56 retired, 68 newly reachable, because a
+  list expression no longer stops the walk before what follows it. `eval.kode` split into
+  `values`/counts in `own.kode` (468 + 130) to stay under the line budget.
 - **Locals that are not numbers, and operators that are not arithmetic (slice 14).**
   Three oracle facts decided it. A `bool` local is an int local with other zero
   (`let _0: bool`, `_0 = false`, `_0 = true`). `and`/`or` **short-circuit in the MIR**:
@@ -1033,20 +1058,24 @@ that keeps being walked after a refusal, and a refused declaration that is then 
 runs the `mir` and `run` comparisons over `tests/run-pass` rather than the hand-written
 fixtures. Today **6 of 58** programs lower — `hello`, `nesting_ok`, `functions`,
 `early_return_strings`, `int_arith` and `bools_logic`, byte-identical and running — and the
-other 52 need **311 constructs** between them. The number keeps moving as the walk sees
+other 52 need **305 constructs** between them. The number keeps moving as the walk sees
 more: 296 at first, 304 when function bodies became visible, 318 when call arguments did,
-311 once a unary and an interpolated value lower (two whole programs left the list). That is the point of a generated ledger — coverage is
-measured, never assumed. These
+311 once a unary and an interpolated value lower, 293 when bools, `and`/`or`, the bitwise
+operators and `const` landed, and **305** after lists — the only rise, and an honest one:
+56 list/`Index`/`for`-in/`len` constructs retired, 68 deeper ones became reachable because
+a list expression no longer stopped the walk before them. That is the point of a
+generated ledger — coverage is measured, never assumed. These
 are not first-blocker floors any more: `report` walks past a refusal, so each program's
 list is complete for the shapes the walk knows how to name.
 
 | what is missing | constructs | programs |
 |---|---|---|
-| members and fields: `MethodCall`, `Member` | 25, 15 | 25, 15 |
-| collections: `List`, `Map`, `Index` | 18, 5, 15 | 18, 5, 15 |
-| loops beyond `while`: `statement \`For\``, `ForIn` | 13, 9 | 13, 9 |
-| targets: an assignment to something other than a name | 9 | 9 |
-| errors: `Catch`, `Try` | 8, 5 | 8, 5 |
+| a member or method on a value the walk cannot type | 34 | 30 |
+| `For`, a statement that is not a call (a loop body of another shape) | 26 | 26 |
+| an index or a `for` over a collection it cannot type (maps, fields, results) | 28 | 28 |
+| a list whose elements it cannot type (bool-packed or class elements) | 16 | 16 |
+| errors: `Catch`, `Try` | 13 | 13 |
+| targets: an assignment to something other than a name | 6 | 6 |
 | classes and enums: `Class`, `Enum` | 7, 5 | 7, 5 |
 | optionals: `None`, `Coalesce`, `Unwrap` | 5, 5, 2 | 5, 5, 2 |
 | `Unary`, `Closure`, `Spawn`, `Import`, `Match`, `Const`, `Interface` and the operators `&`/`|`/`^`/`<<`/`>>`/`and`/`or`/`in` | 20 | 20 |

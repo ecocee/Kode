@@ -22,7 +22,10 @@ pub class Parsed {
 /// them and exits, exactly as `kode ast` does.
 pub fn parse(src: string, lx: Lexed) -> Parsed {
     c = Cursor(src: src, tokens: lx.tokens)
-    p = Parser(c: c, ast: Ast())
+    tree = Ast()
+    // Spans are offsets into this text, which is how a line is recovered from one.
+    tree.src = src
+    p = Parser(c: c, ast: tree)
     return p.run()
 }
 

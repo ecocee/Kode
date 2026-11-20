@@ -57,6 +57,22 @@ pub fn operator_name(op: string) -> string {
     return ""
 }
 
+/// The argument `rt::ListNew` takes: 1 when the list holds references, else 0.
+pub fn list_new_code(elem: string) -> int {
+    if elem == "str" {
+        return 1
+    }
+    return 0
+}
+
+/// The slot kind a list's elements are stored as.
+pub fn elem_slot(elem: string) -> string {
+    if elem == "str" {
+        return "ref"
+    }
+    return "int"
+}
+
 pub fn temp_kind(kind: string) -> string {
     if kind == "str" {
         return "ref"

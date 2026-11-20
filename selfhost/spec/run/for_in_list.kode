@@ -1,0 +1,11 @@
+// `for x in xs`: a copy of the list, its length, an index, and four blocks — cond, body,
+// step, exit. The loop variable is a temporary with the element's kind.
+xs = [4, 5, 6]
+total = 0
+for x in xs {
+    total += x
+}
+print(total)
+for y in [7, 8] {
+    print(y)
+}

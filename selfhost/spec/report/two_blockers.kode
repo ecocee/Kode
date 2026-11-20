@@ -1,2 +1,2 @@
-xs = [1, 2]
-print(xs[0])
+ms = {"k": 1}
+print(ms["k"])

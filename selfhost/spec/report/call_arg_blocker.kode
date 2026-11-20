@@ -1,4 +1,4 @@
 fn one(x: int) -> int {
     return x
 }
-print(one([1, 2]))
+print(one({"k": 1}))

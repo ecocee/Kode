@@ -246,7 +246,7 @@ fn finish(b: Builder) {
     b.main.blocks.add(Block(label: "bb0", instrs: head))
     // Every named reference is released once on the way out.
     for k in 0..b.main.temps.len() {
-        if b.main.temps[k].kind == "ref" and b.main.temps[k].name != "" {
+        if b.main.temps[k].kind == "ref" and (b.main.temps[k].name != "" or b.owned_at_end(k)) {
             b.end.instrs.add(Instr(kind: "release", args: [Operand(is_temp: true, index: k)]))
         }
     }

@@ -5,9 +5,10 @@ from "./ast" import Ast
 from "./classes" import find_class, find_field, slot_of
 from "./lower_core" import Builder
 from "./lower_expr" import lower_binary, lower_call_expr, lower_expr, lower_stmt_call
+from "./lists" import line_at, record_elem
 from "./pieces" import lower_interp
-from "./mir" import Instr, Operand
-from "./ops" import temp_kind
+from "./mir" import Instr, Operand, Value
+from "./ops" import elem_slot, temp_kind
 
 pub fn lower_stmt(b: Builder, id: int) {
     if not b.ok {
@@ -47,6 +48,10 @@ pub fn lower_stmt(b: Builder, id: int) {
         lower_while_stmt(b, id)
         return
     }
+    if kind == "ForIn" {
+        lower_for_in(b, id)
+        return
+    }
     if kind == "Return" {
         lower_ret_stmt(b, id)
         return
@@ -68,6 +73,104 @@ pub fn lower_stmt(b: Builder, id: int) {
         return
     }
     b.stop("statement `${kind}`")
+}
+
+/// `for x in xs { ... }`: the list is held by a copy of its own, its length and an index
+/// are temporaries, and the loop is the four blocks `cond`, `body`, `step`, `exit`.
+pub fn lower_for_in(b: Builder, id: int) {
+    var_name = ""
+    var_id = -1
+    iter_id = -1
+    body_id = -1
+    for kid in b.ast.nodes[id].kids {
+        kind = b.ast.nodes[kid].kind
+        if kind == "Var" {
+            var_id = kid
+            var_name = b.ast.attr_text(kid, "name")
+        }
+        if kind == "Iter" and b.ast.nodes[kid].kids.len() > 0 {
+            iter_id = b.ast.nodes[kid].kids[0]
+        }
+        if kind == "Block" {
+            body_id = kid
+        }
+    }
+    if var_name == "" or iter_id < 0 or body_id < 0 {
+        b.stop("a `for` this slice cannot lower")
+        return
+    }
+    iter = lower_expr(b, iter_id)
+    if not b.ok {
+        return
+    }
+    elem = ""
+    if iter.is_temp {
+        elem = b.elem_of(iter.index)
+    }
+    if elem == "" {
+        b.stop("a `for` over a value this slice cannot type")
+        return
+    }
+    // The list the loop walks is a copy of its own: iterating holds a count.
+    copy = b.temp("", "ref")
+    if b.borrowed(iter) {
+        b.emit(Instr(kind: "retain", args: [iter]))
+    }
+    b.emit(Instr(kind: "release", args: [Operand(is_temp: true, index: copy)]))
+    b.emit(Instr(kind: "assign", dest: copy, args: [iter]))
+    b.release_at_end(copy)
+    len = b.temp("", "int")
+    b.emit(Instr(kind: "call", dest: len, callee: "rt::ListLen", args: [Operand(is_temp: true, index: copy)]))
+    index = b.temp("", "int")
+    b.emit(Instr(kind: "assign", dest: index, args: [Operand(value: Value(kind: "int", int_value: 0))]))
+    cond = b.temp("", "bool")
+    slot = elem_slot(elem)
+    item = b.temp("", slot)
+    loop_var = b.temp(var_name, slot)
+    b.names.add(var_name)
+    b.slots.add(loop_var)
+    b.var_class.add("")
+    head = b.new_block()
+    body = b.new_block()
+    step = b.new_block()
+    exit = b.new_block()
+    b.emit(Instr(kind: "goto", target: head.label))
+    b.switch_to(head)
+    b.emit(Instr(kind: "lt", dest: cond, args: [Operand(is_temp: true, index: index), Operand(is_temp: true, index: len)]))
+    b.emit(Instr(kind: "branch", args: [Operand(is_temp: true, index: cond)], target: body.label, alt: exit.label))
+    b.switch_to(body)
+    // The `for` keyword's line: the loop variable's node starts there.
+    line = line_at(b.ast.src, b.ast.nodes[var_id].start)
+    b.emit(Instr(kind: "call", dest: item, callee: "rt::ListGet", args: [Operand(is_temp: true, index: copy), Operand(is_temp: true, index: index), Operand(value: Value(kind: "int", int_value: line))]))
+    if slot == "ref" {
+        // The element is a borrow of what the list owns; the loop variable holds a count.
+        b.main.temps[item].borrowed = true
+        b.emit(Instr(kind: "retain", args: [Operand(is_temp: true, index: item)]))
+        b.emit(Instr(kind: "release", args: [Operand(is_temp: true, index: loop_var)]))
+    }
+    b.emit(Instr(kind: "assign", dest: loop_var, args: [Operand(is_temp: true, index: item)]))
+    b.break_to.add(exit.label)
+    b.continue_to.add(step.label)
+    for kid in b.ast.nodes[body_id].kids {
+        lower_stmt(b, kid)
+    }
+    b.break_to = drop_last(b.break_to)
+    b.continue_to = drop_last(b.continue_to)
+    b.emit(Instr(kind: "goto", target: step.label))
+    b.switch_to(step)
+    b.emit(Instr(kind: "add", dest: index, args: [Operand(is_temp: true, index: index), Operand(value: Value(kind: "int", int_value: 1))]))
+    b.emit(Instr(kind: "goto", target: head.label))
+    b.switch_to(exit)
+}
+
+fn drop_last(pool: [string]) -> [string] {
+    kept: [string] = []
+    for k in 0..pool.len() {
+        if k + 1 < pool.len() {
+            kept.add(pool[k])
+        }
+    }
+    return kept
 }
 
 pub fn lower_assign(b: Builder, id: int) {
@@ -138,6 +241,9 @@ pub fn lower_assign(b: Builder, id: int) {
             b.var_class[i] = held
         }
     }
+    // A name that holds a list keeps its element kind, so `xs[0]` and `for x in xs`
+    // know what an element is.
+    record_elem(b, index, value)
     // A reference slot releases what it held before it is overwritten — for the
     // first store too, where the oracle releases the null it was zeroed with.
     if slot_kind == "ref" {

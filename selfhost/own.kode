@@ -1,0 +1,128 @@
+// The interpreter's values and its shadow reference counts (S4): what a temporary holds,
+// what a reference object owns, and what it drops when its last count goes.
+//
+// Moved out of `eval.kode` so the interpreter loop stays readable: nothing here walks a
+// program, so the import graph stays acyclic.
+
+from "./mir" import Function, Operand
+
+/// A value crossing a call boundary: the argument into a frame, or the result out.
+pub class Slot {
+    kind: string = "unit"
+    i: int = 0
+    x: float = 0.0
+    s: string = ""
+    b: bool = false
+    /// The reference object the value is, for the ownership check (0 for a literal).
+    obj: int = 0
+}
+
+/// What a running function holds: the pending line, one value per temporary, and the
+/// value its `return` handed back. `objects` says which reference object a temporary
+/// holds (0 for null and for a static literal).
+pub class State {
+    pending: string = ""
+    values: [int] = []
+    floats: [float] = []
+    refs: [string] = []
+    bools: [bool] = []
+    objects: [int] = []
+    ret: Slot = Slot()
+}
+
+/// The shadow reference counts the whole run shares: one count per object, whether it
+/// has been freed, and the first violation found.
+pub class Owned {
+    counts: [int] = []
+    freed: [bool] = []
+    /// The fields of each reference object, in field order: object 0 (null) has none.
+    fields: [[Slot]] = []
+    /// The items of each list object, in order; empty for an object that is not a list.
+    items: [[Slot]] = []
+    failure: string = ""
+}
+
+/// A new reference object, with the one count its destination holds and `count` fields
+/// (zero: no object, no value).
+pub fn new_object(owned: Owned, count: int) -> int {
+    owned.counts.add(1)
+    owned.freed.add(false)
+    slots: [Slot] = []
+    for k in 0..count {
+        slots.add(Slot())
+    }
+    owned.fields.add(slots)
+    items: [Slot] = []
+    owned.items.add(items)
+    return owned.counts.len() - 1
+}
+
+/// The field a byte offset names: the header is 24 bytes and a field is 8.
+pub fn field_index(offset: int) -> int {
+    return (offset - 24) / 8
+}
+
+/// An object's reference fields and list items go with it: the object held one count of
+/// each, and the runtime drops them when the header dies.
+pub fn drop_fields(owned: Owned, id: int) {
+    for field in owned.fields[id] {
+        drop_slot(owned, field)
+    }
+    for item in owned.items[id] {
+        drop_slot(owned, item)
+    }
+}
+
+/// One count taken from what a slot holds; the object it frees drops its own slots.
+pub fn drop_slot(owned: Owned, field: Slot) {
+    if field.kind != "ref" or field.obj == 0 {
+        return
+    }
+    if owned.counts[field.obj] > 0 {
+        owned.counts[field.obj] -= 1
+    }
+    if owned.counts[field.obj] == 0 and not owned.freed[field.obj] {
+        owned.freed[field.obj] = true
+        drop_fields(owned, field.obj)
+    }
+}
+
+/// The object a list operand holds, for the runtime's list calls.
+pub fn list_of(owned: Owned, f: Function, o: Operand, st: State) -> [Slot] {
+    check_use(owned, f, o, st)
+    object = objects_of(f, o, st)
+    if object == 0 {
+        return owned.items[0]
+    }
+    return owned.items[object]
+}
+
+/// Record the first ownership violation, if there is not one already.
+pub fn own_fail(owned: Owned, why: string) {
+    if owned.failure == "" {
+        owned.failure = why
+    }
+}
+
+/// A use of a reference that has already lost its last count is the other failure the
+/// shadow counts exist to catch.
+pub fn check_use(owned: Owned, f: Function, o: Operand, st: State) {
+    id = objects_of(f, o, st)
+    if id == 0 {
+        return
+    }
+    if owned.freed[id] and owned.failure == "" {
+        owned.failure = "a use of a reference after its last release"
+    }
+}
+
+/// The object an operand holds, if it is a temporary that names one.
+pub fn objects_of(f: Function, o: Operand, st: State) -> int {
+    if not o.is_temp {
+        return 0
+    }
+    if f.temps[o.index].kind != "ref" {
+        return 0
+    }
+    return st.objects[o.index]
+}

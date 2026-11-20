@@ -677,7 +677,7 @@ readiness() {
     if [[ -n "$next" ]]; then
         echo "  next: $next (docs/PLAN-self-hosting.md §3)"
     else
-        echo "  next: S3 checker (R4) - every work packet on the path is met"
+        echo "  next: the S4 ledger, then the S5 backend - every work packet on the path is met"
         echo "  WP-12 process streaming stays until S5 (docs/PLAN-self-hosting.md §3)"
     fi
 }
