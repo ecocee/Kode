@@ -114,7 +114,6 @@ enums_match.kode	`flag` holding a `bool`
 errors.kode	`==` on a `str` and a `str`
 errors.kode	statement `Throw`
 errors.kode	an expression of kind `Catch`
-errors.kode	an expression of kind `Interp`
 errors.kode	statement `Try`
 errors.kode	statement `For`
 file_io.kode	an expression of kind `Coalesce`

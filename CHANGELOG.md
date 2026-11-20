@@ -7,6 +7,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **An interpolated string is a value, not just a `print` argument.** `x = "a${y}b"`,
+  `f("${y}")` and `return "a${y}"` all lower now. The accumulator is the caller's
+  ownership: a lone hole is the variable retained for the slot (so the store moves
+  instead of retaining a second time), two pieces are an intermediate, and a call site
+  releases what it made. Five fixtures in `selfhost/spec/run/` (`interp_assign`,
+  `interp_assign_sole`, `interp_assign_int`, `interp_arg`, `interp_return`) are
+  byte-identical to `kode mir`; the mir and run gates are now 52/52, and the corpus
+  drops one blocker (318 → 317 constructs).
+
 - **The interpreter owns what it borrows.** `selfhost/eval.kode` used to ignore
   `retain`/`release`; it now keeps shadow reference counts, so a run fails when a
   `release` takes a count that was never there, when a reference is used after its last

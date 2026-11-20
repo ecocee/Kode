@@ -98,6 +98,10 @@ pub class Builder {
         if not o.is_temp {
             return false
         }
+        // An owned operand is the caller's already: a store moves it.
+        if o.owned {
+            return false
+        }
         return main.temps[o.index].kind == "ref" and is_variable(o.index)
     }
 

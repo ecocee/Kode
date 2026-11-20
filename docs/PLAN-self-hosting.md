@@ -795,6 +795,15 @@ slice adds the retain/release lines the oracle emits. Probing `kode mir` pinned 
   variables concatenated, a variable plus a literal, a reassignment with a print in
   between, and `print("a" + "b")`.
 - **Gates.** Unchanged: `mir` byte-identical, `run` output and exit code.
+- **An interpolation is a value (slice 10).** `"a${y}b"` was only a `print` argument;
+  now it is an operand, so a slot, a call argument and a `return` take one. The
+  accumulator is what the caller owns: a single hole is the variable *retained* for it
+  (`retain _0`, then `_1 = _0` — never a second retain in the store), two pieces are an
+  intermediate the walk built. The oracle pins both: a call site releases an
+  intermediate argument and a retained interpolation after the call, and a named
+  variable argument still lives in its own slot. Fixtures: `interp_assign`,
+  `interp_assign_sole`, `interp_assign_int`, `interp_arg`, `interp_return`; the corpus
+  drops one construct (`errors.kode`'s `Interp`), 318 → 317.
 - **The owning interpreter.** Ignoring `retain`/`release` would make the interpreter
   blind to the one thing the MIR exists for, so it keeps shadow counts instead. A
   temporary that holds a run-time string holds an *object*: `rt::StrConcat` and

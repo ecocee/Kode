@@ -1,0 +1,9 @@
+// An interpolation as a call argument: the callee is handed the accumulator, and the
+// caller releases the one it made.
+fn shout(s: string) -> string {
+    return s
+}
+
+y = "b"
+x = shout("a${y}b")
+print(x)

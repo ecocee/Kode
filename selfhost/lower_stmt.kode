@@ -3,8 +3,8 @@
 
 from "./ast" import Ast
 from "./lower_core" import Builder
-from "./lower_expr" import lower_binary, lower_call_expr, lower_expr, lower_stmt_call
-from "./mir" import Instr, Operand, Piece
+from "./lower_expr" import lower_binary, lower_call_expr, lower_expr, lower_interp, lower_stmt_call
+from "./mir" import Instr, Operand
 from "./ops" import temp_kind
 
 pub fn lower_stmt(b: Builder, id: int) {
@@ -207,51 +207,6 @@ pub fn lower_print_call(b: Builder, call: int) {
     b.emit(Instr(kind: "call", callee: "rt::PrintNl"))
 }
 
-pub fn lower_interp(b: Builder, id: int) -> Operand {
-    acc = Operand()
-    have = false
-    for kid in b.ast.nodes[id].kids {
-        kind = b.ast.nodes[kid].kind
-        piece = Piece(op: Operand())
-        if kind == "Lit" {
-            text = b.ast.attr_text(kid, "text")
-            if text == "" {
-                continue
-            }
-            piece = Piece(op: Operand(value: Value(kind: "str", str_value: text)))
-        } else if kind == "Hole" {
-            piece = lower_hole(b, kid)
-            if not b.ok {
-                return Operand()
-            }
-        } else {
-            b.stop("a piece of an interpolation that is a `${kind}`")
-            return Operand(value: Value(kind: "?"))
-        }
-        if not have {
-            // The head is the accumulator, and the accumulation owns it: a borrowed
-            // variable is retained for that, a literal needs nothing.
-            acc = piece.op
-            have = true
-            if acc.is_temp and not piece.owned {
-                b.emit(Instr(kind: "retain", args: [acc]))
-            }
-            continue
-        }
-        index = b.temp("", "ref")
-        b.emit(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [acc, piece.op]))
-        b.emit(Instr(kind: "release", args: [acc]))
-        if piece.owned {
-            b.emit(Instr(kind: "release", args: [piece.op]))
-        }
-        acc = Operand(is_temp: true, index: index)
-    }
-    if not have {
-        b.stop("an interpolation with nothing in it")
-    }
-    return acc
-}
-
 pub fn lower_if_stmt(b: Builder, id: int) {
     kids = b.ast.nodes[id].kids
     if kids.len() == 0 {
@@ -355,35 +310,4 @@ pub fn lower_body(b: Builder, id: int) {
         }
         lower_stmt(b, kid)
     }
-}
-
-pub fn lower_hole(b: Builder, id: int) -> Piece {
-    kids = b.ast.nodes[id].kids
-    if kids.len() != 1 {
-        b.stop("a hole without one value")
-        return Piece(op: Operand(value: Value(kind: "?")))
-    }
-    node = kids[0]
-    if b.ast.nodes[node].kind != "Ident" {
-        b.stop("a hole that is a `${b.ast.nodes[node].kind}`")
-        return Piece(op: Operand(value: Value(kind: "?")))
-    }
-    name = b.ast.attr_text(node, "name")
-    index = b.slot(name)
-    if index < 0 {
-        if not b.has_name(b.unknown_names, name) {
-            b.stop("a hole reading `${name}`, which this slice cannot bind")
-        }
-        return Piece(op: Operand(value: Value(kind: "?")))
-    }
-    if b.main.temps[index].kind == "ref" {
-        return Piece(op: Operand(is_temp: true, index: index))
-    }
-    if b.main.temps[index].kind != "int" {
-        b.stop("a `${b.main.temps[index].kind}` hole")
-        return Piece(op: Operand())
-    }
-    text = b.temp("", "ref")
-    b.emit(Instr(kind: "call", dest: text, callee: "rt::IntToStr", args: [Operand(is_temp: true, index: index)]))
-    return Piece(op: Operand(is_temp: true, index: text), owned: true)
 }

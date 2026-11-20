@@ -21,6 +21,9 @@ pub class Operand {
     is_temp: bool = false
     index: int = 0
     value: Value = Value(kind: "any")
+    /// The caller already holds the one reference this operand is: an interpolation's
+    /// accumulator, retained for whoever asked for it. A store moves it, never retains.
+    owned: bool = false
 }
 
 /// A piece of an interpolation: an operand, and whether the concatenation owns it

@@ -1,0 +1,4 @@
+// An int hole in an assignment: the hole's IntToStr is owned, the literal head is not.
+i = 3
+s = "n=${i}!"
+print(s)
