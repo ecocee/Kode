@@ -804,6 +804,20 @@ slice adds the retain/release lines the oracle emits. Probing `kode mir` pinned 
   variable argument still lives in its own slot. Fixtures: `interp_assign`,
   `interp_assign_sole`, `interp_assign_int`, `interp_arg`, `interp_return`; the corpus
   drops one construct (`errors.kode`'s `Interp`), 318 → 317.
+- **A program is many files (slice 13).** The checker already loads the module graph, so
+  lowering only had to use it — and to learn the oracle's *order*, which `kode mir` on a
+  chain and on two imports settled: **post-order**, a file after everything it imports,
+  the entry last so `<main>` closes the dump (`b`, `a`, `<main>`; `y`, `x`, `local`,
+  `<main>`). Names are **flat**: `words.shout("hi")` lowers to `call shout(...)`, and a
+  module's class is `Box.value` from anywhere, so one `fn_table` and one class table serve
+  the whole program (which is also why the port's own `lower_expr` is reachable
+  unqualified). `Loader` gained `order`: the post-order index list, recorded when a file
+  finishes rather than when it is discovered — the first attempt used the discovery index
+  and silently lowered the last file three times. A field's default is a node in *its*
+  file's tree, so `lower_literal` takes the tree as a parameter; without that, an imported
+  `v: int = 4` lowered as `""`. Top-level `Import` nodes are skipped and only the entry's
+  statements become `<main>` (module code is `E0403`). Gate: `selfhost/spec/modules/` with
+  `mir` and `run` compared per case, **3/3**.
 - **Classes are objects, fields and methods (slice 12).** The oracle's shape had to be
   pinned before any of it could be written, and `kode mir` answered all of it: the header
   is 24 bytes, field `i` sits at `24 + 8 * i`; construction is

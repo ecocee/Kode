@@ -115,7 +115,14 @@ if command == "report" {
         }
         exit(1)
     }
-    lowered = build(parsed.ast, true)
+    graph = Loader().graph(file, src)
+    if graph.problems.len() > 0 {
+        for problem in graph.problems {
+            stderr(render(problem.file, problem.src, problem.err))
+        }
+        exit(1)
+    }
+    lowered = build(graph.asts, graph.order, true)
     for reason in lowered.problems {
         print(reason)
     }
@@ -132,7 +139,14 @@ if command == "mir" or command == "run" {
         }
         exit(1)
     }
-    lowered = build(parsed.ast, false)
+    graph = Loader().graph(file, src)
+    if graph.problems.len() > 0 {
+        for problem in graph.problems {
+            stderr(render(problem.file, problem.src, problem.err))
+        }
+        exit(1)
+    }
+    lowered = build(graph.asts, graph.order, false)
     if not lowered.ok {
         stderr("kode-stage1: MIR is not implemented for ${lowered.why} yet")
         exit(2)

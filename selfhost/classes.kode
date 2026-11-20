@@ -11,6 +11,9 @@ from "./ast" import Ast
 
 pub class FieldInfo {
     name: string = ""
+    /// The file the field was written in: its default is a node in that tree, not in
+    /// the entry's.
+    ast: Ast = Ast()
     /// The annotation as written: `int`, `bool`, `string`.
     written: string = ""
     offset: int = 0
@@ -35,34 +38,46 @@ pub class ClassInfo {
     methods: [MethodInfo] = []
 }
 
-/// Read every class's shape from the program, before any body is walked.
-pub fn collect_classes(ast: Ast) -> [ClassInfo] {
+/// Read every class's shape from the program — every module of it — before any body is
+/// walked.
+pub fn collect_classes(asts: [Ast]) -> [ClassInfo] {
     out: [ClassInfo] = []
-    if ast.nodes.len() == 0 {
-        return out
-    }
-    for id in ast.nodes[0].kids {
-        if ast.nodes[id].kind != "Class" {
-            continue
-        }
-        info = ClassInfo(name: ast.attr_text(id, "name"))
-        for kid in ast.nodes[id].kids {
-            kind = ast.nodes[kid].kind
-            if kind == "Field" {
-                info.fields.add(read_field(ast, kid, info.fields.len()))
+    for ast in asts {
+        for id in top_level(ast) {
+            if ast.nodes[id].kind != "Class" {
                 continue
             }
-            if kind == "Method" {
-                info.methods.add(read_method(ast, kid))
+            info = ClassInfo(name: ast.attr_text(id, "name"))
+            for kid in ast.nodes[id].kids {
+                kind = ast.nodes[kid].kind
+                if kind == "Field" {
+                    info.fields.add(read_field(ast, kid, info.fields.len()))
+                    continue
+                }
+                if kind == "Method" {
+                    info.methods.add(read_method(ast, kid))
+                }
             }
+            out.add(info)
         }
-        out.add(info)
     }
     return out
 }
 
+/// A file's top-level items, or nothing for a file that has no tree.
+pub fn top_level(ast: Ast) -> [int] {
+    kids: [int] = []
+    if ast.nodes.len() == 0 {
+        return kids
+    }
+    for id in ast.nodes[0].kids {
+        kids.add(id)
+    }
+    return kids
+}
+
 fn read_field(ast: Ast, id: int, index: int) -> FieldInfo {
-    field = FieldInfo(name: ast.attr_text(id, "name"), offset: 24 + 8 * index)
+    field = FieldInfo(name: ast.attr_text(id, "name"), ast: ast, offset: 24 + 8 * index)
     for part in ast.nodes[id].kids {
         pkind = ast.nodes[part].kind
         if pkind == "TypeName" {

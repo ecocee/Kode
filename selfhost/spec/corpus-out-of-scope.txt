@@ -212,9 +212,7 @@ modules.kode	a read of `math`, which this slice cannot bind
 modules.kode	an expression of kind `Catch`
 modules.kode	a read of `time`, which this slice cannot bind
 modules.kode	a statement that is not a call
-modules_alias.kode	statement `Import`
 modules_alias.kode	a read of `words`, which this slice cannot bind
-modules_alias.kode	a call to `shout`, which this slice cannot lower
 optional_fields.kode	a read of `x`, which this slice cannot bind
 optional_fields.kode	an expression of kind `None`
 optional_fields.kode	a `Span` whose fields need arguments

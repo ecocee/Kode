@@ -1,0 +1,6 @@
+// A class from another file: its method is lowered in the module, its constructor and
+// the call in the entry.
+import "./lib"
+
+b = Box()
+print(b.value())

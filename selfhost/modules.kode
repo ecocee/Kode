@@ -55,6 +55,9 @@ pub class Alias {
 pub class Loaded {
     /// Every file read, the entry first, in the order the imports reach them.
     asts: [Ast] = []
+    /// Indices into `asts` in the order the oracle lowers them: a file after the files
+    /// it imports, the entry last, so `<main>` closes the dump.
+    order: [int] = []
     modules: [Module] = []
     /// Every alias in the program, in load order: a file's imports are listed after
     /// the files they reach, which is the order the oracle's `st.modules` has.
@@ -98,6 +101,7 @@ pub class Loader {
             return
         }
         loaded.asts.add(parsed.ast)
+        own = loaded.asts.len() - 1
         parsed.ast.file = file
         module = Module(key: key, file: file, ast: parsed.ast)
         module.names = declared_names(parsed.ast)
@@ -113,6 +117,9 @@ pub class Loader {
                 }
             }
         }
+        // Post-order: this file's own items come after everything it imports, which is
+        // the order `kode mir` prints them in.
+        loaded.order.add(own)
         open.pop()
     }
 

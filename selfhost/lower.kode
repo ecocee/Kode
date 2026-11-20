@@ -6,35 +6,51 @@
 // and `lower_expr.kode` are the walks, `ops.kode` the operator tables.
 
 from "./ast" import Ast
-from "./classes" import ClassInfo, collect_classes
+from "./classes" import ClassInfo, collect_classes, top_level
 from "./lower_core" import Builder, FnSig
 from "./lower_stmt" import lower_ret_expr, lower_stmt
 from "./mir" import Block, Function, Instr, Mir, Operand, is_param
 
-/// Lower a program: every declared function, in declaration order, then `<main>`.
-pub fn build(ast: Ast, collecting: bool) -> Mir {
+/// Lower a program: every module's declarations first (a module after the files it
+/// imports), then the entry's own, then the entry's statements as `<main>`.
+///
+/// `asts` and `order` come from the module graph (`modules.kode`), and the entry is
+/// `asts[0]`: a module holds declarations only, so any other file's top-level statements
+/// are the checker's `E0403`, not something to lower.
+pub fn build(asts: [Ast], order: [int], collecting: bool) -> Mir {
     mir = Mir()
-    classes = collect_classes(ast)
+    classes = collect_classes(asts)
+    entry_ast = Ast()
+    if asts.len() > 0 {
+        entry_ast = asts[0]
+    }
     entry = Block(label: "bb0")
-    b = Builder(ast: ast, main: Function(name: "<main>", entry: true), entry: entry, block: entry, end: Block(label: "bb1"), collecting: collecting, classes: classes, sigs: fn_table(ast, classes))
-    if ast.nodes.len() > 0 {
-        for id in ast.nodes[0].kids {
+    b = Builder(ast: entry_ast, main: Function(name: "<main>", entry: true), entry: entry, block: entry, end: Block(label: "bb1"), collecting: collecting, classes: classes, sigs: fn_table(asts, classes))
+    for index in order {
+        ast = asts[index]
+        is_entry = index == 0
+        for id in top_level(ast) {
             kind = ast.nodes[id].kind
             if kind == "Fn" {
-                fn_item(b, id, mir)
+                fn_item(b, ast, id, mir)
                 if not mir.ok {
                     return mir
                 }
                 continue
             }
             if kind == "Class" {
-                class_item(b, id, mir)
+                class_item(b, ast, id, mir)
                 if not mir.ok {
                     return mir
                 }
                 continue
             }
-            lower_stmt(b, id)
+            if kind == "Import" {
+                continue
+            }
+            if is_entry {
+                lower_stmt(b, id)
+            }
         }
     }
     if not b.ok {
@@ -50,13 +66,13 @@ pub fn build(ast: Ast, collecting: bool) -> Mir {
 
 /// One `class` declaration: its fields are data (the class table already holds them),
 /// and each of its methods is a function of its own, `_0` being `this`.
-fn class_item(parent: Builder, id: int, mir: Mir) {
-    name = parent.ast.attr_text(id, "name")
-    for kid in parent.ast.nodes[id].kids {
-        if parent.ast.nodes[kid].kind != "Method" {
+fn class_item(parent: Builder, ast: Ast, id: int, mir: Mir) {
+    name = ast.attr_text(id, "name")
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Method" {
             continue
         }
-        method_item(parent, name, kid, mir)
+        method_item(parent, ast, name, kid, mir)
         if not mir.ok {
             return
         }
@@ -65,8 +81,7 @@ fn class_item(parent: Builder, id: int, mir: Mir) {
 
 /// One method: `Class.method` with `this` as `_0`, then the declared parameters. The
 /// body is walked like a function's, in a builder of its own.
-fn method_item(parent: Builder, class_name: string, id: int, mir: Mir) {
-    ast = parent.ast
+fn method_item(parent: Builder, ast: Ast, class_name: string, id: int, mir: Mir) {
     f = Function(name: "${class_name}.${ast.attr_text(id, "name")}")
     entry = Block(label: "bb0")
     b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, sigs: parent.sigs)
@@ -136,8 +151,7 @@ fn method_item(parent: Builder, class_name: string, id: int, mir: Mir) {
 /// One `fn` declaration: its parameters become `_0`, `_1`, ..., its body is walked
 /// with a builder of its own (the names and temporaries are the function's own), and
 /// it returns through `bb1`.
-fn fn_item(parent: Builder, id: int, mir: Mir) {
-    ast = parent.ast
+fn fn_item(parent: Builder, ast: Ast, id: int, mir: Mir) {
     f = Function(name: ast.attr_text(id, "name"))
     entry = Block(label: "bb0")
     b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, sigs: parent.sigs)
@@ -307,26 +321,26 @@ fn annotation_text(ast: Ast, id: int) -> string {
 }
 
 /// What each declared function and method returns, before any body is walked: a method
-/// is recorded as `Class.method`, which is the name its call uses.
-fn fn_table(ast: Ast, classes: [ClassInfo]) -> [FnSig] {
+/// is recorded as `Class.method`, which is the name its call uses. The namespace is the
+/// program's, so every module is in this one table.
+fn fn_table(asts: [Ast], classes: [ClassInfo]) -> [FnSig] {
     sigs: [FnSig] = []
-    if ast.nodes.len() == 0 {
-        return sigs
-    }
-    for id in ast.nodes[0].kids {
-        if ast.nodes[id].kind != "Fn" {
-            continue
-        }
-        ret = "unit"
-        for kid in ast.nodes[id].kids {
-            if ast.nodes[kid].kind == "TypeName" {
-                ret = annotation_slot(ast, kid)
-                if ret == "" {
-                    ret = "int"
+    for ast in asts {
+        for id in top_level(ast) {
+            if ast.nodes[id].kind != "Fn" {
+                continue
+            }
+            ret = "unit"
+            for kid in ast.nodes[id].kids {
+                if ast.nodes[kid].kind == "TypeName" {
+                    ret = annotation_slot(ast, kid)
+                    if ret == "" {
+                        ret = "int"
+                    }
                 }
             }
+            sigs.add(FnSig(name: ast.attr_text(id, "name"), ret: ret))
         }
-        sigs.add(FnSig(name: ast.attr_text(id, "name"), ret: ret))
     }
     for info in classes {
         for method in info.methods {

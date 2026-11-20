@@ -1,0 +1,10 @@
+// Two imports are lowered in the order they are written, and the entry's own
+// declarations come after them.
+import "./y"
+import "./x"
+
+fn local() -> int {
+    return 10
+}
+
+print(xf() + yf() + local())

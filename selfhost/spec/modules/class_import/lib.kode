@@ -1,0 +1,7 @@
+pub class Box {
+    v: int = 4
+
+    fn value() -> int {
+        return this.v
+    }
+}

@@ -12,6 +12,8 @@
 #   ./scripts/selfhost.sh run        the S4 interpreter's output against every .out
 #   ./scripts/selfhost.sh own        the owning interpreter: shadow counts, silent on the
 #                                    stress cases and loud on a lowering that drops a retain
+#   ./scripts/selfhost.sh modules    whole programs: every file's imports lowered in the
+#                                    oracle's order, dumps and runs compared
 #   ./scripts/selfhost.sh report     the walk lists every unsupported construct, not just the first
 #   ./scripts/selfhost.sh corpus     the same two checks over tests/run-pass, with the
 #                                    out-of-scope programs recorded and re-asserted
@@ -348,6 +350,77 @@ MUTATE
     echo "  own cases: $((total - bad))/$total silent on correct programs, mutation caught on $caught"
     [[ "$bad" -eq 0 ]]
 }
+
+
+# Multi-file programs: each `selfhost/spec/modules/<case>/main.kode` and the files it
+# imports, compared with the oracle's dump (post-order: a module after its imports, the
+# entry's `<main>` last) and run for its output and status.
+check_modules() {
+    local dir="$ROOT/selfhost/spec/modules" out="$OUT/modules" total=0 bad=0 case_dir main expected
+    local oracle_rc=0 port_rc=0
+    if [[ ! -x "$STAGE1" ]]; then
+        echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
+        return 2
+    fi
+    rm -rf "$out"
+    mkdir -p "$out"
+    for case_dir in "$dir"/*/; do
+        main="${case_dir}main.kode"
+        [[ -f "$main" ]] || continue
+        total=$((total + 1))
+        expected="${case_dir}main.out"
+        oracle_rc=0
+        port_rc=0
+        (cd "$case_dir" && "$STAGE0" run main.kode) >"$out/oracle.txt" 2>/dev/null || oracle_rc=$?
+        (cd "$case_dir" && "$STAGE1" run main.kode) >"$out/actual.txt" 2>"$out/actual.err" || port_rc=$?
+        if [[ "$oracle_rc" -ne 0 ]]; then
+            bad=$((bad + 1))
+            echo "  $(basename "$case_dir"): kode run exited $oracle_rc, not 0"
+            continue
+        fi
+        if ! diff -u "$expected" "$out/oracle.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$case_dir"): main.out is not what kode run prints"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+            continue
+        fi
+        if ! (cd "$case_dir" && "$STAGE1" mir main.kode) >"$out/port.mir" 2>"$out/mir.err"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$case_dir"): the port refused the program"
+            head -3 "$out/mir.err" | sed 's/^/    /'
+            continue
+        fi
+        if ! (cd "$case_dir" && "$STAGE0" mir main.kode) >"$out/oracle.mir" 2>/dev/null; then
+            bad=$((bad + 1))
+            echo "  $(basename "$case_dir"): kode mir failed"
+            continue
+        fi
+        if ! diff -u "$out/oracle.mir" "$out/port.mir" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$case_dir"): the dumps differ"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+            continue
+        fi
+        if [[ "$port_rc" -ne 0 ]]; then
+            bad=$((bad + 1))
+            echo "  $(basename "$case_dir"): the port exited $port_rc"
+            head -3 "$out/actual.err" | sed 's/^/    /'
+            continue
+        fi
+        if ! diff -u "$expected" "$out/actual.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$case_dir"): the port's output differs"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        fi
+    done
+    if [[ "$total" -eq 0 ]]; then
+        echo "  no module cases in $dir" >&2
+        return 2
+    fi
+    echo "  module cases: $((total - bad))/$total dumps byte-identical and running"
+    [[ "$bad" -eq 0 ]]
+}
+
 
 # The S4 slice 1 interpreter: the port's output has to be the fixture's `.out`, and
 # the fixture has to be the oracle's own `kode run` output — so a wrong `.out` cannot
@@ -789,6 +862,10 @@ run)
     echo "S4: the port's interpreter against every .out"
     check_run || exit $?
     ;;
+modules)
+    echo "S4: whole programs, every file's imports in the oracle's order"
+    check_modules || exit $?
+    ;;
 own)
     echo "S4: the owning interpreter's shadow reference counts"
     check_own || exit $?
@@ -816,6 +893,7 @@ all)
     bash "${BASH_SOURCE[0]}" check
     bash "${BASH_SOURCE[0]}" mir
     bash "${BASH_SOURCE[0]}" run
+    bash "${BASH_SOURCE[0]}" modules
     bash "${BASH_SOURCE[0]}" own
     bash "${BASH_SOURCE[0]}" report
     bash "${BASH_SOURCE[0]}" corpus

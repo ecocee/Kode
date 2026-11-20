@@ -198,6 +198,10 @@ jobs:
       - name: Stage 1 runs the fixtures; output and exit code must match
         run: ./scripts/selfhost.sh run
 
+      # Whole programs: every file's imports lowered in the oracle's order.
+      - name: Multi-file programs dump and run like the oracle
+        run: ./scripts/selfhost.sh modules
+
       # The owning interpreter keeps shadow reference counts: silent on the stress cases,
       # and loud on a mutant port whose every retain became a release.
       - name: The interpreter releases exactly what it owns

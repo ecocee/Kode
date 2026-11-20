@@ -7,6 +7,21 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **A program is every file it imports.** `mir`, `run` and `report` now load the module
+  graph (the loader the checker already had) and lower the whole program in the oracle's
+  order: post-order, so a file's own items come after everything it imports and `<main>`
+  closes the dump — `b`, `a`, `<main>` for a chain, `y`, `x`, `local`, `<main>` for two
+  imports. Names stay flat, exactly as the oracle prints them (`fn shout`, not
+  `words.shout`), so one function/class table serves the program and an imported class's
+  methods are lowered in the file that wrote them. A field's default is now read from the
+  file that declared it (a node id is only meaningful in its own tree, which is how the
+  first cut turned a module's `v: int = 4` into `""`). New `./scripts/selfhost.sh modules`
+  gate over `selfhost/spec/modules/{chain,two,class_import}`: oracle dump and port dump
+  byte-identical, output and exit code equal — **3/3**; mir/run stay **59/59**, and the
+  corpus retires `statement Import` (320 → 318 constructs). Alias-qualified calls
+  (`words.shout("hi")`) are still refused; bare `import` and `from … import` are what the
+  port's own sources use.
+
 - **Classes: objects, fields and methods.** `class P { name: string = "a" ... }` now
   lowers end to end. The oracle's layout is pinned in `selfhost/classes.kode`: a 24-byte
   header, field `i` at `24 + 8 * i`, `_0 = call rt::ObjNewClass(count, ref_mask, 7)` with

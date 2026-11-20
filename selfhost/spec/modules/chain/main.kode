@@ -1,0 +1,4 @@
+// A module is lowered after the files it imports: `b`, then `a`, then `<main>`.
+import "./a"
+
+print(af())

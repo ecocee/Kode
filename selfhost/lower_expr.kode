@@ -54,7 +54,7 @@ pub fn lower_call_expr(b: Builder, id: int) -> Operand {
 pub fn lower_expr(b: Builder, id: int) -> Operand {
     kind = b.ast.nodes[id].kind
     if kind == "Int" or kind == "Float" or kind == "Bool" or kind == "Str" {
-        return Operand(value: lower_literal(b, id))
+        return Operand(value: lower_literal(b, b.ast, id))
     }
     if kind == "Ident" {
         name = b.ast.attr_text(id, "name")
@@ -101,7 +101,7 @@ fn lower_new(b: Builder, ci: int) -> Operand {
     object = b.temp("", "ref")
     b.emit(Instr(kind: "call", dest: object, callee: "rt::ObjNewClass", args: [int_operand(info.fields.len()), int_operand(ref_mask(info)), int_operand(7)]))
     for field in info.fields {
-        b.emit(Instr(kind: "store", args: [Operand(is_temp: true, index: object), Operand(value: lower_literal(b, field.default_node))], offset: field.offset))
+        b.emit(Instr(kind: "store", args: [Operand(is_temp: true, index: object), Operand(value: lower_literal(b, field.ast, field.default_node))], offset: field.offset))
     }
     return Operand(is_temp: true, index: object)
 }
@@ -364,21 +364,21 @@ pub fn lower_mask_comparison(b: Builder, id: int, op: string) -> Operand {
     return Operand(is_temp: true, index: result)
 }
 
-pub fn lower_literal(b: Builder, id: int) -> Value {
-    kind = b.ast.nodes[id].kind
+pub fn lower_literal(b: Builder, ast: Ast, id: int) -> Value {
+    kind = ast.nodes[id].kind
     if kind == "Int" {
-        return Value(kind: "int", int_value: parse_int(b.ast.attr_raw(id, "value")))
+        return Value(kind: "int", int_value: parse_int(ast.attr_raw(id, "value")))
     }
     if kind == "Float" {
-        text = b.ast.attr_text(id, "value")
+        text = ast.attr_text(id, "value")
         return Value(kind: "float", float_value: text.to_float() catch e {
                 0.0
         })
     }
     if kind == "Bool" {
-        return Value(kind: "bool", bool_value: b.ast.attr_raw(id, "value") == "true")
+        return Value(kind: "bool", bool_value: ast.attr_raw(id, "value") == "true")
     }
-    return Value(kind: "str", str_value: b.ast.attr_text(id, "value"))
+    return Value(kind: "str", str_value: ast.attr_text(id, "value"))
 }
 
 /// The call took what its arguments held: an intermediate the walk made, or an

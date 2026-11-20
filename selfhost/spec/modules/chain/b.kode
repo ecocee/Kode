@@ -1,0 +1,3 @@
+pub fn bf() -> int {
+    return 2
+}
