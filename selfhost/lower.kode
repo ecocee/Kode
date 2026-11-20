@@ -50,6 +50,12 @@ from "./ast" import Ast
 from "./literals" import parse_int
 from "./mir" import Block, Function, Instr, Mir, Operand, Piece, Temp, Value, is_param
 
+/// What a declared function returns, in slot kinds: the call site's destination size.
+class FnSig {
+    name: string
+    ret: string = "unit"
+}
+
 pub class Builder {
     ast: Ast
     main: Function
@@ -63,6 +69,12 @@ pub class Builder {
     /// numbering puts it after everything the return expression needed).
     ret_kind: string = "unit"
     ret_temp: int = -1
+    /// The parameter temporaries, in order: a parameter is a named variable even
+    /// though its `Temp.name` stays empty (the header already names it).
+    params: [int] = []
+    /// What each declared function returns (slot kind), known before the bodies are
+    /// walked: recursion and forward calls both need it.
+    sigs: [FnSig] = []
     /// Whether the body is a `{ ... }` block (which ends in `unreachable` when the
     /// function returns something) rather than `=> expr` sugar (which does not).
     block_body: bool = false
@@ -129,7 +141,21 @@ pub class Builder {
         if not o.is_temp {
             return false
         }
-        return main.temps[o.index].kind == "ref" and main.temps[o.index].name != ""
+        return main.temps[o.index].kind == "ref" and is_variable(o.index)
+    }
+
+    /// Whether a temporary is a variable the program can name — a local or a
+    /// parameter — rather than an intermediate the walk made up.
+    fn is_variable(k: int) -> bool {
+        if main.temps[k].name != "" {
+            return true
+        }
+        for one in params {
+            if one == k {
+                return true
+            }
+        }
+        return false
     }
 
     /// Whether a name is in a list of names: `slot`'s linear scan, for strings.
@@ -205,11 +231,15 @@ pub class Builder {
         kind = ast.nodes[id].kind
         if kind == "ExprStmt" {
             for kid in ast.nodes[id].kids {
-                if ast.nodes[kid].kind != "Call" or ast.attr_text(kid, "callee") != "print" {
-                    stop("a call other than `print`")
+                if ast.nodes[kid].kind != "Call" {
+                    stop("a statement that is not a call")
                     return
                 }
-                print_call(kid)
+                if ast.attr_text(kid, "callee") == "print" {
+                    print_call(kid)
+                } else {
+                    stmt_call(kid)
+                }
             }
             return
         }
@@ -313,6 +343,53 @@ pub class Builder {
         emit(Instr(kind: "assign", dest: index, args: [operand]))
     }
 
+    /// A call in statement position: its value, if it has one, is dropped.
+    fn stmt_call(id: int) {
+        call_expr(id)
+    }
+
+    /// `name(args)`: arguments in order, then the call. A unit callee has no
+    /// destination; anything else gets a temporary of the callee's return kind.
+    fn call_expr(id: int) -> Operand {
+        name = ast.attr_text(id, "callee")
+        ret = sig_ret(name)
+        if ret == "" {
+            stop("a call to `${name}`, which this slice cannot lower")
+            return Operand(value: Value(kind: "?"))
+        }
+        args: [Operand] = []
+        for arg in ast.nodes[id].kids {
+            if ast.nodes[arg].kids.len() < 1 {
+                stop("an argument with no value")
+                return Operand(value: Value(kind: "?"))
+            }
+            op = expr(ast.nodes[arg].kids[0])
+            if not ok {
+                return Operand(value: Value(kind: "?"))
+            }
+            if kind_of(op) == "?" {
+                return Operand(value: Value(kind: "?"))
+            }
+            args.add(op)
+        }
+        if ret == "unit" {
+            emit(Instr(kind: "call", callee: name, args: args))
+            return Operand(value: Value(kind: "?"))
+        }
+        dest = temp("", ret)
+        emit(Instr(kind: "call", callee: name, dest: dest, args: args))
+        return Operand(is_temp: true, index: dest)
+    }
+
+    fn sig_ret(name: string) -> string {
+        for sig in sigs {
+            if sig.name == name {
+                return sig.ret
+            }
+        }
+        return ""
+    }
+
     /// `return`: the value first, then the return slot, then the jump to `bb1`.
     fn ret_stmt(id: int) {
         if ast.nodes[id].kids.len() == 0 {
@@ -389,7 +466,7 @@ pub class Builder {
             }
             emit(Instr(kind: "call", callee: print_primitive(operand), args: [operand]))
             // A variable lives to the end of the function; an intermediate dies here.
-            if operand.is_temp and main.temps[operand.index].kind == "ref" and main.temps[operand.index].name == "" {
+            if operand.is_temp and main.temps[operand.index].kind == "ref" and not is_variable(operand.index) {
                 emit(Instr(kind: "release", args: [operand]))
             }
         }
@@ -600,6 +677,9 @@ pub class Builder {
             }
             return Operand(is_temp: true, index: index)
         }
+        if kind == "Call" {
+            return call_expr(id)
+        }
         if kind == "Binary" {
             return binary(id)
         }
@@ -612,6 +692,14 @@ pub class Builder {
     fn binary(id: int) -> Operand {
         op = ast.attr_raw(id, "op")
         kids = ast.nodes[id].kids
+        // `(x % 2^k) == 0` is a divisibility test, and the oracle masks instead of
+        // dividing; the shape has to be caught before the `%` is lowered.
+        if compare_name(op) != "" {
+            masked = mask_comparison(id, op)
+            if masked.is_temp {
+                return masked
+            }
+        }
         if kids.len() != 2 {
             stop("a `${op}` without two operands")
             return Operand(value: Value(kind: "?"))
@@ -657,6 +745,62 @@ pub class Builder {
         index = temp("", "int")
         emit(Instr(kind: mnemonic, dest: index, args: [left, right]))
         return Operand(is_temp: true, index: index)
+    }
+
+    /// `(x % 2^k) == 0` and `!= 0`: `bitand x, 2^k - 1` then the comparison with `0`.
+    /// That is exact for every two's-complement `x`, where `x % 2^k` alone is not (it
+    /// truncates toward zero), which is why the oracle fuses only the test. Returns the
+    /// comparison's temporary, or an empty operand when the shape is not that test.
+    fn mask_comparison(id: int, op: string) -> Operand {
+        kids = ast.nodes[id].kids
+        mod_side = -1
+        for k in 0..2 {
+            other = kids[1 - k]
+            if ast.nodes[other].kind == "Int" and ast.attr_raw(other, "value") == "0" {
+                if ast.nodes[kids[k]].kind == "Binary" and ast.attr_raw(kids[k], "op") == "%" {
+                    mod_side = k
+                }
+            }
+        }
+        if mod_side < 0 {
+            return Operand()
+        }
+        mod = kids[mod_side]
+        if ast.nodes[mod].kids.len() != 2 {
+            return Operand()
+        }
+        right = ast.nodes[mod].kids[1]
+        if ast.nodes[right].kind != "Int" {
+            return Operand()
+        }
+        divisor = parse_int(ast.attr_raw(right, "value"))
+        if divisor < 1 {
+            return Operand()
+        }
+        power = 1
+        is_power = false
+        for k in 0..31 {
+            if power == divisor {
+                is_power = true
+            }
+            power = power * 2
+        }
+        if not is_power {
+            return Operand()
+        }
+        base = expr(ast.nodes[mod].kids[0])
+        if not ok or kind_of(base) == "?" {
+            return Operand(value: Value(kind: "?"))
+        }
+        if kind_of(base) != "int" {
+            // A non-integer base is the `%` refusal's to report, not this one's.
+            return Operand()
+        }
+        mask = temp("", "int")
+        emit(Instr(kind: "bitand", dest: mask, args: [base, Operand(value: Value(kind: "int", int_value: divisor - 1))]))
+        result = temp("", "bool")
+        emit(Instr(kind: compare_name(op), dest: result, args: [Operand(is_temp: true, index: mask), Operand(value: Value(kind: "int", int_value: 0))]))
+        return Operand(is_temp: true, index: result)
     }
 
     fn literal(id: int) -> Value {
@@ -733,7 +877,7 @@ fn temp_kind(kind: string) -> string {
 pub fn build(ast: Ast, collecting: bool) -> Mir {
     mir = Mir()
     entry = Block(label: "bb0")
-    b = Builder(ast: ast, main: Function(name: "<main>", entry: true), entry: entry, block: entry, end: Block(label: "bb1"), collecting: collecting)
+    b = Builder(ast: ast, main: Function(name: "<main>", entry: true), entry: entry, block: entry, end: Block(label: "bb1"), collecting: collecting, sigs: fn_table(ast))
     if ast.nodes.len() > 0 {
         for id in ast.nodes[0].kids {
             if ast.nodes[id].kind == "Fn" {
@@ -764,7 +908,7 @@ fn fn_item(parent: Builder, id: int, mir: Mir) {
     ast = parent.ast
     f = Function(name: ast.attr_text(id, "name"))
     entry = Block(label: "bb0")
-    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting)
+    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, sigs: parent.sigs)
     b.block_body = true
     body = -1
     for kid in ast.nodes[id].kids {
@@ -777,6 +921,7 @@ fn fn_item(parent: Builder, id: int, mir: Mir) {
             }
             index = b.temp("", slot)
             f.params.add(index)
+            b.params.add(index)
             b.names.add(ast.attr_text(kid, "name"))
             b.slots.add(index)
             continue
@@ -823,10 +968,9 @@ fn fn_item(parent: Builder, id: int, mir: Mir) {
 fn finish(b: Builder) {
     tail_unreachable = false
     if b.ret_kind == "unit" {
-        // The block the walk ends in falls out to the return block.
-        if not b.terminated() {
-            b.emit(Instr(kind: "goto", target: "bb1"))
-        }
+        // The block the walk ends in falls out to the return block — always, even when
+        // a `return` already jumped, which is why a bare `return` leaves a dead block.
+        b.emit(Instr(kind: "goto", target: "bb1"))
     } else if b.block_body {
         // A body that returns something never falls out: when the walk ended in a
         // terminated block, a fresh block nothing can reach closes the function.
@@ -900,7 +1044,8 @@ fn annotation_slot(ast: Ast, id: int) -> string {
     return ""
 }
 
-/// The annotation's own text, for the refusal that names it.
+/// The annotation's own text, for the refusal that names it: `int`, `[int]`,
+/// `{string: [int]}`, and the node's kind when it is something else.
 fn annotation_text(ast: Ast, id: int) -> string {
     node = id
     if ast.nodes[id].kind == "Param" {
@@ -909,7 +1054,47 @@ fn annotation_text(ast: Ast, id: int) -> string {
         }
         node = ast.nodes[id].kids[0]
     }
-    return ast.attr_text(node, "name")
+    kind = ast.nodes[node].kind
+    if kind == "TypeName" {
+        return ast.attr_text(node, "name")
+    }
+    if kind == "TypeList" {
+        if ast.nodes[node].kids.len() > 0 {
+            return "[${annotation_text(ast, ast.nodes[node].kids[0])}]"
+        }
+        return "[?]"
+    }
+    if kind == "TypeMap" {
+        if ast.nodes[node].kids.len() > 0 {
+            return "{string: ${annotation_text(ast, ast.nodes[node].kids[0])}}"
+        }
+        return "{string: ?}"
+    }
+    return kind
+}
+
+/// What each declared function returns, before any body is walked.
+fn fn_table(ast: Ast) -> [FnSig] {
+    sigs: [FnSig] = []
+    if ast.nodes.len() == 0 {
+        return sigs
+    }
+    for id in ast.nodes[0].kids {
+        if ast.nodes[id].kind != "Fn" {
+            continue
+        }
+        ret = "unit"
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "TypeName" {
+                ret = annotation_slot(ast, kid)
+                if ret == "" {
+                    ret = "int"
+                }
+            }
+        }
+        sigs.add(FnSig(name: ast.attr_text(id, "name"), ret: ret))
+    }
+    return sigs
 }
 
 /// Merge a walk's findings into the program's, keeping the first-seen order.

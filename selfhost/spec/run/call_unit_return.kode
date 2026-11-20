@@ -1,0 +1,5 @@
+fn noop() {
+    return
+}
+noop()
+print("done")

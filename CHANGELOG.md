@@ -7,6 +7,22 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port lowers calls, so user functions run.** `name(args)` lowers to
+  `_N = call name(a, b)` (or a bare `call` for a unit callee), arguments in order, the
+  destination sized from the callee's declared return kind — known before any body is
+  walked, because recursion and forward calls both need it. `selfhost/eval.kode` gives a
+  call a frame of its own: parameters receive the arguments, the body runs to its
+  `return`, and the returned value is written where the caller asked. The corpus moves
+  from 2/58 to **4/58** (`functions`, `early_return_strings` now match dumps, output and
+  exit codes); `mir` and `run` are **47/47**.
+
+- **Two divergences the new fixtures and corpus programs exposed.** A parameter is a
+  named variable even though its `Temp.name` stays empty, so `print(msg)` inside a
+  function released the parameter and `return s` did not retain it; `is_variable()`
+  covers both now. And `(x % 2^k) == 0` is a divisibility test the oracle lowers as
+  `bitand x, 2^k - 1` (exact for two's complement, unlike `x % 2^k` itself, which is why
+  only the test is fused) — the port divided, so `is_even` differed.
+
 - **The port lowers `fn` declarations and `return`.** Each declaration becomes its own
   `fn` in the dump — parameters as `_0`, `_1` in the header (no `let`, no zero init), the
   return temporary allocated at the first `return`, a `bb1` return block that releases the

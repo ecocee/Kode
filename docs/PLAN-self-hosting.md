@@ -904,7 +904,17 @@ now proves the port's report for it byte for byte. A `mir`-mode refusal cannot b
 own stop reason, and `check_mir` compares stdout. Gates after these pins: parse
 **173/173**, check **170/170** with **170/170** reports, mir **33/33**, run **33/33**.
 
-**Slice 8 is in — declarations and returns, with calls still out.** A `fn` is lowered as
+**Slice 9 is in — calls, and the corpus moves for the first time.** `name(args)` lowers
+to `_N = call name(...)` with the arguments in order, the destination sized from the
+callee's return kind (`unit` callees get no destination), and the port's own interpreter
+gives each call a frame: arguments into parameters, the body to its `return`, the value
+back to the caller. Recursion is just another frame (`fact(5)` is a fixture). The return
+kinds are collected before any body is walked, because a recursive or forward call needs
+its size while its callee's body has not been visited yet. `functions` and
+`early_return_strings` now match the oracle dump for dump, output for output — the corpus
+is **4/58**, and mir/run are **47/47**.
+
+**Slice 8 is in — declarations and returns.** A `fn` is lowered as
 its own function: parameters become `_0`, `_1`, … (declared by the header, so no `let` and
 no zero init), the return temporary is allocated at the first `return` — after its operand,
 which is the oracle's numbering — `bb1` is the return block and releases the named
@@ -940,16 +950,17 @@ that keeps being walked after a refusal, and a refused declaration that is then 
 **The corpus is the gate, and now it says how much is left.** `./scripts/selfhost.sh corpus`
 runs the `mir` and `run` comparisons over `tests/run-pass` rather than the hand-written
 fixtures. Today **2 of 58** programs lower — `hello` and `nesting_ok`, both byte-identical
-and running — and the other 56 need **304 constructs** between them, 87 distinct (it grew
-from 296 when function bodies started being walked: `statement \`Fn\`` used to hide them). These
+and running — and the other 54 need **318 constructs** between them. The number keeps
+growing as the walk sees more: 296 at first, 304 when function bodies became visible,
+318 when call arguments did. That is the point of a generated ledger — coverage is
+measured, never assumed. These
 are not first-blocker floors any more: `report` walks past a refusal, so each program's
 list is complete for the shapes the walk knows how to name.
 
 | what is missing | constructs | programs |
 |---|---|---|
-| calling: `Call`, a call other than `print` | 41, 19 | 41, 19 |
-| methods and fields: `MethodCall`, `Member` | 25, 15 | 25, 15 |
-| collections: `List`, `Map`, `Index` | 16, 5, 15 | 16, 5, 15 |
+| members and fields: `MethodCall`, `Member` | 25, 15 | 25, 15 |
+| collections: `List`, `Map`, `Index` | 18, 5, 15 | 18, 5, 15 |
 | loops beyond `while`: `statement \`For\``, `ForIn` | 13, 9 | 13, 9 |
 | targets: an assignment to something other than a name | 9 | 9 |
 | errors: `Catch`, `Try` | 8, 5 | 8, 5 |
@@ -967,11 +978,12 @@ regenerates with:
 awk -F'\t' 'NF == 2 {print $2}' selfhost/spec/corpus-out-of-scope.txt | sort | uniq -c | sort -rn
 ```
 
-So the next S4 slices, in the order the corpus asks for them: user `fn` and calls (41
-programs call something, 24 declare a function), then members and indexing (methods 25,
-`Index` 15, `Member` 15 — the largest single block after calls), then `for` loops, then
-classes and enums with `match`, then bool/float locals, optionals and the remaining
-operators. That is a different order from "whatever MIR shape comes next", and it is the
+So the next S4 slices, in the order the corpus asks for them: **members, method calls and
+indexing** (25 + 24 + 15 programs — the largest remaining block, and the gate to anything
+that holds a class instance), then list and map literals with `for`, then classes and
+enums with `match`, then bool/float locals, optionals and the remaining operators. The
+port's own sources agree on that order: `Import` 48, `Class` 36, `MethodCall` 35,
+`ForIn` 25, `Member` 24 are its top blockers. That is a different order from "whatever MIR shape comes next", and it is the
 one that moves this number.
 
 **Known divergences — what green does not cover.** The port refuses shapes it cannot

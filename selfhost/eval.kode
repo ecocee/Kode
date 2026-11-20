@@ -1,23 +1,39 @@
 // The interpreter over that MIR (S4): what a program prints.
 //
-// The evaluator keeps one `int`, one `string` and one `bool` per temporary, plus the
-// line being built, and it follows the blocks rather than walking them in order: a
-// `goto` or a `branch` picks the next block, and a `return` ends the function. Within a
-// block, an assignment or a `StrConcat` writes a temporary, an integer or comparison
-// operator writes the result of its operands, and the print primitives append to the
-// pending line — a separator appends a space, and `PrintNl` prints the line and clears
-// it, the separator and newline rule `print` has. `retain` and `release` are no-ops
-// here: the interpreter has no reference counts to drop, and the gate still checks that
-// the instruction is emitted.
+// The evaluator keeps one `int`, one `string`, one `bool` and one `float` per
+// temporary, plus the line being built, and it follows the blocks rather than walking
+// them in order: a `goto` or a `branch` picks the next block, and a `return` ends the
+// function. Within a block, an assignment or a `StrConcat` writes a temporary, an
+// integer or comparison operator writes the result of its operands, and the print
+// primitives append to the pending line — a separator appends a space, and `PrintNl`
+// prints the line and clears it, the separator and newline rule `print` has.
+//
+// A call to a function the program declares gets a frame of its own: the arguments are
+// copied into its parameters, its blocks run to its `return`, and the value it returned
+// is written where the caller asked for it. Recursion is just another frame.
+// `retain` and `release` are no-ops here: the interpreter has no reference counts to
+// drop, and the gate still checks that the instruction is emitted.
 
 from "./mir" import Block, Function, Instr, Mir, Operand, print_text
 
-/// What a running function holds: the pending line and one value per temporary.
+/// A value crossing a call boundary: the argument into a frame, or the result out.
+class Slot {
+    kind: string = "unit"
+    i: int = 0
+    x: float = 0.0
+    s: string = ""
+    b: bool = false
+}
+
+/// What a running function holds: the pending line, one value per temporary, and the
+/// value its `return` handed back.
 class State {
     pending: string = ""
     values: [int] = []
+    floats: [float] = []
     refs: [string] = []
     bools: [bool] = []
+    ret: Slot = Slot()
 }
 
 /// Run `mir` and write its output, exactly as the program would.
@@ -27,21 +43,33 @@ pub fn run(mir: Mir) {
         if not f.entry {
             continue
         }
-        st = State()
-        for k in 0..f.temps.len() {
-            st.values.add(0)
-            st.refs.add("")
-            st.bools.add(false)
-        }
-        pc = 0
-        while pc >= 0 {
-            pc = run_block(f, pc, st)
-        }
+        st = new_frame(f)
+        run_function(mir, f, st)
+    }
+}
+
+/// A frame for `f`: one empty value per temporary, in its own kind.
+fn new_frame(f: Function) -> State {
+    st = State()
+    for k in 0..f.temps.len() {
+        st.values.add(0)
+        st.floats.add(0.0)
+        st.refs.add("")
+        st.bools.add(false)
+    }
+    return st
+}
+
+/// Run one function until its `return`, leaving the value it returned in `st.ret`.
+fn run_function(mir: Mir, f: Function, st: State) {
+    pc = 0
+    while pc >= 0 {
+        pc = run_block(mir, f, pc, st)
     }
 }
 
 /// Run one block, returning the block to run next, or -1 when the function is done.
-fn run_block(f: Function, pc: int, st: State) -> int {
+fn run_block(mir: Mir, f: Function, pc: int, st: State) -> int {
     for i in f.blocks[pc].instrs {
         if i.kind == "goto" {
             return label_index(f.blocks, i.target)
@@ -53,9 +81,15 @@ fn run_block(f: Function, pc: int, st: State) -> int {
             return label_index(f.blocks, i.alt)
         }
         if i.kind == "return" {
+            if i.args.len() > 0 {
+                st.ret = read_operand(f, i.args[0], st)
+            }
             return -1
         }
-        run_instr(f, i, st)
+        if i.kind == "unreachable" {
+            return -1
+        }
+        run_instr(mir, f, i, st)
     }
     return -1
 }
@@ -69,33 +103,35 @@ fn label_index(blocks: [Block], label: string) -> int {
     return -1
 }
 
-/// One instruction. `goto`, `branch` and `return` are the block loop's.
-fn run_instr(f: Function, i: Instr, st: State) {
+fn function_index(mir: Mir, name: string) -> int {
+    for k in 0..mir.functions.len() {
+        if mir.functions[k].name == name {
+            return k
+        }
+    }
+    return -1
+}
+
+/// One instruction. `goto`, `branch`, `return` and `unreachable` are the block loop's.
+fn run_instr(mir: Mir, f: Function, i: Instr, st: State) {
     if i.kind == "release" or i.kind == "retain" {
         return
     }
     if i.kind == "assign" {
-        if f.temps[i.dest].kind == "ref" {
-            st.refs[i.dest] = operand_str(i.args[0], st)
-        } else if f.temps[i.dest].kind == "bool" {
-            st.bools[i.dest] = operand_bool(i.args[0], st)
-        } else {
-            st.values[i.dest] = operand_int(i.args[0], st)
-        }
+        write_slot(f, i.dest, read_operand(f, i.args[0], st), st)
         return
     }
-    if i.kind == "call" and i.dest >= 0 {
-        // A call with a destination returns a string: the concat, or an int rendered.
-        if i.callee == "rt::IntToStr" {
-            st.refs[i.dest] = "${operand_int(i.args[0], st)}"
-        } else {
-            st.refs[i.dest] = operand_str(i.args[0], st) + operand_str(i.args[1], st)
+    if i.kind == "call" {
+        if i.callee.starts_with("rt::") {
+            run_runtime(f, i, st)
+            return
         }
+        call_user(mir, f, i, st)
         return
     }
     left = 0
     right = 0
-    if i.kind == "add" or i.kind == "sub" or i.kind == "mul" or i.kind == "div" or i.kind == "rem" {
+    if i.kind == "add" or i.kind == "sub" or i.kind == "mul" or i.kind == "div" or i.kind == "rem" or i.kind == "bitand" {
         left = operand_int(i.args[0], st)
         right = operand_int(i.args[1], st)
     }
@@ -119,11 +155,47 @@ fn run_instr(f: Function, i: Instr, st: State) {
         st.values[i.dest] = left % right
         return
     }
+    if i.kind == "bitand" {
+        st.values[i.dest] = masked(left, operand_int(i.args[1], st))
+        return
+    }
     if i.kind == "lt" or i.kind == "le" or i.kind == "gt" or i.kind == "ge" or i.kind == "eq" or i.kind == "ne" {
         st.bools[i.dest] = compare(i.kind, operand_int(i.args[0], st), operand_int(i.args[1], st))
         return
     }
-    if i.kind != "call" {
+}
+
+/// A call to a function this program declares: a frame, the arguments copied into its
+/// parameters, and its `return` written where the caller asked for it.
+fn call_user(mir: Mir, f: Function, i: Instr, st: State) {
+    target = function_index(mir, i.callee)
+    if target < 0 {
+        return
+    }
+    callee = mir.functions[target]
+    cst = new_frame(callee)
+    k = 0
+    for arg in i.args {
+        if k < callee.params.len() {
+            write_slot(callee, callee.params[k], read_operand(f, arg, st), cst)
+        }
+        k += 1
+    }
+    run_function(mir, callee, cst)
+    if i.dest >= 0 {
+        write_slot(f, i.dest, cst.ret, st)
+    }
+}
+
+/// The runtime functions this slice emits: the print primitives, `StrConcat` and the
+/// integer rendering an interpolation hole needs.
+fn run_runtime(f: Function, i: Instr, st: State) {
+    if i.dest >= 0 {
+        if i.callee == "rt::IntToStr" {
+            st.refs[i.dest] = "${operand_int(i.args[0], st)}"
+        } else if i.callee == "rt::StrConcat" {
+            st.refs[i.dest] = operand_str(i.args[0], st) + operand_str(i.args[1], st)
+        }
         return
     }
     if i.callee == "rt::PrintNl" {
@@ -155,6 +227,69 @@ fn run_instr(f: Function, i: Instr, st: State) {
         return
     }
     st.pending += print_text(i.args[0].value)
+}
+
+/// What an operand stands for right now, as a value that can cross a frame boundary.
+fn read_operand(f: Function, o: Operand, st: State) -> Slot {
+    if not o.is_temp {
+        v = o.value
+        if v.kind == "str" {
+            return Slot(kind: "ref", s: v.str_value)
+        }
+        if v.kind == "bool" {
+            return Slot(kind: "bool", b: v.bool_value)
+        }
+        if v.kind == "float" {
+            return Slot(kind: "float", x: v.float_value)
+        }
+        if v.kind == "int" {
+            return Slot(kind: "int", i: v.int_value)
+        }
+        return Slot(kind: v.kind)
+    }
+    kind = f.temps[o.index].kind
+    if kind == "ref" {
+        return Slot(kind: "ref", s: st.refs[o.index])
+    }
+    if kind == "bool" {
+        return Slot(kind: "bool", b: st.bools[o.index])
+    }
+    if kind == "float" {
+        return Slot(kind: "float", x: st.floats[o.index])
+    }
+    return Slot(kind: "int", i: st.values[o.index])
+}
+
+/// Store a value in a temporary, in the temporary's own kind.
+fn write_slot(f: Function, dest: int, value: Slot, st: State) {
+    kind = f.temps[dest].kind
+    if kind == "ref" {
+        st.refs[dest] = value.s
+        return
+    }
+    if kind == "bool" {
+        st.bools[dest] = value.b
+        return
+    }
+    if kind == "float" {
+        st.floats[dest] = value.x
+        return
+    }
+    st.values[dest] = value.i
+}
+
+/// Two's-complement `x & mask` for the masks the lowering emits (`2^k - 1`), written
+/// without the bitwise operators so the interpreter does not need a feature it cannot
+/// lower itself yet.
+fn masked(x: int, mask: int) -> int {
+    if x >= 0 {
+        return x % (mask + 1)
+    }
+    r = (0 - x) % (mask + 1)
+    if r == 0 {
+        return 0
+    }
+    return mask + 1 - r
 }
 
 fn compare(kind: string, left: int, right: int) -> bool {

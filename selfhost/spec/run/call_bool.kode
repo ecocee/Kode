@@ -1,0 +1,2 @@
+fn is_even(n: int) -> bool => n % 2 == 0
+print(is_even(10), is_even(7))
