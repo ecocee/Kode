@@ -804,6 +804,22 @@ slice adds the retain/release lines the oracle emits. Probing `kode mir` pinned 
   variable argument still lives in its own slot. Fixtures: `interp_assign`,
   `interp_assign_sole`, `interp_assign_int`, `interp_arg`, `interp_return`; the corpus
   drops one construct (`errors.kode`'s `Interp`), 318 → 317.
+- **Locals that are not numbers, and operators that are not arithmetic (slice 14).**
+  Three oracle facts decided it. A `bool` local is an int local with other zero
+  (`let _0: bool`, `_0 = false`, `_0 = true`). `and`/`or` **short-circuit in the MIR**:
+  the result temporary is allocated first, the left side lowered into it, then
+  `branch result, bb_body, bb_join` for `and` (`branch result, bb_join, bb_body` for `or`),
+  and the right side lives in `bb_body`, assigning the result and jumping to the join —
+  the body block is created before the join in both, so the numbering matches. `const` is
+  **inlined**: `const TAX = 5` never appears in the dump, `TAX + 1` is `add 5, 1`, and the
+  value is a node in the file that declared it, like a field default, so it is read with
+  that tree. Bitwise operators are one instruction each (`bitand`, `bitor`, `bitxor`,
+  `shl`, `shr`, and `~x` as `bitnot`). Files: `consts.kode` (the const table),
+  `ops.kode` (+5 mnemonics, `temp_kind` learns `bool`), `lower_expr.kode` (`lower_logic`,
+  `~`), `lower_stmt.kode` (a bool slot), `eval.kode` (six instructions). Fixtures
+  `bool_local`, `bool_logic`, `bitops`, `const_inline`; mir/run **63/63**; the ledger
+  retires **25** constructs (318 → 293). The walk's leaf helpers moved to `pieces.kode`
+  to keep `lower_expr.kode` under the line budget without an import cycle.
 - **A program is many files (slice 13).** The checker already loads the module graph, so
   lowering only had to use it — and to learn the oracle's *order*, which `kode mir` on a
   chain and on two imports settled: **post-order**, a file after everything it imports,

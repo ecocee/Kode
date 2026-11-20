@@ -7,6 +7,7 @@
 
 from "./ast" import Ast
 from "./classes" import ClassInfo
+from "./consts" import ConstInfo
 from "./mir" import Block, Function, Instr, Operand, Piece, Temp, Value
 
 pub class FnSig {
@@ -62,6 +63,8 @@ pub class Builder {
     var_class: [string] = []
     /// The class whose method is being walked, so `this` reads as its type.
     this_class: string = ""
+    /// Every constant of the program: a name that is one is its value.
+    consts: [ConstInfo] = []
 
     /// Whether the current block already ends in a terminator.
     fn terminated() -> bool {

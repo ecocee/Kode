@@ -204,7 +204,7 @@ fn run_instr(mir: Mir, f: Function, i: Instr, st: State, owned: Owned) {
     }
     left = 0
     right = 0
-    if i.kind == "add" or i.kind == "sub" or i.kind == "mul" or i.kind == "div" or i.kind == "rem" or i.kind == "bitand" {
+    if i.kind == "add" or i.kind == "sub" or i.kind == "mul" or i.kind == "div" or i.kind == "rem" or i.kind == "bitand" or i.kind == "bitor" or i.kind == "bitxor" or i.kind == "shl" or i.kind == "shr" {
         left = operand_int(i.args[0], st)
         right = operand_int(i.args[1], st)
     }
@@ -230,6 +230,26 @@ fn run_instr(mir: Mir, f: Function, i: Instr, st: State, owned: Owned) {
     }
     if i.kind == "bitand" {
         st.values[i.dest] = masked(left, operand_int(i.args[1], st))
+        return
+    }
+    if i.kind == "bitor" {
+        st.values[i.dest] = left | operand_int(i.args[1], st)
+        return
+    }
+    if i.kind == "bitxor" {
+        st.values[i.dest] = left ^ operand_int(i.args[1], st)
+        return
+    }
+    if i.kind == "shl" {
+        st.values[i.dest] = left << operand_int(i.args[1], st)
+        return
+    }
+    if i.kind == "shr" {
+        st.values[i.dest] = left >> operand_int(i.args[1], st)
+        return
+    }
+    if i.kind == "bitnot" {
+        st.values[i.dest] = 0 - operand_int(i.args[0], st) - 1
         return
     }
     if i.kind == "neg" {

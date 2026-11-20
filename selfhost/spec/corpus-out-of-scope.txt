@@ -8,24 +8,14 @@
 # `corpus` regenerates it and fails when the file differs, so a program cannot
 # quietly leave the list (it lowers now) or join it (it stopped lowering) without
 # the commit saying so. `report` is the per-program view behind it.
-bitops.kode	the operator `&`, which this slice cannot lower
-bitops.kode	the operator `|`, which this slice cannot lower
-bitops.kode	the operator `^`, which this slice cannot lower
-bitops.kode	the operator `<<`, which this slice cannot lower
-bitops.kode	the operator `>>`, which this slice cannot lower
-bitops.kode	the operator `~` on a `int`
 bitops.kode	statement `For`
 bool_lists.kode	an expression of kind `List`
 bool_lists.kode	statement `For`
 bool_lists.kode	an assignment to something other than a name
 bool_lists.kode	an expression of kind `Index`
 bool_lists.kode	statement `ForIn`
-bools_logic.kode	`a` holding a `bool`
-bools_logic.kode	`b` holding a `bool`
-bools_logic.kode	a read of `a`, which this slice cannot bind
-bools_logic.kode	a read of `b`, which this slice cannot bind
-bools_logic.kode	the operator `and`, which this slice cannot lower
-bools_logic.kode	the operator `or`, which this slice cannot lower
+bools_logic.kode	`==` on a `bool` and a `bool`
+bools_logic.kode	`!=` on a `bool` and a `bool`
 bytes_buffers.kode	a return type of `bytes`
 bytes_buffers.kode	a call to `bytes`, which this slice cannot lower
 bytes_buffers.kode	a statement that is not a call
@@ -87,6 +77,7 @@ enum_is.kode	a member read of `radius` on a value this slice cannot type
 enum_is.kode	a member read of `side` on a value this slice cannot type
 enum_is.kode	statement `Enum`
 enum_is.kode	a read of `Shape`, which this slice cannot bind
+enum_is.kode	`and` on a `?`
 enum_is.kode	a read of `Color`, which this slice cannot bind
 enum_match_bindings.kode	a parameter of type `Value`
 enum_match_bindings.kode	statement `Match`
@@ -111,7 +102,6 @@ enums_match.kode	a parameter of type `Color`
 enums_match.kode	statement `Match`
 enums_match.kode	statement `Enum`
 enums_match.kode	a read of `Color`, which this slice cannot bind
-enums_match.kode	`flag` holding a `bool`
 errors.kode	`==` on a `str` and a `str`
 errors.kode	statement `Throw`
 errors.kode	an expression of kind `Catch`
@@ -224,9 +214,7 @@ optional_numbers.kode	an expression of kind `None`
 optional_numbers.kode	an expression of kind `Coalesce`
 optional_numbers.kode	`f` holding a `float`
 optional_numbers.kode	an expression of kind `Unwrap`
-optional_numbers.kode	`t` holding a `bool`
-optional_numbers.kode	a hole reading `t`, which this slice cannot bind
-optional_numbers.kode	a read of `t`, which this slice cannot bind
+optional_numbers.kode	a `bool` hole
 optional_params.kode	a parameter of type `TypeOpt`
 optional_params.kode	an expression of kind `Coalesce`
 optional_params.kode	an expression of kind `None`
@@ -235,8 +223,6 @@ optional_params.kode	a statement that is not a call
 optional_params.kode	a read of `maybe`, which this slice cannot bind
 optional_params.kode	a call to `pick`, which this slice cannot lower
 optional_scalar_print.kode	an expression of kind `None`
-optional_scalar_print.kode	`ok` holding a `bool`
-optional_scalar_print.kode	a read of `ok`, which this slice cannot bind
 optionals.kode	a parameter of type `[User]`
 optionals.kode	statement `ForIn`
 optionals.kode	an expression of kind `None`
@@ -244,17 +230,10 @@ optionals.kode	an expression of kind `List`
 optionals.kode	an expression of kind `Unwrap`
 optionals.kode	an expression of kind `Coalesce`
 optionals.kode	an expression of kind `Index`
-process.kode	`missing` holding a `bool`
 process.kode	statement `Try`
-process.kode	a read of `missing`, which this slice cannot bind
-process.kode	`empty` holding a `bool`
-process.kode	a read of `empty`, which this slice cannot bind
 process_failures.kode	statement `Try`
-process_failures.kode	`bad` holding a `bool`
-process_failures.kode	a read of `bad`, which this slice cannot bind
-process_failures.kode	`nodir` holding a `bool`
-process_failures.kode	a read of `nodir`, which this slice cannot bind
 process_failures.kode	a call to `exec`, which this slice cannot lower
+process_failures.kode	`and` on a `?`
 process_posix.kode	a call to `exec`, which this slice cannot lower
 request_response.kode	a call to `Request`, which this slice cannot lower
 request_response.kode	an expression of kind `Index`
@@ -320,9 +299,5 @@ tasks.kode	statement `ForIn`
 tasks.kode	a statement that is not a call
 tasks.kode	an expression of kind `Catch`
 variables_scope.kode	`z` holding a `float`
-variables_scope.kode	`v` holding a `bool`
 variables_scope.kode	a read of `z`, which this slice cannot bind
-variables_scope.kode	a read of `v`, which this slice cannot bind
 variables_scope.kode	statement `For`
-variables_scope.kode	statement `Const`
-variables_scope.kode	a read of `LIMIT`, which this slice cannot bind

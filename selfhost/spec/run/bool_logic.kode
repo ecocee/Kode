@@ -1,0 +1,9 @@
+// `and` and `or` short-circuit: the result temporary is assigned the left side, a branch
+// guards the right side's block, and the join continues with it.
+a = true
+b = false
+print(a and b)
+print(a or b)
+x = 3
+print(x > 1 and x < 9)
+print(x > 9 or x < 9)

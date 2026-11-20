@@ -4,7 +4,8 @@
 from "./ast" import Ast
 from "./classes" import find_class, find_field, slot_of
 from "./lower_core" import Builder
-from "./lower_expr" import lower_binary, lower_call_expr, lower_expr, lower_interp, lower_stmt_call
+from "./lower_expr" import lower_binary, lower_call_expr, lower_expr, lower_stmt_call
+from "./pieces" import lower_interp
 from "./mir" import Instr, Operand
 from "./ops" import temp_kind
 
@@ -108,7 +109,7 @@ pub fn lower_assign(b: Builder, id: int) {
         b.unknown_names.add(var_name)
         return
     }
-    if kind != "int" and kind != "str" {
+    if kind != "int" and kind != "str" and kind != "bool" {
         b.stop("`${var_name}` holding a `${kind}`")
         return
     }

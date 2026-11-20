@@ -3,9 +3,10 @@
 
 from "./ast" import Ast
 from "./classes" import defaulted, find_class, find_field, find_method, ref_mask, slot_of
-from "./literals" import parse_int
+from "./consts" import find_const
 from "./lower_core" import Builder
 from "./mir" import Instr, Operand, Piece, Value
+from "./pieces" import lower_interp, lower_literal, release_args
 from "./ops" import compare_name, operator_name
 
 pub fn lower_stmt_call(b: Builder, id: int) {
@@ -51,6 +52,47 @@ pub fn lower_call_expr(b: Builder, id: int) -> Operand {
     return Operand(is_temp: true, index: dest)
 }
 
+/// `a and b`, `a or b`: one result temporary, one branch, and a block for the right side.
+fn lower_logic(b: Builder, id: int, op: string) -> Operand {
+    kids = b.ast.nodes[id].kids
+    result = b.temp("", "bool")
+    if kids.len() != 2 {
+        b.stop("a `${op}` without two operands")
+        return Operand(value: Value(kind: "?"))
+    }
+    left = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(left) != "bool" {
+        b.stop("`${op}` on a `${b.kind_of(left)}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    b.emit(Instr(kind: "assign", dest: result, args: [left]))
+    // The right side's block, then the join: `and` branches to the body when true, `or`
+    // when false.
+    body = b.new_block()
+    join = b.new_block()
+    if op == "and" {
+        b.emit(Instr(kind: "branch", args: [Operand(is_temp: true, index: result)], target: body.label, alt: join.label))
+    } else {
+        b.emit(Instr(kind: "branch", args: [Operand(is_temp: true, index: result)], target: join.label, alt: body.label))
+    }
+    b.switch_to(body)
+    right = lower_expr(b, kids[1])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(right) != "bool" {
+        b.stop("`${op}` on a `${b.kind_of(right)}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    b.emit(Instr(kind: "assign", dest: result, args: [right]))
+    b.emit(Instr(kind: "goto", target: join.label))
+    b.switch_to(join)
+    return Operand(is_temp: true, index: result)
+}
+
 pub fn lower_expr(b: Builder, id: int) -> Operand {
     kind = b.ast.nodes[id].kind
     if kind == "Int" or kind == "Float" or kind == "Bool" or kind == "Str" {
@@ -58,6 +100,11 @@ pub fn lower_expr(b: Builder, id: int) -> Operand {
     }
     if kind == "Ident" {
         name = b.ast.attr_text(id, "name")
+        // A constant is its value: the oracle writes the literal where the name was.
+        ci = find_const(b.consts, name)
+        if ci >= 0 {
+            return Operand(value: lower_literal(b, b.consts[ci].ast, b.consts[ci].node))
+        }
         index = b.slot(name)
         if index < 0 {
             if not b.has_name(b.unknown_names, name) {
@@ -104,11 +151,6 @@ fn lower_new(b: Builder, ci: int) -> Operand {
         b.emit(Instr(kind: "store", args: [Operand(is_temp: true, index: object), Operand(value: lower_literal(b, field.ast, field.default_node))], offset: field.offset))
     }
     return Operand(is_temp: true, index: object)
-}
-
-/// An integer operand, for the counts and flags the runtime calls take.
-fn int_operand(n: int) -> Operand {
-    return Operand(value: Value(kind: "int", int_value: n))
 }
 
 /// `p.name`: a `load` from the field's offset. A reference field still owns what it
@@ -244,6 +286,9 @@ pub fn lower_unary(b: Builder, id: int) -> Operand {
     } else if op == "not" and type == "bool" {
         mnemonic = "not"
         result = "bool"
+    } else if op == "~" and type == "int" {
+        mnemonic = "bitnot"
+        result = "int"
     }
     if mnemonic == "" {
         b.stop("the operator `${op}` on a `${type}`")
@@ -257,6 +302,11 @@ pub fn lower_unary(b: Builder, id: int) -> Operand {
 pub fn lower_binary(b: Builder, id: int) -> Operand {
     op = b.ast.attr_raw(id, "op")
     kids = b.ast.nodes[id].kids
+    // `and` and `or` short-circuit: the result temporary is allocated first, the left
+    // side is evaluated into it, and the right side is a block the branch reaches.
+    if op == "and" or op == "or" {
+        return lower_logic(b, id, op)
+    }
     // `(x % 2^k) == 0` is a divisibility test, and the oracle masks instead of
     // dividing; the shape has to be caught before the `%` is lowered.
     if compare_name(op) != "" {
@@ -362,117 +412,4 @@ pub fn lower_mask_comparison(b: Builder, id: int, op: string) -> Operand {
     result = b.temp("", "bool")
     b.emit(Instr(kind: compare_name(op), dest: result, args: [Operand(is_temp: true, index: mask), Operand(value: Value(kind: "int", int_value: 0))]))
     return Operand(is_temp: true, index: result)
-}
-
-pub fn lower_literal(b: Builder, ast: Ast, id: int) -> Value {
-    kind = ast.nodes[id].kind
-    if kind == "Int" {
-        return Value(kind: "int", int_value: parse_int(ast.attr_raw(id, "value")))
-    }
-    if kind == "Float" {
-        text = ast.attr_text(id, "value")
-        return Value(kind: "float", float_value: text.to_float() catch e {
-                0.0
-        })
-    }
-    if kind == "Bool" {
-        return Value(kind: "bool", bool_value: ast.attr_raw(id, "value") == "true")
-    }
-    return Value(kind: "str", str_value: ast.attr_text(id, "value"))
-}
-
-/// The call took what its arguments held: an intermediate the walk made, or an
-/// interpolation the callee was handed, is released right after it. A named variable
-/// lives on in its own slot, and a literal is static.
-pub fn release_args(b: Builder, args: [Operand]) {
-    for arg in args {
-        if not arg.is_temp {
-            continue
-        }
-        if b.main.temps[arg.index].kind != "ref" {
-            continue
-        }
-        if arg.owned or (not b.is_variable(arg.index) and not b.main.temps[arg.index].borrowed) {
-            b.emit(Instr(kind: "release", args: [arg]))
-        }
-    }
-}
-
-pub fn lower_interp(b: Builder, id: int) -> Operand {
-    acc = Operand()
-    have = false
-    for kid in b.ast.nodes[id].kids {
-        kind = b.ast.nodes[kid].kind
-        piece = Piece(op: Operand())
-        if kind == "Lit" {
-            text = b.ast.attr_text(kid, "text")
-            if text == "" {
-                continue
-            }
-            piece = Piece(op: Operand(value: Value(kind: "str", str_value: text)))
-        } else if kind == "Hole" {
-            piece = lower_hole(b, kid)
-            if not b.ok {
-                return Operand()
-            }
-        } else {
-            b.stop("a piece of an interpolation that is a `${kind}`")
-            return Operand(value: Value(kind: "?"))
-        }
-        if not have {
-            // The head is the accumulator, and the accumulation owns it: a borrowed
-            // variable is retained for that, a literal needs nothing.
-            acc = piece.op
-            have = true
-            if acc.is_temp and not piece.owned {
-                b.emit(Instr(kind: "retain", args: [acc]))
-            }
-            continue
-        }
-        index = b.temp("", "ref")
-        b.emit(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [acc, piece.op]))
-        b.emit(Instr(kind: "release", args: [acc]))
-        if piece.owned {
-            b.emit(Instr(kind: "release", args: [piece.op]))
-        }
-        acc = Operand(is_temp: true, index: index)
-    }
-    if not have {
-        b.stop("an interpolation with nothing in it")
-    }
-    // Whatever the accumulation ended on is the caller's: a variable retained for it, or
-    // an intermediate it built. A store moves it; a callee is handed it.
-    acc.owned = true
-    return acc
-}
-
-pub fn lower_hole(b: Builder, id: int) -> Piece {
-    kids = b.ast.nodes[id].kids
-    if kids.len() != 1 {
-        b.stop("a hole without one value")
-        return Piece(op: Operand(value: Value(kind: "?")))
-    }
-    node = kids[0]
-    if b.ast.nodes[node].kind != "Ident" {
-        b.stop("a hole that is a `${b.ast.nodes[node].kind}`")
-        return Piece(op: Operand(value: Value(kind: "?")))
-    }
-    name = b.ast.attr_text(node, "name")
-    index = b.slot(name)
-    if index < 0 {
-        if not b.has_name(b.unknown_names, name) {
-            b.stop("a hole reading `${name}`, which this slice cannot bind")
-        }
-        return Piece(op: Operand(value: Value(kind: "?")))
-    }
-    if b.main.temps[index].kind == "ref" {
-        return Piece(op: Operand(is_temp: true, index: index))
-    }
-    if b.main.temps[index].kind != "int" {
-        b.stop("a `${b.main.temps[index].kind}` hole")
-        return Piece(op: Operand())
-    }
-    text = b.temp("", "ref")
-    b.emit(Instr(kind: "call", dest: text, callee: "rt::IntToStr", args: [Operand(is_temp: true, index: index)]))
-    return Piece(op: Operand(is_temp: true, index: text), owned: true)
 }

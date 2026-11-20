@@ -7,6 +7,19 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Bool locals, short-circuit `and`/`or`, the bitwise operators and `const`.** Four
+  shapes, all pinned from `kode mir` first. A bool is a local like an int (`let _0: bool`,
+  `_0 = false`, then the value); `a and b` / `a or b` allocate the result temporary
+  *before* the left side, assign it, branch, and give the right side a block
+  (`branch _2, bb2, bb3` for `and`, `branch _3, bb5, bb4` for `or`) — genuinely
+  short-circuiting; `&`, `|`, `^`, `<<`, `>>` are `bitand`/`bitor`/`bitxor`/`shl`/`shr`
+  and `~x` is `bitnot`; a `const` is never lowered, its literal is written where the name
+  was used (`_0 = add 5, 1`). Fixtures `bool_local`, `bool_logic`, `bitops`,
+  `const_inline`: mir and run are **63/63**, and the ledger drops **25** constructs
+  (318 → 293). `lower_expr.kode` also crossed 500 lines, so its leaf pieces
+  (interpolation, hole, literal, call arguments, integer operands) moved to
+  `selfhost/pieces.kode`, which walks no expression and so keeps the import graph acyclic.
+
 - **A program is every file it imports.** `mir`, `run` and `report` now load the module
   graph (the loader the checker already had) and lower the whole program in the oracle's
   order: post-order, so a file's own items come after everything it imports and `<main>`

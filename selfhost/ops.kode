@@ -39,12 +39,30 @@ pub fn operator_name(op: string) -> string {
     if op == "%" {
         return "rem"
     }
+    if op == "&" {
+        return "bitand"
+    }
+    if op == "|" {
+        return "bitor"
+    }
+    if op == "^" {
+        return "bitxor"
+    }
+    if op == "<<" {
+        return "shl"
+    }
+    if op == ">>" {
+        return "shr"
+    }
     return ""
 }
 
 pub fn temp_kind(kind: string) -> string {
     if kind == "str" {
         return "ref"
+    }
+    if kind == "bool" {
+        return "bool"
     }
     return "int"
 }

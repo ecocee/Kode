@@ -7,6 +7,7 @@
 
 from "./ast" import Ast
 from "./classes" import ClassInfo, collect_classes, top_level
+from "./consts" import collect_consts
 from "./lower_core" import Builder, FnSig
 from "./lower_stmt" import lower_ret_expr, lower_stmt
 from "./mir" import Block, Function, Instr, Mir, Operand, is_param
@@ -20,12 +21,13 @@ from "./mir" import Block, Function, Instr, Mir, Operand, is_param
 pub fn build(asts: [Ast], order: [int], collecting: bool) -> Mir {
     mir = Mir()
     classes = collect_classes(asts)
+    consts = collect_consts(asts)
     entry_ast = Ast()
     if asts.len() > 0 {
         entry_ast = asts[0]
     }
     entry = Block(label: "bb0")
-    b = Builder(ast: entry_ast, main: Function(name: "<main>", entry: true), entry: entry, block: entry, end: Block(label: "bb1"), collecting: collecting, classes: classes, sigs: fn_table(asts, classes))
+    b = Builder(ast: entry_ast, main: Function(name: "<main>", entry: true), entry: entry, block: entry, end: Block(label: "bb1"), collecting: collecting, classes: classes, consts: consts, sigs: fn_table(asts, classes))
     for index in order {
         ast = asts[index]
         is_entry = index == 0
@@ -45,7 +47,7 @@ pub fn build(asts: [Ast], order: [int], collecting: bool) -> Mir {
                 }
                 continue
             }
-            if kind == "Import" {
+            if kind == "Import" or kind == "Const" {
                 continue
             }
             if is_entry {
@@ -84,7 +86,7 @@ fn class_item(parent: Builder, ast: Ast, id: int, mir: Mir) {
 fn method_item(parent: Builder, ast: Ast, class_name: string, id: int, mir: Mir) {
     f = Function(name: "${class_name}.${ast.attr_text(id, "name")}")
     entry = Block(label: "bb0")
-    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, sigs: parent.sigs)
+    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, consts: parent.consts, sigs: parent.sigs)
     b.block_body = true
     b.this_class = class_name
     // `this` is the first parameter and a named variable of the class: it is read and
@@ -154,7 +156,7 @@ fn method_item(parent: Builder, ast: Ast, class_name: string, id: int, mir: Mir)
 fn fn_item(parent: Builder, ast: Ast, id: int, mir: Mir) {
     f = Function(name: ast.attr_text(id, "name"))
     entry = Block(label: "bb0")
-    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, sigs: parent.sigs)
+    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, consts: parent.consts, sigs: parent.sigs)
     b.block_body = true
     body = -1
     for kid in ast.nodes[id].kids {
