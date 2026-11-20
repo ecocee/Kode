@@ -42,6 +42,8 @@ pub class Instr {
     args: [Operand] = []
     target: string = ""
     alt: string = ""
+    /// The byte offset of a `load` or a `store`: field `i` is at `24 + 8 * i`.
+    offset: int = 0
 }
 
 pub class Block {
@@ -54,6 +56,9 @@ pub class Block {
 pub class Temp {
     kind: string = "int"
     name: string = ""
+    /// Whether the temporary only borrowed its reference (a field `load`): a slot that
+    /// keeps it must retain it, and the walk must not release what it does not own.
+    borrowed: bool = false
 }
 
 pub class Function {
@@ -154,6 +159,12 @@ fn instr_text(i: Instr) -> string {
     }
     if i.kind == "branch" {
         return "branch ${operand_text(i.args[0])}, ${i.target}, ${i.alt}"
+    }
+    if i.kind == "store" {
+        return "store ${operand_text(i.args[0])}+${i.offset}, ${operand_text(i.args[1])}"
+    }
+    if i.kind == "load" and i.dest >= 0 {
+        return "_${i.dest} = load ${operand_text(i.args[0])}+${i.offset}"
     }
     if i.dest >= 0 {
         if i.kind == "assign" {

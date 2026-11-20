@@ -804,6 +804,24 @@ slice adds the retain/release lines the oracle emits. Probing `kode mir` pinned 
   variable argument still lives in its own slot. Fixtures: `interp_assign`,
   `interp_assign_sole`, `interp_assign_int`, `interp_arg`, `interp_return`; the corpus
   drops one construct (`errors.kode`'s `Interp`), 318 → 317.
+- **Classes are objects, fields and methods (slice 12).** The oracle's shape had to be
+  pinned before any of it could be written, and `kode mir` answered all of it: the header
+  is 24 bytes, field `i` sits at `24 + 8 * i`; construction is
+  `_0 = call rt::ObjNewClass(field_count, ref_mask, 7)` where the mask has bit `i` for a
+  reference field (three reference fields is `7`, `(int, string)` is `2`, no fields is
+  `0` — the third argument stayed `7` in every probe, so it is the oracle's flag word);
+  each field's default is a `store` in declaration order; a read is `_N = load _p+24`.
+  A **field read is a borrow** — the field still owns it — which is why `print(p.name)`
+  releases nothing while `return this.name` retains, and why a field write is
+  `retain` (borrowed value only) → `_old = load` → `store` → `release _old`, in that
+  order. A method is a MIR function `Class.method` whose `_0` is `this`, and the call
+  passes `this` first. `selfhost/classes.kode` holds the table (fields with offsets,
+  written kind and default node; methods with parameter and return kinds); `this` is
+  bound as a named variable of the class, and never released — the caller owns the
+  object. The interpreter grew objects: per-object field slots, `load`/`store` by
+  offset, and reference fields dropped when the object's last count goes, so the `own`
+  gate now covers container ownership too. Five fixtures plus `own_field`; mir/run
+  **59/59**, `own` **5/5**, mutation caught on 2.
 - **Unary is one instruction (slice 11).** `-x` and `not x` are one operand into one
   temporary (`_1 = neg _0`, `_0 = not true`); `mir.kode` gained the one-operand dump line
   (`_N = <kind> <operand>`) it never needed before, and `eval.kode` the two instructions.

@@ -1,0 +1,10 @@
+// An intermediate stored into a field: the field takes the one count the concat made,
+// and the next write releases it.
+class P {
+    name: string = "a"
+}
+p = P()
+p.name = "x" + "y"
+print(p.name)
+p.name = "z" + "w"
+print(p.name)

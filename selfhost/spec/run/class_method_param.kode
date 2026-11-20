@@ -1,0 +1,9 @@
+// A method with a parameter: `this` is `_0` and the argument is `_1`.
+class P {
+    x: int = 1
+    fn plus(n: int) -> int {
+        return this.x + n
+    }
+}
+p = P()
+print(p.plus(2))

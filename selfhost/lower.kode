@@ -6,6 +6,7 @@
 // and `lower_expr.kode` are the walks, `ops.kode` the operator tables.
 
 from "./ast" import Ast
+from "./classes" import ClassInfo, collect_classes
 from "./lower_core" import Builder, FnSig
 from "./lower_stmt" import lower_ret_expr, lower_stmt
 from "./mir" import Block, Function, Instr, Mir, Operand, is_param
@@ -13,12 +14,21 @@ from "./mir" import Block, Function, Instr, Mir, Operand, is_param
 /// Lower a program: every declared function, in declaration order, then `<main>`.
 pub fn build(ast: Ast, collecting: bool) -> Mir {
     mir = Mir()
+    classes = collect_classes(ast)
     entry = Block(label: "bb0")
-    b = Builder(ast: ast, main: Function(name: "<main>", entry: true), entry: entry, block: entry, end: Block(label: "bb1"), collecting: collecting, sigs: fn_table(ast))
+    b = Builder(ast: ast, main: Function(name: "<main>", entry: true), entry: entry, block: entry, end: Block(label: "bb1"), collecting: collecting, classes: classes, sigs: fn_table(ast, classes))
     if ast.nodes.len() > 0 {
         for id in ast.nodes[0].kids {
-            if ast.nodes[id].kind == "Fn" {
+            kind = ast.nodes[id].kind
+            if kind == "Fn" {
                 fn_item(b, id, mir)
+                if not mir.ok {
+                    return mir
+                }
+                continue
+            }
+            if kind == "Class" {
+                class_item(b, id, mir)
                 if not mir.ok {
                     return mir
                 }
@@ -38,6 +48,91 @@ pub fn build(ast: Ast, collecting: bool) -> Mir {
     return mir
 }
 
+/// One `class` declaration: its fields are data (the class table already holds them),
+/// and each of its methods is a function of its own, `_0` being `this`.
+fn class_item(parent: Builder, id: int, mir: Mir) {
+    name = parent.ast.attr_text(id, "name")
+    for kid in parent.ast.nodes[id].kids {
+        if parent.ast.nodes[kid].kind != "Method" {
+            continue
+        }
+        method_item(parent, name, kid, mir)
+        if not mir.ok {
+            return
+        }
+    }
+}
+
+/// One method: `Class.method` with `this` as `_0`, then the declared parameters. The
+/// body is walked like a function's, in a builder of its own.
+fn method_item(parent: Builder, class_name: string, id: int, mir: Mir) {
+    ast = parent.ast
+    f = Function(name: "${class_name}.${ast.attr_text(id, "name")}")
+    entry = Block(label: "bb0")
+    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, sigs: parent.sigs)
+    b.block_body = true
+    b.this_class = class_name
+    // `this` is the first parameter and a named variable of the class: it is read and
+    // never released, because the caller owns the object.
+    this_slot = b.temp("", "ref")
+    f.params.add(this_slot)
+    b.params.add(this_slot)
+    b.names.add("this")
+    b.slots.add(this_slot)
+    b.var_class.add(class_name)
+    body = -1
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Param" {
+            slot = annotation_slot(ast, kid)
+            if slot == "" {
+                b.stop("a parameter of type `${annotation_text(ast, kid)}`")
+                slot = "int"
+            }
+            index = b.temp("", slot)
+            f.params.add(index)
+            b.params.add(index)
+            b.names.add(ast.attr_text(kid, "name"))
+            b.slots.add(index)
+            b.var_class.add("")
+            continue
+        }
+        if kind == "TypeName" {
+            slot = annotation_slot(ast, kid)
+            if slot == "" {
+                b.stop("a return type of `${annotation_text(ast, kid)}`")
+                slot = "int"
+            }
+            b.ret_kind = slot
+            continue
+        }
+        if kind == "Block" {
+            body = kid
+        } else if kind == "ExprBody" {
+            body = kid
+            b.block_body = false
+        }
+    }
+    f.ret = b.ret_kind
+    if body >= 0 {
+        if ast.nodes[body].kind == "ExprBody" {
+            lower_ret_expr(b, body)
+        } else {
+            for kid in ast.nodes[body].kids {
+                lower_stmt(b, kid)
+            }
+        }
+    }
+    if not b.ok {
+        mir.ok = false
+        mir.why = b.why
+        return
+    }
+    finish(b)
+    mir.functions.add(f)
+    add_problems(mir, b.problems)
+}
+
 /// One `fn` declaration: its parameters become `_0`, `_1`, ..., its body is walked
 /// with a builder of its own (the names and temporaries are the function's own), and
 /// it returns through `bb1`.
@@ -45,7 +140,7 @@ fn fn_item(parent: Builder, id: int, mir: Mir) {
     ast = parent.ast
     f = Function(name: ast.attr_text(id, "name"))
     entry = Block(label: "bb0")
-    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, sigs: parent.sigs)
+    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, sigs: parent.sigs)
     b.block_body = true
     body = -1
     for kid in ast.nodes[id].kids {
@@ -61,6 +156,7 @@ fn fn_item(parent: Builder, id: int, mir: Mir) {
             b.params.add(index)
             b.names.add(ast.attr_text(kid, "name"))
             b.slots.add(index)
+            b.var_class.add("")
             continue
         }
         if kind == "TypeName" {
@@ -210,8 +306,9 @@ fn annotation_text(ast: Ast, id: int) -> string {
     return kind
 }
 
-/// What each declared function returns, before any body is walked.
-fn fn_table(ast: Ast) -> [FnSig] {
+/// What each declared function and method returns, before any body is walked: a method
+/// is recorded as `Class.method`, which is the name its call uses.
+fn fn_table(ast: Ast, classes: [ClassInfo]) -> [FnSig] {
     sigs: [FnSig] = []
     if ast.nodes.len() == 0 {
         return sigs
@@ -230,6 +327,11 @@ fn fn_table(ast: Ast) -> [FnSig] {
             }
         }
         sigs.add(FnSig(name: ast.attr_text(id, "name"), ret: ret))
+    }
+    for info in classes {
+        for method in info.methods {
+            sigs.add(FnSig(name: "${info.name}.${method.name}", ret: method.ret))
+        }
     }
     return sigs
 }

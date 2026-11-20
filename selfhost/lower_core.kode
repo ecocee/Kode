@@ -6,6 +6,7 @@
 // `lower_expr.kode` for expressions, `lower.kode` for the program and its functions.
 
 from "./ast" import Ast
+from "./classes" import ClassInfo
 from "./mir" import Block, Function, Instr, Operand, Piece, Temp, Value
 
 pub class FnSig {
@@ -54,6 +55,13 @@ pub class Builder {
     /// refusal, so it is not reported again (and the ledger does not churn when a
     /// variable is renamed).
     unknown_names: [string] = []
+    /// Every class's shape, collected before any body is walked.
+    classes: [ClassInfo] = []
+    /// The class each name in `names` was constructed as ("" when it is not one): a
+    /// `ref` temporary alone cannot say whether it holds a string or an object.
+    var_class: [string] = []
+    /// The class whose method is being walked, so `this` reads as its type.
+    this_class: string = ""
 
     /// Whether the current block already ends in a terminator.
     fn terminated() -> bool {
@@ -102,6 +110,10 @@ pub class Builder {
         if o.owned {
             return false
         }
+        // A field read borrowed what the field still owns.
+        if main.temps[o.index].borrowed {
+            return true
+        }
         return main.temps[o.index].kind == "ref" and is_variable(o.index)
     }
 
@@ -117,6 +129,17 @@ pub class Builder {
             }
         }
         return false
+    }
+
+    /// The class a temporary holds, when the variable it came from was constructed as
+    /// one: `""` for a string, a number, or anything the walk cannot type.
+    fn class_of(k: int) -> string {
+        for i in 0..slots.len() {
+            if slots[i] == k {
+                return var_class[i]
+            }
+        }
+        return ""
     }
 
     /// Whether a name is in a list of names: `slot`'s linear scan, for strings.

@@ -7,6 +7,23 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Classes: objects, fields and methods.** `class P { name: string = "a" ... }` now
+  lowers end to end. The oracle's layout is pinned in `selfhost/classes.kode`: a 24-byte
+  header, field `i` at `24 + 8 * i`, `_0 = call rt::ObjNewClass(count, ref_mask, 7)` with
+  a bit per reference field, one `store` per default, `p.name` as `_N = load _p+24`, a
+  field write as `retain` (a borrowed value) → `load` the old field → `store` → `release`
+  the old one, and a method as a MIR function `Class.method(_0 = this, …)` called with
+  `this` first. A field read is a *borrow*, so `print(p.name)` releases nothing, while a
+  method that returns `this.name` retains it. `selfhost/eval.kode` runs all of it: objects
+  with real field slots, `load`/`store` by offset, and an object's reference fields
+  dropped with it when its last count goes. Five fixtures
+  (`class_field_read`, `class_field_write`, `class_field_owned`, `class_method_call`,
+  `class_method_param`) and an ownership stress case (`own_field`): mir and run are
+  **59/59**, `own` **5/5** with the mutation now caught on two fixtures. Classes are
+  shallow so far — a field access needs a name bound straight from `P()` in the same
+  function, and a class-typed parameter or return is still refused, which is the next
+  slice.
+
 - **Unary operators lower.** `-x` and `not x` become one temporary and one instruction
   (`_1 = neg _0`, `_0 = not true`), named as the oracle names them. `mir.kode` learned the
   one-operand dump line and `eval.kode` the two instructions. Cheap and measurable: the

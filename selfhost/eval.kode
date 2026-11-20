@@ -49,6 +49,8 @@ class State {
 class Owned {
     counts: [int] = []
     freed: [bool] = []
+    /// The fields of each reference object, in field order: object 0 (null) has none.
+    fields: [[Slot]] = []
     failure: string = ""
 }
 
@@ -58,8 +60,10 @@ class Owned {
 pub fn run(mir: Mir) -> bool {
     owned = Owned()
     // Object 0 is "no reference": the sentinel a null or a literal holds.
+    empty: [Slot] = []
     owned.counts.add(0)
     owned.freed.add(true)
+    owned.fields.add(empty)
     for f in mir.functions {
         // A declaration is not a program: only `main` runs.
         if not f.entry {
@@ -177,6 +181,27 @@ fn run_instr(mir: Mir, f: Function, i: Instr, st: State, owned: Owned) {
         call_user(mir, f, i, st, owned)
         return
     }
+    if i.kind == "store" {
+        object = objects_of(f, i.args[0], st)
+        if object != 0 {
+            k = field_index(i.offset)
+            if k >= 0 and k < owned.fields[object].len() {
+                row = owned.fields[object]
+                row[k] = read_operand(f, i.args[1], st)
+            }
+        }
+        return
+    }
+    if i.kind == "load" {
+        object = objects_of(f, i.args[0], st)
+        if object != 0 {
+            k = field_index(i.offset)
+            if k >= 0 and k < owned.fields[object].len() {
+                write_slot(f, i.dest, owned.fields[object][k], st)
+            }
+        }
+        return
+    }
     left = 0
     right = 0
     if i.kind == "add" or i.kind == "sub" or i.kind == "mul" or i.kind == "div" or i.kind == "rem" or i.kind == "bitand" {
@@ -250,12 +275,14 @@ fn run_runtime(f: Function, i: Instr, st: State, owned: Owned) {
     if i.dest >= 0 {
         if i.callee == "rt::IntToStr" {
             st.refs[i.dest] = "${operand_int(i.args[0], st)}"
-            st.objects[i.dest] = new_object(owned)
+            st.objects[i.dest] = new_object(owned, 0)
         } else if i.callee == "rt::StrConcat" {
             check_use(owned, f, i.args[0], st)
             check_use(owned, f, i.args[1], st)
             st.refs[i.dest] = operand_str(i.args[0], st) + operand_str(i.args[1], st)
-            st.objects[i.dest] = new_object(owned)
+            st.objects[i.dest] = new_object(owned, 0)
+        } else if i.callee == "rt::ObjNewClass" {
+            st.objects[i.dest] = new_object(owned, operand_int(i.args[0], st))
         }
         return
     }
@@ -291,11 +318,39 @@ fn run_runtime(f: Function, i: Instr, st: State, owned: Owned) {
     st.pending += print_text(i.args[0].value)
 }
 
-/// A new reference object, with the one count its destination holds.
-fn new_object(owned: Owned) -> int {
+/// A new reference object, with the one count its destination holds and `count` fields
+/// (zero: no object, no value).
+fn new_object(owned: Owned, count: int) -> int {
     owned.counts.add(1)
     owned.freed.add(false)
+    slots: [Slot] = []
+    for k in 0..count {
+        slots.add(Slot())
+    }
+    owned.fields.add(slots)
     return owned.counts.len() - 1
+}
+
+/// The field a byte offset names: the header is 24 bytes and a field is 8.
+fn field_index(offset: int) -> int {
+    return (offset - 24) / 8
+}
+
+/// An object's reference fields go with it: the object held one count of each, and the
+/// runtime drops them when the header dies.
+fn drop_fields(owned: Owned, id: int) {
+    for field in owned.fields[id] {
+        if field.kind != "ref" or field.obj == 0 {
+            continue
+        }
+        if owned.counts[field.obj] > 0 {
+            owned.counts[field.obj] -= 1
+        }
+        if owned.counts[field.obj] == 0 and not owned.freed[field.obj] {
+            owned.freed[field.obj] = true
+            drop_fields(owned, field.obj)
+        }
+    }
 }
 
 /// The object an operand holds, if it is a temporary that names one.
@@ -325,6 +380,7 @@ fn release_ref(owned: Owned, f: Function, o: Operand, st: State) {
     owned.counts[id] -= 1
     if owned.counts[id] == 0 {
         owned.freed[id] = true
+        drop_fields(owned, id)
     }
 }
 

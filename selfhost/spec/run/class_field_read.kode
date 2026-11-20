@@ -1,0 +1,9 @@
+// A class is one object: `rt::ObjNewClass` writes the defaults, and a field read is a
+// load from its offset.
+class P {
+    name: string = "a"
+    age: int = 3
+}
+p = P()
+print(p.name)
+print(p.age)

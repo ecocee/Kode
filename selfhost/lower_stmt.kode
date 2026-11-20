@@ -2,6 +2,7 @@
 // `if`, `while`, `return` and the blocks around them.
 
 from "./ast" import Ast
+from "./classes" import find_class, find_field, slot_of
 from "./lower_core" import Builder
 from "./lower_expr" import lower_binary, lower_call_expr, lower_expr, lower_interp, lower_stmt_call
 from "./mir" import Instr, Operand
@@ -69,6 +70,14 @@ pub fn lower_stmt(b: Builder, id: int) {
 }
 
 pub fn lower_assign(b: Builder, id: int) {
+    // `p.name = value` is not a store to a slot: the field's old reference is released
+    // after the store, and a borrowed value is retained first.
+    for kid in b.ast.nodes[id].kids {
+        if b.ast.nodes[kid].kind == "TargetField" {
+            lower_field_assign(b, id, kid)
+            return
+        }
+    }
     var_name = ""
     var_id = -1
     for kid in b.ast.nodes[id].kids {
@@ -104,14 +113,29 @@ pub fn lower_assign(b: Builder, id: int) {
         return
     }
     slot_kind = temp_kind(kind)
+    // A name that holds a fresh instance is a class to the walk from here on: nothing
+    // else can tell a `ref` object from a `ref` string.
+    held = ""
+    if b.ast.nodes[value].kind == "Call" {
+        callee = b.ast.attr_text(value, "callee")
+        if find_class(b.classes, callee) >= 0 {
+            held = callee
+        }
+    }
     index = b.slot(var_name)
     if index < 0 {
         index = b.temp(var_name, slot_kind)
         b.names.add(var_name)
         b.slots.add(index)
+        b.var_class.add(held)
     } else if b.main.temps[index].kind != slot_kind {
         b.stop("`${var_name}` changing from `${b.main.temps[index].kind}` to `${slot_kind}`")
         return
+    }
+    for i in 0..b.slots.len() {
+        if b.slots[i] == index {
+            b.var_class[i] = held
+        }
     }
     // A reference slot releases what it held before it is overwritten — for the
     // first store too, where the oracle releases the null it was zeroed with.
@@ -199,8 +223,9 @@ pub fn lower_print_call(b: Builder, call: int) {
             continue
         }
         b.emit(Instr(kind: "call", callee: b.print_primitive(operand), args: [operand]))
-        // A variable lives to the b.end of the function; an intermediate dies here.
-        if operand.is_temp and b.main.temps[operand.index].kind == "ref" and not b.is_variable(operand.index) {
+        // A variable lives to the end of the function and a borrowed field read lives
+        // in its field; an intermediate dies here.
+        if operand.is_temp and b.main.temps[operand.index].kind == "ref" and not b.is_variable(operand.index) and not b.main.temps[operand.index].borrowed {
             b.emit(Instr(kind: "release", args: [operand]))
         }
     }
@@ -310,4 +335,72 @@ pub fn lower_body(b: Builder, id: int) {
         }
         lower_stmt(b, kid)
     }
+}
+
+/// `p.name = value`. The value is walked first, then a borrowed reference is retained,
+/// the field's old value is loaded, the store happens, and only then is the old value
+/// released — the oracle's order, and the only one where the field never holds a
+/// reference nobody counted.
+fn lower_field_assign(b: Builder, id: int, target: int) {
+    kids = b.ast.nodes[target].kids
+    if kids.len() != 1 {
+        b.stop("a field assignment without a value")
+        return
+    }
+    name = b.ast.attr_text(target, "name")
+    base = lower_expr(b, kids[0])
+    if not b.ok {
+        return
+    }
+    if b.kind_of(base) == "?" {
+        return
+    }
+    cls = ""
+    if base.is_temp {
+        cls = b.class_of(base.index)
+    }
+    if cls == "" {
+        b.stop("an assignment to `${name}` on a value this slice cannot type")
+        return
+    }
+    ci = find_class(b.classes, cls)
+    fi = -1
+    if ci >= 0 {
+        fi = find_field(b.classes[ci], name)
+    }
+    if fi < 0 {
+        b.stop("an assignment to `${name}` on a `${cls}`")
+        return
+    }
+    field = b.classes[ci].fields[fi]
+    slot = slot_of(field.written)
+    value = b.ast.nodes[id].kids[b.ast.nodes[id].kids.len() - 1]
+    operand = lower_expr(b, value)
+    if not b.ok {
+        return
+    }
+    kind = b.kind_of(operand)
+    if kind == "?" {
+        return
+    }
+    if kind != "int" and kind != "str" and kind != "bool" {
+        b.stop("`${name}` holding a `${kind}`")
+        return
+    }
+    if temp_kind(kind) != slot {
+        b.stop("`${name}` holding a `${kind}`")
+        return
+    }
+    if slot != "ref" {
+        b.emit(Instr(kind: "store", args: [base, operand], offset: field.offset))
+        return
+    }
+    if b.borrowed(operand) {
+        b.emit(Instr(kind: "retain", args: [operand]))
+    }
+    old = b.temp("", "ref")
+    b.main.temps[old].borrowed = true
+    b.emit(Instr(kind: "load", dest: old, args: [base], offset: field.offset))
+    b.emit(Instr(kind: "store", args: [base, operand], offset: field.offset))
+    b.emit(Instr(kind: "release", args: [Operand(is_temp: true, index: old)]))
 }

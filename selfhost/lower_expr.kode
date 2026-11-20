@@ -2,6 +2,7 @@
 // operand the statement walk can use.
 
 from "./ast" import Ast
+from "./classes" import defaulted, find_class, find_field, find_method, ref_mask, slot_of
 from "./literals" import parse_int
 from "./lower_core" import Builder
 from "./mir" import Instr, Operand, Piece, Value
@@ -13,6 +14,12 @@ pub fn lower_stmt_call(b: Builder, id: int) {
 
 pub fn lower_call_expr(b: Builder, id: int) -> Operand {
     name = b.ast.attr_text(id, "callee")
+    // `P()` is not a call: it builds an object, and the oracle's shape for that is
+    // `rt::ObjNewClass` plus one `store` per field's default.
+    ci = find_class(b.classes, name)
+    if ci >= 0 {
+        return lower_new(b, ci)
+    }
     ret = b.sig_ret(name)
     if ret == "" {
         b.stop("a call to `${name}`, which this slice cannot lower")
@@ -72,8 +79,145 @@ pub fn lower_expr(b: Builder, id: int) -> Operand {
     if kind == "Unary" {
         return lower_unary(b, id)
     }
+    if kind == "Member" {
+        return lower_member(b, id)
+    }
+    if kind == "MethodCall" {
+        return lower_method_call(b, id)
+    }
     b.stop("an expression of kind `${kind}`")
     return Operand(value: Value(kind: "?"))
+}
+
+/// `P()`: the object first (`rt::ObjNewClass(count, ref mask, 7)`), then every field's
+/// default in declaration order. A class whose fields need arguments is constructed by
+/// naming them, which this slice does not lower.
+fn lower_new(b: Builder, ci: int) -> Operand {
+    info = b.classes[ci]
+    if not defaulted(info) {
+        b.stop("a `${info.name}` whose fields need arguments")
+        return Operand(value: Value(kind: "?"))
+    }
+    object = b.temp("", "ref")
+    b.emit(Instr(kind: "call", dest: object, callee: "rt::ObjNewClass", args: [int_operand(info.fields.len()), int_operand(ref_mask(info)), int_operand(7)]))
+    for field in info.fields {
+        b.emit(Instr(kind: "store", args: [Operand(is_temp: true, index: object), Operand(value: lower_literal(b, field.default_node))], offset: field.offset))
+    }
+    return Operand(is_temp: true, index: object)
+}
+
+/// An integer operand, for the counts and flags the runtime calls take.
+fn int_operand(n: int) -> Operand {
+    return Operand(value: Value(kind: "int", int_value: n))
+}
+
+/// `p.name`: a `load` from the field's offset. A reference field still owns what it
+/// holds, so the temporary that reads it is a borrow.
+pub fn lower_member(b: Builder, id: int) -> Operand {
+    name = b.ast.attr_text(id, "name")
+    kids = b.ast.nodes[id].kids
+    if kids.len() != 1 {
+        b.stop("a member read of `${name}` without a value")
+        return Operand(value: Value(kind: "?"))
+    }
+    base = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(base) == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    cls = ""
+    if base.is_temp {
+        cls = b.class_of(base.index)
+    }
+    if cls == "" {
+        b.stop("a member read of `${name}` on a value this slice cannot type")
+        return Operand(value: Value(kind: "?"))
+    }
+    ci = find_class(b.classes, cls)
+    fi = -1
+    if ci >= 0 {
+        fi = find_field(b.classes[ci], name)
+    }
+    if fi < 0 {
+        b.stop("a member read of `${name}` on a `${cls}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    field = b.classes[ci].fields[fi]
+    slot = slot_of(field.written)
+    index = b.temp("", slot)
+    b.emit(Instr(kind: "load", dest: index, args: [base], offset: field.offset))
+    if slot == "ref" {
+        b.main.temps[index].borrowed = true
+    }
+    return Operand(is_temp: true, index: index)
+}
+
+/// `p.label(args)`: a method is a MIR function named `Class.method`, and `this` is its
+/// first argument.
+pub fn lower_method_call(b: Builder, id: int) -> Operand {
+    name = b.ast.attr_text(id, "name")
+    kids = b.ast.nodes[id].kids
+    if kids.len() < 1 {
+        b.stop("a method call of `${name}` without a receiver")
+        return Operand(value: Value(kind: "?"))
+    }
+    receiver = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(receiver) == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    cls = ""
+    if receiver.is_temp {
+        cls = b.class_of(receiver.index)
+    }
+    if cls == "" {
+        b.stop("a method call `${name}` on a value this slice cannot type")
+        return Operand(value: Value(kind: "?"))
+    }
+    ci = find_class(b.classes, cls)
+    mi = -1
+    if ci >= 0 {
+        mi = find_method(b.classes[ci], name)
+    }
+    if mi < 0 {
+        b.stop("a method call `${name}` on a `${cls}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    args: [Operand] = [receiver]
+    for k in 1..kids.len() {
+        arg = kids[k]
+        if b.ast.nodes[arg].kids.len() < 1 {
+            b.stop("an argument with no value")
+            return Operand(value: Value(kind: "?"))
+        }
+        op = lower_expr(b, b.ast.nodes[arg].kids[0])
+        if not b.ok {
+            return Operand(value: Value(kind: "?"))
+        }
+        if b.kind_of(op) == "?" {
+            return Operand(value: Value(kind: "?"))
+        }
+        args.add(op)
+    }
+    callee = "${cls}.${name}"
+    ret = b.sig_ret(callee)
+    if ret == "" {
+        b.stop("a call to `${callee}`, which this slice cannot lower")
+        return Operand(value: Value(kind: "?"))
+    }
+    if ret == "unit" {
+        b.emit(Instr(kind: "call", callee: callee, args: args))
+        release_args(b, args)
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", ret)
+    b.emit(Instr(kind: "call", callee: callee, dest: dest, args: args))
+    release_args(b, args)
+    return Operand(is_temp: true, index: dest)
 }
 
 /// `-x` and `not x`: one temporary, one instruction, named the way the oracle names it.
@@ -248,7 +392,7 @@ pub fn release_args(b: Builder, args: [Operand]) {
         if b.main.temps[arg.index].kind != "ref" {
             continue
         }
-        if arg.owned or not b.is_variable(arg.index) {
+        if arg.owned or (not b.is_variable(arg.index) and not b.main.temps[arg.index].borrowed) {
             b.emit(Instr(kind: "release", args: [arg]))
         }
     }
