@@ -804,6 +804,13 @@ slice adds the retain/release lines the oracle emits. Probing `kode mir` pinned 
   variable argument still lives in its own slot. Fixtures: `interp_assign`,
   `interp_assign_sole`, `interp_assign_int`, `interp_arg`, `interp_return`; the corpus
   drops one construct (`errors.kode`'s `Interp`), 318 → 317.
+- **Unary is one instruction (slice 11).** `-x` and `not x` are one operand into one
+  temporary (`_1 = neg _0`, `_0 = not true`); `mir.kode` gained the one-operand dump line
+  (`_N = <kind> <operand>`) it never needed before, and `eval.kode` the two instructions.
+  This was the cheapest real win on the ledger: **6 constructs** and **two whole corpus
+  programs** (`int_arith`, `bools_logic`) for a dispatch entry, so the corpus is **6/58**
+  and mir/run **54/54**. `not` outside a `print` still needs bool locals, which are not
+  variables yet.
 - **The owning interpreter.** Ignoring `retain`/`release` would make the interpreter
   blind to the one thing the MIR exists for, so it keeps shadow counts instead. A
   temporary that holds a run-time string holds an *object*: `rt::StrConcat` and
@@ -939,7 +946,7 @@ back to the caller. Recursion is just another frame (`fact(5)` is a fixture). Th
 kinds are collected before any body is walked, because a recursive or forward call needs
 its size while its callee's body has not been visited yet. `functions` and
 `early_return_strings` now match the oracle dump for dump, output for output — the corpus
-is **4/58**, and mir/run are **47/47**.
+is **4/58**, and mir/run are **47/47** (today **6/58** and **54/54**).
 
 **Slice 8 is in — declarations and returns.** A `fn` is lowered as
 its own function: parameters become `_0`, `_1`, … (declared by the header, so no `let` and
@@ -976,10 +983,11 @@ that keeps being walked after a refusal, and a refused declaration that is then 
 
 **The corpus is the gate, and now it says how much is left.** `./scripts/selfhost.sh corpus`
 runs the `mir` and `run` comparisons over `tests/run-pass` rather than the hand-written
-fixtures. Today **2 of 58** programs lower — `hello` and `nesting_ok`, both byte-identical
-and running — and the other 54 need **318 constructs** between them. The number keeps
-growing as the walk sees more: 296 at first, 304 when function bodies became visible,
-318 when call arguments did. That is the point of a generated ledger — coverage is
+fixtures. Today **6 of 58** programs lower — `hello`, `nesting_ok`, `functions`,
+`early_return_strings`, `int_arith` and `bools_logic`, byte-identical and running — and the
+other 52 need **311 constructs** between them. The number keeps moving as the walk sees
+more: 296 at first, 304 when function bodies became visible, 318 when call arguments did,
+311 once a unary and an interpolated value lower (two whole programs left the list). That is the point of a generated ledger — coverage is
 measured, never assumed. These
 are not first-blocker floors any more: `report` walks past a refusal, so each program's
 list is complete for the shapes the walk knows how to name.

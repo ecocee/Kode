@@ -207,6 +207,14 @@ fn run_instr(mir: Mir, f: Function, i: Instr, st: State, owned: Owned) {
         st.values[i.dest] = masked(left, operand_int(i.args[1], st))
         return
     }
+    if i.kind == "neg" {
+        st.values[i.dest] = 0 - operand_int(i.args[0], st)
+        return
+    }
+    if i.kind == "not" {
+        st.bools[i.dest] = not operand_bool(i.args[0], st)
+        return
+    }
     if i.kind == "lt" or i.kind == "le" or i.kind == "gt" or i.kind == "ge" or i.kind == "eq" or i.kind == "ne" {
         st.bools[i.dest] = compare(i.kind, operand_int(i.args[0], st), operand_int(i.args[1], st))
         return

@@ -162,6 +162,10 @@ fn instr_text(i: Instr) -> string {
         if i.kind == "call" {
             return "_${i.dest} = call ${i.callee}(${call_args(i)})"
         }
+        // A unary instruction names one operand: `_0 = neg _1`.
+        if i.args.len() == 1 {
+            return "_${i.dest} = ${i.kind} ${operand_text(i.args[0])}"
+        }
         return "_${i.dest} = ${i.kind} ${operand_text(i.args[0])}, ${operand_text(i.args[1])}"
     }
     return "call ${i.callee}(${call_args(i)})"

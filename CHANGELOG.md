@@ -7,6 +7,14 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **Unary operators lower.** `-x` and `not x` become one temporary and one instruction
+  (`_1 = neg _0`, `_0 = not true`), named as the oracle names them. `mir.kode` learned the
+  one-operand dump line and `eval.kode` the two instructions. Cheap and measurable: the
+  corpus went from **4/58** to **6/58** programs (`int_arith` and `bools_logic` now lower,
+  run and match), 6 constructs retired (311 left in 52 programs), and mir/run are **54/54**
+  with `unary_neg` and `unary_not` as the new fixtures. `not` outside a `print` still
+  needs bool locals.
+
 - **An interpolated string is a value, not just a `print` argument.** `x = "a${y}b"`,
   `f("${y}")` and `return "a${y}"` all lower now. The accumulator is the caller's
   ownership: a lone hole is the variable retained for the slot (so the store moves

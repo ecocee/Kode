@@ -69,8 +69,45 @@ pub fn lower_expr(b: Builder, id: int) -> Operand {
     if kind == "Interp" {
         return lower_interp(b, id)
     }
+    if kind == "Unary" {
+        return lower_unary(b, id)
+    }
     b.stop("an expression of kind `${kind}`")
     return Operand(value: Value(kind: "?"))
+}
+
+/// `-x` and `not x`: one temporary, one instruction, named the way the oracle names it.
+pub fn lower_unary(b: Builder, id: int) -> Operand {
+    kids = b.ast.nodes[id].kids
+    if kids.len() != 1 {
+        b.stop("a unary operator without one value")
+        return Operand(value: Value(kind: "?"))
+    }
+    op = b.ast.attr_raw(id, "op")
+    inner = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    type = b.kind_of(inner)
+    if type == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    mnemonic = ""
+    result = ""
+    if op == "-" and type == "int" {
+        mnemonic = "neg"
+        result = "int"
+    } else if op == "not" and type == "bool" {
+        mnemonic = "not"
+        result = "bool"
+    }
+    if mnemonic == "" {
+        b.stop("the operator `${op}` on a `${type}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    index = b.temp("", result)
+    b.emit(Instr(kind: mnemonic, dest: index, args: [inner]))
+    return Operand(is_temp: true, index: index)
 }
 
 pub fn lower_binary(b: Builder, id: int) -> Operand {

@@ -1,0 +1,3 @@
+// `not` on a literal: one `not` into a bool temporary.
+print(not true)
+print(not false)

@@ -13,7 +13,7 @@ bitops.kode	the operator `|`, which this slice cannot lower
 bitops.kode	the operator `^`, which this slice cannot lower
 bitops.kode	the operator `<<`, which this slice cannot lower
 bitops.kode	the operator `>>`, which this slice cannot lower
-bitops.kode	an expression of kind `Unary`
+bitops.kode	the operator `~` on a `int`
 bitops.kode	statement `For`
 bool_lists.kode	an expression of kind `List`
 bool_lists.kode	statement `For`
@@ -25,7 +25,6 @@ bools_logic.kode	`a` holding a `bool`
 bools_logic.kode	`b` holding a `bool`
 bools_logic.kode	a read of `a`, which this slice cannot bind
 bools_logic.kode	a read of `b`, which this slice cannot bind
-bools_logic.kode	an expression of kind `Unary`
 bools_logic.kode	the operator `and`, which this slice cannot lower
 bools_logic.kode	the operator `or`, which this slice cannot lower
 bytes_buffers.kode	a return type of `bytes`
@@ -85,7 +84,6 @@ enum_is.kode	an expression of kind `Is`
 enum_is.kode	an expression of kind `Member`
 enum_is.kode	statement `Enum`
 enum_is.kode	an expression of kind `MethodCall`
-enum_is.kode	an expression of kind `Unary`
 enum_match_bindings.kode	a parameter of type `Value`
 enum_match_bindings.kode	statement `Match`
 enum_match_bindings.kode	statement `Enum`
@@ -141,7 +139,6 @@ floats.kode	`==` on a `float` and a `float`
 floats.kode	`!=` on a `float` and a `float`
 floats.kode	a call to `float`, which this slice cannot lower
 floats.kode	a call to `int`, which this slice cannot lower
-floats.kode	an expression of kind `Unary`
 fn_values.kode	a parameter of type `TypeFn`
 fn_values.kode	a call to `f`, which this slice cannot lower
 fn_values.kode	an expression of kind `Closure`
@@ -172,8 +169,6 @@ generics_nested.kode	statement `ForIn`
 generics_nested.kode	a return type of `T`
 generics_nested.kode	an expression of kind `Index`
 generics_nested.kode	an expression of kind `List`
-hex_literals.kode	an expression of kind `Unary`
-int_arith.kode	an expression of kind `Unary`
 interfaces.kode	a parameter of type `Shape`
 interfaces.kode	an expression of kind `MethodCall`
 interfaces.kode	statement `Interface`
@@ -203,7 +198,6 @@ lists.kode	a call to `len`, which this slice cannot lower
 lists.kode	an expression of kind `Index`
 lists.kode	an assignment to something other than a name
 lists.kode	statement `ForIn`
-lists.kode	an expression of kind `Unary`
 maps.kode	an expression of kind `Map`
 maps.kode	an assignment to something other than a name
 maps.kode	an expression of kind `Index`
