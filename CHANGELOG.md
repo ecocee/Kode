@@ -7,6 +7,22 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The port lowers `fn` declarations and `return`.** Each declaration becomes its own
+  `fn` in the dump — parameters as `_0`, `_1` in the header (no `let`, no zero init), the
+  return temporary allocated at the first `return`, a `bb1` return block that releases the
+  named references before it returns, and `unreachable` closing a block-body function that
+  returns something (not the `=> expr` sugar, which ends at `bb1`). Calls are still out:
+  this lands the declarations half of the slice. Six run fixtures (`fn_void_param`,
+  `fn_return_int`, `fn_return_string`, `fn_sugar`, `fn_early_return`, `retain_on_assign`)
+  and two report fixtures (`fn_body_blocker`, `call_arg_blocker`) came first; `mir` is
+  **39/39** and `run` **39/39**, `report` **5/5**.
+
+- **A reference store now retains a borrowed value, as the oracle does.** `b = a` on a
+  string emitted `release _1; _1 = _0` where the oracle emits `retain _0; release _1;
+  _1 = _0`. The 33 existing fixtures never assigned one string variable to another, so
+  the dump gate passed over a real divergence; `retain_on_assign` pins it now, and the
+  same rule is what a `return` of a borrowed reference needs.
+
 - **The port's walk reports every unsupported construct, not just the first.**
   `kode-stage1 report <file>` keeps walking past a refusal and lists each construct it
   cannot lower, once, in order; `mir`/`run` still stop at the first and exit 2, so the

@@ -28,86 +28,89 @@ bools_logic.kode	a read of `b`, which this slice cannot bind
 bools_logic.kode	an expression of kind `Unary`
 bools_logic.kode	the operator `and`, which this slice cannot lower
 bools_logic.kode	the operator `or`, which this slice cannot lower
-bools_logic.kode	statement `Fn`
 bools_logic.kode	an expression of kind `Call`
+bytes_buffers.kode	a return type of `bytes`
 bytes_buffers.kode	an expression of kind `Call`
-bytes_buffers.kode	an expression of kind `MethodCall`
 bytes_buffers.kode	a call other than `print`
-bytes_buffers.kode	statement `Fn`
+bytes_buffers.kode	an expression of kind `MethodCall`
 channel_heap.kode	an expression of kind `Call`
 channel_heap.kode	a call other than `print`
 channels.kode	an expression of kind `Call`
 channels.kode	statement `For`
 channels.kode	a call other than `print`
 channels.kode	statement `Try`
-channels_threads.kode	an expression of kind `Call`
-channels_threads.kode	statement `Fn`
-channels_threads.kode	an expression of kind `Spawn`
+channels_threads.kode	a parameter of type ``
 channels_threads.kode	statement `For`
 channels_threads.kode	a call other than `print`
-classes.kode	statement `Class`
+channels_threads.kode	an expression of kind `Call`
+channels_threads.kode	an expression of kind `Spawn`
+classes.kode	a return type of `Account`
 classes.kode	an expression of kind `Call`
+classes.kode	statement `Class`
 classes.kode	a call other than `print`
 classes.kode	an expression of kind `MethodCall`
 classes.kode	an expression of kind `Member`
 classes.kode	an assignment to something other than a name
 classes.kode	an expression of kind `Index`
-classes.kode	statement `Fn`
 classes.kode	an expression of kind `List`
 classes.kode	statement `ForIn`
 closures.kode	an expression of kind `Closure`
 closures.kode	an expression of kind `Call`
-closures.kode	statement `Fn`
 closures.kode	an expression of kind `List`
 closures.kode	an expression of kind `MethodCall`
 closures.kode	an expression of kind `Index`
 collection_print.kode	an expression of kind `List`
 collection_print.kode	an expression of kind `Map`
 collection_print.kode	an expression of kind `MethodCall`
-collections_memory.kode	statement `Fn`
+collections_memory.kode	an expression of kind `List`
 collections_memory.kode	statement `For`
+collections_memory.kode	a parameter of type ``
+collections_memory.kode	an expression of kind `Call`
 collections_memory.kode	an expression of kind `Map`
 collections_memory.kode	an assignment to something other than a name
 collections_memory.kode	a call other than `print`
-collections_memory.kode	an expression of kind `Call`
 collections_memory.kode	an expression of kind `Index`
 control_flow.kode	statement `For`
-early_return_strings.kode	statement `Fn`
 early_return_strings.kode	an expression of kind `Call`
+enum_is.kode	a parameter of type `Shape`
+enum_is.kode	an expression of kind `Is`
+enum_is.kode	an expression of kind `Member`
 enum_is.kode	statement `Enum`
-enum_is.kode	statement `Fn`
 enum_is.kode	an expression of kind `Call`
 enum_is.kode	an expression of kind `MethodCall`
-enum_is.kode	an expression of kind `Is`
 enum_is.kode	an expression of kind `Unary`
-enum_is.kode	an expression of kind `Member`
+enum_match_bindings.kode	a parameter of type `Value`
+enum_match_bindings.kode	statement `Match`
 enum_match_bindings.kode	statement `Enum`
-enum_match_bindings.kode	statement `Fn`
 enum_match_bindings.kode	an expression of kind `Call`
 enum_match_bindings.kode	an expression of kind `List`
 enum_match_bindings.kode	statement `ForIn`
+enum_payloads.kode	a parameter of type `Shape`
+enum_payloads.kode	statement `Match`
 enum_payloads.kode	statement `Enum`
 enum_payloads.kode	an expression of kind `MethodCall`
 enum_payloads.kode	an expression of kind `Member`
-enum_payloads.kode	statement `Fn`
 enum_payloads.kode	an expression of kind `Call`
 enum_payloads.kode	an expression of kind `List`
 enum_payloads.kode	statement `ForIn`
+enum_print.kode	a parameter of type `Color`
+enum_print.kode	statement `Match`
 enum_print.kode	statement `Enum`
-enum_print.kode	statement `Fn`
 enum_print.kode	an expression of kind `Member`
 enum_print.kode	an expression of kind `Call`
 enum_print.kode	an expression of kind `List`
 enum_print.kode	statement `ForIn`
+enums_match.kode	a parameter of type `Color`
+enums_match.kode	statement `Match`
 enums_match.kode	statement `Enum`
-enums_match.kode	statement `Fn`
 enums_match.kode	an expression of kind `Member`
 enums_match.kode	an expression of kind `Call`
-enums_match.kode	statement `Match`
 enums_match.kode	`flag` holding a `bool`
-errors.kode	statement `Fn`
+errors.kode	`==` on a `str` and a `str`
+errors.kode	statement `Throw`
 errors.kode	an expression of kind `Call`
 errors.kode	an expression of kind `Catch`
+errors.kode	an expression of kind `Interp`
 errors.kode	statement `Try`
 errors.kode	statement `For`
 file_io.kode	an expression of kind `Coalesce`
@@ -116,10 +119,10 @@ file_io.kode	an expression of kind `Call`
 file_io.kode	an expression of kind `MethodCall`
 file_io.kode	an expression of kind `Index`
 file_io.kode	an expression of kind `Catch`
-finally.kode	statement `Fn`
+finally.kode	statement `Try`
+finally.kode	statement `Throw`
 finally.kode	an expression of kind `Call`
 finally.kode	statement `For`
-finally.kode	statement `Try`
 floats.kode	`x` holding a `float`
 floats.kode	`y` holding a `float`
 floats.kode	a read of `x`, which this slice cannot bind
@@ -133,11 +136,10 @@ floats.kode	`==` on a `float` and a `float`
 floats.kode	`!=` on a `float` and a `float`
 floats.kode	an expression of kind `Call`
 floats.kode	an expression of kind `Unary`
-fn_values.kode	statement `Fn`
-fn_values.kode	a read of `double`, which this slice cannot bind
+fn_values.kode	a parameter of type ``
 fn_values.kode	an expression of kind `Call`
 fn_values.kode	an expression of kind `Closure`
-functions.kode	statement `Fn`
+fn_values.kode	a read of `double`, which this slice cannot bind
 functions.kode	an expression of kind `Call`
 functions.kode	a call other than `print`
 generic_classes.kode	statement `Class`
@@ -148,21 +150,27 @@ generic_classes.kode	an expression of kind `List`
 generic_methods.kode	statement `Class`
 generic_methods.kode	an expression of kind `Call`
 generic_methods.kode	an expression of kind `MethodCall`
-generics.kode	statement `Fn`
-generics.kode	an expression of kind `Call`
+generics.kode	a parameter of type `T`
+generics.kode	a return type of `T`
+generics.kode	a parameter of type ``
 generics.kode	an expression of kind `Index`
+generics.kode	an expression of kind `List`
 generics.kode	an expression of kind `MethodCall`
-generics_nested.kode	statement `Fn`
-generics_nested.kode	an expression of kind `Call`
+generics.kode	an expression of kind `Call`
+generics_nested.kode	a parameter of type ``
 generics_nested.kode	an expression of kind `MethodCall`
+generics_nested.kode	a parameter of type `T`
+generics_nested.kode	statement `ForIn`
+generics_nested.kode	a return type of `T`
 generics_nested.kode	an expression of kind `Index`
+generics_nested.kode	an expression of kind `Call`
 hex_literals.kode	an expression of kind `Unary`
 int_arith.kode	an expression of kind `Unary`
+interfaces.kode	a parameter of type `Shape`
+interfaces.kode	an expression of kind `MethodCall`
 interfaces.kode	statement `Interface`
 interfaces.kode	statement `Class`
-interfaces.kode	statement `Fn`
 interfaces.kode	an expression of kind `Call`
-interfaces.kode	an expression of kind `MethodCall`
 interfaces.kode	an expression of kind `List`
 interfaces.kode	statement `ForIn`
 json.kode	an expression of kind `Call`
@@ -211,17 +219,16 @@ optional_fields.kode	an expression of kind `Coalesce`
 optional_fields.kode	a call other than `print`
 optional_numbers.kode	an expression of kind `None`
 optional_numbers.kode	an expression of kind `Coalesce`
-optional_numbers.kode	statement `Fn`
 optional_numbers.kode	an expression of kind `Call`
 optional_numbers.kode	`f` holding a `float`
 optional_numbers.kode	an expression of kind `Unwrap`
 optional_numbers.kode	`t` holding a `bool`
 optional_numbers.kode	a hole reading `t`, which this slice cannot bind
 optional_numbers.kode	a read of `t`, which this slice cannot bind
-optional_params.kode	statement `Fn`
-optional_params.kode	an expression of kind `Call`
-optional_params.kode	an expression of kind `None`
+optional_params.kode	a parameter of type ``
 optional_params.kode	an expression of kind `Coalesce`
+optional_params.kode	an expression of kind `None`
+optional_params.kode	an expression of kind `Call`
 optional_params.kode	statement `Class`
 optional_params.kode	a call other than `print`
 optional_params.kode	an expression of kind `Member`
@@ -229,11 +236,12 @@ optional_params.kode	a read of `maybe`, which this slice cannot bind
 optional_scalar_print.kode	an expression of kind `None`
 optional_scalar_print.kode	`ok` holding a `bool`
 optional_scalar_print.kode	a read of `ok`, which this slice cannot bind
+optionals.kode	a parameter of type ``
+optionals.kode	statement `ForIn`
+optionals.kode	an expression of kind `None`
 optionals.kode	statement `Class`
-optionals.kode	statement `Fn`
 optionals.kode	an expression of kind `List`
 optionals.kode	an expression of kind `Call`
-optionals.kode	an expression of kind `None`
 optionals.kode	an expression of kind `Member`
 optionals.kode	an expression of kind `Coalesce`
 optionals.kode	an expression of kind `Index`
@@ -271,7 +279,6 @@ string_builder.kode	an expression of kind `Call`
 string_builder.kode	a call other than `print`
 string_builder.kode	an expression of kind `MethodCall`
 string_builder.kode	statement `For`
-string_memory.kode	statement `Fn`
 string_memory.kode	statement `For`
 string_memory.kode	an expression of kind `Call`
 strings.kode	an expression of kind `Call`
@@ -289,11 +296,12 @@ strings_std.kode	an expression of kind `List`
 strings_std.kode	a call other than `print`
 strings_std.kode	an expression of kind `Index`
 strings_std.kode	an expression of kind `Map`
-tasks.kode	statement `Fn`
+tasks.kode	statement `For`
+tasks.kode	`/` on a `float` and a `float`
+tasks.kode	statement `Throw`
 tasks.kode	an expression of kind `Spawn`
 tasks.kode	an expression of kind `Await`
 tasks.kode	an expression of kind `List`
-tasks.kode	statement `For`
 tasks.kode	statement `ForIn`
 tasks.kode	a call other than `print`
 tasks.kode	an expression of kind `Catch`

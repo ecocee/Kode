@@ -23,6 +23,10 @@ class State {
 /// Run `mir` and write its output, exactly as the program would.
 pub fn run(mir: Mir) {
     for f in mir.functions {
+        // A declaration is not a program: only `main` runs.
+        if not f.entry {
+            continue
+        }
         st = State()
         for k in 0..f.temps.len() {
             st.values.add(0)

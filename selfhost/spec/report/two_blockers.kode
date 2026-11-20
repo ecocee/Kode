@@ -1,6 +1,2 @@
-fn helper() -> int {
-    return 1
-}
-
-x = [1, 2]
-print("hi")
+xs = [1, 2]
+print(xs[0])

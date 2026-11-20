@@ -904,6 +904,27 @@ now proves the port's report for it byte for byte. A `mir`-mode refusal cannot b
 own stop reason, and `check_mir` compares stdout. Gates after these pins: parse
 **173/173**, check **170/170** with **170/170** reports, mir **33/33**, run **33/33**.
 
+**Slice 8 is in — declarations and returns, with calls still out.** A `fn` is lowered as
+its own function: parameters become `_0`, `_1`, … (declared by the header, so no `let` and
+no zero init), the return temporary is allocated at the first `return` — after its operand,
+which is the oracle's numbering — `bb1` is the return block and releases the named
+references before it returns (`release _5` then `return _3`), a borrowed reference is
+retained on the way into the return slot (`retain _1` then `_3 = _1`), and a block-body
+function that returns something ends in `unreachable` — in the fallthrough block when the
+walk did not end terminated, in a fresh block when it did, and never for the `=> expr`
+sugar. Functions are dumped in declaration order, `<main>` last. Six run fixtures came
+first (`fn_void_param`, `fn_return_int`, `fn_return_string`, `fn_sugar`, `fn_early_return`,
+`retain_on_assign`), and the report fixtures show bodies being walked for the first time:
+`fn_body_blocker` now reports the list inside the function instead of `statement \`Fn\``.
+Gates: mir **39/39**, run **39/39**, report **5/5**, corpus 2/58 with **304** constructs in
+56 programs. Calls are the next half of the slice.
+
+**A divergence the fixtures had missed.** `b = a` between two string variables emitted
+`release _1; _1 = _0` where the oracle emits `retain _0; release _1; _1 = _0`: a store
+into a reference slot retains a borrowed value first. None of the thirty-three fixtures
+assigned one string to another, so the byte-identical dump gate was green over a real
+bug; `retain_on_assign` now pins it, and `borrowed()` is shared with the return walk.
+
 **The walk reports every blocker, not just the first.** `kode-stage1 report <file>` walks
 the whole program and prints each construct it cannot lower, once each, in the order it
 meets them. `mir` and `run` still stop at the first refusal and exit 2, so the
@@ -919,14 +940,14 @@ that keeps being walked after a refusal, and a refused declaration that is then 
 **The corpus is the gate, and now it says how much is left.** `./scripts/selfhost.sh corpus`
 runs the `mir` and `run` comparisons over `tests/run-pass` rather than the hand-written
 fixtures. Today **2 of 58** programs lower — `hello` and `nesting_ok`, both byte-identical
-and running — and the other 56 need **296 constructs** between them, 78 distinct. These
+and running — and the other 56 need **304 constructs** between them, 87 distinct (it grew
+from 296 when function bodies started being walked: `statement \`Fn\`` used to hide them). These
 are not first-blocker floors any more: `report` walks past a refusal, so each program's
 list is complete for the shapes the walk knows how to name.
 
 | what is missing | constructs | programs |
 |---|---|---|
 | calling: `Call`, a call other than `print` | 41, 19 | 41, 19 |
-| declaring: `statement \`Fn\`` | 24 | 24 |
 | methods and fields: `MethodCall`, `Member` | 25, 15 | 25, 15 |
 | collections: `List`, `Map`, `Index` | 16, 5, 15 | 16, 5, 15 |
 | loops beyond `while`: `statement \`For\``, `ForIn` | 13, 9 | 13, 9 |

@@ -1,0 +1,4 @@
+fn greet(name: string) {
+    print("hi ${name}")
+}
+print("main")

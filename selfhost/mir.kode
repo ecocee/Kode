@@ -55,8 +55,11 @@ pub class Temp {
 
 pub class Function {
     name: string
+    /// The slot kind the function returns: `unit`, `int`, `bool`, `ref` or `float`.
     ret: string = "unit"
     entry: bool = false
+    /// The parameter temporaries, in order. The header prints them as `_0: int`.
+    params: [int] = []
     temps: [Temp] = []
     blocks: [Block] = []
 }
@@ -78,12 +81,25 @@ pub class Mir {
 pub fn dump_lines(mir: Mir) -> [string] {
     lines: [string] = []
     for f in mir.functions {
-        head = "fn ${f.name}() -> ${f.ret} {"
+        head = "fn ${f.name}("
+        first = true
+        for k in f.params {
+            if not first {
+                head += ", "
+            }
+            first = false
+            head += "_${k}: ${f.temps[k].kind}"
+        }
+        head += ") -> ${f.ret} {"
         if f.entry {
             head += "  // entry"
         }
         lines.add(head)
         for k in 0..f.temps.len() {
+            // A parameter is declared by the header, not by a `let`.
+            if is_param(f, k) {
+                continue
+            }
             line = "    let _${k}: ${f.temps[k].kind}"
             if f.temps[k].name != "" {
                 line += "  // ${f.temps[k].name}"
@@ -104,12 +120,28 @@ pub fn dump_lines(mir: Mir) -> [string] {
     return lines
 }
 
+/// Whether temporary `k` is one of the function's parameters.
+pub fn is_param(f: Function, k: int) -> bool {
+    for one in f.params {
+        if one == k {
+            return true
+        }
+    }
+    return false
+}
+
 fn instr_text(i: Instr) -> string {
     if i.kind == "goto" {
         return "goto ${i.target}"
     }
     if i.kind == "return" {
+        if i.args.len() > 0 {
+            return "return ${operand_text(i.args[0])}"
+        }
         return "return"
+    }
+    if i.kind == "unreachable" {
+        return "unreachable"
     }
     if i.kind == "release" {
         return "release ${operand_text(i.args[0])}"
