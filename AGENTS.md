@@ -38,7 +38,7 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 | `kode tokens` / `kode ast` dumps (the self-hosting oracles) | `crates/kode-syntax/src/dump.rs`, `dump/ast.rs` |
 | the bootstrap harness | `scripts/selfhost.sh` (plan: `docs/PLAN-self-hosting.md`) |
 | the self-hosted compiler (S1 lexer) | `selfhost/` — `tokens.kode`, `keywords.kode`, `bytes.kode`, `strings.kode`, `lexer.kode`, `dump.kode`, `main.kode`; cases in `selfhost/spec/`; parity via `./scripts/selfhost.sh stage1` |
-| the port's MIR lowering (S4) | `selfhost/lower_core.kode` (the builder), `lower_stmt.kode`, `lower_expr.kode`, `ops.kode`, `lower.kode` (functions and `main`); the dump is `mir.kode`, the interpreter `eval.kode`; gates via `./scripts/selfhost.sh mir\|run\|report\|corpus` |
+| the port's MIR lowering (S4) | `selfhost/lower_core.kode` (the builder), `lower_stmt.kode`, `lower_expr.kode`, `ops.kode`, `lower.kode` (functions and `main`); the dump is `mir.kode`, the interpreter `eval.kode`; gates via `./scripts/selfhost.sh mir\|run\|own\|report\|corpus`; `selfhost/spec/own/` is the ownership stress set |
 | language server | `kode lsp` in `kode-cli`; editor setup in `docs/editors.md` |
 | `kode doc` and the docs site | `docs/site/build.sh` |
 | PostgreSQL client | `crates/kode-rt/src/pg.rs` (API, handles, JSON results), `pg_wire.rs` (protocol, SCRAM), `sha256.rs` + `base64.rs` (SCRAM hashing) |

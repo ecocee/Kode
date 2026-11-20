@@ -10,6 +10,8 @@
 #   ./scripts/selfhost.sh check      the S3 checker: its codes against the oracle, over tests/{compile-fail,run-pass}
 #   ./scripts/selfhost.sh mir        the S4 MIR dump against `kode mir`, over selfhost/spec/run
 #   ./scripts/selfhost.sh run        the S4 interpreter's output against every .out
+#   ./scripts/selfhost.sh own        the owning interpreter: shadow counts, silent on the
+#                                    stress cases and loud on a lowering that drops a retain
 #   ./scripts/selfhost.sh report     the walk lists every unsupported construct, not just the first
 #   ./scripts/selfhost.sh corpus     the same two checks over tests/run-pass, with the
 #                                    out-of-scope programs recorded and re-asserted
@@ -272,6 +274,78 @@ check_mir() {
         return 2
     fi
     echo "  mir cases: $((total - bad))/$total dumps byte-identical"
+    [[ "$bad" -eq 0 ]]
+}
+
+# The owning interpreter (S4): the interpreter keeps shadow reference counts, so a
+# release that had nothing to release, a use after release, or a count still standing at
+# the end fails the run. The cases in `selfhost/spec/own` are the stress paths, and the
+# gate also builds a mutant port whose every `retain` became a `release` — a check that
+# never fails would pass the first half while proving nothing.
+check_own() {
+    local dir="$ROOT/selfhost/spec/own" out="$OUT/own" total=0 bad=0 file expected
+    local oracle_rc=0 port_rc=0 caught=0 mut="$OUT/own/mutation"
+    if [[ ! -x "$STAGE1" ]]; then
+        echo "  no Stage 1 compiler: run ./scripts/selfhost.sh stage1 first" >&2
+        return 2
+    fi
+    rm -rf "$out"
+    mkdir -p "$out"
+    for file in "$dir"/*.kode; do
+        total=$((total + 1))
+        expected="${file%.kode}.out"
+        oracle_rc=0
+        port_rc=0
+        "$STAGE0" run "$file" >"$out/oracle.txt" 2>/dev/null || oracle_rc=$?
+        "$STAGE1" run "$file" >"$out/actual.txt" 2>"$out/actual.err" || port_rc=$?
+        if [[ "$oracle_rc" -ne 0 ]]; then
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): kode run exited $oracle_rc, not 0"
+        elif ! diff -u "$expected" "$out/oracle.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): the fixture's .out is not what kode run prints"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        elif [[ "$port_rc" -ne 0 ]]; then
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): the ownership check refused a correct program (exit $port_rc)"
+            head -3 "$out/actual.err" | sed 's/^/    /'
+        elif ! diff -u "$expected" "$out/actual.txt" >"$out/diff.txt"; then
+            bad=$((bad + 1))
+            echo "  $(basename "$file"): the interpreter's output differs"
+            head -20 "$out/diff.txt" | sed 's/^/    /'
+        fi
+    done
+    # The mutation: a copy of the port whose lowers turn every retain into a release.
+    mkdir -p "$mut/src"
+    cp "$ROOT"/selfhost/*.kode "$mut/src/"
+    python3 - "$mut/src/lower_stmt.kode" <<'MUTATE'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+text = text.replace('Instr(kind: "retain"', 'Instr(kind: "release"')
+open(path, "w").write(text)
+MUTATE
+    if ! "$STAGE0" build "$mut/src/main.kode" -o "$mut/kode-mutant" >"$mut/build.txt" 2>&1; then
+        echo "  the mutant port did not build: the mutation no longer applies" >&2
+        head -5 "$mut/build.txt" | sed 's/^/    /' >&2
+        return 2
+    fi
+    for file in "$ROOT"/selfhost/spec/run/*.kode "$dir"/*.kode; do
+        port_rc=0
+        "$mut/kode-mutant" run "$file" >/dev/null 2>"$mut/err.txt" || port_rc=$?
+        if [[ "$port_rc" -ne 0 ]] && grep -q "ownership:" "$mut/err.txt"; then
+            caught=$((caught + 1))
+        fi
+    done
+    if [[ "$total" -eq 0 ]]; then
+        echo "  no ownership cases in $dir" >&2
+        return 2
+    fi
+    if [[ "$caught" -eq 0 ]]; then
+        echo "  the mutation (retain as release) was not caught: the check never fires" >&2
+        return 1
+    fi
+    echo "  own cases: $((total - bad))/$total silent on correct programs, mutation caught on $caught"
     [[ "$bad" -eq 0 ]]
 }
 
@@ -715,6 +789,10 @@ run)
     echo "S4: the port's interpreter against every .out"
     check_run || exit $?
     ;;
+own)
+    echo "S4: the owning interpreter's shadow reference counts"
+    check_own || exit $?
+    ;;
 report)
     echo "S4: the walk's list of unsupported constructs, not just the first"
     check_report || exit $?
@@ -738,6 +816,7 @@ all)
     bash "${BASH_SOURCE[0]}" check
     bash "${BASH_SOURCE[0]}" mir
     bash "${BASH_SOURCE[0]}" run
+    bash "${BASH_SOURCE[0]}" own
     bash "${BASH_SOURCE[0]}" report
     bash "${BASH_SOURCE[0]}" corpus
     bash "${BASH_SOURCE[0]}" gates

@@ -1,0 +1,7 @@
+// The reference is reassigned inside a branch and used after it: the count has to
+// follow the slot, not the statement that wrote it.
+name = "left"
+if true {
+    name = "right"
+}
+print(name)

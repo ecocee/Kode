@@ -141,7 +141,9 @@ if command == "mir" or command == "run" {
         print(dump_lines(lowered).join("\n"))
         exit(0)
     }
-    run(lowered)
+    if not run(lowered) {
+        exit(1)
+    }
     exit(0)
 }
 

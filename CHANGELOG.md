@@ -7,6 +7,17 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The interpreter owns what it borrows.** `selfhost/eval.kode` used to ignore
+  `retain`/`release`; it now keeps shadow reference counts, so a run fails when a
+  `release` takes a count that was never there, when a reference is used after its last
+  release, or when `<main>` returns with a count still standing — the three bugs the MIR
+  ownership lines exist to prevent, which the byte-identical dumps could not see. New
+  `./scripts/selfhost.sh own` gate: four stress cases in `selfhost/spec/own/` (overwrite,
+  branch reassignment, a string across two frames, a loop that reassigns and
+  interpolates) must stay silent, and a mutant port whose every `retain` became a
+  `release` must be caught — otherwise "no violation" would only mean the check never
+  ran. `run` also gained its exit status: 1 on an ownership violation, 0 otherwise.
+
 - **The lowering is split by idea, not by size.** `selfhost/lower.kode` had grown to 1,124
   lines in one class. It is now five files: `lower_core.kode` (the `Builder` every step
   shares: the tree, the function being filled, blocks, names, and the refusal channels),

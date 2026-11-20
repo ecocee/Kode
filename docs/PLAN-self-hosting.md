@@ -790,12 +790,23 @@ slice adds the retain/release lines the oracle emits. Probing `kode mir` pinned 
 - **Files.** `selfhost/mir.kode`: `Temp.kind` becomes real (`int`/`ref`), a `release`
   instruction and a `dest`-carrying `call`, `x + y` dispatches on the operand's type,
   and `assign` emits the release-before-store it learned. `selfhost/eval.kode` keeps a
-  string per ref temporary; `release` is a no-op there, because the interpreter has no
-  reference counts to drop (the gate still checks the instruction is emitted).
+  string per ref temporary.
 - **Fixtures first.** Five more in `selfhost/spec/run/`: a string variable, two string
   variables concatenated, a variable plus a literal, a reassignment with a print in
   between, and `print("a" + "b")`.
 - **Gates.** Unchanged: `mir` byte-identical, `run` output and exit code.
+- **The owning interpreter.** Ignoring `retain`/`release` would make the interpreter
+  blind to the one thing the MIR exists for, so it keeps shadow counts instead. A
+  temporary that holds a run-time string holds an *object*: `rt::StrConcat` and
+  `rt::IntToStr` create one (count 1), a storage or return moves the object into the
+  destination slot without touching the count, `retain` adds one and `release` takes
+  one. A release with nothing to take, a use of an object whose count reached zero, and
+  a count still standing when `<main>` returns are all failures: the run exits 1 with
+  `kode-stage1: ownership: ...` on stderr. The `own` gate runs four stress cases
+  (overwrite, a branch that reassigns, a reference that crosses two frames, a loop that
+  reassigns and interpolates) and then proves the check can fail by building a mutant
+  port whose every `retain` became a `release`: it must be caught, or "no violation" only
+  means the check never ran.
 - **Out of scope.** Interpolation (`"hi ${name}"` also releases its literal head —
   a different rule, its own slice), string comparison, `map`/`filter`, functions.
 

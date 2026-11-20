@@ -198,6 +198,11 @@ jobs:
       - name: Stage 1 runs the fixtures; output and exit code must match
         run: ./scripts/selfhost.sh run
 
+      # The owning interpreter keeps shadow reference counts: silent on the stress cases,
+      # and loud on a mutant port whose every retain became a release.
+      - name: The interpreter releases exactly what it owns
+        run: ./scripts/selfhost.sh own
+
       # The report walk lists every unsupported construct, not just the first; the
       # fixtures pin it on programs that need several things.
       - name: The walk reports every unsupported construct
