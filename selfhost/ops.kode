@@ -1,0 +1,50 @@
+// The operator tables the lowering reads: a written operator's MIR mnemonic, or ""
+// when this slice has no instruction for it.
+
+pub fn compare_name(op: string) -> string {
+    if op == "<" {
+        return "lt"
+    }
+    if op == "<=" {
+        return "le"
+    }
+    if op == ">" {
+        return "gt"
+    }
+    if op == ">=" {
+        return "ge"
+    }
+    if op == "==" {
+        return "eq"
+    }
+    if op == "!=" {
+        return "ne"
+    }
+    return ""
+}
+
+pub fn operator_name(op: string) -> string {
+    if op == "+" {
+        return "add"
+    }
+    if op == "-" {
+        return "sub"
+    }
+    if op == "*" {
+        return "mul"
+    }
+    if op == "/" {
+        return "div"
+    }
+    if op == "%" {
+        return "rem"
+    }
+    return ""
+}
+
+pub fn temp_kind(kind: string) -> string {
+    if kind == "str" {
+        return "ref"
+    }
+    return "int"
+}

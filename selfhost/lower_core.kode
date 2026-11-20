@@ -1,0 +1,222 @@
+// The lowering state (S4): the `Builder` every walk step shares — the tree, the
+// function being filled, the blocks it created, the names in scope, and the two
+// refusal channels (`collecting` for `report`, `stop` for `mir`/`run`).
+//
+// The walks themselves are elsewhere: `lower_stmt.kode` for statements,
+// `lower_expr.kode` for expressions, `lower.kode` for the program and its functions.
+
+from "./ast" import Ast
+from "./mir" import Block, Function, Instr, Operand, Piece, Temp, Value
+
+pub class FnSig {
+    name: string
+    ret: string = "unit"
+}
+
+pub class Builder {
+    ast: Ast
+    main: Function
+    /// The entry block (`bb0`), kept so the assembly can put the zero inits first.
+    entry: Block
+    block: Block
+    /// The exit block (`bb1`), where the walk's last block jumps.
+    end: Block
+    /// The slot kind the function returns, and the temporary that holds it once a
+    /// `return` has been walked (allocated lazily, at the first one: the oracle's
+    /// numbering puts it after everything the return expression needed).
+    ret_kind: string = "unit"
+    ret_temp: int = -1
+    /// The parameter temporaries, in order: a parameter is a named variable even
+    /// though its `Temp.name` stays empty (the header already names it).
+    params: [int] = []
+    /// What each declared function returns (slot kind), known before the bodies are
+    /// walked: recursion and forward calls both need it.
+    sigs: [FnSig] = []
+    /// Whether the body is a `{ ... }` block (which ends in `unreachable` when the
+    /// function returns something) rather than `=> expr` sugar (which does not).
+    block_body: bool = false
+    /// The blocks the walk created, in creation order; the dump keeps that order.
+    blocks: [Block] = []
+    next_label: int = 2
+    /// Where `break` and `continue` go, innermost loop last.
+    break_to: [string] = []
+    continue_to: [string] = []
+    names: [string] = []
+    slots: [int] = []
+    ok: bool = true
+    why: string = ""
+    /// Whether to record every unsupported construct and keep walking, instead of
+    /// stopping at the first one (`kode-stage1 report`).
+    collecting: bool = false
+    /// What the walk could not lower, once each, in the order it met them.
+    problems: [string] = []
+    /// Names whose declaration was refused. Reading one is a consequence of that
+    /// refusal, so it is not reported again (and the ledger does not churn when a
+    /// variable is renamed).
+    unknown_names: [string] = []
+
+    /// Whether the current block already ends in a terminator.
+    fn terminated() -> bool {
+        if block.instrs.len() == 0 {
+            return false
+        }
+        last = block.instrs[block.instrs.len() - 1].kind
+        return last == "goto" or last == "branch" or last == "return"
+    }
+
+    /// Append an instruction, starting a fresh block first if the current one is ended.
+    fn emit(one: Instr) {
+        if terminated() {
+            switch_to(new_block())
+        }
+        block.instrs.add(one)
+    }
+
+    /// A fresh block, labelled in creation order after the entry and the exit.
+    fn new_block() -> Block {
+        b = Block(label: "bb${next_label}")
+        next_label += 1
+        blocks.add(b)
+        return b
+    }
+
+    fn switch_to(b: Block) {
+        block = b
+    }
+
+    /// A new temporary, of the given kind, optionally the variable it belongs to.
+    fn temp(name: string, kind: string) -> int {
+        index = main.temps.len()
+        main.temps.add(Temp(kind: kind, name: name))
+        return index
+    }
+
+    /// Whether an operand is a borrowed reference: a named temporary (a parameter or a
+    /// local). The slot or return position that takes it must retain it first; an
+    /// intermediate is moved, and a literal is static.
+    fn borrowed(o: Operand) -> bool {
+        if not o.is_temp {
+            return false
+        }
+        return main.temps[o.index].kind == "ref" and is_variable(o.index)
+    }
+
+    /// Whether a temporary is a variable the program can name — a local or a
+    /// parameter — rather than an intermediate the walk made up.
+    fn is_variable(k: int) -> bool {
+        if main.temps[k].name != "" {
+            return true
+        }
+        for one in params {
+            if one == k {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Whether a name is in a list of names: `slot`'s linear scan, for strings.
+    fn has_name(pool: [string], name: string) -> bool {
+        for one in pool {
+            if one == name {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn slot(name: string) -> int {
+        for k in 0..names.len() {
+            if names[k] == name {
+                return slots[k]
+            }
+        }
+        return -1
+    }
+
+    /// The type of an operand's value: the temporary's, or the literal's kind. A
+    /// reference temporary holds a string, so it reads as `str` here, while its slot
+    /// stays declared `ref`.
+    fn kind_of(o: Operand) -> string {
+        if o.is_temp {
+            if main.temps[o.index].kind == "ref" {
+                return "str"
+            }
+            return main.temps[o.index].kind
+        }
+        return o.value.kind
+    }
+
+    /// The runtime call that prints a value of that kind.
+    fn print_primitive(o: Operand) -> string {
+        kind = kind_of(o)
+        if kind == "int" {
+            return "rt::PrintInt"
+        }
+        if kind == "float" {
+            return "rt::PrintFloat"
+        }
+        if kind == "bool" {
+            return "rt::PrintBool"
+        }
+        return "rt::PrintStr"
+    }
+
+    fn stop(reason: string) {
+        // Collecting: remember it once and let the walk continue, so a program that
+        // needs five things reports five rather than one. Otherwise the first refusal
+        // ends the walk, which is what `mir` and `run` still do.
+        if collecting {
+            for seen in problems {
+                if seen == reason {
+                    return
+                }
+            }
+            problems.add(reason)
+            return
+        }
+        if ok {
+            ok = false
+            why = reason
+        }
+    }
+
+    /// A call in statement position: its value, if it has one, is dropped.
+
+    /// `name(args)`: arguments in order, then the call. A unit callee has no
+    /// destination; anything else gets a temporary of the callee's return kind.
+
+    fn sig_ret(name: string) -> string {
+        for sig in sigs {
+            if sig.name == name {
+                return sig.ret
+            }
+        }
+        return ""
+    }
+
+    /// `return`: the value first, then the return slot, then the jump to `bb1`.
+
+    /// `fn f() -> T => expr`: the sugar is the same walk as `return expr`.
+
+    /// An interpolation as one owned reference: its pieces are lowered where they are
+    /// concatenated, in order, with the head becoming the accumulator.
+
+    /// `if`/`else`: the condition first, then a branch into the then-block, whose end
+    /// and the else-block's end both jump to the join.
+
+    /// `while`: condition block, body block, exit block, in that order.
+
+    /// A hole: a name, as itself for a string or through `IntToStr` for an int.
+
+    /// An expression as an operand: a literal, a name, or a `+` of two of those.
+
+    /// `a <op> b`: `+` on strings is a concat, the five integer operators are one
+    /// instruction each.
+
+    /// `(x % 2^k) == 0` and `!= 0`: `bitand x, 2^k - 1` then the comparison with `0`.
+    /// That is exact for every two's-complement `x`, where `x % 2^k` alone is not (it
+    /// truncates toward zero), which is why the oracle fuses only the test. Returns the
+    /// comparison's temporary, or an empty operand when the shape is not that test.
+
+}

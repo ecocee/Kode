@@ -7,6 +7,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The lowering is split by idea, not by size.** `selfhost/lower.kode` had grown to 1,124
+  lines in one class. It is now five files: `lower_core.kode` (the `Builder` every step
+  shares: the tree, the function being filled, blocks, names, and the refusal channels),
+  `lower_stmt.kode` (statements, `if`/`while`, `return`, `print`, interpolation),
+  `lower_expr.kode` (literals, operators, calls, the divisibility mask), `ops.kode` (the
+  operator tables) and `lower.kode` (the program: functions, `main`, assembly). A pure
+  move — the same 47/47 dumps, 47/47 runs, 5/5 reports and 4/4 corpus cases, and every
+  file is now under 400 lines.
+
 - **The port lowers calls, so user functions run.** `name(args)` lowers to
   `_N = call name(a, b)` (or a bare `call` for a unit callee), arguments in order, the
   destination sized from the callee's declared return kind — known before any body is

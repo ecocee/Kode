@@ -904,6 +904,13 @@ now proves the port's report for it byte for byte. A `mir`-mode refusal cannot b
 own stop reason, and `check_mir` compares stdout. Gates after these pins: parse
 **173/173**, check **170/170** with **170/170** reports, mir **33/33**, run **33/33**.
 
+**The walk is five files, not one.** `selfhost/lower_core.kode` holds the `Builder` that
+every step shares (tree, function, blocks, names, refusals); `lower_stmt.kode` and
+`lower_expr.kode` are the two walks; `ops.kode` is the operator tables; `lower.kode` is the
+program — declared functions, `<main>` and the assembly of each. They form a one-way graph
+(`lower` → `lower_stmt` → `lower_expr` → `lower_core`, plus `ops`), so no import cycle, and
+every file is under 400 lines. It was a pure move: the gates did not move.
+
 **Slice 9 is in — calls, and the corpus moves for the first time.** `name(args)` lowers
 to `_N = call name(...)` with the arguments in order, the destination sized from the
 callee's return kind (`unit` callees get no destination), and the port's own interpreter

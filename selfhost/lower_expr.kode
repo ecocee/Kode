@@ -1,0 +1,196 @@
+// The expression walk (S4): literals, names, operators and calls, each one an
+// operand the statement walk can use.
+
+from "./ast" import Ast
+from "./literals" import parse_int
+from "./lower_core" import Builder
+from "./mir" import Instr, Operand, Value
+from "./ops" import compare_name, operator_name
+
+pub fn lower_stmt_call(b: Builder, id: int) {
+    lower_call_expr(b, id)
+}
+
+pub fn lower_call_expr(b: Builder, id: int) -> Operand {
+    name = b.ast.attr_text(id, "callee")
+    ret = b.sig_ret(name)
+    if ret == "" {
+        b.stop("a call to `${name}`, which this slice cannot lower")
+        return Operand(value: Value(kind: "?"))
+    }
+    args: [Operand] = []
+    for arg in b.ast.nodes[id].kids {
+        if b.ast.nodes[arg].kids.len() < 1 {
+            b.stop("an argument with no value")
+            return Operand(value: Value(kind: "?"))
+        }
+        op = lower_expr(b, b.ast.nodes[arg].kids[0])
+        if not b.ok {
+            return Operand(value: Value(kind: "?"))
+        }
+        if b.kind_of(op) == "?" {
+            return Operand(value: Value(kind: "?"))
+        }
+        args.add(op)
+    }
+    if ret == "unit" {
+        b.emit(Instr(kind: "call", callee: name, args: args))
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", ret)
+    b.emit(Instr(kind: "call", callee: name, dest: dest, args: args))
+    return Operand(is_temp: true, index: dest)
+}
+
+pub fn lower_expr(b: Builder, id: int) -> Operand {
+    kind = b.ast.nodes[id].kind
+    if kind == "Int" or kind == "Float" or kind == "Bool" or kind == "Str" {
+        return Operand(value: lower_literal(b, id))
+    }
+    if kind == "Ident" {
+        name = b.ast.attr_text(id, "name")
+        index = b.slot(name)
+        if index < 0 {
+            if not b.has_name(b.unknown_names, name) {
+                b.stop("a read of `${name}`, which this slice cannot bind")
+            }
+            return Operand(value: Value(kind: "?"))
+        }
+        return Operand(is_temp: true, index: index)
+    }
+    if kind == "Call" {
+        return lower_call_expr(b, id)
+    }
+    if kind == "Binary" {
+        return lower_binary(b, id)
+    }
+    b.stop("an expression of kind `${kind}`")
+    return Operand(value: Value(kind: "?"))
+}
+
+pub fn lower_binary(b: Builder, id: int) -> Operand {
+    op = b.ast.attr_raw(id, "op")
+    kids = b.ast.nodes[id].kids
+    // `(x % 2^k) == 0` is a divisibility test, and the oracle masks instead of
+    // dividing; the shape has to be caught before the `%` is lowered.
+    if compare_name(op) != "" {
+        masked = lower_mask_comparison(b, id, op)
+        if masked.is_temp {
+            return masked
+        }
+    }
+    if kids.len() != 2 {
+        b.stop("a `${op}` without two operands")
+        return Operand(value: Value(kind: "?"))
+    }
+    left = lower_expr(b, kids[0])
+    right = lower_expr(b, kids[1])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    left_kind = b.kind_of(left)
+    right_kind = b.kind_of(right)
+    // An operand that was already reported is not a second finding.
+    if left_kind == "?" or right_kind == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    if op == "+" and (left_kind == "str" or right_kind == "str") {
+        if left_kind != "str" or right_kind != "str" {
+            b.stop("`+` between a `${left_kind}` and a `${right_kind}`")
+            return Operand(value: Value(kind: "?"))
+        }
+        index = b.temp("", "ref")
+        b.emit(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [left, right]))
+        return Operand(is_temp: true, index: index)
+    }
+    if compare_name(op) != "" {
+        if left_kind != "int" or right_kind != "int" {
+            b.stop("`${op}` on a `${left_kind}` and a `${right_kind}`")
+            return Operand(value: Value(kind: "?"))
+        }
+        index = b.temp("", "bool")
+        b.emit(Instr(kind: compare_name(op), dest: index, args: [left, right]))
+        return Operand(is_temp: true, index: index)
+    }
+    mnemonic = operator_name(op)
+    if mnemonic == "" {
+        b.stop("the operator `${op}`, which this slice cannot lower")
+        return Operand(value: Value(kind: "?"))
+    }
+    if left_kind != "int" or right_kind != "int" {
+        b.stop("`${op}` on a `${left_kind}` and a `${right_kind}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    index = b.temp("", "int")
+    b.emit(Instr(kind: mnemonic, dest: index, args: [left, right]))
+    return Operand(is_temp: true, index: index)
+}
+
+pub fn lower_mask_comparison(b: Builder, id: int, op: string) -> Operand {
+    kids = b.ast.nodes[id].kids
+    mod_side = -1
+    for k in 0..2 {
+        other = kids[1 - k]
+        if b.ast.nodes[other].kind == "Int" and b.ast.attr_raw(other, "value") == "0" {
+            if b.ast.nodes[kids[k]].kind == "Binary" and b.ast.attr_raw(kids[k], "op") == "%" {
+                mod_side = k
+            }
+        }
+    }
+    if mod_side < 0 {
+        return Operand()
+    }
+    mod = kids[mod_side]
+    if b.ast.nodes[mod].kids.len() != 2 {
+        return Operand()
+    }
+    right = b.ast.nodes[mod].kids[1]
+    if b.ast.nodes[right].kind != "Int" {
+        return Operand()
+    }
+    divisor = parse_int(b.ast.attr_raw(right, "value"))
+    if divisor < 1 {
+        return Operand()
+    }
+    power = 1
+    is_power = false
+    for k in 0..31 {
+        if power == divisor {
+            is_power = true
+        }
+        power = power * 2
+    }
+    if not is_power {
+        return Operand()
+    }
+    base = lower_expr(b, b.ast.nodes[mod].kids[0])
+    if not b.ok or b.kind_of(base) == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(base) != "int" {
+        // A non-integer base is the `%` refusal's to report, not this one's.
+        return Operand()
+    }
+    mask = b.temp("", "int")
+    b.emit(Instr(kind: "bitand", dest: mask, args: [base, Operand(value: Value(kind: "int", int_value: divisor - 1))]))
+    result = b.temp("", "bool")
+    b.emit(Instr(kind: compare_name(op), dest: result, args: [Operand(is_temp: true, index: mask), Operand(value: Value(kind: "int", int_value: 0))]))
+    return Operand(is_temp: true, index: result)
+}
+
+pub fn lower_literal(b: Builder, id: int) -> Value {
+    kind = b.ast.nodes[id].kind
+    if kind == "Int" {
+        return Value(kind: "int", int_value: parse_int(b.ast.attr_raw(id, "value")))
+    }
+    if kind == "Float" {
+        text = b.ast.attr_text(id, "value")
+        return Value(kind: "float", float_value: text.to_float() catch e {
+                0.0
+        })
+    }
+    if kind == "Bool" {
+        return Value(kind: "bool", bool_value: b.ast.attr_raw(id, "value") == "true")
+    }
+    return Value(kind: "str", str_value: b.ast.attr_text(id, "value"))
+}
