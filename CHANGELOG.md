@@ -48,6 +48,24 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+### Added
+
+- **MIR removes provably redundant retain/release pairs.** `rc_elim` in
+  `crates/kode-mir/src/opt.rs` drops `release x` when the block has only set `x` to
+  `null` (releasing null is a no-op), and drops `retain x` … `release x` when nothing
+  between them can outlive or reassign `x` — only calls whose callee borrows
+  (user/std/closure functions, and the read-only print/format/length runtime
+  functions), loads and stores of other values, and releases of other locals. A call
+  that *consumes* an argument keeps its pair: `ChanSend` transfers the reference and
+  `ListPush`/`MapSet` take ownership of a heap item, which is why the runtime side is
+  a whitelist rather than an assumption. `KODE_RC_ELIM=0` turns the pass off and
+  `KODE_RC_STATS=1` prints what it removed. Measured: 0 operations removed in hello
+  and collatz, 1 in `plus` and `sieve`, 2 in `string_builder`, 13 in `classes`; no
+  change in time (plus 186.0 vs 185.3 ms, within noise), allocations (72,056 both)
+  or RSS. It is a correctness-neutral cleanup today, not a speedup — the pass cannot
+  touch the retain/release around the calls that dominate the string benchmark
+  without proving those calls borrow.
+
 - **`KODE_TASK_STACK_MB`, and an out-of-memory message.** A `spawn` task reserved a
   fixed 64 MiB stack: enough for deep recursion, but 1,000 tasks reserve 64 GiB of
   address space. `KODE_TASK_STACK_MB` (1–1024, default 64) sets it. Allocation
