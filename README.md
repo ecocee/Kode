@@ -85,7 +85,7 @@ release compiler; the exact medians, the provenance and the method are in
   same call tree takes about 278 ms in Kode and about 106 ms in C.
 - Loop-heavy programs land between parity and about 2.6× behind C: `loop_mod`
   and `collatz` around 1.1–1.3×, `sieve` about 2.6×.
-- `examples/hello.kode` builds to a release binary of 392,200 bytes, 302,024 bytes after `strip -x`. The runtime archive is split: TLS and PostgreSQL code
+- `examples/hello.kode` builds to a release binary of 392,200 bytes, 302,024–302,032 bytes after `strip -x` (link padding varies by up to 8 bytes with the output path). The runtime archive is split: TLS and PostgreSQL code
   is only linked when the program uses it, so a server binary that speaks
   plaintext HTTP is about 444 KB stripped and one that serves TLS about 2.7 MB.
 

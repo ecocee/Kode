@@ -298,8 +298,8 @@ impl<'a> Emitter<'a> {
             let slot = if l.ty == Ty::Unit { I64 } else { ty(l.ty) };
             let _ = writeln!(self.out, "  %l{i} = alloca {slot}, align 8");
         }
-        for i in 0..f.param_count {
-            let _ = writeln!(self.out, "  store {} %p{i}, ptr %l{i}", ty(f.locals[i].ty));
+        for (i, local) in f.locals.iter().enumerate().take(f.param_count) {
+            let _ = writeln!(self.out, "  store {} %p{i}, ptr %l{i}", ty(local.ty));
         }
         let _ = writeln!(self.out, "  br label %bb0");
 
