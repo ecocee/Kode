@@ -92,13 +92,26 @@ fn main() {
 
     existing.sort_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok());
 
-    let lib_path = existing.pop().unwrap_or_else(|| {
-        panic!(
-            "could not find {} under {}",
-            lib_name,
-            target_directory.display()
-        )
-    });
+    let lib_path = match existing.pop() {
+        Some(path) => path,
+        // A clean checkout can reach here: a `staticlib` built as a build
+        // dependency is not always uplifted out of `deps/`, and CI's release build
+        // has no earlier `cargo build -p kode-rt` to lean on. Build the runtime once
+        // in our own target directory (a nested cargo would deadlock on the same
+        // lock) instead of failing the whole build.
+        None => build_runtime(&workspace, &profile).unwrap_or_else(|why| {
+            panic!(
+                "could not find {} under {} ({why}); run `cargo build -p kode-rt{}`",
+                lib_name,
+                target_directory.display(),
+                if profile == "release" {
+                    " --release"
+                } else {
+                    ""
+                }
+            )
+        }),
+    };
 
     // An archive older than the runtime sources cannot contain what they declare.
     // Refuse to embed it instead of failing later with undefined symbols only when
@@ -217,6 +230,60 @@ fn symbols(nm: &str, object: &Path) -> Result<(Vec<String>, Vec<String>), String
     Ok((defined, undefined))
 }
 
+/// Build `kode-rt` and return the archive it produced. Used only when no archive
+/// from the current build exists (clean checkout, CI). Separate target dir: cargo
+/// holds a lock on the outer one, so reusing it would deadlock.
+fn build_runtime(workspace: &Path, profile: &str) -> Result<PathBuf, String> {
+    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let dir = workspace.join("target").join("kode-rt-embedded");
+
+    let mut cmd = std::process::Command::new(cargo);
+    cmd.arg("build")
+        .arg("-p")
+        .arg("kode-rt")
+        .arg("--target-dir")
+        .arg(&dir);
+
+    if profile == "release" {
+        cmd.arg("--release");
+        // The workspace release profile turns LTO on. An LTO'd staticlib drops
+        // monomorphisations that a generated program links against (the router
+        // closure was the first casualty), so the embedded runtime is built the way
+        // the build-dependency profile builds it: optimised, not LTO'd.
+        cmd.arg("--config").arg("profile.release.lto=false");
+    }
+
+    let out = cmd.output().map_err(|e| format!("cannot run cargo: {e}"))?;
+
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+
+    let mut found: Vec<PathBuf> = ["deps", ""]
+        .iter()
+        .flat_map(|sub| {
+            fs::read_dir(dir.join(profile).join(sub))
+                .map(|entries| {
+                    entries
+                        .filter_map(|e| e.ok().map(|e| e.path()))
+                        .filter(|p| {
+                            p.file_name()
+                                .and_then(|n| n.to_str())
+                                .is_some_and(|n| n.starts_with("libkode_rt") && n.ends_with(".a"))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
+        .collect();
+
+    found.sort_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok());
+
+    found
+        .pop()
+        .ok_or_else(|| format!("no archive in {}", dir.display()))
+}
+
 fn split_archive(lib: &Path, core_lib: &Path, net_lib: &Path) -> Result<(), String> {
     let ar = tool("ar", "KODE_AR");
     let nm = tool("nm", "KODE_NM");
@@ -271,6 +338,32 @@ fn split_archive(lib: &Path, core_lib: &Path, net_lib: &Path) -> Result<(), Stri
 
     if core.is_empty() || net.is_empty() {
         return Err("nothing to split".to_string());
+    }
+
+    // Whatever the platform's codegen-unit layout, core has to satisfy an ordinary
+    // program on its own. If it does not, give up on the split for this build and
+    // let the caller embed the whole archive: correct and larger beats fast and
+    // broken. This is the check that would have caught the ELF split losing
+    // `kode_print_str`.
+    let must_define = [
+        "kode_rt_init",
+        "kode_rt_finish",
+        "kode_print_str",
+        "kode_print_nl",
+        "kode_retain",
+        "kode_release",
+    ];
+
+    for needle in must_define {
+        let found = core.iter().any(|obj| {
+            symbols(&nm, obj)
+                .map(|(defined, _)| defined.iter().any(|d| d.contains(needle)))
+                .unwrap_or(false)
+        });
+
+        if !found {
+            return Err(format!("core would not define {needle}"));
+        }
     }
 
     for (dest, members) in [(core_lib, &core), (net_lib, &net)] {

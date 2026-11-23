@@ -30,6 +30,10 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 static RUNTIME_CORE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libkode_rt_core.a"));
 /// TLS, HTTP and PostgreSQL. Linked only when the generated IR calls into it.
 static RUNTIME_NET: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libkode_rt_net.a"));
+/// The whole runtime, unsplit. Only linked when core plus network still cannot
+/// resolve a symbol: object-level splitting is layout-dependent, and being correct
+/// matters more than being small.
+static RUNTIME_ALL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libkode_rt.a"));
 
 /// Stack for the compiler thread.
 ///
@@ -181,7 +185,11 @@ fn runtime_libs(dir: &Path) -> Result<Vec<PathBuf>, String> {
     std::fs::write(&net, RUNTIME_NET)
         .map_err(|e| format!("cannot write the runtime library: {e}"))?;
 
-    Ok(vec![core, net])
+    let all = dir.join("libkode_rt_all.a");
+    std::fs::write(&all, RUNTIME_ALL)
+        .map_err(|e| format!("cannot write the runtime library: {e}"))?;
+
+    Ok(vec![core, net, all])
 }
 
 /// Link against core alone, and only fall back to core plus the network archive if
@@ -195,11 +203,27 @@ fn link_runtime(object: &[u8], output: &Path, libs: &[PathBuf], strip: bool) -> 
         return kode_link::link(object, output, &refs, strip);
     }
 
-    match kode_link::link(object, output, &refs[..1], strip) {
-        Ok(()) => Ok(()),
-        Err(first) => kode_link::link(object, output, &refs, strip)
-            .map_err(|second| format!("{second}\n(without the network half: {first})")),
+    // Smallest first: core alone is what keeps hello world at ~302 KB. Each retry
+    // only happens when the linker says something is missing, and the last attempt
+    // is the runtime exactly as it was before it was ever split.
+    let mut first_error: Option<String> = None;
+
+    for attempt in 1..=refs.len() {
+        match kode_link::link(object, output, &refs[..attempt], strip) {
+            Ok(()) => return Ok(()),
+            Err(why) => {
+                if first_error.is_none() {
+                    first_error = Some(why);
+                }
+            }
+        }
     }
+
+    Err(format!(
+        "could not link against the runtime in {} attempts (smallest first: {})",
+        refs.len(),
+        first_error.unwrap_or_default()
+    ))
 }
 
 fn link_with(libs: &[PathBuf]) -> Vec<&Path> {
