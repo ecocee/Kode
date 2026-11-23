@@ -15,7 +15,6 @@ Nothing else is read, and nothing is fetched over the network.
 """
 
 import argparse
-import glob
 import hashlib
 import json
 import os
@@ -40,9 +39,19 @@ def cargo_metadata():
 
 
 def license_files(directory):
-    paths = []
-    for pattern in LICENSE_GLOBS:
-        paths.extend(glob.glob(os.path.join(directory, pattern)))
+    # Match the name prefixes case-insensitively by hand: `glob` follows the host
+    # filesystem, so a crate shipping "Licence.txt" was picked up on macOS and
+    # missed on Linux, and the same commit then failed the staleness check on CI.
+    wanted = ("license", "licence", "copying", "notice")
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    paths = [
+        os.path.join(directory, name)
+        for name in names
+        if name.lower().startswith(wanted)
+    ]
     return sorted(path for path in paths if os.path.isfile(path))
 
 
