@@ -7,6 +7,17 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Fixed
 
+- **Every program grew by ~281 KB because the embedded runtime was unoptimized.**
+  `kode-rt` is a *build* dependency of `kode-cli`, and build dependencies do not
+  inherit `[profile.release]`, so Cargo compiled the runtime at `opt-level = 0` with
+  256 codegen units. The compiler embedded that 22.8 MB archive instead of the
+  12.5 MB optimized one, and hello world went from 983,376 to 1,264,808 bytes
+  stripped, with `_rust_eh_personality` alone growing from 136 KB to 307 KB.
+  `[profile.release.build-override]` now sets `opt-level = 3` and
+  `codegen-units = 1` (`lto` and `panic` are rejected in that profile): the archive
+  is 12.7 MB, hello is **983,464 bytes** stripped, and a release build of the
+  compiler takes ~36 s instead of ~10 s.
+
 - **Reference counts are atomic in every program.** `kode_retain`/`kode_release`
   read a global `THREADED` flag with a relaxed load and used plain arithmetic while
   it was false. A task, channel or server thread set it with a `SeqCst` store, but a

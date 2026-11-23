@@ -24,3 +24,12 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# `kode-rt` is a *build* dependency of `kode-cli`: the compiler embeds the archive its
+# build script finds. Build dependencies do not inherit `[profile.release]`, so without
+# this they are compiled unoptimized, the compiler embeds a 22.8 MB runtime instead of a
+# 12.5 MB one, and every Kode program grows by ~281 KB when stripped
+# (hello world: 983,376 -> 1,264,808 bytes).
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 1
