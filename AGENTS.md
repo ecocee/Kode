@@ -46,6 +46,8 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 | linking objects with the runtime | `crates/kode-link/src/link.rs` |
 | runtime functions | `crates/kode-rt/src/` (object, string, list, map, error, io, and others); register new ones in `kode-mir/src/ir.rs` (`RtFn`) and `crates/kode-llvm/src/lower.rs` (`RT`) |
 | benchmarks and measurements | `benchmarks/`, `benchmarks/report.md` |
+| third-party notices in a release | `scripts/third-party-notices.py` (the generator), `THIRD-PARTY-NOTICES.md` (generated — regenerate, never hand-edit; CI checks it) |
+| licensing, trademark and community docs | `LICENSE` (unmodified Apache-2.0 — do not fill in the appendix), `TRADEMARKS.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` |
 
 ## Rules
 
@@ -63,6 +65,7 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 ## Workflow
 
 - One branch per plan item, named `feat/<item>` or `fix/<item>`, with its tests, ADR and docs in the same commit set, so `git log` reads like the plan.
+- Every commit needs a `Signed-off-by` line: `git commit -s` on new commits, `git commit --amend -s --no-edit` or `git rebase --signoff <base>` on ones already made. The `dco` workflow rejects a pull request whose commits lack it.
 - Write a short plan (files, tests, risks) before starting an item and wait for approval at each gate in the plan.
 - If a failure is still unresolved after two attempts, stop and report what you found.
 - After each item, report: what changed, tests and ADRs added, measurements, risks, and the next item.
