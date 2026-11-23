@@ -20,6 +20,9 @@ jobs:
   test:
     name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    # The full suite is a few minutes on Linux and longer on Windows; a hang in
+    # the compiler must fail the job instead of holding a runner for six hours.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -153,6 +156,67 @@ jobs:
           ./target/release/kode build examples/hello.kode -o "$out/hello" --release
           test "$("$out/hello")" = "hello world"
           ./target/release/kode doctor
+
+      # The runtime is embedded as two archives, split at build time by symbol
+      # family. This is the only place the ELF half of that split is exercised:
+      # `ar`/`nm` differ from Apple's, so a green macOS build says nothing here.
+      - name: Runtime split on ELF (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          # Several kode-cli build directories can exist (a stale profile leaves
+          # one without archives); take the newest archive, like build.rs does.
+          core="$(ls -t $(find target/release/build -name libkode_rt_core.a) | head -1)"
+          net="$(dirname "$core")/libkode_rt_net.a"
+          test -n "$core"
+          test -f "$core" && test -f "$net"
+          echo "core: $(stat -c %s "$core") bytes, $(ar t "$core" | wc -l) members"
+          echo "net:  $(stat -c %s "$net") bytes, $(ar t "$net" | wc -l) members"
+          # Both halves must have members: an empty net archive means the split
+          # silently fell back to the whole runtime.
+          test "$(ar t "$core" | wc -l)" -gt 1
+          test "$(ar t "$net" | wc -l)" -gt 1
+          # A hello that linked the network half would be over 900 KB on x86_64.
+          tmp="$(mktemp -d)"
+          ./target/release/kode build examples/hello.kode -o "$tmp/hello" --release
+          raw="$(stat -c %s "$tmp/hello")"
+          cp "$tmp/hello" "$tmp/stripped"
+          strip -x "$tmp/stripped" 2>/dev/null || strip "$tmp/stripped"
+          echo "hello: $raw raw, $(stat -c %s "$tmp/stripped") stripped"
+          test "$(stat -c %s "$tmp/stripped")" -lt 600000
+          # A failed link must not leave a binary behind for a later step to run.
+          if KODE_RT_LIB="$tmp/missing.a" ./target/release/kode build \
+              examples/hello.kode -o "$tmp/broken" --release; then
+            echo "::error::a build with a missing runtime reported success"
+            exit 1
+          fi
+          test ! -e "$tmp/broken"
+
+      # A request has to come back out of a server that linked only the core
+      # archive: linking is not the same as serving.
+      - name: Plaintext HTTP server answers a request (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          ./target/release/kode build examples/api.kode -o "$tmp/api" --release
+          "$tmp/api" 18080 >"$tmp/log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do
+            if curl -fsS -o /dev/null -m 1 http://127.0.0.1:18080/notes 2>/dev/null \
+              || curl -sS -o /dev/null -m 1 http://127.0.0.1:18080/ 2>/dev/null; then
+              exit 0
+            fi
+            sleep 0.1
+          done
+          echo "::error::the server never answered"
+          cat "$tmp/log"
+          exit 1
 
   # The self-hosting harness (docs/PLAN-self-hosting.md). Stage 0 records the
   # oracle, Stage 0 then compiles the Kode port, and the two token dumps must
