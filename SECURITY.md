@@ -4,7 +4,7 @@
 
 **Do not open a public issue for a security problem.**
 
-Email **security@ecocee.in** with:
+Email **info@ecocee.in** with:
 
 - the Kode version (`kode --version`) and platform,
 - a small program that reproduces it, if one exists,
@@ -13,7 +13,9 @@ Email **security@ecocee.in** with:
 
 You can also use GitHub's private vulnerability reporting on
 `github.com/ecocee/Kode` (Security → Report a vulnerability). Either channel is
-private; email is preferred if GitHub is unavailable to you.
+private; email is preferred if GitHub is unavailable to you. `info@ecocee.in`
+also handles general project mail, so start the subject with `[security]`; the
+maintainer triages reports sent to it.
 
 We aim to acknowledge within 7 days and to agree on a disclosure date within 30.
 Please give us that window before publishing details.
