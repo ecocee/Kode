@@ -5,6 +5,21 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ## Unreleased
 
+### Fixed
+
+- **A release build could not link `StringBuilder`, or any runtime function newer
+  than the archive it embedded.** `cargo build --release -p kode-rt` uplifts the
+  staticlib to `target/release/libkode_rt.a`; a later build writes
+  `deps/libkode_rt-<hash>.a` and leaves the uplifted copy in place. `build.rs`
+  tried the fixed paths first and embedded the stale copy, so
+  `kode build x.kode --release` failed with undefined `_kode_buffer_new`,
+  `_kode_buffer_push` and `_kode_buffer_build` while `kode -V` looked fine — the
+  debug compiler embedded a fresh archive and worked, which is why the
+  conformance suite never saw it. The build script now picks the **newest**
+  archive among all candidates, and refuses to embed one older than the newest
+  file under `kode-rt/src`, so the next stale copy is a clear build error instead
+  of a link error in a user's program.
+
 ### Added
 
 - **Lists: literals, `Index`, `len`, `for … in` — with element ownership.** Four shapes

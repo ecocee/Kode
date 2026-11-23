@@ -10,7 +10,7 @@
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -82,13 +82,38 @@ fn main() {
         candidates.extend(found);
     }
 
-    let lib_path = candidates.iter().find(|p| p.exists()).unwrap_or_else(|| {
+    // Newest wins, not first-found. `cargo build --release -p kode-rt` uplifts the
+    // staticlib to `target/release/libkode_rt.a` and leaves it there; a later build
+    // with a new hash writes `deps/libkode_rt-<hash>.a` and leaves the uplifted copy
+    // behind. Picking the first candidate embedded that stale copy, so a program using
+    // a function added since (`StringBuilder`) failed at *link* time with undefined
+    // symbols while `kode -V` looked fine.
+    let mut existing: Vec<PathBuf> = candidates.into_iter().filter(|p| p.exists()).collect();
+
+    existing.sort_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok());
+
+    let lib_path = existing.pop().unwrap_or_else(|| {
         panic!(
             "could not find {} under {}",
             lib_name,
             target_directory.display()
         )
     });
+
+    // An archive older than the runtime sources cannot contain what they declare.
+    // Refuse to embed it instead of failing later with undefined symbols only when
+    // a user builds a program that happens to call a new function.
+    if let Some(newest_src) = newest_mtime(&workspace.join("kode-rt").join("src")) {
+        if let Ok(archive_mtime) = fs::metadata(&lib_path).and_then(|m| m.modified()) {
+            if archive_mtime < newest_src {
+                panic!(
+                    "{} is older than the runtime sources; run `cargo build -p kode-rt{}` first",
+                    lib_path.display(),
+                    if profile == "release" { " --release" } else { "" },
+                );
+            }
+        }
+    }
 
     fs::create_dir_all(&out_dir).expect("could not create OUT_DIR");
     fs::copy(lib_path, out_dir.join(lib_name)).expect("could not copy libkode_rt.a into OUT_DIR");
@@ -101,4 +126,27 @@ fn main() {
         "cargo:rerun-if-changed={}",
         workspace.join("kode-rt").join("Cargo.toml").display()
     );
+}
+
+/// The newest modification time of any file under `dir`.
+fn newest_mtime(dir: &Path) -> Option<std::time::SystemTime> {
+    let mut newest = None;
+
+    for entry in fs::read_dir(dir).ok()? {
+        let path = entry.ok()?.path();
+        let mtime = if path.is_dir() {
+            newest_mtime(&path)
+        } else {
+            fs::metadata(&path).and_then(|m| m.modified()).ok()
+        };
+
+        if let Some(t) = mtime {
+            newest = Some(match newest {
+                Some(n) if n > t => n,
+                _ => t,
+            });
+        }
+    }
+
+    newest
 }
