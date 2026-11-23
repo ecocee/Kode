@@ -37,6 +37,14 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`kode build --opt=none`.** Skips MIR optimization *and* passes `-O0` to clang, so
+  a benchmark can compare two compilers that are both unoptimized. `--debug` keeps
+  its behaviour — MIR optimizer off, clang still `-O2` — and its help text now says
+  so instead of "do not optimize the generated code". `fib(38)`: `--opt=none`
+  277.9 ms against `cc -O0` 105.8 ms, `--debug` 58.2 ms against `cc -O2` 57.7 ms, and
+  3.8 ms for the default build, which measures `inline_calls` rather than a language
+  difference. The report shows all four rows and says which pair is like for like.
+
 - **Lists: literals, `Index`, `len`, `for … in` — with element ownership.** Four shapes
   pinned from `kode mir` first, and one of them was not what it looked like:
   `rt::ListGet(xs, i, line)`'s third operand is the **source line**, not a version or an

@@ -76,10 +76,13 @@ Measured on one development machine (macOS arm64, Apple silicon) with the
 release compiler; the exact medians, the provenance and the method are in
 [benchmarks/report.md](benchmarks/report.md).
 
-- `fib(38)` optimized finishes in a few milliseconds, but that is **not** a
-  language comparison: clang rewrites the recursion in the Kode build and leaves
-  C's plain, so the two run different call trees. Unoptimized, where both do the
-  same work, Kode takes about 59 ms against C's about 107 ms.
+- `fib(38)` in the default build finishes in about 4 ms against C's 58 ms, but
+  that is **not** a language comparison: Kode's MIR inliner inlines the recursive
+  call once before clang sees it, so the two binaries run different call trees
+  (five call sites against two). At equal settings it is parity: `--debug`, which
+  skips the MIR optimizer but leaves clang at `-O2`, takes about 58 ms against C's
+  58 ms. With optimization off on both sides (`--opt=none` against `cc -O0`) the
+  same call tree takes about 278 ms in Kode and about 106 ms in C.
 - Loop-heavy programs land between parity and about 2.6× behind C: `loop_mod`
   and `collatz` around 1.1–1.3×, `sieve` about 2.6×.
 - `examples/hello.kode` builds to a release binary of about 1.05 MB, about

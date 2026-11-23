@@ -150,7 +150,8 @@ def provenance_lines() -> list[str]:
         "  `cargo build --release -p kode-cli`",
         "- program builds: `kode build <file> --release`; C is `cc -O2`, Go is a plain",
         "  `go build`, Node and Python run their source",
-        "- the unoptimized pair: `kode build --debug` and `cc -O0`",
+        "- the unoptimized pair: `kode build --opt=none` and `cc -O0`; `--debug`",
+        "  (MIR optimizer off, clang still `-O2`) is measured beside it",
         f"- target: {platform.system()} {platform.release()} / {platform.machine()}",
         "",
     ]
@@ -232,12 +233,14 @@ def measure(cmd: list[str], cwd: Path):
 
 
 def unoptimized_recursion_section() -> list[str]:
-    """`fib(38)` with the optimizer off on both sides.
+    """`fib(38)` on both compilers, at each build's real optimisation setting.
 
-    The optimized table compares two different programs: clang rewrites the Kode
-    build's recursion and leaves C's alone. With optimization disabled on both
-    sides both binaries run the same call tree, so the comparison is like for
-    like. The two outputs are checked against each other before either is timed.
+    The optimized table compares two different programs: Kode's MIR inliner inlines
+    the recursion once (`crates/kode-mir/src/opt.rs`, `inline_calls`) and clang then
+    optimizes the result, while the C build keeps the plain tree. `--debug` is not
+    the remedy: it skips the MIR optimizer but clang still runs `-O2`, so a
+    `--debug`-vs-`-O0` pair still compares an optimized backend with an unoptimized
+    one. `--opt=none` turns both off. Every build's output is checked first.
     """
     source = HERE / "fib" / "main.kode"
     c_source = HERE / "fib" / "main.c"
@@ -245,63 +248,79 @@ def unoptimized_recursion_section() -> list[str]:
         return []
     out = BUILD / "fib-unoptimized"
     out.mkdir(parents=True, exist_ok=True)
-    kode_exe = out / "kode-debug"
-    c_exe = out / "c-O0"
-    r = subprocess.run(
-        [str(KODE), "build", str(source), "-o", str(kode_exe), "--debug"],
-        capture_output=True, text=True,
-    )
-    if r.returncode != 0:
-        return [
-            "## Unoptimized recursion", "",
-            f"`{source.name}` did not build with `--debug`:", "",
-            "```", r.stderr.strip()[:500], "```", "",
-        ]
-    built_c = subprocess.run(
-        ["cc", "-O0", "-o", str(c_exe), str(c_source)], capture_output=True, text=True
-    )
-    if built_c.returncode != 0:
-        return []
 
-    kode_run = subprocess.run([str(kode_exe)], capture_output=True, text=True)
-    c_run = subprocess.run([str(c_exe)], capture_output=True, text=True)
-    if (
-        kode_run.returncode != 0
-        or c_run.returncode != 0
-        or kode_run.stdout != c_run.stdout
+    builds: list[tuple[str, list[str]]] = []
+    for label, flag, exe_name in (
+        ("Kode `--opt=none` (MIR and clang off)", "--opt=none", "kode-opt-none"),
+        ("Kode `--debug` (MIR off, clang `-O2`)", "--debug", "kode-debug"),
     ):
-        return [
-            "## Unoptimized recursion", "",
-            "The two builds did not agree, so neither was timed:", "",
-            f"- Kode `--debug`: `{kode_run.stdout.strip()}` (exit {kode_run.returncode})",
-            f"- C `-O0`: `{c_run.stdout.strip()}` (exit {c_run.returncode})", "",
-        ]
+        exe = out / exe_name
+        r = subprocess.run(
+            [str(KODE), "build", str(source), "-o", str(exe), flag],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            return [
+                "## Unoptimized recursion", "",
+                f"`{source.name}` did not build with `{flag}`:", "",
+                "```", r.stderr.strip()[:500], "```", "",
+            ]
+        builds.append((label, [str(exe)]))
+
+    for label, flags, exe_name in (
+        ("C `-O0`", ["-O0"], "c-O0"),
+        ("C `-O2`", ["-O2"], "c-O2"),
+    ):
+        exe = out / exe_name
+        built = subprocess.run(
+            ["cc", *flags, "-o", str(exe), str(c_source)],
+            capture_output=True, text=True,
+        )
+        if built.returncode != 0:
+            return []
+        builds.append((label, [str(exe)]))
+
+    expected = None
+    for label, cmd in builds:
+        check = subprocess.run(cmd, capture_output=True, text=True)
+        if check.returncode != 0 or (expected is not None and check.stdout != expected):
+            return [
+                "## Unoptimized recursion", "",
+                "The builds did not agree, so none was timed:", "",
+                f"- {label}: `{check.stdout.strip()}` (exit {check.returncode})", "",
+            ]
+        expected = check.stdout
 
     rows = []
-    for label, cmd in (("Kode `--debug`", [str(kode_exe)]), ("C `-O0`", [str(c_exe)])):
+    for label, cmd in builds:
         m = measure(cmd, out)
         if m is None:
             return []
         rows.append((label, m[0], m[1]))
     base = rows[0][1]["median"]
     lines = [
-        "## Unoptimized recursion (`fib(38)`, like for like)",
+        "## Unoptimized recursion (`fib(38)`)",
         "",
-        "The same source with optimization off on both sides, so neither compiler",
-        f"rewrites the call tree. Both print `{kode_run.stdout.strip()}` before timing.",
+        f"All four builds print `{expected.strip()}` before anything is timed. The",
+        "like-for-like pair is `Kode --opt=none` against `C -O0`. The other two rows",
+        "are there because `--debug` is not that pair: it skips Kode's MIR optimizer,",
+        "but clang still compiles at `-O2`, so a `--debug`-vs-`-O0` table would",
+        "compare an optimized backend against an unoptimized one.",
         "",
-        "| build | median (ms) | peak RSS | vs Kode |",
+        "| build | median (ms) | peak RSS | vs Kode `--opt=none` |",
         "|---|---:|---:|---:|",
     ]
     for label, stats, rss in rows:
-        rss_txt = f"{rss} KB" if rss else "—"
+        rss_txt = f"{rss} KB" if rss else "\u2014"
         lines.append(
-            f"| {label} | {stats['median']:.1f} | {rss_txt} | {stats['median'] / base:.2f}× |"
+            f"| {label} | {stats['median']:.1f} | {rss_txt} | {stats['median'] / base:.2f}\u00d7 |"
         )
     lines += [
         "",
-        "This pair measures the language on a naive call tree. The table above",
-        "measures what the two optimizers did to that tree, and nothing more.",
+        "The optimized table above is the default build: Kode's MIR inliner inlines the",
+        "recursive call once (`crates/kode-mir/src/opt.rs`, `inline_calls`), which shows",
+        "up as five `bl` sites in the Kode binary against two in the C one. That row",
+        "measures inlining, not a language difference.",
         "",
     ]
     return lines
@@ -448,11 +467,10 @@ def main() -> int:
 
     lines += [
         "",
-        "`fib` is optimizer-dependent and is not a language comparison: clang rewrites",
-        "the Kode build's recursion into fewer, deeper calls, while the C build keeps",
-        "the plain tree. Disassemble `benchmarks/build/fib/program` beside",
-        "`benchmarks/build/fib/c` to see the difference; the unoptimized pair below",
-        "runs the same tree on both sides.",
+        "`fib` is optimizer-dependent and is not a language comparison: Kode's MIR",
+        "inliner inlines the recursion once before clang sees it, while the C build",
+        "keeps the plain tree — five `bl` sites in the Kode binary against two in the",
+        "C one. The table below it measures what each build actually is.",
         "",
     ]
     lines += unoptimized_recursion_section()

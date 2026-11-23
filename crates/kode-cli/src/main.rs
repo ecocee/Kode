@@ -138,21 +138,24 @@ fn front_end(opts: &Options, file: &str) -> Result<Front, u8> {
 
 fn object_for(opts: &Options, f: &Front, mode: Mode) -> Result<Vec<u8>, String> {
     let mut mir = kode_mir::lower(&f.program, &f.checked, &f.map, mode);
-    if !opts.debug {
+    // `--debug` skips the MIR optimizer but leaves clang at `-O2` (its documented
+    // behaviour); `--opt=none` turns both off, so a measurement can run two
+    // compilers that are both unoptimized.
+    if !(opts.debug || opts.opt_none) {
         kode_mir::opt::optimize(&mut mir);
     }
     kode_mir::verify::verify(&mir).map_err(|e| format!("internal compiler error: {e}"))?;
-    llvm_object(&mir)
+    llvm_object(&mir, if opts.opt_none { "-O0" } else { "-O2" })
 }
 
 /// Lower MIR to textual LLVM IR, then ask clang for an object file.
 /// A missing clang is an error, never a quiet fallback to another code path.
-fn llvm_object(mir: &kode_mir::ir::MirProgram) -> Result<Vec<u8>, String> {
+fn llvm_object(mir: &kode_mir::ir::MirProgram, opt_flag: &str) -> Result<Vec<u8>, String> {
     let ir = kode_llvm::emit(mir)?;
     let dir = std::env::temp_dir().join(format!("kode-llvm-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot make a temporary folder: {e}"))?;
     let object = dir.join("program.o");
-    let result = kode_llvm::compile_ir(&ir, &object)
+    let result = kode_llvm::compile_ir_with(&ir, &object, opt_flag)
         .map_err(|e| e.to_string())
         .and_then(|_| {
             std::fs::read(&object).map_err(|e| format!("cannot read the object file: {e}"))

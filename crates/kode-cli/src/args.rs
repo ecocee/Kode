@@ -24,7 +24,8 @@ OPTIONS:
     --format=json     print diagnostics as JSON (for editors and AI agents)
     --strict          treat warnings as errors
     --release         strip symbols from the built binary
-    --debug           do not optimize the generated code (faster to compile)
+    --debug           skip MIR optimization (clang still runs -O2; faster to build)
+    --opt=none        turn off optimisation in the MIR and in clang (for measurements)
     --backend=llvm    accepted for compatibility; LLVM is the only backend
     --check           with `fmt`: do not write, exit 1 if a file would change
                       with `install`: do not write kode.lock, exit 1 if it is stale
@@ -43,6 +44,7 @@ pub struct Options {
     pub strict: bool,
     pub release: bool,
     pub debug: bool,
+    pub opt_none: bool,
     pub check: bool,
     pub simple: bool,
     pub path: Option<String>,
@@ -66,6 +68,7 @@ pub fn parse() -> Result<Options, String> {
             "--strict" => opts.strict = true,
             "--release" => opts.release = true,
             "--debug" => opts.debug = true,
+            "--opt=none" => opts.opt_none = true,
             "--simple" => opts.simple = true,
             "--" => {
                 opts.program_args = args.by_ref().collect();
@@ -86,6 +89,13 @@ pub fn parse() -> Result<Options, String> {
                     }
                     _ => return Err(format!("unknown backend `{name}`; LLVM is the only backend")),
                 }
+            }
+            other if other.starts_with("--opt=") => {
+                let level = &other["--opt=".len()..];
+
+                return Err(format!(
+                    "unknown optimisation level `{level}`; the only value is `none`"
+                ));
             }
             other if other.starts_with('-') => return Err(format!("unknown option `{other}`")),
             other => {

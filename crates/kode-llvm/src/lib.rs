@@ -14,7 +14,7 @@ mod front;
 mod lower;
 mod rtlib;
 
-pub use clang::{clang_program, compile_ir, ClangError};
+pub use clang::{clang_program, compile_ir, compile_ir_with, ClangError};
 pub use front::{load_program, program_from_source, Lines};
 pub use lower::emit;
 pub use rtlib::find_runtime_archive;

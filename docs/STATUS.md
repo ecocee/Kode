@@ -240,7 +240,7 @@ plan targets). Wall clock: best of 3; RSS: peak of one run. Compiler: debug
 
 | Target | Goal | Measured | Verdict |
 |---|---|---|---|
-| `fib(38)` wall clock | within 2× of C `-O2` | **58.5 ms** with optimization off vs C `-O2` 61 ms = **0.96×**; like for like (`-O0` both sides) 58.5 vs 106.8 ms. The optimized pair is not a comparison: clang rewrites only the Kode build | met |
+| `fib(38)` wall clock | within 2× of C `-O2` | **58.2 ms** with the MIR optimizer off but clang still at `-O2`, vs C `-O2` 57.7 ms = **0.99×** (like for like). The default build's 3.8 ms is not a comparison: `inline_calls` inlines the recursion before clang sees it, five `bl` sites against two. With optimization off on both sides (`--opt=none` vs `cc -O0`) Kode is 277.9 ms against C's 105.8 ms | met |
 | `loop_mod` wall clock | within 2× of C `-O2` | 13 ms vs 12 ms = **1.13×** | met |
 | `sieve` wall clock | within 2× of C `-O2` | 31 ms vs 12 ms = **2.64×** | **missed** |
 | `mandel` wall clock | within 3× of C `-O2` | 13 ms vs 11 ms = **1.17×** | met |
