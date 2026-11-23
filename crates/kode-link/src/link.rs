@@ -89,6 +89,10 @@ fn platform_args(strip: bool) -> Vec<&'static str> {
             "-Wl,--gc-sections",
             "-static",
             "-lws2_32",
+            // std's Windows futex calls WakeByAddressSingle, which lives in
+            // synchronization.lib; without it the runtime archive links with an
+            // undefined reference as soon as a program touches a thread primitive.
+            "-lsynchronization",
             "-lbcrypt",
             "-luserenv",
             "-lntdll",
