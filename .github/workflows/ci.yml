@@ -135,6 +135,13 @@ jobs:
         shell: bash
         run: ./target/debug/kode fmt tests/run-pass examples --check
 
+      # The notices that ship inside a release are generated from the lockfile;
+      # this fails if a dependency changed and the file was not regenerated.
+      - name: Third-party notices match the lockfile
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 scripts/third-party-notices.py --check
+
       - name: Release build
         run: cargo build --release -p kode-cli
 

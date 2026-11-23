@@ -157,4 +157,23 @@ Start with [docs/cheatsheet.md](docs/cheatsheet.md) for the shape of the languag
 
 ## License
 
-Apache-2.0
+Apache-2.0: see [LICENSE](LICENSE). Copyright 2025–2026 Ecocee.
+
+The license covers the code and the documentation. The names "Kode" and
+"Ecocee" and the project's logos are trademarks of the owner and are not
+licensed by it: [TRADEMARKS.md](TRADEMARKS.md) says what is allowed and what is
+not.
+
+Contributions are accepted under the same license and need a DCO sign-off
+(`git commit -s`); see [CONTRIBUTING.md](CONTRIBUTING.md). Community expectations
+are in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and security reports go through
+[SECURITY.md](SECURITY.md).
+
+### Shipping a program you built
+
+`kode build` links the Kode runtime into your binary, and the runtime links
+crates from crates.io. Redistributing that binary therefore redistributes their
+object code: ship `LICENSE` and
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) alongside it. Your own `.kode`
+source stays yours — Apache-2.0 covers the compiler and the runtime, not the
+programs you write with them.
