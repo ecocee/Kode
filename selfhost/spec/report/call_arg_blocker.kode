@@ -1,0 +1,4 @@
+fn one(x: int) -> int {
+    return x
+}
+print(one({"k": 1}))

@@ -10,7 +10,7 @@ use crate::types::Type;
 /// The types a written annotation can name, in one place so every "unknown
 /// type" hint stays true.
 const AVAILABLE_TYPES: &str =
-    "The types are int, float, bool, string, your classes, interfaces and \
+    "The types are int, float, bool, string, bytes, your classes, interfaces and \
                               enums, [T] for a list, {string: T} for a map, T? for an optional, \
                               Task<T>, Channel<T> and fn(T) -> U";
 
@@ -29,6 +29,16 @@ impl Checker {
             TypeAnnKind::Name(n) => {
                 if let Some(t) = Type::from_name(n) {
                     Some(t)
+                } else if self.generic_class_index.contains_key(n) {
+                    self.errors.push(
+                        Diagnostic::error(
+                            "E0423",
+                            format!("`{n}` is a generic class, so it needs type arguments"),
+                            ann.span,
+                        )
+                        .with_help(format!("write `{n}<int>`, not `{n}`")),
+                    );
+                    None
                 } else if self.class_index.contains_key(n) {
                     Some(Type::Class(n.clone()))
                 } else if self.interface_index.contains_key(n) {
@@ -50,6 +60,15 @@ impl Checker {
                     );
                     None
                 }
+            }
+            // `Box<int>`: one class per set of type arguments (ADR 0040).
+            TypeAnnKind::Generic(n, args) => {
+                let mut types = Vec::new();
+                for a in args {
+                    types.push(self.resolve_type(a)?);
+                }
+                let name = self.instantiate_class(n, &types, ann.span)?;
+                Some(Type::Class(name))
             }
             TypeAnnKind::List(inner) => {
                 let t = self.resolve_type(inner)?;
@@ -129,6 +148,27 @@ impl Checker {
                             format!("the class `{}` {what}", c.name),
                             c.name_span,
                         ));
+                    } else if !c.type_params.is_empty() {
+                        for m in &c.methods {
+                            if !m.type_params.is_empty() {
+                                self.errors.push(
+                                    Diagnostic::error(
+                                        "E0252",
+                                        format!(
+                                            "the method `{}.{}` cannot have type parameters yet: `{}` already has its own",
+                                            c.name, m.name, c.name
+                                        ),
+                                        m.name_span,
+                                    )
+                                    .with_help("take the class's type parameter instead, or move the method out as a free `fn`"),
+                                );
+                            }
+                        }
+                        // A generic class is a template: it has no class entry of
+                        // its own, only one per set of type arguments (ADR 0040).
+                        self.generic_class_index
+                            .insert(c.name.clone(), self.generic_classes.len());
+                        self.generic_classes.push(c.clone());
                     } else {
                         self.class_index.insert(c.name.clone(), self.classes.len());
                         self.classes.push(ClassInfo {
@@ -153,7 +193,9 @@ impl Checker {
                         self.enum_index.insert(e.name.clone(), self.enums.len());
                         self.enums.push(EnumInfo {
                             name: e.name.clone(),
-                            variants: e.variants.iter().map(|(n, _)| n.clone()).collect(),
+                            variants: e.variants.iter().map(|v| v.name.clone()).collect(),
+                            // Filled by 1c, once every declared name is known.
+                            fields: vec![Vec::new(); e.variants.len()],
                         });
                     }
                 }
@@ -218,11 +260,38 @@ impl Checker {
             }
             self.interfaces[ii].methods = methods;
         }
+        // 1c. enum variant fields (ADR 0039): resolved once every name exists,
+        // so a variant may carry a class or another enum declared later.
+        for item in &program.items {
+            let Item::Enum(e) = item else { continue };
+            let Some(&ei) = self.enum_index.get(&e.name) else {
+                continue;
+            };
+            let mut fields: Vec<Vec<(String, Type)>> = Vec::new();
+            for v in &e.variants {
+                let mut f: Vec<(String, Type)> = Vec::new();
+                for p in &v.fields {
+                    if f.iter().any(|(n, _)| *n == p.name) {
+                        self.errors.push(Diagnostic::error(
+                            "E0306",
+                            format!("the field `{}` appears twice in this variant", p.name),
+                            p.name_span,
+                        ));
+                    }
+                    let ty = self.resolve_type(&p.ty).unwrap_or(Type::Int);
+                    f.push((p.name.clone(), ty));
+                }
+                fields.push(f);
+            }
+            self.enums[ei].fields = fields;
+        }
         // 2. class fields
         let mut done = HashSet::new();
         for item in &program.items {
             let Item::Class(c) = item else { continue };
-            if !done.insert(c.name.clone()) || c.name == "Error" {
+            // A generic class has no instance yet: its fields and methods are
+            // collected per instantiation, which is the next slice of ADR 0040.
+            if !done.insert(c.name.clone()) || c.name == "Error" || !c.type_params.is_empty() {
                 continue;
             }
             let ci = self.class_index[&c.name];
@@ -254,12 +323,6 @@ impl Checker {
                     ));
                 }
                 let ty = self.resolve_type(&f.ty).unwrap_or(Type::Int);
-                if crate::types::is_opt_scalar(&ty).is_some() {
-                    self.errors.push(
-                        Diagnostic::error("E0219", format!("a field cannot be `{}` yet", ty.name()), f.name_span)
-                            .with_help("an optional number works as a local variable; keep a value field and a `bool` field instead"),
-                    );
-                }
                 fields.push(FieldInfo {
                     name: f.name.clone(),
                     ty,
@@ -326,6 +389,11 @@ impl Checker {
     fn check_implements(&mut self, program: &Program) {
         for item in &program.items {
             let Item::Class(c) = item else { continue };
+            // A generic class is checked per instantiation, where its type
+            // parameters are concrete (ADR 0040).
+            if !c.type_params.is_empty() {
+                continue;
+            }
             let Some(&ci) = self.class_index.get(&c.name) else {
                 continue;
             };
@@ -427,6 +495,12 @@ impl Checker {
 
     fn collect_fns(&mut self, program: &Program) {
         for (cls, f) in program.fn_decls() {
+            // Methods of a generic class arrive with their instance.
+            if let Some(c) = cls {
+                if !c.type_params.is_empty() {
+                    continue;
+                }
+            }
             if !f.type_params.is_empty() {
                 self.collect_generic(cls, f);
                 continue;
@@ -464,24 +538,12 @@ impl Checker {
                     );
                 }
                 let ty = self.resolve_type(&p.ty).unwrap_or(Type::Int);
-                if crate::types::is_opt_scalar(&ty).is_some() {
-                    self.errors.push(
-                        Diagnostic::error("E0219", format!("a parameter cannot be `{}` yet", ty.name()), p.name_span)
-                            .with_help("an optional number works as a local variable; pass the value and a `bool` instead"),
-                    );
-                }
                 params.push((p.name.clone(), ty));
             }
             let ret = match &f.ret {
                 Some(a) => self.resolve_type(a).unwrap_or(Type::Unit),
                 None => Type::Unit,
             };
-            if crate::types::is_opt_scalar(&ret).is_some() {
-                self.errors.push(
-                    Diagnostic::error("E0219", format!("a function cannot return `{}` yet", ret.name()), f.name_span)
-                        .with_help("an optional number works as a local variable; return the value and set a `bool` on success"),
-                );
-            }
             let index = self.fns.len();
             let name = match cls {
                 None => {
@@ -545,19 +607,37 @@ impl Checker {
     /// A generic declaration is not a function yet: it is checked once per set of
     /// concrete type arguments (ADR 0030).
     fn collect_generic(&mut self, cls: Option<&ClassDecl>, f: &FnDecl) {
+        // A method may declare its own type parameters; one instance is compiled
+        // per set of arguments, with `this` first (ADR 0040 slice 1c).
         if let Some(c) = cls {
-            self.errors.push(
-                Diagnostic::error(
-                    "E0252",
-                    format!(
-                        "the method `{}.{}` cannot have type parameters yet",
-                        c.name, f.name
-                    ),
+            if !c.type_params.is_empty() {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0252",
+                        format!(
+                            "the method `{}.{}` cannot have type parameters yet: `{}` already has its own",
+                            c.name, f.name, c.name
+                        ),
+                        f.name_span,
+                    )
+                    .with_help("take the class's type parameter instead, or move the method out as a free `fn`"),
+                );
+                return;
+            }
+            if self.classes[self.class_index[&c.name]]
+                .methods
+                .contains_key(&f.name)
+                || self
+                    .class_generic_index
+                    .contains_key(&(c.name.clone(), f.name.clone()))
+            {
+                self.errors.push(Diagnostic::error(
+                    "E0306",
+                    format!("the method `{}` appears twice", f.name),
                     f.name_span,
-                )
-                .with_help("move it out of the class as a free `fn` with the same parameters"),
-            );
-            return;
+                ));
+                return;
+            }
         }
         let mut seen = HashSet::new();
         for (name, span) in &f.type_params {
@@ -596,8 +676,19 @@ impl Checker {
                 f.name_span,
             ));
         } else {
-            self.generic_index
-                .insert(f.name.clone(), self.generic_decls.len());
+            match cls {
+                Some(c) => {
+                    // Free-function name rules do not apply: a method lives in
+                    // its class's namespace.
+                    self.class_generic_index
+                        .insert((c.name.clone(), f.name.clone()), self.generic_decls.len());
+                }
+                None => {
+                    self.generic_index
+                        .insert(f.name.clone(), self.generic_decls.len());
+                }
+            }
+            self.generic_decl_class.push(cls.map(|c| c.name.clone()));
             self.generic_decls.push(f.clone());
         }
     }
@@ -668,6 +759,11 @@ impl Checker {
     pub(crate) fn check_field_defaults(&mut self, program: &Program) {
         for item in &program.items {
             let Item::Class(c) = item else { continue };
+            // A generic class is checked per instantiation, where its type
+            // parameters are concrete (ADR 0040).
+            if !c.type_params.is_empty() {
+                continue;
+            }
             let Some(&ci) = self.class_index.get(&c.name) else {
                 continue;
             };

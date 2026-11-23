@@ -360,7 +360,7 @@ pub fn symbols(text: &str) -> Json {
                 let children: Vec<Json> = e
                     .variants
                     .iter()
-                    .map(|(v, span)| symbol(v, 22, *span, text, Vec::new()))
+                    .map(|v| symbol(&v.name, 22, v.name_span, text, Vec::new()))
                     .collect();
                 out.push(symbol(&e.name, 10, e.name_span, text, children));
             }

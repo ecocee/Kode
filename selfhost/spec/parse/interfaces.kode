@@ -1,0 +1,13 @@
+interface Show {
+    fn show() -> string
+}
+interface Area {
+    pub fn area() -> float
+    fn scale(factor: float) -> Area
+}
+interface Empty {
+}
+interface Multi {
+    fn a() -> int
+    fn b(x: int, y: [string]) -> int
+}

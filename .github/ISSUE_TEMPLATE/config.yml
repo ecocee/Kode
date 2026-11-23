@@ -1,0 +1,6 @@
+# A vulnerability pasted into a public issue cannot be unpublished, so the
+# private channels are offered before the templates. See SECURITY.md.
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/ecocee/Kode/security/policy
+    about: Never open a public issue for a vulnerability. Email info@ecocee.in or use GitHub's private reporting.

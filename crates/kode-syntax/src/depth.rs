@@ -83,7 +83,16 @@ pub(crate) fn too_deep(program: &Program) -> Option<Span> {
             }
             Item::Test(t) => stack.push(Node::Block(&t.body, 1)),
             Item::Stmt(s) => stack.push(Node::Stmt(s, 1)),
-            Item::Enum(_) | Item::Import(_) => {}
+            // A payload variant's field types count towards the nesting limit
+            // like any other annotation (ADR 0032).
+            Item::Enum(e) => {
+                for v in &e.variants {
+                    for f in &v.fields {
+                        stack.push(Node::Ty(&f.ty, 1));
+                    }
+                }
+            }
+            Item::Import(_) => {}
         }
     }
 
@@ -143,6 +152,7 @@ pub(crate) fn too_deep(program: &Program) -> Option<Span> {
                     }
                 }
                 ExprKind::Member { obj, .. } => stack.push(Node::Expr(obj, next)),
+                ExprKind::Is { obj, .. } => stack.push(Node::Expr(obj, next)),
                 ExprKind::MethodCall { obj, args, .. } => {
                     stack.push(Node::Expr(obj, next));
                     push_args(args, next, &mut stack);
@@ -232,6 +242,11 @@ pub(crate) fn too_deep(program: &Program) -> Option<Span> {
             }
             Node::Ty(t, _) => match &t.kind {
                 TypeAnnKind::Name(_) => {}
+                TypeAnnKind::Generic(_, args) => {
+                    for a in args {
+                        stack.push(Node::Ty(a, 1));
+                    }
+                }
                 TypeAnnKind::List(x)
                 | TypeAnnKind::Map(x)
                 | TypeAnnKind::Opt(x)

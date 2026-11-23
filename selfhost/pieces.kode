@@ -1,0 +1,126 @@
+// The pieces an expression can be made of elsewhere: an interpolation's accumulator, a
+// hole, a literal, and the arguments a call owns. None of them walks an expression, which
+// is what keeps this module out of the walk's import cycle.
+
+from "./ast" import Ast
+from "./literals" import parse_int
+from "./lower_core" import Builder
+from "./mir" import Instr, Operand, Piece, Value
+
+pub fn lower_interp(b: Builder, id: int) -> Operand {
+    acc = Operand()
+    have = false
+    for kid in b.ast.nodes[id].kids {
+        kind = b.ast.nodes[kid].kind
+        piece = Piece(op: Operand())
+        if kind == "Lit" {
+            text = b.ast.attr_text(kid, "text")
+            if text == "" {
+                continue
+            }
+            piece = Piece(op: Operand(value: Value(kind: "str", str_value: text)))
+        } else if kind == "Hole" {
+            piece = lower_hole(b, kid)
+            if not b.ok {
+                return Operand()
+            }
+        } else {
+            b.stop("a piece of an interpolation that is a `${kind}`")
+            return Operand(value: Value(kind: "?"))
+        }
+        if not have {
+            // The head is the accumulator, and the accumulation owns it: a borrowed
+            // variable is retained for that, a literal needs nothing.
+            acc = piece.op
+            have = true
+            if acc.is_temp and not piece.owned {
+                b.emit(Instr(kind: "retain", args: [acc]))
+            }
+            continue
+        }
+        index = b.temp("", "ref")
+        b.emit(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [acc, piece.op]))
+        b.emit(Instr(kind: "release", args: [acc]))
+        if piece.owned {
+            b.emit(Instr(kind: "release", args: [piece.op]))
+        }
+        acc = Operand(is_temp: true, index: index)
+    }
+    if not have {
+        b.stop("an interpolation with nothing in it")
+    }
+    // Whatever the accumulation ended on is the caller's: a variable retained for it, or
+    // an intermediate it built. A store moves it; a callee is handed it.
+    acc.owned = true
+    return acc
+}
+
+pub fn lower_hole(b: Builder, id: int) -> Piece {
+    kids = b.ast.nodes[id].kids
+    if kids.len() != 1 {
+        b.stop("a hole without one value")
+        return Piece(op: Operand(value: Value(kind: "?")))
+    }
+    node = kids[0]
+    if b.ast.nodes[node].kind != "Ident" {
+        b.stop("a hole that is a `${b.ast.nodes[node].kind}`")
+        return Piece(op: Operand(value: Value(kind: "?")))
+    }
+    name = b.ast.attr_text(node, "name")
+    index = b.slot(name)
+    if index < 0 {
+        if not b.has_name(b.unknown_names, name) {
+            b.stop("a hole reading `${name}`, which this slice cannot bind")
+        }
+        return Piece(op: Operand(value: Value(kind: "?")))
+    }
+    if b.main.temps[index].kind == "ref" {
+        return Piece(op: Operand(is_temp: true, index: index))
+    }
+    if b.main.temps[index].kind != "int" {
+        b.stop("a `${b.main.temps[index].kind}` hole")
+        return Piece(op: Operand())
+    }
+    text = b.temp("", "ref")
+    b.emit(Instr(kind: "call", dest: text, callee: "rt::IntToStr", args: [Operand(is_temp: true, index: index)]))
+    return Piece(op: Operand(is_temp: true, index: text), owned: true)
+}
+
+pub fn lower_literal(b: Builder, ast: Ast, id: int) -> Value {
+    kind = ast.nodes[id].kind
+    if kind == "Int" {
+        return Value(kind: "int", int_value: parse_int(ast.attr_raw(id, "value")))
+    }
+    if kind == "Float" {
+        text = ast.attr_text(id, "value")
+        return Value(kind: "float", float_value: text.to_float() catch e {
+                0.0
+        })
+    }
+    if kind == "Bool" {
+        return Value(kind: "bool", bool_value: ast.attr_raw(id, "value") == "true")
+    }
+    return Value(kind: "str", str_value: ast.attr_text(id, "value"))
+}
+
+/// The call took what its arguments held: an intermediate the walk made, or an
+/// interpolation the callee was handed, is released right after it. A named variable
+/// lives on in its own slot, and a literal is static.
+pub fn release_args(b: Builder, args: [Operand]) {
+    for arg in args {
+        if not arg.is_temp {
+            continue
+        }
+        if b.main.temps[arg.index].kind != "ref" {
+            continue
+        }
+        if arg.owned or (not b.is_variable(arg.index) and not b.main.temps[arg.index].borrowed) {
+            b.emit(Instr(kind: "release", args: [arg]))
+        }
+    }
+}
+
+/// An integer operand, for the counts and flags the runtime calls take.
+fn int_operand(n: int) -> Operand {
+    return Operand(value: Value(kind: "int", int_value: n))
+}

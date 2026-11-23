@@ -1,0 +1,115 @@
+// The token dump of the self-hosted compiler.
+//
+// This is the format `crates/kode-syntax/src/dump.rs` defines and the harness
+// compares: one token per line,
+//
+//   start..end <tab> line:column <tab> Kind <tab> text
+//
+// with tab, newline, carriage return, quote and backslash escaped so a token is
+// always exactly one line. Columns count characters, spans count bytes.
+
+from "./bytes" import is_continuation, utf8_len
+from "./tokens" import Lexed, token_name
+
+// Constants share one namespace across the modules a program builds from, so
+// these carry a suffix: `lexer.kode` already owns the plain byte names.
+const TAB_BYTE = 9
+const LF_BYTE = 10
+const CR_BYTE = 13
+const QUOTE_BYTE = 34
+const BACKSLASH_BYTE = 92
+const DEL_BYTE = 127
+
+/// The whole token stream, one line per token.
+pub fn tokens_lines(src: string, lx: Lexed) -> [string] {
+    lines: [string] = []
+    at = 0
+    line = 1
+    column = 1
+    for token in lx.tokens {
+        // Advance the cursor once for the whole file, not once per token: a
+        // 1 MB source has a hundred thousand tokens and this stays linear.
+        while at < token.start {
+            b = src.byte_at(at)
+            if b == LF_BYTE {
+                line += 1
+                column = 1
+            } else if not is_continuation(b) {
+                column += 1
+            }
+            at += 1
+        }
+        text = escape_text(src.slice(token.start, token.end))
+        lines.add(
+            "${token.start}..${token.end}\t${line}:${column}\t${token_name(token.kind)}\t${text}"
+        )
+    }
+    return lines
+}
+
+/// `line:column` of a byte offset, for diagnostics. Linear per call, which is
+/// fine for the handful of errors a file produces.
+pub fn position(src: string, offset: int) -> string {
+    line = 1
+    column = 1
+    at = 0
+    stop = offset
+    if stop > src.size() {
+        stop = src.size()
+    }
+    while at < stop {
+        b = src.byte_at(at)
+        if b == LF_BYTE {
+            line += 1
+            column = 1
+        } else if not is_continuation(b) {
+            column += 1
+        }
+        at += 1
+    }
+    return "${line}:${column}"
+}
+
+/// Escape the characters that would break the one-line rule.
+fn escape_text(s: string) -> string {
+    out = ""
+    at = 0
+    size = s.size()
+    while at < size {
+        b = s.byte_at(at)
+        if b == TAB_BYTE {
+            out += "\\t"
+            at += 1
+        } else if b == LF_BYTE {
+            out += "\\n"
+            at += 1
+        } else if b == CR_BYTE {
+            out += "\\r"
+            at += 1
+        } else if b == QUOTE_BYTE {
+            out += "\\\""
+            at += 1
+        } else if b == BACKSLASH_BYTE {
+            out += "\\\\"
+            at += 1
+        } else if b < 32 or b == DEL_BYTE {
+            out += "\\u{${hex(b)}}"
+            at += 1
+        } else {
+            width = utf8_len(b)
+            out += s.slice(at, at + width)
+            at += width
+        }
+    }
+    return out
+}
+
+/// Two lowercase hex digits, as `\u{7f}` needs. Values below 16 keep one digit,
+/// because that is what the Rust `{:x}` in the oracle prints.
+fn hex(value: int) -> string {
+    digits = "0123456789abcdef"
+    if value < 16 {
+        return digits.char_at(value)
+    }
+    return digits.char_at(value / 16) + digits.char_at(value % 16)
+}

@@ -3,6 +3,30 @@
 All of these are runtime functions listed in one table (`crates/kode-sema/src/std_fns.rs`).
 Adding one means one table row and one `extern "C"` function in `crates/kode-rt/src/std_fns.rs`.
 
+| Console | |
+|---|---|
+| `print(...)` | write values to stdout, separated by spaces, then a newline |
+| `stderr(...)` | the same, on stderr: for diagnostics (ADR 0045) |
+
+`print` and `stderr` take the same arguments and apply the same rules; only the
+stream differs. Values that cannot be printed are `E0203`.
+
+| Building text | |
+|---|---|
+| `StringBuilder()` | a growable text buffer (ADR 0044); not printable |
+| `sb.push(s)` | append a string (E0208 if `s` is not a string) |
+| `sb.build()` | the text so far as a new `string`; the builder stays usable |
+
+Building text with `+` copies everything written so far on every append. When a
+loop appends many pieces, push them into a builder and call `build()` once.
+
+| Byte buffers | |
+|---|---|
+| `bytes(n)` | a buffer of `n` zero bytes (ADR 0043); not printable |
+| `b.size()` | number of bytes |
+| `b.get(i)` | byte at `i` as an int, 0..=255; bounds-checked |
+| `b.set(i, v)` | store one byte; the index is checked and `v` must be 0..=255 |
+
 | Strings | |
 |---|---|
 | `s.size()` | bytes (`len(s)` counts characters) |

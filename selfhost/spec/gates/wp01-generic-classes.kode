@@ -1,0 +1,11 @@
+// work packet: WP01 generic classes
+// target: ok
+// Two instantiations of one declaration, with substituted fields and methods.
+class Box<T> {
+    value: T
+    fn get() -> T => value
+}
+
+a = Box(value: 1)
+b = Box(value: "hi")
+print(a.get(), b.get())

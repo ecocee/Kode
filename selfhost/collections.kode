@@ -1,0 +1,87 @@
+// The two collection literals of the self-hosted compiler: `[1, 2]` and
+// `{"k": 1}`, with the `List`, `Map` and `Entry` nodes the dump shows.
+//
+// They live beside the expression grammar rather than inside `expr.kode` because
+// each one parses whole expressions between its separators; they ask for those
+// through `Expressions`, the same way `closures.kode` and `interp.kode` do, so
+// there is no module cycle and no second expression parser.
+
+from "./ast" import Ast
+from "./contracts" import Expressions
+from "./cursor" import Cursor
+from "./tokens" import TokenKind
+
+pub class Collections {
+    c: Cursor
+    ast: Ast
+    exprs: Expressions
+
+    /// `[a, b]`: a `List` whose children are the items, spanning both brackets.
+    fn list_expr() -> int {
+        open_at = c.at
+        c.advance()
+        c.skip_newlines()
+        id = ast.counted("List")
+        while c.peek() != TokenKind.RBracket {
+            item = exprs.expr()
+            if item < 0 {
+                return -1
+            }
+            ast.kid(id, item)
+            c.skip_newlines()
+            if c.peek() == TokenKind.Comma {
+                c.advance()
+                c.skip_newlines()
+            } else {
+                break
+            }
+        }
+        c.expect_close(TokenKind.RBracket, "`]` or `,`")
+        ast.span(id, "span", c.token_start(open_at), c.last_end)
+        return id
+    }
+
+    /// `{"k": 1}`: a `Map` of `Entry` nodes, each holding a key and its value.
+    fn map_expr() -> int {
+        open_at = c.at
+        c.advance()
+        c.skip_newlines()
+        id = ast.counted("Map")
+        while c.peek() != TokenKind.RBrace {
+            entry = ast.add("Entry")
+            key = exprs.expr()
+            if key < 0 {
+                return -1
+            }
+            ast.kid(entry, key)
+            if c.peek() == TokenKind.Colon {
+                c.advance()
+            } else {
+                c.fail(
+                    "E0103",
+                    "expected `:` between a key and its value, found ${c.describe(c.at)}",
+                    c.token_start(c.at),
+                    c.token_end(c.at),
+                    "",
+                )
+            }
+            c.skip_newlines()
+            value = exprs.expr()
+            if value < 0 {
+                return -1
+            }
+            ast.kid(entry, value)
+            ast.kid(id, entry)
+            c.skip_newlines()
+            if c.peek() == TokenKind.Comma {
+                c.advance()
+                c.skip_newlines()
+            } else {
+                break
+            }
+        }
+        c.expect_close(TokenKind.RBrace, "`}` or `,`")
+        ast.span(id, "span", c.token_start(open_at), c.last_end)
+        return id
+    }
+}

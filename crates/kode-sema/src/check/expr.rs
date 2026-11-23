@@ -74,6 +74,21 @@ impl Checker {
                 for p in parts {
                     if let InterpPart::Expr(x) = p {
                         match self.expr(x) {
+                            Some(t) if self.unprintable_enum(&t).is_some() => {
+                                let why = self.unprintable_enum(&t).unwrap_or_default();
+                                self.errors.push(
+                                    Diagnostic::error(
+                                        "E0203",
+                                        format!(
+                                            "cannot put {} inside a string yet: {why}",
+                                            t.article()
+                                        ),
+                                        x.span,
+                                    )
+                                    .with_help("print its scalar fields instead"),
+                                );
+                                ok = false;
+                            }
                             Some(
                                 Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_),
                             ) => {}
@@ -137,7 +152,13 @@ impl Checker {
                 name,
                 name_span,
                 safe,
-            } => self.member(obj, name, *name_span, *safe),
+            } => self.member(e.id, obj, name, *name_span, *safe),
+            ExprKind::Is {
+                obj,
+                enum_name,
+                variant,
+                name_span,
+            } => self.is_expr(obj, enum_name, variant, *name_span),
             ExprKind::MethodCall {
                 obj,
                 name,
@@ -505,7 +526,128 @@ impl Checker {
         }
     }
 
-    fn member(&mut self, obj: &Expr, name: &str, name_span: Span, safe: bool) -> Option<Type> {
+    /// `s is Shape.Circle`: a bool, and the checker's cue to narrow `s` inside
+    /// the branch it guards (ADR 0039 §4.4).
+    fn is_expr(
+        &mut self,
+        obj: &Expr,
+        enum_name: &str,
+        variant: &str,
+        name_span: Span,
+    ) -> Option<Type> {
+        let t = self.expr(obj);
+        match &t {
+            Some(Type::Enum(n)) if n != enum_name => {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0223",
+                        format!("this value is `{n}`, not `{enum_name}`"),
+                        name_span,
+                    )
+                    .with_help("`is` tests the variant of the value's own enum"),
+                );
+                return Some(Type::Bool);
+            }
+            Some(Type::Enum(_)) => {}
+            Some(other) => {
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0223",
+                        format!("`is` needs an enum value, found {}", other.article()),
+                        name_span,
+                    )
+                    .with_help("use `match` on enums, and `== none` on optionals"),
+                );
+                return Some(Type::Bool);
+            }
+            None => return Some(Type::Bool),
+        }
+        let ei = self.enum_index[enum_name];
+        if self.enums[ei].variant_index(variant).is_none() {
+            let vs = self.enums[ei].variants.clone();
+            let mut d = Diagnostic::error(
+                "E0225",
+                format!("`{enum_name}` has no variant `{variant}`"),
+                name_span,
+            );
+            if let Some(s) = closest(variant, vs.iter().map(|s| s.as_str())) {
+                d = d.with_help(format!("did you mean `{s}`?"));
+            }
+            self.errors.push(d);
+        }
+        Some(Type::Bool)
+    }
+
+    fn member(
+        &mut self,
+        id: ExprId,
+        obj: &Expr,
+        name: &str,
+        name_span: Span,
+        safe: bool,
+    ) -> Option<Type> {
+        // `if s is Shape.Circle { s.radius }`: a field read the narrowing made
+        // safe. The variant and field are recorded for MIR (ADR 0039 §4.4).
+        if let ExprKind::Ident(vn) = &obj.kind {
+            if let Some((en, vi)) = self.narrowed_variant(vn) {
+                let ei = self.enum_index[&en];
+                let fields = self.enums[ei].fields[vi].clone();
+                if let Some(fi) = fields.iter().position(|(f, _)| f == name) {
+                    let ty = fields[fi].1.clone();
+                    self.enum_field_reads.insert(id, (ei, vi, fi));
+                    return Some(ty);
+                }
+                let names = fields
+                    .iter()
+                    .map(|(f, _)| f.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.errors.push(
+                    Diagnostic::error(
+                        "E0217",
+                        format!(
+                            "`{en}.{}` has no field `{name}`",
+                            self.enums[ei].variants[vi]
+                        ),
+                        name_span,
+                    )
+                    .with_help(format!("it has: {names}")),
+                );
+                return None;
+            }
+        }
+        // A field of a payload enum read without narrowing is not safe: the
+        // value may hold another variant (E0419).
+        if let ExprKind::Ident(vn) = &obj.kind {
+            if self.scopes.peek_var(vn).is_none() {
+                // A type name, handled below (`Color.Red`).
+            } else if let Some(Type::Enum(en)) = self.scopes.peek_var(vn) {
+                let ei = self.enum_index[&en];
+                let info = self.enums[ei].clone();
+                if info.has_payloads() {
+                    if let Some(vi) = info
+                        .fields
+                        .iter()
+                        .position(|f| f.iter().any(|(fname, _)| fname == name))
+                    {
+                        let variant = info.variants[vi].clone();
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0419",
+                                format!(
+                                    "`{vn}.{name}` is only valid when `{vn}` holds `{en}.{variant}`"
+                                ),
+                                name_span,
+                            )
+                            .with_help(format!(
+                                "narrow first: `if {vn} is {en}.{variant} {{ ... }}`"
+                            )),
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
         // `Color.Red`
         if let ExprKind::Ident(n) = &obj.kind {
             if self.scopes.peek_var(n).is_none()
@@ -513,7 +655,24 @@ impl Checker {
                 && self.field_of_current_class(n).is_none()
             {
                 if let Some(&ei) = self.enum_index.get(n) {
-                    if self.enums[ei].variants.iter().any(|v| v == name) {
+                    if let Some(vi) = self.enums[ei].variant_index(name) {
+                        let fields = self.enums[ei].fields[vi].clone();
+                        if !fields.is_empty() {
+                            let args = fields
+                                .iter()
+                                .map(|(f, _)| format!("{f}: ..."))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            self.errors.push(
+                                Diagnostic::error(
+                                    "E0417",
+                                    format!("`{n}.{name}` is a constructor, not a value"),
+                                    name_span,
+                                )
+                                .with_help(format!("write `{n}.{name}({args})`")),
+                            );
+                            return None;
+                        }
                         return Some(Type::Enum(n.clone()));
                     }
                     let vs = self.enums[ei].variants.clone();
@@ -752,6 +911,21 @@ impl Checker {
                 ),
             },
             BinOp::Eq | BinOp::Ne => {
+                // A payload enum is a reference to a heap value; `==` would
+                // compare addresses (ADR 0039 §2).
+                if let Type::Enum(n) = &l {
+                    if self.enums[self.enum_index[n]].has_payloads() {
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0420",
+                                format!("`==` does not work on `{n}`, which has payloads"),
+                                span,
+                            )
+                            .with_help("use `match`, or `is` to compare the variant"),
+                        );
+                        return Some(Type::Bool);
+                    }
+                }
                 let ok = (l == r && l != Type::Unit)
                     || (l == Type::NoneT && matches!(r, Type::Opt(_)))
                     || (r == Type::NoneT && matches!(l, Type::Opt(_)));
@@ -1284,9 +1458,8 @@ impl Checker {
         args: &[Arg],
         span: Span,
     ) -> Option<Type> {
-        // `Color.Red(1)`: a variant carrying a payload. The language has no enum
-        // payloads yet, and without this the reader gets "unknown variable
-        // `Color`" for what is a recognizable shape from other languages.
+        // `Shape.Circle(radius: 1.5)`: a variant carrying a payload is built like
+        // a class instance, with the fields the declaration names (ADR 0039).
         if let ExprKind::Ident(n) = &obj.kind {
             let is_plain_name = self.scopes.peek_var(n).is_none()
                 && !self.consts.contains_key(n)
@@ -1294,19 +1467,27 @@ impl Checker {
                 && self.module_alias(n).is_none();
             if is_plain_name {
                 if let Some(&ei) = self.enum_index.get(n.as_str()) {
-                    if self.enums[ei].variants.iter().any(|v| v == name) {
-                        self.errors.push(
-                            Diagnostic::error(
-                                "E0253",
-                                format!("`{n}.{name}(...)`: enum payloads are not supported yet"),
-                                span,
-                            )
-                            .with_help(
-                                "give the value fields with a class instead, or drop the payload; \
-                                 payloads are planned in docs/ROADMAP.md",
-                            ),
-                        );
-                        return None;
+                    if let Some(vi) = self.enums[ei].variant_index(name) {
+                        let fields = self.enums[ei].fields[vi].clone();
+                        if fields.is_empty() {
+                            self.errors.push(
+                                Diagnostic::error(
+                                    "E0217",
+                                    format!("`{n}.{name}` takes no fields"),
+                                    span,
+                                )
+                                .with_help(format!("write `{n}.{name}` without `()`")),
+                            );
+                        }
+                        let mut arg_tys = Vec::new();
+                        for a in args {
+                            arg_tys.push(self.expr(&a.value));
+                        }
+                        let defaults = vec![false; fields.len()];
+                        let who = format!("{n}.{name}");
+                        self.check_call_args(id, &fields, args, &arg_tys, &defaults, span, &who);
+                        self.enum_ctor_calls.insert(id, (ei, vi));
+                        return Some(Type::Enum(n.clone()));
                     }
                 }
             }
@@ -1550,6 +1731,12 @@ impl Checker {
                 Some(Type::List(Box::new(Type::Str)))
             }
             Type::Class(cn) => {
+                if let Some(&gidx) = self
+                    .class_generic_index
+                    .get(&(cn.clone(), name.to_string()))
+                {
+                    return self.generic_call(id, name, gidx, args, &tys, span, name_span);
+                }
                 let ci = self.class_index[cn];
                 let Some(&mi) = self.classes[ci].methods.get(name) else {
                     self.unknown_field(cn, name, name_span);
@@ -1573,6 +1760,50 @@ impl Checker {
                 );
                 None
             }
+            // A byte buffer: `size()`, `get(i)` and `set(i, v)` (ADR 0043).
+            Type::Bytes if name == "size" => {
+                arity(self, 0);
+                Some(Type::Int)
+            }
+            Type::Bytes if name == "get" || name == "set" => {
+                let n = if name == "get" { 1 } else { 2 };
+                if arity(self, n) {
+                    for (i, a) in args.iter().take(n).enumerate() {
+                        if let Some(Some(t)) = tys.get(i) {
+                            if *t != Type::Int {
+                                self.errors.push(Diagnostic::error(
+                                    "E0208",
+                                    format!(
+                                        "`{name}` expects int arguments, found {}",
+                                        t.article()
+                                    ),
+                                    a.value.span,
+                                ));
+                            }
+                        }
+                    }
+                }
+                Some(if name == "get" { Type::Int } else { Type::Unit })
+            }
+            // A text builder: `push(s)` and `build()` (ADR 0044).
+            Type::Builder if name == "push" => {
+                if arity(self, 1) {
+                    if let Some(Some(t)) = tys.first() {
+                        if *t != Type::Str {
+                            self.errors.push(Diagnostic::error(
+                                "E0208",
+                                format!("`push` expects a string, found {}", t.article()),
+                                args[0].value.span,
+                            ));
+                        }
+                    }
+                }
+                Some(Type::Unit)
+            }
+            Type::Builder if name == "build" => {
+                arity(self, 0);
+                Some(Type::Str)
+            }
             other => {
                 self.errors.push(
                     Diagnostic::error(
@@ -1580,7 +1811,10 @@ impl Checker {
                         format!("{} has no method `{name}`", other.article()),
                         name_span,
                     )
-                    .with_help("lists have add, len; maps have has, len, keys; strings have len"),
+                    .with_help(
+                        "lists have add, len; maps have has, len, keys; strings have len; \
+                         bytes have size, get, set; a StringBuilder has push, build",
+                    ),
                 );
                 None
             }
@@ -1707,6 +1941,8 @@ impl Checker {
             let defaults = vec![false; names.len()];
             self.check_call_args(id, &names, args, &tys, &defaults, span, callee);
             self.fn_value_calls.insert(id);
+            let sig_ret: Type = Type::clone(&*ret);
+            self.fn_value_sigs.insert(id, (names, sig_ret));
             return Some(*ret);
         }
 
@@ -1720,6 +1956,11 @@ impl Checker {
             let defaults = vec![false; sig.params.len()];
             self.check_call_args(id, &sig.params, args, &tys, &defaults, span, callee);
             return Some(sig.ret);
+        }
+
+        // `Box(value: 1)`: infer the type arguments, then build the instance.
+        if self.generic_class_index.contains_key(callee) {
+            return self.generic_class_call(id, callee, args, &tys, span, callee_span);
         }
 
         if let Some(&ci) = self.class_index.get(callee) {
@@ -1761,6 +2002,29 @@ impl Checker {
         None
     }
 
+    /// A payload enum prints when every field prints (ADR 0039 §4.5, slice 1).
+    /// Names the first field that does not, so the reader can fix it.
+    fn unprintable_enum(&self, t: &Type) -> Option<String> {
+        let Type::Enum(n) = t else {
+            return None;
+        };
+        let ei = *self.enum_index.get(n)?;
+        let info = &self.enums[ei];
+        for (vi, fields) in info.fields.iter().enumerate() {
+            for (fname, fty) in fields {
+                if !matches!(fty, Type::Int | Type::Float | Type::Bool | Type::Str) {
+                    return Some(format!(
+                        "`{}.{}` has a field `{fname}` of type {}",
+                        info.name,
+                        info.variants[vi],
+                        fty.article()
+                    ));
+                }
+            }
+        }
+        None
+    }
+
     fn builtin_call(
         &mut self,
         b: Builtin,
@@ -1769,9 +2033,22 @@ impl Checker {
         tys: &[Option<Type>],
         span: Span,
     ) -> Option<Type> {
-        if b == Builtin::Print {
+        // `print` and `stderr` take the same arguments and apply the same rules;
+        // they differ only in the stream the runtime writes to.
+        if b == Builtin::Print || b == Builtin::Stderr {
             for (i, t) in tys.iter().enumerate() {
                 match t {
+                    Some(t) if self.unprintable_enum(t).is_some() => {
+                        let why = self.unprintable_enum(t).unwrap_or_default();
+                        self.errors.push(
+                            Diagnostic::error(
+                                "E0203",
+                                format!("cannot print {} yet: {why}", t.article()),
+                                args[i].value.span,
+                            )
+                            .with_help("print its scalar fields instead"),
+                        );
+                    }
                     Some(Type::Int | Type::Float | Type::Bool | Type::Str | Type::Enum(_))
                     | None => {}
                     Some(t) if crate::types::is_opt_scalar(t).is_some() => {}
@@ -1827,6 +2104,16 @@ impl Checker {
                 // The payload arrives from the declared type (E0240).
                 return Some(Type::Chan(Box::new(Type::NoneT)));
             }
+            Builtin::StringBuilder => {
+                if !args.is_empty() {
+                    self.errors.push(Diagnostic::error(
+                        "E0207",
+                        format!("`{name}` takes no arguments, found {}", args.len()),
+                        span,
+                    ));
+                }
+                return Some(Type::Builder);
+            }
             Builtin::Send | Builtin::Recv | Builtin::Close => {
                 return self.channel_call(b, name, args, tys, span);
             }
@@ -1835,6 +2122,7 @@ impl Checker {
 
         let (accepts, ret, expects): (Vec<Type>, Type, &str) = match b {
             Builtin::Len => (vec![Type::Str], Type::Int, "a string, a list or a map"),
+            Builtin::Bytes => (vec![Type::Int], Type::Bytes, "a length"),
             Builtin::Int => (
                 vec![Type::Int, Type::Float, Type::Bool],
                 Type::Int,
@@ -1847,9 +2135,13 @@ impl Checker {
                 "an int, float, bool or string",
             ),
             Builtin::Assert => (vec![Type::Bool], Type::Unit, "a bool"),
-            Builtin::Print => unreachable!(),
+            Builtin::Print | Builtin::Stderr => unreachable!(),
             // Handled by the early return above.
-            Builtin::Channel | Builtin::Send | Builtin::Recv | Builtin::Close => unreachable!(),
+            Builtin::Channel
+            | Builtin::Send
+            | Builtin::Recv
+            | Builtin::Close
+            | Builtin::StringBuilder => unreachable!(),
         };
         if args.len() != 1 {
             self.errors.push(Diagnostic::error(

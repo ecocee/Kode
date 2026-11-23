@@ -1,0 +1,6 @@
+// A list literal is `rt::ListNew` plus one push per element; an index is a `ListGet`
+// that borrows what the list owns, and its third operand is the source line.
+xs = [1, 2, 3]
+print(xs[0])
+print(xs[2])
+print(len(xs))

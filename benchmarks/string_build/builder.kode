@@ -1,0 +1,12 @@
+// WP-09: the same text as plus.kode, pushed into a builder and built once.
+lines = 8000
+sb = StringBuilder()
+for i in 0..lines {
+    sb.push("  %t")
+    sb.push(string(i))
+    sb.push(" = add i32 0, ")
+    sb.push(string(i))
+    sb.push("\n")
+}
+text = sb.build()
+print(text.len())

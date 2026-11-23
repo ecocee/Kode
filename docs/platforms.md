@@ -32,6 +32,14 @@ supported: `kode build` produces a binary for the host only.
 
 `kode` shells out to clang for every build and to the C compiler for linking; it
 links no LLVM libraries into itself, which is why the binary stays around 1 MB.
+
+## Runtime environment variables
+
+| Variable | Effect | Default |
+|---|---|---|
+| `KODE_LEAK_CHECK` | count live objects and exit 3 if any are left at the end | off |
+| `KODE_TASK_STACK_MB` | stack reserved for each `spawn` task, 1–1024 MiB; a task may recurse, so the default is generous | 64 |
+| `KODE_HTTP_WORKERS` | server worker threads | `max(4, cores)` |
 `kode doctor` prints the resolved clang and linker driver with their versions.
 
 ### macOS

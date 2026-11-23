@@ -1,0 +1,31 @@
+// What a `match` arm's pattern binds (S3).
+//
+// `Shape.Circle(r)` is not a call: the arguments of a variant pattern are names the
+// arm binds, while the `Shape` before the dot is a reference the checker resolves like
+// any other name. The walk asks this once per arm, before the arm's body, so the body
+// sees those names.
+//
+// It lives here rather than in `sema.kode` because it is a pure walk over one pattern:
+// the tree, the open scope and the pattern, and no state of its own.
+
+from "./ast" import Ast
+from "./scope" import Scope
+from "./typing" import type_any
+
+pub fn bind_arm_names(ast: Ast, scopes: Scope, id: int) {
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "MethodCall" {
+            continue
+        }
+        for arg in ast.nodes[kid].kids {
+            if ast.nodes[arg].kind != "Arg" {
+                continue
+            }
+            for inner in ast.nodes[arg].kids {
+                if ast.nodes[inner].kind == "Ident" {
+                    scopes.declare(ast.attr_text(inner, "name"), type_any())
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,106 @@
+// `match` statements: `match x { 1 => ..., _ => ... }`.
+//
+// An arm is a pattern and a block or a single statement, and a missing `=>` ends the
+// whole `match` — the oracle recovers at the item level, so the lines after it are
+// reported on their own. That is why `arm` answers `bool` instead of returning a node.
+//
+// The parser lives here rather than in `stmt.kode` to keep that file the statement
+// dispatch, and it reaches statements and expressions through `contracts.kode`.
+
+from "./ast" import Ast
+from "./contracts" import Blocks, Expressions
+from "./cursor" import Cursor
+from "./infix" import BP_ARITH
+from "./tokens" import TokenKind
+
+pub class Matches {
+    c: Cursor
+    ast: Ast
+    blocks: Blocks
+    exprs: Expressions
+
+    fn match_stmt() -> int {
+        span_at = c.at
+        c.advance()
+        scrutinee = exprs.expr()
+        id = ast.add("Match")
+        ast.span(id, "span", c.token_start(span_at), c.token_end(span_at))
+        seen = ast.add("Scrutinee")
+        if scrutinee >= 0 {
+            ast.kid(seen, scrutinee)
+        }
+        ast.kid(id, seen)
+        open_at = c.at
+        if c.peek() != TokenKind.LBrace {
+            c.fail("E0102", "expected `{` to open the arms of `match`", c.token_start(c.at), c.token_end(c.at), "write `match x { 1 => print(1) }`")
+            return id
+        }
+        c.advance()
+        closed = false
+        while not closed {
+            c.skip_newlines()
+            if c.peek() == TokenKind.RBrace {
+                c.advance()
+                closed = true
+            } else if c.done() {
+                c.fail("E0106", "this `match` is never closed", c.token_start(open_at), c.token_end(open_at), "add a matching `}`")
+                closed = true
+            } else if arm(id) {
+                c.end_statement()
+            } else {
+                // An arm without its `=>` ends the `match`, as it does in the oracle:
+                // the following lines are reported on their own.
+                c.recover_line()
+                return -1
+            }
+        }
+        return id
+    }
+
+    /// One arm: `_` or a value at `BP_ARITH`, `=>`, then a block or a statement.
+    /// False when the `=>` is missing, which ends the enclosing `match`.
+    fn arm(match_id: int) -> bool {
+        start = c.at
+        a = ast.add("Arm")
+        ast.span(a, "pattern_span", c.token_start(start), c.token_end(start))
+        ast.kid(match_id, a)
+        wildcard = c.peek() == TokenKind.Ident and c.text_of(c.at) == "_" and c.peek_at(1) == TokenKind.FatArrow
+        if wildcard {
+            c.advance()
+            ast.kid(a, ast.add("Wildcard"))
+        } else {
+            value = exprs.expr_bp(BP_ARITH)
+            pattern = ast.add("PatternValue")
+            if value >= 0 {
+                ast.kid(pattern, value)
+            }
+            ast.kid(a, pattern)
+        }
+        if c.peek() == TokenKind.FatArrow {
+            c.advance()
+        } else {
+            c.fail(
+                "E0103",
+                "expected `=>` after the pattern, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "",
+            )
+            return false
+        }
+        if c.peek() == TokenKind.LBrace {
+            body = blocks.block()
+            if body >= 0 {
+                ast.kid(a, body)
+            }
+        } else {
+            body = ast.add("Block")
+            node = blocks.statement()
+            if node >= 0 {
+                ast.kid(body, node)
+            }
+            ast.kid(a, body)
+        }
+        return true
+    }
+}

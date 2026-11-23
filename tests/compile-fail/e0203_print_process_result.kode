@@ -1,0 +1,2 @@
+r = exec("cc", [], "")
+print(r)

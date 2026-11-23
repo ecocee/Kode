@@ -1,0 +1,512 @@
+// The expression walk (S4): literals, names, operators and calls, each one an
+// operand the statement walk can use.
+
+from "./ast" import Ast
+from "./classes" import defaulted, find_class, find_field, find_method, ref_mask, slot_of
+from "./consts" import find_const
+from "./lower_core" import Builder
+from "./mir" import Instr, Operand, Piece, Value
+from "./pieces" import lower_interp, lower_literal, release_args
+from "./lists" import line_at, list_elem_of
+from "./ops" import compare_name, elem_slot, list_new_code, operator_name
+
+pub fn lower_stmt_call(b: Builder, id: int) {
+    lower_call_expr(b, id)
+}
+
+pub fn lower_call_expr(b: Builder, id: int) -> Operand {
+    name = b.ast.attr_text(id, "callee")
+    // `len`: the list's length, or the string's.
+    if name == "len" {
+        return lower_len(b, id)
+    }
+    // `P()` is not a call: it builds an object, and the oracle's shape for that is
+    // `rt::ObjNewClass` plus one `store` per field's default.
+    ci = find_class(b.classes, name)
+    if ci >= 0 {
+        return lower_new(b, ci)
+    }
+    ret = b.sig_ret(name)
+    if ret == "" {
+        b.stop("a call to `${name}`, which this slice cannot lower")
+        return Operand(value: Value(kind: "?"))
+    }
+    args: [Operand] = []
+    for arg in b.ast.nodes[id].kids {
+        if b.ast.nodes[arg].kids.len() < 1 {
+            b.stop("an argument with no value")
+            return Operand(value: Value(kind: "?"))
+        }
+        op = lower_expr(b, b.ast.nodes[arg].kids[0])
+        if not b.ok {
+            return Operand(value: Value(kind: "?"))
+        }
+        if b.kind_of(op) == "?" {
+            return Operand(value: Value(kind: "?"))
+        }
+        args.add(op)
+    }
+    if ret == "unit" {
+        b.emit(Instr(kind: "call", callee: name, args: args))
+        release_args(b, args)
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", ret)
+    b.emit(Instr(kind: "call", callee: name, dest: dest, args: args))
+    release_args(b, args)
+    return Operand(is_temp: true, index: dest)
+}
+
+/// `len(x)`: `rt::ListLen` for a list, `rt::StrLen` for a string, one instruction.
+fn lower_len(b: Builder, id: int) -> Operand {
+    kids = b.ast.nodes[id].kids
+    if kids.len() != 1 or b.ast.nodes[kids[0]].kids.len() != 1 {
+        b.stop("a `len` with no argument")
+        return Operand(value: Value(kind: "?"))
+    }
+    arg_node = b.ast.nodes[kids[0]].kids[0]
+    arg = lower_expr(b, arg_node)
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", "int")
+    if arg.is_temp and b.elem_of(arg.index) != "" {
+        b.emit(Instr(kind: "call", dest: dest, callee: "rt::ListLen", args: [arg]))
+        return Operand(is_temp: true, index: dest)
+    }
+    if b.kind_of(arg) == "str" {
+        b.emit(Instr(kind: "call", dest: dest, callee: "rt::StrLen", args: [arg]))
+        return Operand(is_temp: true, index: dest)
+    }
+    b.stop("a `len` of a `${b.kind_of(arg)}`")
+    return Operand(value: Value(kind: "?"))
+}
+
+/// `[a, b, c]`: `rt::ListNew` and one `rt::ListPush` per element. A borrowed reference
+/// is retained first — the list holds a count of it.
+fn lower_list(b: Builder, id: int) -> Operand {
+    kids = b.ast.nodes[id].kids
+    elem = list_elem_of(b, id)
+    if elem == "" {
+        b.stop("a list whose elements this slice cannot type")
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", "ref")
+    b.set_elem(dest, elem)
+    b.emit(Instr(kind: "call", dest: dest, callee: "rt::ListNew", args: [Operand(value: Value(kind: "int", int_value: list_new_code(elem)))]))
+    for kid in kids {
+        op = lower_expr(b, kid)
+        if not b.ok {
+            return Operand(value: Value(kind: "?"))
+        }
+        if elem == "str" and b.borrowed(op) {
+            b.emit(Instr(kind: "retain", args: [op]))
+        }
+        b.emit(Instr(kind: "call", callee: "rt::ListPush", args: [Operand(is_temp: true, index: dest), op]))
+    }
+    return Operand(is_temp: true, index: dest)
+}
+
+/// `xs[i]`: `rt::ListGet(xs, i, line)`, a borrow of what the list owns.
+fn lower_index(b: Builder, id: int) -> Operand {
+    kids = b.ast.nodes[id].kids
+    if kids.len() != 2 {
+        b.stop("an index without two operands")
+        return Operand(value: Value(kind: "?"))
+    }
+    base = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    elem = ""
+    if base.is_temp {
+        elem = b.elem_of(base.index)
+    }
+    if elem == "" {
+        b.stop("an index on a value this slice cannot type")
+        return Operand(value: Value(kind: "?"))
+    }
+    idx = lower_expr(b, kids[1])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(idx) != "int" {
+        b.stop("an index that is a `${b.kind_of(idx)}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", elem_slot(elem))
+    line = line_at(b.ast.src, b.ast.nodes[id].start)
+    b.emit(Instr(kind: "call", dest: dest, callee: "rt::ListGet", args: [base, idx, Operand(value: Value(kind: "int", int_value: line))]))
+    if elem == "str" {
+        b.main.temps[dest].borrowed = true
+    }
+    return Operand(is_temp: true, index: dest)
+}
+
+/// `a and b`, `a or b`: one result temporary, one branch, and a block for the right side.
+fn lower_logic(b: Builder, id: int, op: string) -> Operand {
+    kids = b.ast.nodes[id].kids
+    result = b.temp("", "bool")
+    if kids.len() != 2 {
+        b.stop("a `${op}` without two operands")
+        return Operand(value: Value(kind: "?"))
+    }
+    left = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(left) != "bool" {
+        b.stop("`${op}` on a `${b.kind_of(left)}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    b.emit(Instr(kind: "assign", dest: result, args: [left]))
+    // The right side's block, then the join: `and` branches to the body when true, `or`
+    // when false.
+    body = b.new_block()
+    join = b.new_block()
+    if op == "and" {
+        b.emit(Instr(kind: "branch", args: [Operand(is_temp: true, index: result)], target: body.label, alt: join.label))
+    } else {
+        b.emit(Instr(kind: "branch", args: [Operand(is_temp: true, index: result)], target: join.label, alt: body.label))
+    }
+    b.switch_to(body)
+    right = lower_expr(b, kids[1])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(right) != "bool" {
+        b.stop("`${op}` on a `${b.kind_of(right)}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    b.emit(Instr(kind: "assign", dest: result, args: [right]))
+    b.emit(Instr(kind: "goto", target: join.label))
+    b.switch_to(join)
+    return Operand(is_temp: true, index: result)
+}
+
+pub fn lower_expr(b: Builder, id: int) -> Operand {
+    kind = b.ast.nodes[id].kind
+    if kind == "Int" or kind == "Float" or kind == "Bool" or kind == "Str" {
+        return Operand(value: lower_literal(b, b.ast, id))
+    }
+    if kind == "Ident" {
+        name = b.ast.attr_text(id, "name")
+        // A constant is its value: the oracle writes the literal where the name was.
+        ci = find_const(b.consts, name)
+        if ci >= 0 {
+            return Operand(value: lower_literal(b, b.consts[ci].ast, b.consts[ci].node))
+        }
+        index = b.slot(name)
+        if index < 0 {
+            if not b.has_name(b.unknown_names, name) {
+                b.stop("a read of `${name}`, which this slice cannot bind")
+            }
+            return Operand(value: Value(kind: "?"))
+        }
+        return Operand(is_temp: true, index: index)
+    }
+    if kind == "List" {
+        return lower_list(b, id)
+    }
+    if kind == "Index" {
+        return lower_index(b, id)
+    }
+    if kind == "Call" {
+        return lower_call_expr(b, id)
+    }
+    if kind == "Binary" {
+        return lower_binary(b, id)
+    }
+    if kind == "Interp" {
+        return lower_interp(b, id)
+    }
+    if kind == "Unary" {
+        return lower_unary(b, id)
+    }
+    if kind == "Member" {
+        return lower_member(b, id)
+    }
+    if kind == "MethodCall" {
+        return lower_method_call(b, id)
+    }
+    b.stop("an expression of kind `${kind}`")
+    return Operand(value: Value(kind: "?"))
+}
+
+/// `P()`: the object first (`rt::ObjNewClass(count, ref mask, 7)`), then every field's
+/// default in declaration order. A class whose fields need arguments is constructed by
+/// naming them, which this slice does not lower.
+fn lower_new(b: Builder, ci: int) -> Operand {
+    info = b.classes[ci]
+    if not defaulted(info) {
+        b.stop("a `${info.name}` whose fields need arguments")
+        return Operand(value: Value(kind: "?"))
+    }
+    object = b.temp("", "ref")
+    b.emit(Instr(kind: "call", dest: object, callee: "rt::ObjNewClass", args: [int_operand(info.fields.len()), int_operand(ref_mask(info)), int_operand(7)]))
+    for field in info.fields {
+        b.emit(Instr(kind: "store", args: [Operand(is_temp: true, index: object), Operand(value: lower_literal(b, field.ast, field.default_node))], offset: field.offset))
+    }
+    return Operand(is_temp: true, index: object)
+}
+
+/// `p.name`: a `load` from the field's offset. A reference field still owns what it
+/// holds, so the temporary that reads it is a borrow.
+pub fn lower_member(b: Builder, id: int) -> Operand {
+    name = b.ast.attr_text(id, "name")
+    kids = b.ast.nodes[id].kids
+    if kids.len() != 1 {
+        b.stop("a member read of `${name}` without a value")
+        return Operand(value: Value(kind: "?"))
+    }
+    base = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(base) == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    cls = ""
+    if base.is_temp {
+        cls = b.class_of(base.index)
+    }
+    if cls == "" {
+        b.stop("a member read of `${name}` on a value this slice cannot type")
+        return Operand(value: Value(kind: "?"))
+    }
+    ci = find_class(b.classes, cls)
+    fi = -1
+    if ci >= 0 {
+        fi = find_field(b.classes[ci], name)
+    }
+    if fi < 0 {
+        b.stop("a member read of `${name}` on a `${cls}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    field = b.classes[ci].fields[fi]
+    slot = slot_of(field.written)
+    index = b.temp("", slot)
+    b.emit(Instr(kind: "load", dest: index, args: [base], offset: field.offset))
+    if slot == "ref" {
+        b.main.temps[index].borrowed = true
+    }
+    return Operand(is_temp: true, index: index)
+}
+
+/// `p.label(args)`: a method is a MIR function named `Class.method`, and `this` is its
+/// first argument.
+pub fn lower_method_call(b: Builder, id: int) -> Operand {
+    name = b.ast.attr_text(id, "name")
+    kids = b.ast.nodes[id].kids
+    if kids.len() < 1 {
+        b.stop("a method call of `${name}` without a receiver")
+        return Operand(value: Value(kind: "?"))
+    }
+    receiver = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(receiver) == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    cls = ""
+    if receiver.is_temp {
+        cls = b.class_of(receiver.index)
+    }
+    if cls == "" {
+        b.stop("a method call `${name}` on a value this slice cannot type")
+        return Operand(value: Value(kind: "?"))
+    }
+    ci = find_class(b.classes, cls)
+    mi = -1
+    if ci >= 0 {
+        mi = find_method(b.classes[ci], name)
+    }
+    if mi < 0 {
+        b.stop("a method call `${name}` on a `${cls}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    args: [Operand] = [receiver]
+    for k in 1..kids.len() {
+        arg = kids[k]
+        if b.ast.nodes[arg].kids.len() < 1 {
+            b.stop("an argument with no value")
+            return Operand(value: Value(kind: "?"))
+        }
+        op = lower_expr(b, b.ast.nodes[arg].kids[0])
+        if not b.ok {
+            return Operand(value: Value(kind: "?"))
+        }
+        if b.kind_of(op) == "?" {
+            return Operand(value: Value(kind: "?"))
+        }
+        args.add(op)
+    }
+    callee = "${cls}.${name}"
+    ret = b.sig_ret(callee)
+    if ret == "" {
+        b.stop("a call to `${callee}`, which this slice cannot lower")
+        return Operand(value: Value(kind: "?"))
+    }
+    if ret == "unit" {
+        b.emit(Instr(kind: "call", callee: callee, args: args))
+        release_args(b, args)
+        return Operand(value: Value(kind: "?"))
+    }
+    dest = b.temp("", ret)
+    b.emit(Instr(kind: "call", callee: callee, dest: dest, args: args))
+    release_args(b, args)
+    return Operand(is_temp: true, index: dest)
+}
+
+/// `-x` and `not x`: one temporary, one instruction, named the way the oracle names it.
+pub fn lower_unary(b: Builder, id: int) -> Operand {
+    kids = b.ast.nodes[id].kids
+    if kids.len() != 1 {
+        b.stop("a unary operator without one value")
+        return Operand(value: Value(kind: "?"))
+    }
+    op = b.ast.attr_raw(id, "op")
+    inner = lower_expr(b, kids[0])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    type = b.kind_of(inner)
+    if type == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    mnemonic = ""
+    result = ""
+    if op == "-" and type == "int" {
+        mnemonic = "neg"
+        result = "int"
+    } else if op == "not" and type == "bool" {
+        mnemonic = "not"
+        result = "bool"
+    } else if op == "~" and type == "int" {
+        mnemonic = "bitnot"
+        result = "int"
+    }
+    if mnemonic == "" {
+        b.stop("the operator `${op}` on a `${type}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    index = b.temp("", result)
+    b.emit(Instr(kind: mnemonic, dest: index, args: [inner]))
+    return Operand(is_temp: true, index: index)
+}
+
+pub fn lower_binary(b: Builder, id: int) -> Operand {
+    op = b.ast.attr_raw(id, "op")
+    kids = b.ast.nodes[id].kids
+    // `and` and `or` short-circuit: the result temporary is allocated first, the left
+    // side is evaluated into it, and the right side is a block the branch reaches.
+    if op == "and" or op == "or" {
+        return lower_logic(b, id, op)
+    }
+    // `(x % 2^k) == 0` is a divisibility test, and the oracle masks instead of
+    // dividing; the shape has to be caught before the `%` is lowered.
+    if compare_name(op) != "" {
+        masked = lower_mask_comparison(b, id, op)
+        if masked.is_temp {
+            return masked
+        }
+    }
+    if kids.len() != 2 {
+        b.stop("a `${op}` without two operands")
+        return Operand(value: Value(kind: "?"))
+    }
+    left = lower_expr(b, kids[0])
+    right = lower_expr(b, kids[1])
+    if not b.ok {
+        return Operand(value: Value(kind: "?"))
+    }
+    left_kind = b.kind_of(left)
+    right_kind = b.kind_of(right)
+    // An operand that was already reported is not a second finding.
+    if left_kind == "?" or right_kind == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    if op == "+" and (left_kind == "str" or right_kind == "str") {
+        if left_kind != "str" or right_kind != "str" {
+            b.stop("`+` between a `${left_kind}` and a `${right_kind}`")
+            return Operand(value: Value(kind: "?"))
+        }
+        index = b.temp("", "ref")
+        b.emit(Instr(kind: "call", dest: index, callee: "rt::StrConcat", args: [left, right]))
+        return Operand(is_temp: true, index: index)
+    }
+    if compare_name(op) != "" {
+        if left_kind != "int" or right_kind != "int" {
+            b.stop("`${op}` on a `${left_kind}` and a `${right_kind}`")
+            return Operand(value: Value(kind: "?"))
+        }
+        index = b.temp("", "bool")
+        b.emit(Instr(kind: compare_name(op), dest: index, args: [left, right]))
+        return Operand(is_temp: true, index: index)
+    }
+    mnemonic = operator_name(op)
+    if mnemonic == "" {
+        b.stop("the operator `${op}`, which this slice cannot lower")
+        return Operand(value: Value(kind: "?"))
+    }
+    if left_kind != "int" or right_kind != "int" {
+        b.stop("`${op}` on a `${left_kind}` and a `${right_kind}`")
+        return Operand(value: Value(kind: "?"))
+    }
+    index = b.temp("", "int")
+    b.emit(Instr(kind: mnemonic, dest: index, args: [left, right]))
+    return Operand(is_temp: true, index: index)
+}
+
+pub fn lower_mask_comparison(b: Builder, id: int, op: string) -> Operand {
+    kids = b.ast.nodes[id].kids
+    mod_side = -1
+    for k in 0..2 {
+        other = kids[1 - k]
+        if b.ast.nodes[other].kind == "Int" and b.ast.attr_raw(other, "value") == "0" {
+            if b.ast.nodes[kids[k]].kind == "Binary" and b.ast.attr_raw(kids[k], "op") == "%" {
+                mod_side = k
+            }
+        }
+    }
+    if mod_side < 0 {
+        return Operand()
+    }
+    mod = kids[mod_side]
+    if b.ast.nodes[mod].kids.len() != 2 {
+        return Operand()
+    }
+    right = b.ast.nodes[mod].kids[1]
+    if b.ast.nodes[right].kind != "Int" {
+        return Operand()
+    }
+    divisor = parse_int(b.ast.attr_raw(right, "value"))
+    if divisor < 1 {
+        return Operand()
+    }
+    power = 1
+    is_power = false
+    for k in 0..31 {
+        if power == divisor {
+            is_power = true
+        }
+        power = power * 2
+    }
+    if not is_power {
+        return Operand()
+    }
+    base = lower_expr(b, b.ast.nodes[mod].kids[0])
+    if not b.ok or b.kind_of(base) == "?" {
+        return Operand(value: Value(kind: "?"))
+    }
+    if b.kind_of(base) != "int" {
+        // A non-integer base is the `%` refusal's to report, not this one's.
+        return Operand()
+    }
+    mask = b.temp("", "int")
+    b.emit(Instr(kind: "bitand", dest: mask, args: [base, Operand(value: Value(kind: "int", int_value: divisor - 1))]))
+    result = b.temp("", "bool")
+    b.emit(Instr(kind: compare_name(op), dest: result, args: [Operand(is_temp: true, index: mask), Operand(value: Value(kind: "int", int_value: 0))]))
+    return Operand(is_temp: true, index: result)
+}

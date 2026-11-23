@@ -1,0 +1,28 @@
+// The interfaces that break the grammar's cycles.
+//
+// Statements and expressions are mutually recursive: a `catch` body is a block of
+// statements, and statements are full of expressions. A module cycle is `E0402`, so
+// the two sides meet through these interfaces instead of importing each other.
+//
+// `Blocks` is implemented by `Stmts` and carried by `Exprs`, so an expression can
+// parse the statements of a `catch` body wherever it appears. `Expressions` is the
+// same trick in the other direction: `interp.kode` parses holes, which are
+// expressions, without being part of the expression grammar.
+//
+// `with_cursor` exists because an interpolation hole is re-lexed into its own
+// cursor; anything parsed inside the hole has to read from that cursor, not from the
+// outer file.
+
+from "./cursor" import Cursor
+
+pub interface Blocks {
+    fn block() -> int
+    fn statement() -> int
+    fn with_cursor(next: Cursor) -> Blocks
+}
+
+pub interface Expressions {
+    fn expr() -> int
+    fn expr_bp(min_bp: int) -> int
+    fn with_cursor(next: Cursor) -> Expressions
+}

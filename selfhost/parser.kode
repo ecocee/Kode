@@ -1,0 +1,75 @@
+// The program loop of the self-hosted compiler's parser.
+//
+// A program is a list of items, one per line: declarations (`decls.kode` for `fn`,
+// `class`, `const` and `import`; `enums.kode` for enums and interfaces) and plain
+// statements wherever a declaration is not expected. The statement grammar lives in
+// `stmt.kode`, the expression grammar in `expr.kode`, type annotations in
+// `types.kode`; all of them share one `Cursor` and one arena, so a position and an
+// error list are common to the whole parse.
+
+from "./ast" import Ast
+from "./cursor" import Cursor, ParseError
+from "./decls" import Decls
+from "./depth" import MAX_NESTING, too_deep
+from "./tokens" import Lexed
+
+pub class Parsed {
+    ast: Ast
+    errors: [ParseError] = []
+}
+
+/// Parse a token stream. Errors are collected, not thrown: the caller prints
+/// them and exits, exactly as `kode ast` does.
+pub fn parse(src: string, lx: Lexed) -> Parsed {
+    c = Cursor(src: src, tokens: lx.tokens)
+    tree = Ast()
+    // Spans are offsets into this text, which is how a line is recovered from one.
+    tree.src = src
+    p = Parser(c: c, ast: tree)
+    return p.run()
+}
+
+pub class Parser {
+    c: Cursor
+    ast: Ast
+
+    fn run() -> Parsed {
+        ast.add("Program")
+        d = decls()
+        while not c.done() {
+            c.skip_newlines()
+            if c.done() {
+                break
+            }
+            node = d.item()
+            if node >= 0 {
+                ast.kid(0, node)
+                c.end_statement()
+            } else if not c.at_statement_end() {
+                // A failed item skips to its line end, which is the oracle's
+                // recovery: the next item is reported, not the rest of this one.
+                // The parser below has usually skipped already.
+                c.recover_line()
+            }
+        }
+        // The parser guards its own recursion; this catches what a loop built, and
+        // only a clean tree is walked, exactly as the oracle does.
+        if c.errors.len() == 0 {
+            span = too_deep(ast)
+            if span.len() == 2 {
+                c.fail(
+                    "E0118",
+                    "this nests deeper than ${MAX_NESTING} levels",
+                    span[0],
+                    span[1],
+                    "split it up: bind part of it to a variable on its own line, or use a loop",
+                )
+            }
+        }
+        return Parsed(ast: ast, errors: c.errors)
+    }
+
+    fn decls() -> Decls {
+        return Decls(c: c, ast: ast)
+    }
+}

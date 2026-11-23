@@ -1,0 +1,177 @@
+// The token cursor the statement parser and the expression parser share.
+//
+// There is one `Cursor` per file and both parsers hold the same object, so a
+// position advanced in an expression is the position the statement loop sees
+// next. Errors go to one list for the same reason: the parse produces one report.
+
+from "./tokens" import Token, TokenKind
+
+/// A parse error, in the shape the lexer's errors already use.
+pub class ParseError {
+    code: string
+    message: string
+    start: int
+    end: int
+    help: string
+}
+
+pub class Cursor {
+    src: string
+    tokens: [Token]
+    at: int = 0
+    /// The end offset of the token that was consumed last, for spans that end at
+    /// a closing token.
+    last_end: int = 0
+    errors: [ParseError] = []
+    /// How many expression, block and type productions are open right now: the
+    /// nesting level `depth.kode` limits.
+    depth: int = 0
+    /// Set by the first nesting error. From then on the tree is unreliable, so
+    /// nothing else is reported and the parse unwinds.
+    fatal: bool = false
+
+    fn peek() -> TokenKind {
+        if at < tokens.len() {
+            return tokens[at].kind
+        }
+        return TokenKind.Eof
+    }
+
+    fn peek_at(n: int) -> TokenKind {
+        if at + n < tokens.len() {
+            return tokens[at + n].kind
+        }
+        return TokenKind.Eof
+    }
+
+    fn done() -> bool {
+        return peek() == TokenKind.Eof
+    }
+
+    fn advance() {
+        if at < tokens.len() {
+            last_end = tokens[at].end
+            at += 1
+        }
+    }
+
+    fn skip_newlines() {
+        while peek() == TokenKind.Newline {
+            advance()
+        }
+    }
+
+    fn text_of(token: int) -> string {
+        return src.slice(token_start(token), token_end(token))
+    }
+
+    /// How the oracle names a token in a message: a name or a number in backticks,
+    /// a string literal as `a string`, the two ends of the source by what they are,
+    /// and everything else by its own spelling.
+    fn describe(token: int) -> string {
+        kind = TokenKind.Eof
+        if token < tokens.len() {
+            kind = tokens[token].kind
+        }
+        if kind == TokenKind.Ident or kind == TokenKind.Int or kind == TokenKind.Float {
+            return "`${text_of(token)}`"
+        }
+        if kind == TokenKind.Str {
+            return "a string"
+        }
+        if kind == TokenKind.Newline {
+            return "the end of the line"
+        }
+        if kind == TokenKind.Eof {
+            return "the end of the file"
+        }
+        return "`${text_of(token)}`"
+    }
+
+    fn token_start(token: int) -> int {
+        if token < tokens.len() {
+            return tokens[token].start
+        }
+        return src.size()
+    }
+
+    fn token_end(token: int) -> int {
+        if token < tokens.len() {
+            return tokens[token].end
+        }
+        return src.size()
+    }
+
+    /// True at a newline, the end of the file or the `}` that closes a block: the
+    /// places where a statement stops.
+    fn at_statement_end() -> bool {
+        kind = peek()
+        if kind == TokenKind.Newline {
+            return true
+        }
+        if kind == TokenKind.RBrace {
+            return true
+        }
+        return done()
+    }
+
+    /// The oracle's end of statement: a newline, the end of the file, or the `}`
+    /// that closes the block. A newline is consumed; neither of the others is.
+    fn end_statement() {
+        if peek() == TokenKind.Newline {
+            advance()
+            return
+        }
+        if done() or peek() == TokenKind.RBrace {
+            return
+        }
+        fail(
+            "E0101",
+            "expected the end of the line, found ${describe(at)}",
+            token_start(at),
+            token_end(at),
+            "put each statement on its own line",
+        )
+        recover_line()
+    }
+
+    /// A closing token every group needs: `)`, `]`, `}`. Reports `E0103` and skips
+    /// the rest of the line, so the next statement is reported instead of the same
+    /// bad one twice.
+    fn expect_close(kind: TokenKind, what: string) {
+        if peek() == kind {
+            advance()
+            return
+        }
+        fail(
+            "E0103",
+            "expected ${what}, found ${describe(at)}",
+            token_start(at),
+            token_end(at),
+            "",
+        )
+        recover_line()
+    }
+
+    /// Skip to the end of the line after an error, so the next statement can be
+    /// reported instead of the same one twice.
+    fn recover_line() {
+        while not done() and peek() != TokenKind.Newline {
+            advance()
+        }
+        if peek() == TokenKind.Newline {
+            advance()
+        }
+    }
+
+    fn fail(code: string, message: string, start: int, end: int, help: string) {
+        // One report is enough once the nesting limit was hit: every enclosing
+        // production would otherwise fail too.
+        if fatal {
+            return
+        }
+        errors.add(
+            ParseError(code: code, message: message, start: start, end: end, help: help)
+        )
+    }
+}

@@ -3,7 +3,7 @@ use kode_sema::std_fns::{self, StdFn, StdTy};
 use kode_sema::Type;
 use kode_syntax::ast::{self, Arg, Expr, ExprKind, InterpPart};
 
-use super::{mir_ty, Lowerer, V};
+use super::{default_operand, mir_ty, pair_flag, Lowerer, V};
 use crate::ir::*;
 
 fn mir_binop(op: ast::BinOp) -> BinOp {
@@ -66,7 +66,13 @@ impl<'a> Lowerer<'a> {
             } => self.slice(obj, start.as_deref(), end.as_deref(), *inclusive),
             ExprKind::Member {
                 obj, name, safe, ..
-            } => self.member(obj, name, *safe),
+            } => self.member(e, obj, name, *safe),
+            ExprKind::Is {
+                obj,
+                enum_name,
+                variant,
+                ..
+            } => self.is_test(obj, enum_name, variant),
             ExprKind::MethodCall {
                 obj, name, args, ..
             } => self.method_call(e, obj, name, args),
@@ -100,12 +106,30 @@ impl<'a> Lowerer<'a> {
             self.this_local
                 .expect("a field is only visible inside a method"),
         );
-        let dst = self.new_temp(mir_ty(&ty));
+        if let Some(scalar) = kode_sema::types::is_opt_scalar(&ty) {
+            let vty = self.mty(&scalar);
+            let dst = self.new_temp(vty);
+            let flag = self.new_temp(Ty::Bool);
+            self.emit(Inst::Load {
+                dst,
+                base: this.clone(),
+                offset,
+                ty: vty,
+            });
+            self.emit(Inst::Load {
+                dst: flag,
+                base: this,
+                offset: offset + 8,
+                ty: Ty::Bool,
+            });
+            return V::opt(Operand::Local(dst), Operand::Local(flag));
+        }
+        let dst = self.new_temp(self.mty(&ty));
         self.emit(Inst::Load {
             dst,
             base: this,
             offset,
-            ty: mir_ty(&ty),
+            ty: self.mty(&ty),
         });
         V::val(Operand::Local(dst))
     }
@@ -115,7 +139,8 @@ impl<'a> Lowerer<'a> {
         let ci = self.cur_class?;
         let fields = &self.checked.classes[ci].fields;
         let i = fields.iter().position(|f| f.name == name)?;
-        Some((24 + 8 * i as i32, fields[i].ty.clone()))
+        let (offsets, _) = self.field_offsets(ci);
+        Some((offsets[i], fields[i].ty.clone()))
     }
 
     /// `|x: int| x * 2`: a heap object `[rc][kind][refmask][code][captures...]`.
@@ -132,7 +157,7 @@ impl<'a> Lowerer<'a> {
             .captures
             .iter()
             .enumerate()
-            .filter(|(_, (_, t))| mir_ty(t) == Ty::Ref)
+            .filter(|(_, (_, t))| self.mty(t) == Ty::Ref)
             .fold(0, |m, (i, _)| m | (1 << (i + 1)));
         let obj = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
@@ -144,13 +169,14 @@ impl<'a> Lowerer<'a> {
             params: info
                 .params
                 .iter()
-                .map(|(n, t)| (n.clone(), mir_ty(t)))
+                .map(|(n, t)| (n.clone(), self.mty(t)))
                 .collect(),
-            ret: mir_ty(&info.ret),
+            ret: self.mty(&info.ret),
+            ret_opt: kode_sema::types::is_opt_scalar(&info.ret).map(|s| self.mty(&s)),
             captures: info
                 .captures
                 .iter()
-                .map(|(n, t)| (n.clone(), mir_ty(t)))
+                .map(|(n, t)| (n.clone(), self.mty(t)))
                 .collect(),
             body,
         };
@@ -162,7 +188,7 @@ impl<'a> Lowerer<'a> {
         });
         for (i, (name, ty)) in info.captures.iter().enumerate() {
             let v = self.ident(name);
-            let op = if mir_ty(ty) == Ty::Ref {
+            let op = if self.mty(ty) == Ty::Ref {
                 self.own(v)
             } else {
                 v.op
@@ -457,6 +483,32 @@ impl<'a> Lowerer<'a> {
         v
     }
 
+    /// `s is Shape.Circle`: one tag read and one compare (ADR 0039 §4.4).
+    fn is_test(&mut self, obj: &Expr, enum_name: &str, variant: &str) -> V {
+        let ei = self.checked.enum_index[enum_name];
+        let vi = self.checked.enums[ei].variant_index(variant).unwrap();
+        let payload = self.checked.enums[ei].has_payloads();
+        let v = self.expr(obj);
+        let tag = if payload {
+            let t = self.new_temp(Ty::Int);
+            self.emit(Inst::Call {
+                dst: Some(t),
+                callee: Callee::Rt(RtFn::EnumTag),
+                args: vec![v.op.clone()],
+            });
+            Operand::Local(t)
+        } else {
+            v.op.clone()
+        };
+        let cond = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: cond,
+            rv: Rvalue::Binary(BinOp::Eq, tag, Operand::Int(vi as i64)),
+        });
+        self.release_if_owned(v);
+        V::val(Operand::Local(cond))
+    }
+
     /// The text of an enum value, written the way it is written in source:
     /// `Color.Red`. Every variant is a static string, picked with `select`, so
     /// this needs no runtime call and does not allocate.
@@ -492,6 +544,129 @@ impl<'a> Lowerer<'a> {
             cur = Operand::Local(t);
         }
         cur
+    }
+
+    /// `Shape.Circle(radius: 1.5)` as text: the variant name, then each field
+    /// with its declared name. Concatenation only; no formatting at run time.
+    fn enum_payload_str(&mut self, ei: usize, v: Operand) -> Operand {
+        let info = self.checked.enums[ei].clone();
+        let tag = self.new_temp(Ty::Int);
+        self.emit(Inst::Call {
+            dst: Some(tag),
+            callee: Callee::Rt(RtFn::EnumTag),
+            args: vec![v.clone()],
+        });
+        let out = self.new_temp(Ty::Ref);
+        let last = info.variants.len() - 1;
+        let first = self.variant_text(ei, last, v.clone());
+        self.emit(Inst::Assign {
+            dst: out,
+            rv: Rvalue::Use(first),
+        });
+        let join = self.new_block();
+        for vi in 0..last {
+            let body = self.new_block();
+            let next = self.new_block();
+            let cond = self.new_temp(Ty::Bool);
+            self.emit(Inst::Assign {
+                dst: cond,
+                rv: Rvalue::Binary(BinOp::Eq, Operand::Local(tag), Operand::Int(vi as i64)),
+            });
+            self.term(Terminator::Branch {
+                cond: Operand::Local(cond),
+                then_bb: body,
+                else_bb: next,
+            });
+            self.switch(body);
+            let s = self.variant_text(ei, vi, v.clone());
+            // `out` holds the previous candidate; replace it, do not leak it.
+            self.emit(Inst::Release(Operand::Local(out)));
+            self.emit(Inst::Assign {
+                dst: out,
+                rv: Rvalue::Use(s),
+            });
+            self.term(Terminator::Goto(join));
+            self.switch(next);
+        }
+        self.term(Terminator::Goto(join));
+        self.switch(join);
+        Operand::Local(out)
+    }
+
+    /// The text of one variant, fields included; always a fresh string.
+    fn variant_text(&mut self, ei: usize, vi: usize, v: Operand) -> Operand {
+        let info = self.checked.enums[ei].clone();
+        let fields = info.fields[vi].clone();
+        let head = self.intern(&format!("{}.{}", info.name, info.variants[vi]));
+        let cur = Operand::Str(head);
+        if fields.is_empty() {
+            let empty = Operand::Str(self.intern(""));
+            return self.concat(cur, empty);
+        }
+        let open = Operand::Str(self.intern("("));
+        let mut cur = self.concat(cur, open);
+        for (i, (fname, fty)) in fields.iter().enumerate() {
+            if i > 0 {
+                let sep = Operand::Str(self.intern(", "));
+                let t = self.concat(cur.clone(), sep);
+                self.emit(Inst::Release(cur));
+                cur = t;
+            }
+            let label = Operand::Str(self.intern(&format!("{fname}: ")));
+            let t = self.concat(cur.clone(), label);
+            self.emit(Inst::Release(cur));
+            cur = t;
+            let (val, val_owned) = self.enum_field_text(v.clone(), i, fty);
+            let t = self.concat(cur.clone(), val.clone());
+            self.emit(Inst::Release(cur));
+            if val_owned {
+                self.emit(Inst::Release(val));
+            }
+            cur = t;
+        }
+        let close = Operand::Str(self.intern(")"));
+        let out = self.concat(cur.clone(), close);
+        self.emit(Inst::Release(cur));
+        out
+    }
+
+    /// One field of a variant, formatted; `true` when the result must be freed.
+    fn enum_field_text(&mut self, v: Operand, i: usize, ty: &Type) -> (Operand, bool) {
+        let load_ty = mir_ty(self.checked, ty);
+        let f = self.new_temp(load_ty);
+        self.emit(Inst::Load {
+            dst: f,
+            base: v,
+            offset: 24 + 8 * i as i32,
+            ty: load_ty,
+        });
+        match ty {
+            Type::Str => (Operand::Local(f), false),
+            Type::Int => self.field_str(RtFn::IntToStr, Operand::Local(f)),
+            Type::Float => self.field_str(RtFn::FloatToStr, Operand::Local(f)),
+            Type::Bool => self.field_str(RtFn::BoolToStr, Operand::Local(f)),
+            _ => unreachable!("the checker only lets printable fields through"),
+        }
+    }
+
+    fn field_str(&mut self, rt: RtFn, arg: Operand) -> (Operand, bool) {
+        let t = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(t),
+            callee: Callee::Rt(rt),
+            args: vec![arg],
+        });
+        (Operand::Local(t), true)
+    }
+
+    fn concat(&mut self, a: Operand, b: Operand) -> Operand {
+        let t = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(t),
+            callee: Callee::Rt(RtFn::StrConcat),
+            args: vec![a, b],
+        });
+        Operand::Local(t)
     }
 
     /// Turn any printable value into a string value.
@@ -537,6 +712,12 @@ impl<'a> Lowerer<'a> {
             return self.owned(Operand::Local(out));
         }
         if let Type::Enum(name) = ty {
+            let ei = self.checked.enum_index[name];
+            if self.checked.enums[ei].has_payloads() {
+                let s = self.enum_payload_str(ei, v.op.clone());
+                self.release_if_owned(v);
+                return self.owned(s);
+            }
             let name = name.clone();
             let s = self.enum_str(&name, v.op.clone());
             self.release_if_owned(v);
@@ -609,8 +790,11 @@ impl<'a> Lowerer<'a> {
 
     /// Call a user function or method. Heap arguments are borrowed by the callee.
     pub(crate) fn emit_call(&mut self, idx: usize, vals: Vec<V>) -> V {
-        let ret = mir_ty(&self.checked.fns[idx].ret);
-        let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
+        let params = self.checked.fns[idx].params.clone();
+        let ret_ty = self.checked.fns[idx].ret.clone();
+        let ret = self.mty(&ret_ty);
+        let mut boxes = Vec::new();
+        let ops = self.pass_vals(&params, &vals, &mut boxes);
         let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
         self.emit(Inst::Call {
             dst,
@@ -620,14 +804,149 @@ impl<'a> Lowerer<'a> {
         if self.checked.throws[idx] {
             self.error_check();
         }
+        for b in boxes {
+            self.emit(Inst::Release(b));
+        }
         for v in vals {
             self.release_if_owned(v);
+        }
+        self.decode_ret(&ret_ty, dst)
+    }
+
+    /// The operand list for a call. An optional number travels as one reference
+    /// at the boundary: a boxed pair, or `null` for none (ADR 0041 §5), so no
+    /// calling convention changes. The caller owns every box it made here.
+    pub(crate) fn pass_vals(
+        &mut self,
+        params: &[(String, Type)],
+        vals: &[V],
+        boxes: &mut Vec<Operand>,
+    ) -> Vec<Operand> {
+        vals.iter()
+            .enumerate()
+            .map(|(i, v)| {
+                match params
+                    .get(i)
+                    .map(|(_, t)| kode_sema::types::is_opt_scalar(t))
+                {
+                    Some(Some(_)) => {
+                        let b = self.box_pair(&v.op, pair_flag(v));
+                        boxes.push(b.clone());
+                        b
+                    }
+                    _ => v.op.clone(),
+                }
+            })
+            .collect()
+    }
+
+    /// The value a call produced, turning a boxed optional number back into its
+    /// pair. The returned reference is owned, so it is released here.
+    pub(crate) fn decode_ret(&mut self, ret_ty: &Type, dst: Option<LocalId>) -> V {
+        let ret = self.mty(ret_ty);
+        if let (Some(d), Some(scalar)) = (dst, kode_sema::types::is_opt_scalar(ret_ty)) {
+            let st = self.mty(&scalar);
+            let v = self.unbox_pair(Operand::Local(d), st);
+            // The box came back owned; the pair it held does not own anything.
+            self.emit(Inst::Release(Operand::Local(d)));
+            return v;
         }
         match dst {
             Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
             Some(d) => V::val(Operand::Local(d)),
             None => V::unit(),
         }
+    }
+
+    /// Put a pair in a heap box for a call boundary: `[value][flag]`.
+    pub(crate) fn box_pair(&mut self, value: &Operand, flag: Operand) -> Operand {
+        let out = self.new_temp(Ty::Ref);
+        self.emit(Inst::Assign {
+            dst: out,
+            rv: Rvalue::Use(Operand::NullRef),
+        });
+        let make = self.new_block();
+        let join = self.new_block();
+        self.term(Terminator::Branch {
+            cond: flag,
+            then_bb: make,
+            else_bb: join,
+        });
+        self.switch(make);
+        let p = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(p),
+            callee: Callee::Rt(RtFn::ObjNewClass),
+            args: vec![Operand::Int(2), Operand::Int(0), Operand::Int(0)],
+        });
+        self.emit(Inst::Store {
+            base: Operand::Local(p),
+            offset: 24,
+            value: value.clone(),
+        });
+        self.emit(Inst::Store {
+            base: Operand::Local(p),
+            offset: 32,
+            value: Operand::Bool(true),
+        });
+        self.emit(Inst::Assign {
+            dst: out,
+            rv: Rvalue::Use(Operand::Local(p)),
+        });
+        self.term(Terminator::Goto(join));
+        self.switch(join);
+        Operand::Local(out)
+    }
+
+    /// The value slot of a pair: `none` stores a zero of the scalar's own type,
+    /// so a `float?` never stores an integer constant.
+    pub(crate) fn opt_value(op: &Operand, scalar: Ty) -> Operand {
+        if matches!(op, Operand::NullRef) {
+            default_operand(scalar)
+        } else {
+            op.clone()
+        }
+    }
+
+    pub(crate) fn unbox_pair(&mut self, r: Operand, scalar: Ty) -> V {
+        let value = self.new_temp(scalar);
+        self.emit(Inst::Assign {
+            dst: value,
+            rv: Rvalue::Use(default_operand(scalar)),
+        });
+        let flag = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: flag,
+            rv: Rvalue::Use(Operand::Int(0)),
+        });
+        let isnull = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: isnull,
+            rv: Rvalue::Binary(BinOp::Eq, r.clone(), Operand::NullRef),
+        });
+        let read = self.new_block();
+        let join = self.new_block();
+        self.term(Terminator::Branch {
+            cond: Operand::Local(isnull),
+            then_bb: join,
+            else_bb: read,
+        });
+        self.switch(read);
+        self.emit(Inst::Load {
+            dst: value,
+            base: r.clone(),
+            offset: 24,
+            ty: scalar,
+        });
+        self.emit(Inst::Load {
+            dst: flag,
+            base: r.clone(),
+            offset: 32,
+            ty: Ty::Bool,
+        });
+        self.term(Terminator::Goto(join));
+        self.switch(join);
+        V::opt(Operand::Local(value), Operand::Local(flag))
     }
 
     /// Evaluate call arguments in parameter order, using the slot map from the checker.
@@ -664,22 +983,24 @@ impl<'a> Lowerer<'a> {
                 .expect("the type checker resolved this call");
             let n = self.checked.call_args[&e.id].len();
             let vals = self.call_vals(e.id, args, None, n);
-            let ret = self.ety(e);
+            let sig = self.checked.fn_value_sigs[&e.id].clone();
+            let ret_ty = sig.1;
+            let ret = self.mty(&ret_ty);
+            let mut boxes = Vec::new();
+            let ops = self.pass_vals(&sig.0, &vals, &mut boxes);
             let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
-            let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
             self.emit(Inst::CallIndirect {
                 dst,
                 callee: Operand::Local(callee_id),
                 args: ops,
             });
+            for b in boxes {
+                self.emit(Inst::Release(b));
+            }
             for v in vals {
                 self.release_if_owned(v);
             }
-            return match dst {
-                Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
-                Some(d) => V::val(Operand::Local(d)),
-                None => V::unit(),
-            };
+            return self.decode_ret(&ret_ty, dst);
         }
         if let Some(b) = builtins::lookup(callee) {
             return self.builtin(b, args, e);
@@ -699,6 +1020,11 @@ impl<'a> Lowerer<'a> {
             let vals = self.call_vals(e.id, args, None, n);
             return self.emit_call(idx, vals);
         }
+        // A constructor of a generic class instance: the source name is not a
+        // class, so the checker records which instance this call built (ADR 0040).
+        if let Some(&ci) = checked.class_ctor_calls.get(&e.id) {
+            return self.construct(e, ci, args);
+        }
         if let Some(&ci) = checked.class_index.get(callee) {
             return self.construct(e, ci, args);
         }
@@ -712,7 +1038,7 @@ impl<'a> Lowerer<'a> {
     }
 
     /// The MIR type of a table type (`elem` is the item type for `Elem`).
-    fn std_ty(t: StdTy, elem: Option<&Type>) -> Ty {
+    fn std_ty(&self, t: StdTy, elem: Option<&Type>) -> Ty {
         match t {
             StdTy::Int => Ty::Int,
             StdTy::Float => Ty::Float,
@@ -727,7 +1053,7 @@ impl<'a> Lowerer<'a> {
             | StdTy::Json
             | StdTy::Resp
             | StdTy::ProcResult => Ty::Ref,
-            StdTy::Elem => elem.map(mir_ty).unwrap_or(Ty::Int),
+            StdTy::Elem => elem.map(|t| self.mty(t)).unwrap_or(Ty::Int),
             StdTy::ElemBits => Ty::Int,
             StdTy::ListElem => Ty::Ref,
         }
@@ -762,9 +1088,9 @@ impl<'a> Lowerer<'a> {
                 v
             };
             vals.push(v);
-            ptys.push(Self::std_ty(*p, elem));
+            ptys.push(self.std_ty(*p, elem));
         }
-        let rty = Self::std_ty(f.ret, elem);
+        let rty = self.std_ty(f.ret, elem);
         // a float item comes back from the runtime as raw bits
         let float_item = f.ret == StdTy::Elem && rty == Ty::Float;
         let sig_ret = if float_item { Ty::Int } else { rty };
@@ -893,7 +1219,7 @@ impl<'a> Lowerer<'a> {
             .params
             .iter()
             .enumerate()
-            .filter(|(_, p)| mir_ty(&p.1) == Ty::Ref)
+            .filter(|(_, p)| self.mty(&p.1) == Ty::Ref)
             .fold(0, |m, (i, _)| m | (1 << i));
         let p = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
@@ -904,7 +1230,7 @@ impl<'a> Lowerer<'a> {
         let block = self.owned(Operand::Local(p));
         for (i, (_, ty)) in sig_fn.params.iter().enumerate() {
             let v = self.expr(&args[slots[i].expect("checked")].value);
-            let op = if mir_ty(ty) == Ty::Ref {
+            let op = if self.mty(ty) == Ty::Ref {
                 self.own(v)
             } else {
                 v.op
@@ -916,7 +1242,7 @@ impl<'a> Lowerer<'a> {
             });
         }
         let thunk = self.thunk(idx);
-        let result_is_ref = mir_ty(&sig_fn.ret) == Ty::Ref;
+        let result_is_ref = self.mty(&sig_fn.ret) == Ty::Ref;
         let task = self.new_temp(Ty::Ref);
         let sig = self.std_sig("kode_task_spawn", vec![Ty::Int, Ty::Ref, Ty::Int], Ty::Ref);
         self.emit(Inst::Call {
@@ -936,7 +1262,7 @@ impl<'a> Lowerer<'a> {
     fn await_expr(&mut self, inner: &Expr, e: &Expr) -> V {
         let ty = self.expr_type(e);
         let tv = self.expr(inner);
-        let m = mir_ty(ty);
+        let m = self.mty(ty);
         let raw_ty = if m == Ty::Ref { Ty::Ref } else { Ty::Int };
         let sig = self.std_sig("kode_task_await", vec![Ty::Ref], raw_ty);
         let t = self.new_temp(raw_ty);
@@ -970,24 +1296,59 @@ impl<'a> Lowerer<'a> {
     fn builtin(&mut self, b: Builtin, args: &[Arg], e: &Expr) -> V {
         let a0 = args.first().map(|a| &a.value);
         match b {
-            Builtin::Print => {
+            Builtin::Bytes => {
+                let n = self.expr(a0.expect("the type checker checked the argument"));
+                let t = self.new_temp(Ty::Ref);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::BytesNew),
+                    args: vec![n.op.clone()],
+                });
+                self.release_if_owned(n);
+                self.owned(Operand::Local(t))
+            }
+            Builtin::StringBuilder => {
+                let t = self.new_temp(Ty::Ref);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::BufferNew),
+                    args: vec![],
+                });
+                self.owned(Operand::Local(t))
+            }
+            Builtin::Print | Builtin::Stderr => {
+                // `stderr(...)` is `print(...)` on the diagnostic stream.
+                let err = b == Builtin::Stderr;
+                let str_rt = if err { RtFn::ErrStr } else { RtFn::PrintStr };
+                let sep = if err { RtFn::ErrSep } else { RtFn::PrintSep };
+                let nl = if err { RtFn::ErrNl } else { RtFn::PrintNl };
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 {
                         self.emit(Inst::Call {
                             dst: None,
-                            callee: Callee::Rt(RtFn::PrintSep),
+                            callee: Callee::Rt(sep),
                             args: vec![],
                         });
                     }
                     let ty = self.expr_type(&a.value);
                     if let Type::Enum(name) = &ty {
+                        let name = name.clone();
+                        let ei = self.checked.enum_index[&name];
+                        let payload = self.checked.enums[ei].has_payloads();
                         let v = self.expr(&a.value);
-                        let s = self.enum_str(name, v.op.clone());
+                        let s = if payload {
+                            self.enum_payload_str(ei, v.op.clone())
+                        } else {
+                            self.enum_str(&name, v.op.clone())
+                        };
                         self.emit(Inst::Call {
                             dst: None,
-                            callee: Callee::Rt(RtFn::PrintStr),
-                            args: vec![s],
+                            callee: Callee::Rt(str_rt),
+                            args: vec![s.clone()],
                         });
+                        if payload {
+                            self.emit(Inst::Release(s));
+                        }
                         self.release_if_owned(v);
                         continue;
                     }
@@ -998,18 +1359,22 @@ impl<'a> Lowerer<'a> {
                         let s = self.value_to_string(v, ty);
                         self.emit(Inst::Call {
                             dst: None,
-                            callee: Callee::Rt(RtFn::PrintStr),
+                            callee: Callee::Rt(str_rt),
                             args: vec![s.op.clone()],
                         });
                         self.release_if_owned(s);
                         continue;
                     }
                     let v = self.expr(&a.value);
-                    let rt = match ty {
-                        Type::Int => RtFn::PrintInt,
-                        Type::Float => RtFn::PrintFloat,
-                        Type::Bool => RtFn::PrintBool,
-                        Type::Str => RtFn::PrintStr,
+                    let rt = match (ty, err) {
+                        (Type::Int, false) => RtFn::PrintInt,
+                        (Type::Float, false) => RtFn::PrintFloat,
+                        (Type::Bool, false) => RtFn::PrintBool,
+                        (Type::Str, false) => RtFn::PrintStr,
+                        (Type::Int, true) => RtFn::ErrInt,
+                        (Type::Float, true) => RtFn::ErrFloat,
+                        (Type::Bool, true) => RtFn::ErrBool,
+                        (Type::Str, true) => RtFn::ErrStr,
                         _ => unreachable!("the type checker rejects this"),
                     };
                     self.emit(Inst::Call {
@@ -1021,7 +1386,7 @@ impl<'a> Lowerer<'a> {
                 }
                 self.emit(Inst::Call {
                     dst: None,
-                    callee: Callee::Rt(RtFn::PrintNl),
+                    callee: Callee::Rt(nl),
                     args: vec![],
                 });
                 V::unit()
@@ -1112,7 +1477,7 @@ impl<'a> Lowerer<'a> {
                     _ => Type::NoneT,
                 };
                 let v = self.expr(&args[1].value);
-                let is_ref = payload.is_ref();
+                let is_ref = self.mty(&payload) == Ty::Ref;
                 let op = if is_ref { self.own(v) } else { v.op };
                 let raw = self.raw_value(op, &payload);
                 self.emit(Inst::Call {
@@ -1130,7 +1495,7 @@ impl<'a> Lowerer<'a> {
                     Type::Chan(t) => (**t).clone(),
                     _ => Type::NoneT,
                 };
-                let is_ref = payload.is_ref();
+                let is_ref = self.mty(&payload) == Ty::Ref;
                 let raw = self.call_raw(RtFn::ChanRecv, vec![ch.op.clone()], &payload);
                 self.error_check();
                 self.release_if_owned(ch);

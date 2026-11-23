@@ -1,0 +1,9 @@
+// A reference element is a borrow: the loop retains it into the loop variable and
+// releases the variable on the way out, exactly as a field read does.
+names = ["a", "b"]
+for n in names {
+    print(n)
+}
+for m in ["c", "d"] {
+    print(m)
+}

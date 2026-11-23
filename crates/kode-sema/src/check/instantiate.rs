@@ -104,8 +104,11 @@ impl Checker {
         let idx = self.instantiate(gidx, &decl, &params, &subst, callee_span)?;
         self.generic_calls.insert(id, idx);
         let sig = self.fns[idx].clone();
-        let defaults = vec![false; sig.params.len()];
-        self.check_call_args(id, &sig.params, args, tys, &defaults, span, callee);
+        // A method instance carries `this` first; the call site passes the
+        // receiver separately, so only the declared parameters are matched.
+        let skip = usize::from(sig.class.is_some());
+        let defaults = vec![false; sig.params.len() - skip];
+        self.check_call_args(id, &sig.params[skip..], args, tys, &defaults, span, callee);
         self.note_call(idx);
         Some(sig.ret)
     }
@@ -137,7 +140,11 @@ impl Checker {
             substitute_ann(ret, subst);
         }
 
+        let class = self.generic_decl_class[gidx].clone();
         let mut sig_params: Vec<(String, Type)> = Vec::new();
+        if let Some(cn) = &class {
+            sig_params.push(("this".to_string(), Type::Class(cn.clone())));
+        }
         for p in &body.params {
             let ty = self.resolve_type(&p.ty).unwrap_or(Type::Int);
             sig_params.push((p.name.clone(), ty));
@@ -146,13 +153,16 @@ impl Checker {
             Some(a) => self.resolve_type(a).unwrap_or(Type::Unit),
             None => Type::Unit,
         };
-        let name = format!("{}.{}", decl.name, key.join("_"));
+        let name = match &class {
+            Some(cn) => format!("{cn}.{}.{}", decl.name, key.join("_")),
+            None => format!("{}.{}", decl.name, key.join("_")),
+        };
         let idx = self.fns.len();
         self.fns.push(super::FnSig {
             name,
             params: sig_params,
             ret,
-            class: None,
+            class,
             type_params: Vec::new(),
         });
         self.instances.push(((gidx, key), idx));
@@ -162,6 +172,184 @@ impl Checker {
         let _ = span;
         Some(idx)
     }
+
+    // ---- generic classes (ADR 0040) --------------------------------------
+
+    /// The class for one set of type arguments, created on first use.
+    ///
+    /// The instance is registered **before** its fields are resolved, so a
+    /// generic class that mentions itself (`class Node<T> { next: Node<T>? }`)
+    /// reuses the same instance instead of recursing forever.
+    pub(crate) fn instantiate_class(
+        &mut self,
+        name: &str,
+        types: &[Type],
+        span: Span,
+    ) -> Option<String> {
+        let Some(&gidx) = self.generic_class_index.get(name) else {
+            self.errors.push(
+                Diagnostic::error("E0303", format!("unknown type `{name}`"), span)
+                    .with_help("declare it first with `class Name<T> { ... }`"),
+            );
+            return None;
+        };
+        let decl = self.generic_classes[gidx].clone();
+        if types.len() != decl.type_params.len() {
+            let n = decl.type_params.len();
+            self.errors.push(
+                Diagnostic::error(
+                    "E0421",
+                    format!(
+                        "`{name}` takes {n} type argument{}, found {}",
+                        if n == 1 { "" } else { "s" },
+                        types.len()
+                    ),
+                    span,
+                )
+                .with_help(format!("write `{name}<int>`")),
+            );
+            return None;
+        }
+        let key = instance_name(name, types);
+        if self.class_index.contains_key(&key) {
+            return Some(key);
+        }
+        let mut subst: HashMap<String, Type> = HashMap::new();
+        for ((p, _), t) in decl.type_params.iter().zip(types) {
+            subst.insert(p.clone(), t.clone());
+        }
+        let ci = self.classes.len();
+        self.classes.push(super::ClassInfo {
+            name: key.clone(),
+            fields: Vec::new(),
+            methods: Default::default(),
+            implements: decl.implements.iter().map(|(n, _)| n.clone()).collect(),
+        });
+        self.class_index.insert(key.clone(), ci);
+
+        let mut fields: Vec<super::FieldInfo> = Vec::new();
+        for f in &decl.fields {
+            let mut ann = f.ty.clone();
+            substitute_ann(&mut ann, &subst);
+            let ty = self.resolve_type(&ann).unwrap_or(Type::Int);
+            fields.push(super::FieldInfo {
+                name: f.name.clone(),
+                ty,
+                default: f.default.clone(),
+            });
+        }
+        self.classes[ci].fields = fields;
+        for m in decl.methods.clone() {
+            let idx = self.instantiate_method(&key, &m, &subst);
+            self.classes[ci].methods.insert(m.name.clone(), idx);
+        }
+        Some(key)
+    }
+
+    /// One method of an instance: the declaration with its annotations
+    /// substituted, checked like any other function with `this` first.
+    fn instantiate_method(
+        &mut self,
+        class: &str,
+        decl: &FnDecl,
+        subst: &HashMap<String, Type>,
+    ) -> usize {
+        let mut body = decl.clone();
+        renumber_fn(&mut body, &mut self.next_expr_id);
+        for p in &mut body.params {
+            substitute_ann(&mut p.ty, subst);
+        }
+        if let Some(ret) = &mut body.ret {
+            substitute_ann(ret, subst);
+        }
+        let mut params: Vec<(String, Type)> = vec![("this".into(), Type::Class(class.to_string()))];
+        for p in &body.params {
+            let ty = self.resolve_type(&p.ty).unwrap_or(Type::Int);
+            params.push((p.name.clone(), ty));
+        }
+        let ret = match &body.ret {
+            Some(a) => self.resolve_type(a).unwrap_or(Type::Unit),
+            None => Type::Unit,
+        };
+        let idx = self.fns.len();
+        self.fns.push(super::FnSig {
+            name: format!("{class}.{}", decl.name),
+            params,
+            ret,
+            class: Some(class.to_string()),
+            type_params: Vec::new(),
+        });
+        self.bodies.push(body);
+        self.direct_throw.push(false);
+        self.calls.push(Vec::new());
+        idx
+    }
+
+    /// `Box(value: 1)`: infer the type arguments from the field types, then
+    /// check the call against the instance's real fields.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn generic_class_call(
+        &mut self,
+        id: ExprId,
+        callee: &str,
+        args: &[Arg],
+        tys: &[Option<Type>],
+        span: Span,
+        callee_span: Span,
+    ) -> Option<Type> {
+        let decl = self.generic_classes[self.generic_class_index[callee]].clone();
+        let params: Vec<String> = decl.type_params.iter().map(|(n, _)| n.clone()).collect();
+        let mut subst: HashMap<String, Type> = HashMap::new();
+
+        // Positional arguments fill fields in declaration order; a named one
+        // names the field it fills (ADR 0015).
+        let mut positional = 0usize;
+        for (ai, a) in args.iter().enumerate() {
+            let field = match &a.name {
+                Some((n, _)) => decl.fields.iter().find(|f| f.name == *n),
+                None => {
+                    let f = decl.fields.get(positional);
+                    positional += 1;
+                    f
+                }
+            };
+            let Some(field) = field else { continue };
+            if let Some(Some(t)) = tys.get(ai) {
+                unify(&field.ty, t, &params, &mut subst);
+            }
+        }
+        let missing: Vec<&String> = params.iter().filter(|n| !subst.contains_key(*n)).collect();
+        if let Some(name) = missing.first() {
+            self.errors.push(
+                Diagnostic::error(
+                    "E0422",
+                    format!("cannot infer the type parameter `{name}` of `{callee}`"),
+                    span,
+                )
+                .with_help("no field mentions it; use a class without type parameters"),
+            );
+            return None;
+        }
+        let types: Vec<Type> = params.iter().map(|n| subst[n].clone()).collect();
+        let key = self.instantiate_class(callee, &types, callee_span)?;
+        let ci = self.class_index[&key];
+        let fields = self.classes[ci].fields.clone();
+        let fields_params: Vec<(String, Type)> = fields
+            .iter()
+            .map(|f| (f.name.clone(), f.ty.clone()))
+            .collect();
+        let defaults: Vec<bool> = fields.iter().map(|f| f.default.is_some()).collect();
+        self.check_call_args(id, &fields_params, args, tys, &defaults, span, callee);
+        self.class_ctor_calls.insert(id, ci);
+        Some(Type::Class(key))
+    }
+}
+
+/// `Box<int>` -> `Box.int`: stable, readable in `kode mir`, and never a source
+/// name that a program could declare itself (ADR 0040 §10.1).
+fn instance_name(name: &str, types: &[Type]) -> String {
+    let args: Vec<String> = types.iter().map(mangle).collect();
+    format!("{name}.{}", args.join("_"))
 }
 
 /// Match a declared parameter type against the type of an argument, binding type
@@ -181,6 +369,9 @@ fn unify(
                 true
             }
         },
+        // A generic class annotation is not instantiated yet (ADR 0040), so no
+        // generic function parameter can unify against one.
+        TypeAnnKind::Generic(_, _) => false,
         TypeAnnKind::Name(n) => match actual {
             Type::Class(c) | Type::Interface(c) | Type::Enum(c) => c == n,
             _ => Type::from_name(n).as_ref() == Some(actual),
@@ -229,6 +420,11 @@ fn substitute_ann(ann: &mut TypeAnn, subst: &HashMap<String, Type>) {
         | TypeAnnKind::Opt(i)
         | TypeAnnKind::Task(i)
         | TypeAnnKind::Channel(i) => substitute_ann(i, subst),
+        TypeAnnKind::Generic(_, args) => {
+            for a in args {
+                substitute_ann(a, subst);
+            }
+        }
         TypeAnnKind::Fn(ps, ret) => {
             for p in ps {
                 substitute_ann(p, subst);
@@ -244,6 +440,8 @@ fn ann_for(t: &Type, span: Span) -> TypeAnn {
         Type::Float => TypeAnnKind::Name("float".into()),
         Type::Bool => TypeAnnKind::Name("bool".into()),
         Type::Str => TypeAnnKind::Name("string".into()),
+        Type::Bytes => TypeAnnKind::Name("bytes".into()),
+        Type::Builder => TypeAnnKind::Name("StringBuilder".into()),
         Type::Unit => TypeAnnKind::Name("nothing".into()),
         Type::List(i) => TypeAnnKind::List(Box::new(ann_for(i, span))),
         Type::Map(i) => TypeAnnKind::Map(Box::new(ann_for(i, span))),
@@ -264,6 +462,10 @@ fn ann_for(t: &Type, span: Span) -> TypeAnn {
 fn render(ann: &TypeAnn, subst: &HashMap<String, Type>) -> String {
     match &ann.kind {
         TypeAnnKind::Name(n) => subst.get(n).map(|t| t.name()).unwrap_or_else(|| n.clone()),
+        TypeAnnKind::Generic(n, args) => {
+            let args: Vec<String> = args.iter().map(|a| render(a, subst)).collect();
+            format!("{n}<{}>", args.join(", "))
+        }
         TypeAnnKind::List(i) => format!("[{}]", render(i, subst)),
         TypeAnnKind::Map(i) => format!("{{string: {}}}", render(i, subst)),
         TypeAnnKind::Opt(i) => format!("{}?", render(i, subst)),
@@ -282,6 +484,8 @@ fn mangle(t: &Type) -> String {
         Type::Float => "float".into(),
         Type::Bool => "bool".into(),
         Type::Str => "str".into(),
+        Type::Bytes => "bytes".into(),
+        Type::Builder => "builder".into(),
         Type::Unit => "unit".into(),
         Type::List(i) => format!("list_{}", mangle(i)),
         Type::Map(i) => format!("map_{}", mangle(i)),
@@ -424,7 +628,7 @@ fn renumber_expr(e: &mut Expr, next: &mut u32) {
                 renumber_expr(bound, next);
             }
         }
-        ExprKind::Member { obj, .. } => renumber_expr(obj, next),
+        ExprKind::Member { obj, .. } | ExprKind::Is { obj, .. } => renumber_expr(obj, next),
         ExprKind::MethodCall { obj, args, .. } => {
             renumber_expr(obj, next);
             for a in args {

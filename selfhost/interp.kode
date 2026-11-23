@@ -1,0 +1,77 @@
+// Interpolated strings: `"hi ${name}"` is an `Interp` of `Lit` text and `Hole`
+// expressions, exactly as the oracle dumps it.
+//
+// A hole is re-lexed from its own text and shifted by the hole's offset, so every
+// span stays absolute. Holes are expressions, and the expression grammar is not
+// available here (a module cycle is `E0402`), so this module asks for them through
+// `Expressions`.
+
+from "./ast" import Ast
+from "./contracts" import Expressions
+from "./cursor" import Cursor
+from "./lexer" import lex
+from "./literals" import string_parts
+from "./tokens" import TokenKind
+
+pub class Interp {
+    c: Cursor
+    ast: Ast
+    exprs: Expressions
+
+    /// A string literal: plain text is a `Str`, anything with a hole is an
+    /// `Interp` of `Lit` text and `Hole` expressions, as the oracle dumps it.
+    fn string_expr(token: int) -> int {
+        body_from = c.token_start(token) + 1
+        body_to = c.token_end(token) - 1
+        parts = string_parts(c.src, body_from, body_to)
+        // `""` has no parts at all, and `"a"` has one literal: both are a plain `Str`.
+        plain = true
+        for part in parts {
+            if part.is_hole {
+                plain = false
+            }
+        }
+        if plain {
+            text = ""
+            for part in parts {
+                text += part.lit
+            }
+            id = ast.counted("Str")
+            ast.text(id, "value", text)
+            ast.span(id, "span", c.token_start(token), c.token_end(token))
+            return id
+        }
+        id = ast.counted("Interp")
+        for part in parts {
+            if part.is_hole {
+                inner = hole_expr(part.start_at, part.end_at)
+                if inner >= 0 {
+                    w = ast.add("Hole")
+                    ast.kid(w, inner)
+                    ast.kid(id, w)
+                }
+            } else {
+                lit = ast.add("Lit")
+                ast.text(lit, "text", part.lit)
+                ast.kid(id, lit)
+            }
+        }
+        ast.span(id, "span", c.token_start(token), c.token_end(token))
+        return id
+    }
+
+    /// The expression inside `${...}`. Its tokens are lexed from the hole's own
+    /// text and shifted by the hole's offset, so every span stays absolute.
+    fn hole_expr(hole_from: int, hole_to: int) -> int {
+        lx = lex(c.src.slice(hole_from, hole_to))
+        for err in lx.errors {
+            c.fail(err.code, err.message, err.start + hole_from, err.end + hole_from, err.help)
+        }
+        for t in lx.tokens {
+            t.start += hole_from
+            t.end += hole_from
+        }
+        sub_c = Cursor(src: c.src, tokens: lx.tokens)
+        return exprs.with_cursor(sub_c).expr()
+    }
+}

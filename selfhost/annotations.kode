@@ -1,0 +1,200 @@
+// What a written type means (S3): the annotation side of the checker.
+//
+// `int`, `float`, `bool`, `string` and `bytes` are the primitives; `[T]`,
+// `{string: T}` and `T?` are the containers; a class, enum or interface the program
+// declares (or a prelude one) is a named type. A name that resolves to none of those
+// is `E0303`, with the oracle's list of types as the hint — and the extra sentence a
+// fixed-width name (`u8`, `i32`) gets.
+//
+// A form this slice cannot see through — `Box<int>` before generics are instantiated,
+// `Task<T>`, `Channel<T>`, `fn(int) -> int`, and the bare name of a generic class —
+// is `any`: the annotation is valid, its uses are just not checked yet.
+
+from "./ast" import Ast, is_type_node
+from "./diag" import Diag, diag_help
+from "./names" import Names, generic_params_of, is_type_name
+from "./typing" import Type, type_any, type_inner, type_is_any, type_named, type_name, type_of, type_of_name
+
+/// The type an annotation names, reporting `E0303` when it names nothing.
+pub fn resolve_ann(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
+    kind = ast.nodes[id].kind
+    if kind == "TypeName" {
+        return resolve_type_name(ast, names, diags, id)
+    }
+    if kind == "TypeList" {
+        inner = ann_child(ast, names, diags, id)
+        if opt_scalar(inner) {
+            diag_help(ast, diags, "E0219", "a list of `${type_name(inner)}` is not supported yet", id,
+                "keep the value and a `bool` in a class or two separate lists for now")
+            return refused()
+        }
+        return type_of("list", inner)
+    }
+    if kind == "TypeMap" {
+        inner = ann_child(ast, names, diags, id)
+        if opt_scalar(inner) {
+            diag_help(ast, diags, "E0219", "a map of `${type_name(inner)}` is not supported yet", id,
+                "keep the value and a `bool` in a class for now")
+            return refused()
+        }
+        return type_of("map", inner)
+    }
+    if kind == "TypeGeneric" {
+        return resolve_generic(ast, names, diags, id)
+    }
+    if kind == "TypeOpt" {
+        inner = ann_child(ast, names, diags, id)
+        if not opt_item_ok(inner) {
+            diag_help(ast, diags, "E0219", "`${type_name(inner)}?` is not supported yet", id,
+                "optionals work for string, lists, maps and classes")
+            return refused()
+        }
+        return type_of("opt", inner)
+    }
+    return type_any()
+}
+
+/// `Box<int>`: as many type arguments as the class declares. A form this slice does not
+/// instantiate (`Task<int>`, `Channel<T>`) stays `any`; a generic class with the wrong
+/// count is `E0421`, and its declaration goes on as if unannotated.
+fn resolve_generic(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
+    name = ast.attr_text(id, "name")
+    count = 0
+    for kid in ast.nodes[id].kids {
+        if is_type_node(ast.nodes[kid].kind) {
+            count += 1
+            resolve_ann(ast, names, diags, kid)
+        }
+    }
+    want = generic_params_of(names, name)
+    if want.len() == 0 {
+        return type_any()
+    }
+    if count != want.len() {
+        arguments = "type arguments"
+        if want.len() == 1 {
+            arguments = "type argument"
+        }
+        message = "`${name}` takes ${want.len()} ${arguments}, found ${count}"
+        diag_help(ast, diags, "E0421", message, id, "write `${name}<int>`")
+        return refused()
+    }
+    return type_named(name)
+}
+
+/// `int?`, `float?` and `bool?`: the optionals a list or a map cannot hold yet
+/// (`crates/kode-sema/src/types.rs`, `is_opt_scalar`).
+fn opt_scalar(t: Type) -> bool {
+    if t.kind != "opt" {
+        return false
+    }
+    inner = type_inner(t)
+    return inner.kind == "int" or inner.kind == "float" or inner.kind == "bool"
+}
+
+/// An optional wraps a reference or a scalar; anything else is `E0219`.
+fn opt_item_ok(t: Type) -> bool {
+    if type_is_any(t) {
+        return true
+    }
+    if t.kind == "int" or t.kind == "float" or t.kind == "bool" {
+        return true
+    }
+    if t.kind == "string" or t.kind == "list" or t.kind == "map" or t.kind == "named" {
+        return true
+    }
+    return false
+}
+
+/// The annotation a rule refused: the declaration goes on as if nothing had been
+/// written, which is what the oracle does (it then reports the value on its own).
+fn refused() -> Type {
+    return type_prim_invalid()
+}
+
+fn type_prim_invalid() -> Type {
+    return Type(kind: "invalid")
+}
+
+/// The annotation inside a `[T]`, `{string: T}` or `T?`: its first type child.
+fn ann_child(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
+    for kid in ast.nodes[id].kids {
+        return resolve_ann(ast, names, diags, kid)
+    }
+    return type_any()
+}
+
+fn resolve_type_name(ast: Ast, names: Names, diags: [Diag], id: int) -> Type {
+    name = ast.attr_text(id, "name")
+    written = type_of_name(name)
+    if not type_is_any(written) {
+        return written
+    }
+    if names.params.contains(name) {
+        return type_named(name)
+    }
+    if names.generics.contains(name) {
+        // `Box` alone needs its arguments (`E0423`).
+        message = "`${name}` is a generic class, so it needs type arguments"
+        diag_help(ast, diags, "E0423", message, id, "write `${name}<int>`, not `${name}`")
+        return refused()
+    }
+    if is_type_name(names, name) or prelude_type(name) {
+        return type_named(name)
+    }
+    help = available_types()
+    if fixed_width(name) {
+        help = "`${name}` is a fixed-width number, which Kode does not have yet " +
+            "(planned; see docs/ROADMAP.md). `int` is already 64-bit and `float` is " +
+            "64-bit. " + help
+    }
+    diag_help(ast, diags, "E0303", "unknown type `${name}`", id, help)
+    return type_any()
+}
+
+/// The prelude classes a program may annotate without declaring: the runtime and the
+/// checker provide them (`crates/kode-sema/src/check/mod.rs`).
+fn prelude_type(name: string) -> bool {
+    if name == "Error" or name == "Json" or name == "JsonKind" {
+        return true
+    }
+    if name == "Request" or name == "Response" or name == "Router" or name == "HttpResponse" {
+        return true
+    }
+    return name == "ProcessResult" or name == "StringBuilder"
+}
+
+/// `u8`, `i32`, `uint16`, `f64`: the fixed-width names other languages use. Kode has
+/// one `int` and one `float`, both 64-bit, and no sized variants yet (ADR 0043), so
+/// the hint for one of these names says that instead of only listing the types.
+/// Compared as written (`u8`, not `U8`): a type name is spelled in lower case in every
+/// program the suite has.
+fn fixed_width(name: string) -> bool {
+    at = 0
+    while at < name.size() {
+        c = name.char_at(at)
+        if c == "0" or c == "1" or c == "2" or c == "3" or c == "4" {
+            break
+        }
+        if c == "5" or c == "6" or c == "7" or c == "8" or c == "9" {
+            break
+        }
+        at += 1
+    }
+    if at == 0 {
+        return false
+    }
+    prefix = name.slice(0, at)
+    digits = name.slice(at, name.size())
+    if prefix != "u" and prefix != "i" and prefix != "uint" and prefix != "f" {
+        return false
+    }
+    return digits == "8" or digits == "16" or digits == "32" or digits == "64" or digits == "128"
+}
+
+/// The oracle's list of types, which every "unknown type" hint repeats.
+fn available_types() -> string {
+    return "The types are int, float, bool, string, bytes, your classes, interfaces " +
+        "and enums, [T] for a list, {string: T} for a map, T? for an optional, " +
+        "Task<T>, Channel<T> and fn(T) -> U"
+}

@@ -1,0 +1,5 @@
+import "./b"
+
+pub fn af() -> int {
+    return bf() + 1
+}

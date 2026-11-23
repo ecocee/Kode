@@ -1,0 +1,384 @@
+// Item declarations of the self-hosted compiler: `fn`, `class`, `const` and
+// `import`. Enums and interfaces live in `enums.kode`, type annotations in
+// `types.kode`, statements in `stmt.kode`.
+//
+// Every item is an optional `pub`, then the keyword. Spans follow the oracle
+// exactly, odd ones included: a `Fn` spans `fn` and its name (not the body), a
+// `Class` has no `span` at all, and an `Import` spans the quoted path with its
+// quotes.
+//
+// An `import` is only a path to this slice: the file it names is not read, because
+// S2 parses one source file at a time.
+
+from "./ast" import Ast
+from "./cursor" import Cursor
+from "./enums" import Enums
+from "./literals" import parse_string
+from "./stmt" import Stmts
+from "./tokens" import TokenKind
+from "./types" import Types
+
+pub class Decls {
+    c: Cursor
+    ast: Ast
+
+    fn st() -> Stmts {
+        return Stmts(c: c, ast: ast)
+    }
+
+    fn ty() -> Types {
+        return Types(c: c, ast: ast)
+    }
+
+    fn shapes() -> Enums {
+        return Enums(c: c, ast: ast)
+    }
+
+    /// One item: a declaration, or a statement at item level.
+    fn item() -> int {
+        is_pub = false
+        if c.peek() == TokenKind.Pub {
+            is_pub = true
+            c.advance()
+        }
+        kind = c.peek()
+        if kind == TokenKind.Fn {
+            return fn_decl(c.at, is_pub, "Fn")
+        }
+        if kind == TokenKind.Class {
+            return class_decl(is_pub)
+        }
+        if kind == TokenKind.Enum {
+            return shapes().enum_decl(is_pub)
+        }
+        if kind == TokenKind.Interface {
+            return shapes().interface_decl(is_pub)
+        }
+        if kind == TokenKind.Const {
+            return const_decl(is_pub)
+        }
+        // `pub` on an import is accepted and dropped, as in the oracle.
+        if kind == TokenKind.Import or kind == TokenKind.From {
+            return import_decl()
+        }
+        if is_pub {
+            c.fail(
+                "E0102",
+                "`pub` here has to be followed by a declaration, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "`pub` goes before `fn`, `class`, `enum`, `interface` or `const`",
+            )
+            return -1
+        }
+        return st().statement()
+    }
+
+    /// `fn first<T>(a: int) -> int { ... }` and its `=> expr` form. A method is
+    /// the same node with the kind `Method`.
+    fn fn_decl(fn_at: int, is_pub: bool, kind: string) -> int {
+        c.advance()
+        if c.peek() != TokenKind.Ident {
+            // The oracle asks for the name before anything else, and gives no hint
+            // for a token that is not a name.
+            c.fail(
+                "E0110",
+                "expected a function name, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "",
+            )
+            c.recover_line()
+            return -1
+        }
+        name_at = c.at
+        c.advance()
+        id = ast.add(kind)
+        ast.text(id, "name", c.text_of(name_at))
+        ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.flag(id, "pub", is_pub)
+        ast.span(id, "span", c.token_start(fn_at), c.token_end(name_at))
+        if c.peek() == TokenKind.Lt {
+            c.advance()
+            more = true
+            while more {
+                param_at = c.at
+                c.advance()
+                tp = ast.add("TypeParam")
+                ast.text(tp, "name", c.text_of(param_at))
+                ast.span(tp, "span", c.token_start(param_at), c.token_end(param_at))
+                ast.kid(id, tp)
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                    c.skip_newlines()
+                } else {
+                    more = false
+                }
+            }
+            if c.peek() == TokenKind.Gt {
+                c.advance()
+            } else {
+                c.fail("E0102", "expected `>` to close the type parameters", c.token_start(c.at), c.token_end(c.at), "write `fn id<T>(x: T)`")
+            }
+        }
+        if c.peek() == TokenKind.LParen {
+            c.advance()
+        } else {
+            c.fail("E0102", "expected `(` to open the parameter list", c.token_start(c.at), c.token_end(c.at), "write `fn name(a: int)`")
+            return id
+        }
+        c.skip_newlines()
+        while c.peek() != TokenKind.RParen and not c.done() {
+            before = c.errors.len()
+            ty().param(id)
+            if c.errors.len() > before {
+                // The oracle abandons the whole declaration on the first bad
+                // parameter, so its block is not reported a second time.
+                c.recover_line()
+                return -1
+            }
+            c.skip_newlines()
+            if c.peek() == TokenKind.Comma {
+                c.advance()
+                c.skip_newlines()
+            } else {
+                break
+            }
+        }
+        if c.peek() == TokenKind.RParen {
+            c.advance()
+        } else {
+            c.fail("E0102", "expected `)` to close the parameter list", c.token_start(c.at), c.token_end(c.at), "write `fn name(a: int)`")
+        }
+        if c.peek() == TokenKind.Arrow {
+            c.advance()
+            ret = ty().type_ann()
+            if ret >= 0 {
+                ast.kid(id, ret)
+            }
+        }
+        if c.peek() == TokenKind.FatArrow {
+            c.advance()
+            c.skip_newlines()
+            value = st().ex().expr()
+            body = ast.add("ExprBody")
+            if value >= 0 {
+                ast.kid(body, value)
+            }
+            ast.kid(id, body)
+        } else {
+            block = st().block()
+            if block >= 0 {
+                ast.kid(id, block)
+            }
+        }
+        return id
+    }
+
+    /// `class Point { x: int, ... }`: type parameters, `implements`, fields with
+    /// their defaults, and methods. Methods dump `pub=false` even when the source
+    /// says `pub fn`, because the oracle's `parse_fn` never sees that flag.
+    fn class_decl(is_pub: bool) -> int {
+        c.advance()
+        name_at = c.at
+        c.advance()
+        id = ast.add("Class")
+        ast.text(id, "name", c.text_of(name_at))
+        ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.flag(id, "pub", is_pub)
+        if c.peek() == TokenKind.Lt {
+            c.advance()
+            more = true
+            while more {
+                param_at = c.at
+                c.advance()
+                tp = ast.add("TypeParam")
+                ast.text(tp, "name", c.text_of(param_at))
+                ast.span(tp, "span", c.token_start(param_at), c.token_end(param_at))
+                ast.kid(id, tp)
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                } else {
+                    more = false
+                }
+            }
+            if c.peek() == TokenKind.Gt {
+                c.advance()
+            } else {
+                c.fail("E0102", "expected `>` to close the type parameters", c.token_start(c.at), c.token_end(c.at), "write `class Box<T>`")
+            }
+        }
+        if c.peek() == TokenKind.Implements {
+            c.advance()
+            more = true
+            while more {
+                name_at = c.at
+                c.advance()
+                im = ast.add("Implements")
+                ast.text(im, "name", c.text_of(name_at))
+                ast.span(im, "span", c.token_start(name_at), c.token_end(name_at))
+                ast.kid(id, im)
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                } else {
+                    more = false
+                }
+            }
+        }
+        open_at = c.at
+        if c.peek() != TokenKind.LBrace {
+            c.fail("E0102", "expected `{` to open the class body", c.token_start(c.at), c.token_end(c.at), "write `class Point { x: int }`")
+            return id
+        }
+        c.advance()
+        closed = false
+        while not closed {
+            c.skip_newlines()
+            if c.peek() == TokenKind.RBrace {
+                c.advance()
+                closed = true
+            } else if c.done() {
+                c.fail("E0106", "this class is never closed", c.token_start(open_at), c.token_end(open_at), "add a matching `}`")
+                closed = true
+            } else {
+                // A `pub` on a method is accepted and dropped, as in the oracle.
+                if c.peek() == TokenKind.Pub {
+                    c.advance()
+                }
+                if c.peek() == TokenKind.Fn {
+                    m = fn_decl(c.at, false, "Method")
+                    ast.kid(id, m)
+                } else if c.peek() == TokenKind.Ident and c.peek_at(1) == TokenKind.Colon {
+                    field(id)
+                } else {
+                    c.fail(
+                        "E0114",
+                        "expected a field or a method, found ${c.describe(c.at)}",
+                        c.token_start(c.at),
+                        c.token_end(c.at),
+                        "fields look like `name: string`, methods like `fn show() { ... }`",
+                    )
+                    // The oracle gives up on the class here; the `}` on the next
+                    // line is then reported as a statement, as it is there.
+                    c.recover_line()
+                    return -1
+                }
+                c.end_statement()
+            }
+        }
+        return id
+    }
+
+    /// `x: int` and `y: int = 0` in a class body.
+    fn field(class_id: int) {
+        name_at = c.at
+        c.advance()
+        c.advance()
+        f = ast.add("Field")
+        ast.text(f, "name", c.text_of(name_at))
+        ast.span(f, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.kid(class_id, f)
+        ty = ty().type_ann()
+        if ty >= 0 {
+            ast.kid(f, ty)
+        }
+        if c.peek() == TokenKind.Assign {
+            c.advance()
+            value = st().ex().expr()
+            default = ast.add("Default")
+            if value >= 0 {
+                ast.kid(default, value)
+            }
+            ast.kid(f, default)
+        }
+    }
+
+    /// `const LIMIT = 10` and `pub const NAME: string = "kode"`.
+    fn const_decl(is_pub: bool) -> int {
+        c.advance()
+        name_at = c.at
+        c.advance()
+        id = ast.add("Const")
+        ast.text(id, "name", c.text_of(name_at))
+        ast.span(id, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.flag(id, "pub", is_pub)
+        if c.peek() == TokenKind.Colon {
+            c.advance()
+            ty = ty().type_ann()
+            if ty >= 0 {
+                ast.kid(id, ty)
+            }
+        }
+        if c.peek() == TokenKind.Assign {
+            c.advance()
+        } else {
+            c.fail("E0102", "expected `=` after the constant name", c.token_start(c.at), c.token_end(c.at), "write `const LIMIT = 10`")
+        }
+        value = st().ex().expr()
+        if value >= 0 {
+            ast.kid(id, value)
+        }
+        return id
+    }
+
+    /// `import "./a.kode"`, `import "./b.kode" as bee`, and `from "./c.kode"
+    /// import One, Two`.
+    fn import_decl() -> int {
+        from_style = c.peek() == TokenKind.From
+        c.advance()
+        path_at = c.at
+        if c.peek() != TokenKind.Str {
+            c.fail(
+                "E0116",
+                "expected a file path in quotes, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "",
+            )
+        }
+        c.advance()
+        id = ast.add("Import")
+        ast.text(id, "path", plain_string(path_at))
+        ast.span(id, "path_span", c.token_start(path_at), c.token_end(path_at))
+        if from_style {
+            if c.peek() == TokenKind.Import {
+                c.advance()
+            } else {
+                c.fail("E0102", "expected `import` after the file path", c.token_start(c.at), c.token_end(c.at), "write `from \"./a.kode\" import One`")
+            }
+            more = true
+            while more {
+                name_at = c.at
+                c.advance()
+                named = ast.add("Name")
+                ast.text(named, "name", c.text_of(name_at))
+                ast.span(named, "span", c.token_start(name_at), c.token_end(name_at))
+                ast.kid(id, named)
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                } else {
+                    more = false
+                }
+            }
+        } else if c.peek() == TokenKind.As {
+            c.advance()
+            name_at = c.at
+            c.advance()
+            alias = ast.add("Alias")
+            ast.text(alias, "name", c.text_of(name_at))
+            ast.span(alias, "span", c.token_start(name_at), c.token_end(name_at))
+            ast.kid(id, alias)
+        }
+        return id
+    }
+
+    /// An import path is a plain string: quotes stripped, escapes resolved, and no
+    /// holes — the oracle refuses an interpolated path.
+    fn plain_string(at: int) -> string {
+        text = c.text_of(at)
+        if text.size() < 2 {
+            return text
+        }
+        return parse_string(text)
+    }
+}

@@ -1,0 +1,11 @@
+|a: int| a + 1
+|| 0
+|| "hi"
+xs.map(|v: int| v * 2)
+f(|a: int, b: string| a, |q: [int]| q)
+|a: int| |b: int| a + b
+handlers = [|e: Error| log(e)]
+table = {on: |n: int| n + 1}
+run(cb: |n: int| n * 2)
+|u: User| u.name
+|xs: [int]| xs.len()

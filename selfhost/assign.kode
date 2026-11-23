@@ -1,0 +1,202 @@
+// Assignments: `x = 1`, `xs[0] += 1`, `obj.name = 1` and `x: int = 5`.
+//
+// The left side is parsed as a whole expression first, exactly as the oracle does, and
+// only then turned into a target: `Ident` becomes `TargetVar`, `Index` becomes
+// `TargetIndex` and `Member` becomes `TargetField` (never a `?.`, which cannot be
+// assigned to). The parsed expression is not removed from the arena — the oracle's
+// `expr_count` still counts it — and for a compound operator it is also the left side
+// of the `Binary` that is the value, which is why `x += 1` dumps as an `Assign` whose
+// value is `Binary(Ident, Int)`.
+//
+// Anything else on the left is `E0112` over that expression's span.
+
+from "./ast" import Ast
+from "./contracts" import Expressions
+from "./cursor" import Cursor
+from "./tokens" import TokenKind
+from "./types" import Types
+
+pub class Assigns {
+    c: Cursor
+    ast: Ast
+    exprs: Expressions
+
+    /// A statement that starts with a value: an assignment, or an expression that
+    /// stands on its own.
+    fn expr_or_assign() -> int {
+        lhs = exprs.expr()
+        if lhs < 0 or not is_assign(c.peek()) {
+            return expression_stmt(lhs)
+        }
+        return assign_from(lhs)
+    }
+
+    /// `x: int = 5`: a declaration that is also an assignment. The type node sits
+    /// between the target and the value, which is where the oracle dumps it, and the
+    /// statement still spans from the name to the value.
+    fn typed_decl() -> int {
+        name_at = c.at
+        c.advance()
+        c.advance()
+        id = ast.add("Assign")
+        // The oracle reuses the id of the name it parsed for `x = 1`, so that count
+        // stays; a declaration never made one, so this target is not counted.
+        target = ast.add("TargetVar")
+        ast.text(target, "name", c.text_of(name_at))
+        ast.span(target, "span", c.token_start(name_at), c.token_end(name_at))
+        ast.kid(id, target)
+        ty = Types(c: c, ast: ast).type_ann()
+        if ty < 0 {
+            // A type the oracle refused ends the declaration: it never reaches the
+            // `=` and does not report a second error for it.
+            c.recover_line()
+            return -1
+        }
+        ast.kid(id, ty)
+        if c.peek() != TokenKind.Assign {
+            c.fail(
+                "E0107",
+                "expected `=` after the type, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "write it like `count: int = 0`",
+            )
+            c.recover_line()
+            return -1
+        }
+        c.advance()
+        c.skip_newlines()
+        value = exprs.expr()
+        if value >= 0 {
+            ast.kid(id, value)
+            ast.span(id, "span", c.token_start(name_at), ast.nodes[value].end)
+        } else {
+            ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
+        }
+        return id
+    }
+
+    /// `lhs = value` and `lhs op= value`, with the target built from `lhs`.
+    fn assign_from(lhs: int) -> int {
+        op = assign_op(c.peek())
+        target = target_from(lhs)
+        if target < 0 {
+            c.fail(
+                "E0112",
+                "this cannot be assigned to",
+                ast.nodes[lhs].start,
+                ast.nodes[lhs].end,
+                "assign to a variable, a list item `xs[0]`, a map item `m[\"k\"]` or a field `obj.name`",
+            )
+            c.recover_line()
+            return -1
+        }
+        c.advance()
+        // `x =` and the value on the next line is one assignment.
+        c.skip_newlines()
+        value = exprs.expr()
+        id = ast.add("Assign")
+        ast.kid(id, target)
+        if value >= 0 and op.len() > 0 {
+            bin = ast.counted("Binary")
+            ast.raw(bin, "op", op)
+            ast.kid(bin, lhs)
+            ast.kid(bin, value)
+            ast.span(bin, "span", ast.nodes[lhs].start, ast.nodes[value].end)
+            value = bin
+        }
+        if value >= 0 {
+            ast.kid(id, value)
+            ast.span(id, "span", ast.nodes[lhs].start, ast.nodes[value].end)
+        } else {
+            ast.span(id, "span", ast.nodes[lhs].start, ast.nodes[lhs].end)
+        }
+        return id
+    }
+
+    /// The target node `Assign` wants, or -1 when the expression is not assignable.
+    /// A `TargetIndex` shares the `Index` node's children, which the dump prints
+    /// twice: once under the target and once under the `Binary` of a compound.
+    fn target_from(expr: int) -> int {
+        kind = ast.nodes[expr].kind
+        if kind == "Ident" {
+            id = ast.add("TargetVar")
+            copy_attr(expr, id, 0)
+            copy_attr(expr, id, 1)
+            return span_like(expr, id)
+        }
+        if kind == "Index" {
+            id = ast.add("TargetIndex")
+            for item in ast.nodes[expr].kids {
+                ast.kid(id, item)
+            }
+            return span_like(expr, id)
+        }
+        if kind == "Member" {
+            // `obj?.name = 1` is not a target: `safe` is the third attribute.
+            if ast.nodes[expr].attrs[2] == "safe=true" {
+                return -1
+            }
+            id = ast.add("TargetField")
+            copy_attr(expr, id, 0)
+            copy_attr(expr, id, 1)
+            obj = ast.nodes[expr].kids[0]
+            ast.kid(id, obj)
+            return span_like(expr, id)
+        }
+        return -1
+    }
+
+    /// `print(x)`, `xs.add(1)`: an expression statement.
+    fn expression_stmt(value: int) -> int {
+        stmt = ast.add("ExprStmt")
+        if value >= 0 {
+            ast.kid(stmt, value)
+        }
+        return stmt
+    }
+
+    fn copy_attr(source: int, dest: int, index: int) {
+        ast.nodes[dest].attrs.add(ast.nodes[source].attrs[index])
+    }
+
+    /// A target has no span of its own to compute: it covers the expression it came
+    /// from, which is what a parent reads.
+    fn span_like(source: int, dest: int) -> int {
+        ast.nodes[dest].start = ast.nodes[source].start
+        ast.nodes[dest].end = ast.nodes[source].end
+        return dest
+    }
+}
+
+/// True for `=`, `+=` and the rest of the compound operators.
+fn is_assign(kind: TokenKind) -> bool {
+    return kind == TokenKind.Assign or assign_op(kind).len() > 0
+}
+
+/// The binary operator a compound assignment stands for: `+=` is `+`, `<<=` is `<<`.
+fn assign_op(kind: TokenKind) -> string {
+    op = ""
+    if kind == TokenKind.PlusEq {
+        op = "+"
+    } else if kind == TokenKind.MinusEq {
+        op = "-"
+    } else if kind == TokenKind.StarEq {
+        op = "*"
+    } else if kind == TokenKind.SlashEq {
+        op = "/"
+    } else if kind == TokenKind.PercentEq {
+        op = "%"
+    } else if kind == TokenKind.AmpEq {
+        op = "&"
+    } else if kind == TokenKind.PipeEq {
+        op = "|"
+    } else if kind == TokenKind.CaretEq {
+        op = "^"
+    } else if kind == TokenKind.ShlEq {
+        op = "<<"
+    } else if kind == TokenKind.ShrEq {
+        op = ">>"
+    }
+    return op
+}

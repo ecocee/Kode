@@ -1,0 +1,8 @@
+// A payload variant is a constructor, not a value.
+enum Shape {
+    Circle(radius: float)
+    Empty
+}
+
+s = Shape.Circle
+print(s)

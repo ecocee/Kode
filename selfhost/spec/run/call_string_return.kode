@@ -1,0 +1,5 @@
+fn shout(s: string) -> string {
+    return s + "!"
+}
+r = shout("hey")
+print(r, shout("a"))

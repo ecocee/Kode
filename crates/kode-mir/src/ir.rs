@@ -88,6 +88,13 @@ pub enum RtFn {
     PrintStr,
     PrintSep,
     PrintNl,
+    /// `stderr(...)`: the print family, on the diagnostic stream.
+    ErrInt,
+    ErrFloat,
+    ErrBool,
+    ErrStr,
+    ErrSep,
+    ErrNl,
     StrConcat,
     StrEq,
     IntToStr,
@@ -103,6 +110,14 @@ pub enum RtFn {
     ListLen,
     /// Lists of `bool` use one byte per item.
     ListNewPacked,
+    BytesNew,
+    BytesSet,
+    /// `StringBuilder()`: a growable buffer for building text (ADR 0044).
+    BufferNew,
+    /// Append the bytes of a string to a builder.
+    BufferPush,
+    /// The text built so far, as a new string.
+    BufferBuild,
     ListPush8,
     ListGet8,
     ListSet8,
@@ -122,6 +137,8 @@ pub enum RtFn {
     /// Like `ObjNew`, but records the class id in the object header for
     /// interface dispatch.
     ObjNewClass,
+    /// The variant tag of an enum object (ADR 0039).
+    EnumTag,
     ErrThrow,
     ErrPending,
     ErrTake,

@@ -1,0 +1,366 @@
+// The container and condition rules (S3): what may be indexed, sliced, collected into
+// a list or a map, and looped over, and what a branch condition may be.
+//
+// These are the rules whose subject is a value's *shape* rather than its type, and each
+// reports where the oracle does: `E0209` at the condition, `E0211` at the value that
+// cannot be indexed or sliced, `E0212` at the index or bound that is the wrong type,
+// `E0213` at the item that breaks a list or map, and `E0214` at the thing looped over.
+//
+// `selfhost/typing.kode` answers what an `Index` or `Slice` is worth without ever
+// reporting (`index_type`, `slice_type`, `loop_vars`); this module makes the same
+// decision out loud. A rule stays silent when the type is `any`, and an optional is
+// left to `E0220`'s own family, which is a later slice.
+
+from "./annotations" import resolve_ann
+from "./ast" import Ast, is_type_node
+from "./diag" import Diag, diag, diag_help
+from "./members" import Members, value_type
+from "./names" import Names
+from "./signatures" import SigTable, Signature
+from "./scope" import Scope
+from "./typing" import Local, Type, expr_type, loop_vars, type_any, type_article, type_assignable, type_inner, type_is_any, type_name, type_prim
+
+/// The container rules that a single walk of the tree reports from one place, so the
+/// statement walker in `sema.kode` stays a walker.
+pub fn check_container(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kind = ast.nodes[id].kind
+    if kind == "Index" {
+        check_index(ast, frames, names, diags, id)
+        return
+    }
+    if kind == "Slice" {
+        check_slice(ast, frames, names, diags, id)
+        return
+    }
+    if kind == "List" {
+        check_list(ast, frames, names, diags, id)
+        return
+    }
+    if kind == "Map" {
+        check_map(ast, frames, names, diags, id)
+    }
+}
+
+/// `for i, v in xs`: report a thing that cannot be looped over, then bind what the loop
+/// gives — the item of a list (the index first when two names are written), the key of a
+/// map (then the value), an int otherwise.
+pub fn open_for_in(ast: Ast, scopes: Scope, names: Names, diags: [Diag], id: int) {
+    check_loop(ast, scopes.frames, names, diags, id)
+    count = 0
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Var" {
+            count += 1
+        }
+    }
+    types = loop_vars(ast, scopes.frames, names, id, count)
+    scopes.push()
+    index = 0
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Var" {
+            one = type_any()
+            if index < types.len() {
+                one = types[index]
+            }
+            scopes.declare(ast.attr_text(kid, "name"), one)
+            index += 1
+        }
+    }
+}
+
+fn is_json(t: Type) -> bool {
+    return t.kind == "named" and t.name == "Json"
+}
+
+/// `x[i]`: indexable is a list (int), a map (string) and a `Json` value (either).
+pub fn check_index(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return
+    }
+    check_index_pair(ast, frames, names, diags, kids[0], kids[1], false)
+}
+
+/// `x[i] = v`: the same questions, except that a `Json` value says why it cannot be
+/// changed in place rather than that it cannot be indexed.
+pub fn check_index_target(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return
+    }
+    check_index_pair(ast, frames, names, diags, kids[0], kids[1], true)
+}
+
+fn check_index_pair(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], obj: int, index: int, target: bool) {
+    ot = expr_type(ast, frames, names, obj)
+    it = expr_type(ast, frames, names, index)
+    if type_is_any(ot) or type_is_any(it) {
+        return
+    }
+    if ot.kind == "list" {
+        if it.kind != "int" {
+            diag(ast, diags, "E0212", "a list index must be an int, found ${type_article(it)}", index)
+        }
+        return
+    }
+    if ot.kind == "map" {
+        if it.kind != "string" {
+            diag(ast, diags, "E0212", "a map key must be a string, found ${type_article(it)}", index)
+        }
+        return
+    }
+    if is_json(ot) {
+        if target {
+            diag_help(ast, diags, "E0211", "a Json value cannot be changed in place", obj,
+                "build a new value with `json_map`, `json_list` and the other `json_*` functions")
+            return
+        }
+        if it.kind != "string" and it.kind != "int" {
+            diag(ast, diags, "E0212", "a Json value needs a string key or an int index, found ${type_article(it)}", index)
+        }
+        return
+    }
+    if ot.kind == "opt" {
+        diag_help(ast, diags, "E0220", "this may be none, so it cannot be indexed", obj,
+            "use `x!` or `x ?? default` first")
+        return
+    }
+    diag(ast, diags, "E0211", "${type_article(ot)} cannot be indexed", obj)
+}
+
+/// `xs[a..b]`: only a list has a range, and both bounds are ints. The bounds are read
+/// first, so a bad bound on a map is the bound's error alone, as in the oracle.
+pub fn check_slice(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return
+    }
+    i = 1
+    while i < kids.len() {
+        bound = kids[i]
+        kind = ast.nodes[bound].kind
+        if kind == "Start" or kind == "End" {
+            if ast.nodes[bound].kids.len() > 0 {
+                inner = ast.nodes[bound].kids[0]
+                t = expr_type(ast, frames, names, inner)
+                if not type_is_any(t) and t.kind != "int" {
+                    diag(ast, diags, "E0212", "a slice bound must be an int, found ${type_article(t)}", inner)
+                    return
+                }
+            }
+        }
+        i += 1
+    }
+    ot = expr_type(ast, frames, names, kids[0])
+    if type_is_any(ot) or ot.kind == "list" {
+        return
+    }
+    diag_help(ast, diags, "E0211", "cannot slice ${type_article(ot)}", kids[0],
+        "only a list has a range to take, for example `items[1..3]`")
+}
+
+/// `[1, "a"]`: every item has the type of the first, and a list cannot hold `none` or
+/// nothing at all.
+pub fn check_list(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() == 0 {
+        return
+    }
+    first = expr_type(ast, frames, names, kids[0])
+    i = 1
+    while i < kids.len() {
+        t = expr_type(ast, frames, names, kids[i])
+        if not type_is_any(first) and not type_is_any(t) and not type_assignable(t, first) {
+            diag(ast, diags, "E0213",
+                "list items must all have the same type: expected ${type_article(first)}, found ${type_article(t)}", kids[i])
+        }
+        i += 1
+    }
+    if type_is_any(first) {
+        return
+    }
+    if first.kind == "none" or first.kind == "unit" {
+        diag(ast, diags, "E0213", "a list cannot hold this kind of value", kids[0])
+    }
+}
+
+/// `{"a": 1}`: a key is a string, and every value has the type of the first one.
+pub fn check_map(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    first = type_any()
+    seen = false
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Entry" {
+            continue
+        }
+        parts = ast.nodes[kid].kids
+        if parts.len() < 2 {
+            continue
+        }
+        kt = expr_type(ast, frames, names, parts[0])
+        if not type_is_any(kt) and kt.kind != "string" {
+            diag(ast, diags, "E0212", "a map key must be a string, found ${type_article(kt)}", parts[0])
+        }
+        vt = expr_type(ast, frames, names, parts[1])
+        if not seen {
+            first = vt
+            seen = true
+        } else if not type_is_any(first) and not type_is_any(vt) and not type_assignable(vt, first) {
+            diag(ast, diags, "E0213",
+                "map values must all have the same type: expected ${type_article(first)}, found ${type_article(vt)}", parts[1])
+        }
+    }
+}
+
+/// Would this literal be refused? Asked before a name is declared, with a scratch list,
+/// so the literal is reported once, where it stands, and the name stays undeclared —
+/// which is why the next line is `E0201`, as in the oracle.
+pub fn literal_fails(ast: Ast, frames: [[Local]], names: Names, id: int) -> bool {
+    kind = ast.nodes[id].kind
+    if kind != "List" and kind != "Map" {
+        return false
+    }
+    scratch: [Diag] = []
+    if kind == "List" {
+        check_list(ast, frames, names, scratch, id)
+    } else {
+        check_map(ast, frames, names, scratch, id)
+    }
+    return scratch.len() > 0
+}
+
+/// `if cond`, `while cond`: the condition is a bool.
+pub fn check_condition(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int, what: string) {
+    t = expr_type(ast, frames, names, id)
+    if type_is_any(t) or t.kind == "bool" {
+        return
+    }
+    diag_help(ast, diags, "E0209", "the condition of ${what} must be a bool, found ${type_article(t)}", id,
+        "compare it, for example `x != 0` or `x != none`")
+}
+
+/// `for x in thing`: a list, a map or a range. The range form is its own statement and
+/// never reaches here.
+pub fn check_loop(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    iter = iter_node(ast, id)
+    if iter < 0 or ast.nodes[iter].kids.len() == 0 {
+        return
+    }
+    expr = ast.nodes[iter].kids[0]
+    t = expr_type(ast, frames, names, expr)
+    if type_is_any(t) or t.kind == "list" or t.kind == "map" {
+        return
+    }
+    diag_help(ast, diags, "E0214", "cannot loop over ${type_article(t)}", expr,
+        "loop over a range `0..10`, a list or a map")
+}
+
+/// The `Iter` child of a `for ... in` statement that wraps what is looped over.
+pub fn iter_node(ast: Ast, id: int) -> int {
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Iter" {
+            return kid
+        }
+    }
+    return -1
+}
+
+/// `xs.map(f)` and `xs.filter(f)`: the callback takes one value of the list's item type
+/// and gives one back (`E0242`). A closure's parameter is written (`|x: int| ...`), a
+/// named function has a signature, and anything else is not a function at all.
+pub fn check_callback(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
+    name = ast.attr_text(id, "name")
+    if name != "map" and name != "filter" {
+        return
+    }
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return
+    }
+    rt = value_type(ast, frames, names, sigs, members, kids[0])
+    if rt.kind != "list" {
+        return
+    }
+    item = type_inner(rt)
+    if type_is_any(item) {
+        return
+    }
+    arg = -1
+    for kid in kids {
+        if ast.nodes[kid].kind == "Arg" and ast.nodes[kid].kids.len() > 0 {
+            arg = ast.nodes[kid].kids[0]
+            break
+        }
+    }
+    if arg < 0 {
+        return
+    }
+    kind = ast.nodes[arg].kind
+    if kind == "Closure" {
+        closure_callback(ast, names, diags, id, arg, name, item)
+        return
+    }
+    if kind == "Ident" {
+        sig = sigs.find(ast.attr_text(arg, "name"))
+        if sig.name != "" {
+            named_callback(ast, diags, id, arg, name, item, sig)
+            return
+        }
+    }
+    t = value_type(ast, frames, names, sigs, members, arg)
+    if type_is_any(t) or t.kind == "named" {
+        return
+    }
+    message = "`${name}` needs a function, found ${type_article(t)}"
+    diag_help(ast, diags, "E0242", message, arg,
+        "write it like `xs.map(|x: int| x * 2)` or `xs.map(double)`")
+}
+
+/// A closure argument: one parameter of the item type, and a body with a value.
+fn closure_callback(ast: Ast, names: Names, diags: [Diag], id: int, arg: int, name: string, item: Type) {
+    quiet: [Diag] = []
+    params: [Type] = []
+    body = -1
+    for kid in ast.nodes[arg].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "ClosureParam" {
+            ty = type_any()
+            for part in ast.nodes[kid].kids {
+                if is_type_node(ast.nodes[part].kind) {
+                    ty = resolve_ann(ast, names, quiet, part)
+                }
+            }
+            params.add(ty)
+        } else {
+            body = kid
+        }
+    }
+    if params.len() != 1 or not type_assignable(params[0], item) {
+        takes = "the function given to `${name}` must take one `${type_name(item)}` value"
+        diag_help(ast, diags, "E0242", takes, arg, "write it like `|x: int| x * 2`")
+        return
+    }
+    if body >= 0 and body_kind(ast, names, body) == "unit" {
+        message = "the function given to `${name}` must return a value"
+        diag(ast, diags, "E0242", message, arg)
+    }
+}
+
+/// A named function argument: one parameter of the item type, and a result.
+fn named_callback(ast: Ast, diags: [Diag], id: int, arg: int, name: string, item: Type, sig: Signature) {
+    if sig.params.len() != 1 or not type_assignable(sig.params[0].ty, item) {
+        takes = "the function given to `${name}` must take one `${type_name(item)}` value"
+        diag_help(ast, diags, "E0242", takes, arg, "write it like `|x: int| x * 2`")
+        return
+    }
+    r = sig.ret ?? type_prim("unit")
+    if r.kind == "unit" {
+        message = "the function given to `${name}` must return a value"
+        diag(ast, diags, "E0242", message, arg)
+    }
+}
+
+/// What a closure body is: only "nothing" matters here, and `typing.kode` can say that
+/// for a call (`print(...)`) without the closure's own parameters in scope.
+fn body_kind(ast: Ast, names: Names, body: int) -> string {
+    empty: [[Local]] = []
+    return expr_type(ast, empty, names, body).kind
+}

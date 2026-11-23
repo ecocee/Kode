@@ -1,11 +1,10 @@
 //! `spawn` / `await`: tasks run on their own threads and share nothing.
 //! A task gets plain values (ints, floats, bools, strings) and returns one result.
 
-use std::sync::atomic::Ordering;
 use std::thread::{Builder, JoinHandle};
 
 use crate::error::{fatal, kode_err_throw, take_err};
-use crate::object::{alloc_object, free_object, kode_release, Header, TASK, THREADED};
+use crate::object::{alloc_object, free_object, kode_release, Header, TASK};
 
 struct TaskInner {
     handle: Option<JoinHandle<(u64, usize)>>,
@@ -13,6 +12,23 @@ struct TaskInner {
 }
 
 type Thunk = extern "C" fn(*mut Header) -> i64;
+
+/// Stack reserved for each task, in MiB.
+///
+/// 64 MiB is the default because a task may recurse deeply; `KODE_TASK_STACK_MB`
+/// lowers it for programs that spawn many tasks (1,000 tasks reserve 64 GiB of
+/// address space at the default, which is free until touched but not free
+/// everywhere). Values outside 1–1024, or junk, fall back to the default.
+fn stack_mb(value: Option<&str>) -> usize {
+    value
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|mb| (1..=1024).contains(mb))
+        .unwrap_or(64)
+}
+
+fn stack_size() -> usize {
+    stack_mb(std::env::var("KODE_TASK_STACK_MB").ok().as_deref()) << 20
+}
 
 /// Start a task. `thunk(block)` runs on the new thread; the task owns `block`.
 ///
@@ -24,10 +40,9 @@ pub unsafe extern "C" fn kode_task_spawn(
     block: *mut Header,
     result_is_ref: i64,
 ) -> *mut Header {
-    THREADED.store(true, Ordering::SeqCst);
     let (f, b) = (thunk as usize, block as usize);
     let handle = Builder::new()
-        .stack_size(64 << 20)
+        .stack_size(stack_size())
         .spawn(move || {
             let thunk: Thunk = std::mem::transmute(f);
             let raw = thunk(b as *mut Header) as u64;
@@ -43,6 +58,7 @@ pub unsafe extern "C" fn kode_task_spawn(
     *((p as *mut *mut TaskInner).add(2)) = Box::into_raw(inner);
     p
 }
+
 
 /// Wait for a task and take its result (the caller owns it). If the task failed,
 /// the error is raised here.
@@ -75,4 +91,24 @@ pub unsafe fn drop_task(p: *mut Header) {
         }
     }
     free_object(p, 24);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stack_mb;
+
+    #[test]
+    fn the_task_stack_defaults_to_64_mib() {
+        assert_eq!(stack_mb(None), 64);
+        assert_eq!(stack_mb(Some("junk")), 64);
+        assert_eq!(stack_mb(Some("0")), 64);
+        assert_eq!(stack_mb(Some("4096")), 64);
+    }
+
+    #[test]
+    fn a_stack_size_in_range_is_used() {
+        assert_eq!(stack_mb(Some("1")), 1);
+        assert_eq!(stack_mb(Some(" 16 ")), 16);
+        assert_eq!(stack_mb(Some("1024")), 1024);
+    }
 }

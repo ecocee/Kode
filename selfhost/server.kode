@@ -1,0 +1,120 @@
+// The web layer (S3): `routes.get(path, handler)` and `serve`/`serve_tls`.
+//
+// A route's handler is `fn name(req: Request) -> Response` (`E0233`), and the handler of
+// `serve` (2 arguments) or `serve_tls` (port, certificate, key, handler) is either a
+// `Router` or `fn name(method: string, path: string, body: string) -> string` (`E0232`).
+// Both rules only fire when they can name the function or the value: a name this slice
+// cannot resolve is left alone.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag_help
+from "./members" import Members, value_type
+from "./names" import Names
+from "./signatures" import SigTable, Signature
+from "./typing" import Local, Type, type_any, type_is_any, type_named, type_prim, type_same
+
+/// `serve(port, handler)`, `serve_tls(port, cert, key, handler)`.
+pub fn check_serve(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
+    callee = ast.attr_text(id, "callee")
+    if callee != "serve" and callee != "serve_tls" {
+        return
+    }
+    want = 2
+    if callee == "serve_tls" {
+        want = 4
+    }
+    args = arg_values(ast, id)
+    if args.len() != want {
+        return
+    }
+    handler = args[args.len() - 1]
+    if ast.nodes[handler].kind == "Ident" {
+        sig = sigs.find(ast.attr_text(handler, "name"))
+        if sig.name != "" {
+            if not text_handler(sig) {
+                message = "the `${callee}` handler must be the name of a function `fn name(method: string, path: string, body: string) -> string`"
+                diag_help(ast, diags, "E0232", message, handler,
+                    "it receives the HTTP method, the path and the body, and returns the response text")
+            }
+            return
+        }
+    }
+    t = value_type(ast, frames, names, sigs, members, handler)
+    if type_is_any(t) {
+        return
+    }
+    if t.kind == "named" and t.name == "Router" {
+        return
+    }
+    message = "`${callee}` needs a `Router` or a handler function"
+    diag_help(ast, diags, "E0232", message, handler,
+        "build one with `routes = Router()` and `routes.get(path, handler)`, or pass `fn name(method: string, path: string, body: string) -> string`")
+}
+
+/// `router.get(path, handler)` and its siblings.
+pub fn check_router(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return
+    }
+    recv = value_type(ast, frames, names, sigs, members, kids[0])
+    if recv.kind != "named" or recv.name != "Router" {
+        return
+    }
+    method = ast.attr_text(id, "name")
+    if method != "get" and method != "post" and method != "put" and method != "patch" and method != "delete" {
+        return
+    }
+    args = arg_values(ast, id)
+    if args.len() != 2 {
+        return
+    }
+    handler = args[1]
+    if route_handler(ast, sigs, handler) {
+        return
+    }
+    message = "the route handler must be the name of a function `fn name(req: Request) -> Response`"
+    diag_help(ast, diags, "E0233", message, handler,
+        "define it first, then pass it like `routes.get(\"/users/:id\", get_user)`")
+}
+
+/// The value expression of every argument, in order.
+fn arg_values(ast: Ast, id: int) -> [int] {
+    out: [int] = []
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Arg" and ast.nodes[kid].kids.len() > 0 {
+            out.add(ast.nodes[kid].kids[0])
+        }
+    }
+    return out
+}
+
+/// `fn name(method: string, path: string, body: string) -> string`.
+fn text_handler(sig: Signature) -> bool {
+    if sig.params.len() != 3 {
+        return false
+    }
+    for one in sig.params {
+        if not type_same(one.ty, type_prim("string")) {
+            return false
+        }
+    }
+    r = sig.ret ?? type_prim("unit")
+    return type_same(r, type_prim("string"))
+}
+
+/// The name of a function `fn name(req: Request) -> Response`.
+fn route_handler(ast: Ast, sigs: SigTable, id: int) -> bool {
+    if ast.nodes[id].kind != "Ident" {
+        return false
+    }
+    sig = sigs.find(ast.attr_text(id, "name"))
+    if sig.name == "" or sig.params.len() != 1 {
+        return false
+    }
+    if not type_same(sig.params[0].ty, type_named("Request")) {
+        return false
+    }
+    r = sig.ret ?? type_prim("unit")
+    return type_same(r, type_named("Response"))
+}

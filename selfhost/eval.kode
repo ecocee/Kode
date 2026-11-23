@@ -1,0 +1,458 @@
+// The interpreter over that MIR (S4): what a program prints.
+//
+// The evaluator keeps one `int`, one `string`, one `bool` and one `float` per
+// temporary, plus the line being built, and it follows the blocks rather than walking
+// them in order: a `goto` or a `branch` picks the next block, and a `return` ends the
+// function. Within a block, an assignment or a `StrConcat` writes a temporary, an
+// integer or comparison operator writes the result of its operands, and the print
+// primitives append to the pending line — a separator appends a space, and `PrintNl`
+// prints the line and clears it, the separator and newline rule `print` has.
+//
+// A call to a function the program declares gets a frame of its own: the arguments are
+// copied into its parameters, its blocks run to its `return`, and the value it returned
+// is written where the caller asked for it. Recursion is just another frame.
+// `retain` and `release` are not ignored: the interpreter keeps shadow counts. Every
+// reference is an object with a count, a `retain` adds one and a `release` takes one,
+// and the run fails when a release takes what was never there, when a value is used
+// after its count reached zero, or when the program ends with a count still standing.
+// That is the check the dumps cannot give: eight of the fixtures were green on a
+// `release` that printed the same bytes.
+
+from "./mir" import Block, Function, Instr, Mir, Operand, print_text
+from "./own" import Owned, Slot, State, check_use, drop_fields, field_index, list_of, new_object, objects_of, own_fail
+
+/// Run `mir` and write its output, exactly as the program would. False when the
+/// ownership check saw a release that had nothing to release, a use after release, or a
+/// reference still owned when the program ended.
+pub fn run(mir: Mir) -> bool {
+    owned = Owned()
+    // Object 0 is "no reference": the sentinel a null or a literal holds.
+    empty: [Slot] = []
+    owned.counts.add(0)
+    owned.freed.add(true)
+    owned.fields.add(empty)
+    owned.items.add(empty)
+    for f in mir.functions {
+        // A declaration is not a program: only `main` runs.
+        if not f.entry {
+            continue
+        }
+        st = new_frame(f)
+        run_function(mir, f, st, owned)
+    }
+    live = 0
+    for k in 0..owned.counts.len() {
+        live += owned.counts[k]
+    }
+    if live > 0 and owned.failure == "" {
+        owned.failure = "${live} reference(s) still owned when the program ended"
+    }
+    if owned.failure != "" {
+        stderr("kode-stage1: ownership: ${owned.failure}")
+        return false
+    }
+    return true
+}
+
+/// A frame for `f`: one empty value per temporary, in its own kind.
+fn new_frame(f: Function) -> State {
+    st = State()
+    for k in 0..f.temps.len() {
+        st.values.add(0)
+        st.floats.add(0.0)
+        st.refs.add("")
+        st.bools.add(false)
+        st.objects.add(0)
+    }
+    return st
+}
+
+/// Run one function until its `return`, leaving the value it returned in `st.ret`.
+fn run_function(mir: Mir, f: Function, st: State, owned: Owned) {
+    pc = 0
+    while pc >= 0 {
+        pc = run_block(mir, f, pc, st, owned)
+    }
+}
+
+/// Run one block, returning the block to run next, or -1 when the function is done.
+fn run_block(mir: Mir, f: Function, pc: int, st: State, owned: Owned) -> int {
+    for i in f.blocks[pc].instrs {
+        if i.kind == "goto" {
+            return label_index(f.blocks, i.target)
+        }
+        if i.kind == "branch" {
+            if operand_bool(i.args[0], st) {
+                return label_index(f.blocks, i.target)
+            }
+            return label_index(f.blocks, i.alt)
+        }
+        if i.kind == "return" {
+            if i.args.len() > 0 {
+                check_use(owned, f, i.args[0], st)
+                st.ret = read_operand(f, i.args[0], st)
+            }
+            return -1
+        }
+        if i.kind == "unreachable" {
+            return -1
+        }
+        run_instr(mir, f, i, st, owned)
+    }
+    return -1
+}
+
+fn label_index(blocks: [Block], label: string) -> int {
+    for k in 0..blocks.len() {
+        if blocks[k].label == label {
+            return k
+        }
+    }
+    return -1
+}
+
+fn function_index(mir: Mir, name: string) -> int {
+    for k in 0..mir.functions.len() {
+        if mir.functions[k].name == name {
+            return k
+        }
+    }
+    return -1
+}
+
+/// One instruction. `goto`, `branch`, `return` and `unreachable` are the block loop's.
+fn run_instr(mir: Mir, f: Function, i: Instr, st: State, owned: Owned) {
+    if i.kind == "retain" {
+        k = i.args[0]
+        if k.is_temp and st.objects[k.index] != 0 {
+            owned.counts[st.objects[k.index]] += 1
+        }
+        return
+    }
+    if i.kind == "release" {
+        release_ref(owned, f, i.args[0], st)
+        return
+    }
+    if i.kind == "assign" {
+        if f.temps[i.dest].kind == "ref" {
+            check_use(owned, f, i.args[0], st)
+            st.objects[i.dest] = objects_of(f, i.args[0], st)
+        }
+        write_slot(f, i.dest, read_operand(f, i.args[0], st), st)
+        return
+    }
+    if i.kind == "call" {
+        if i.callee.starts_with("rt::") {
+            run_runtime(f, i, st, owned)
+            return
+        }
+        call_user(mir, f, i, st, owned)
+        return
+    }
+    if i.kind == "store" {
+        object = objects_of(f, i.args[0], st)
+        if object != 0 {
+            k = field_index(i.offset)
+            if k >= 0 and k < owned.fields[object].len() {
+                row = owned.fields[object]
+                row[k] = read_operand(f, i.args[1], st)
+            }
+        }
+        return
+    }
+    if i.kind == "load" {
+        object = objects_of(f, i.args[0], st)
+        if object != 0 {
+            k = field_index(i.offset)
+            if k >= 0 and k < owned.fields[object].len() {
+                write_slot(f, i.dest, owned.fields[object][k], st)
+            }
+        }
+        return
+    }
+    left = 0
+    right = 0
+    if i.kind == "add" or i.kind == "sub" or i.kind == "mul" or i.kind == "div" or i.kind == "rem" or i.kind == "bitand" or i.kind == "bitor" or i.kind == "bitxor" or i.kind == "shl" or i.kind == "shr" {
+        left = operand_int(i.args[0], st)
+        right = operand_int(i.args[1], st)
+    }
+    if i.kind == "add" {
+        st.values[i.dest] = left + right
+        return
+    }
+    if i.kind == "sub" {
+        st.values[i.dest] = left - right
+        return
+    }
+    if i.kind == "mul" {
+        st.values[i.dest] = left * right
+        return
+    }
+    if i.kind == "div" {
+        st.values[i.dest] = left / right
+        return
+    }
+    if i.kind == "rem" {
+        st.values[i.dest] = left % right
+        return
+    }
+    if i.kind == "bitand" {
+        st.values[i.dest] = masked(left, operand_int(i.args[1], st))
+        return
+    }
+    if i.kind == "bitor" {
+        st.values[i.dest] = left | operand_int(i.args[1], st)
+        return
+    }
+    if i.kind == "bitxor" {
+        st.values[i.dest] = left ^ operand_int(i.args[1], st)
+        return
+    }
+    if i.kind == "shl" {
+        st.values[i.dest] = left << operand_int(i.args[1], st)
+        return
+    }
+    if i.kind == "shr" {
+        st.values[i.dest] = left >> operand_int(i.args[1], st)
+        return
+    }
+    if i.kind == "bitnot" {
+        st.values[i.dest] = 0 - operand_int(i.args[0], st) - 1
+        return
+    }
+    if i.kind == "neg" {
+        st.values[i.dest] = 0 - operand_int(i.args[0], st)
+        return
+    }
+    if i.kind == "not" {
+        st.bools[i.dest] = not operand_bool(i.args[0], st)
+        return
+    }
+    if i.kind == "lt" or i.kind == "le" or i.kind == "gt" or i.kind == "ge" or i.kind == "eq" or i.kind == "ne" {
+        st.bools[i.dest] = compare(i.kind, operand_int(i.args[0], st), operand_int(i.args[1], st))
+        return
+    }
+}
+
+/// A call to a function this program declares: a frame, the arguments copied into its
+/// parameters, and its `return` written where the caller asked for it.
+fn call_user(mir: Mir, f: Function, i: Instr, st: State, owned: Owned) {
+    target = function_index(mir, i.callee)
+    if target < 0 {
+        return
+    }
+    callee = mir.functions[target]
+    cst = new_frame(callee)
+    k = 0
+    for arg in i.args {
+        if k < callee.params.len() {
+            check_use(owned, f, arg, st)
+            write_slot(callee, callee.params[k], read_operand(f, arg, st), cst)
+        }
+        k += 1
+    }
+    run_function(mir, callee, cst, owned)
+    if i.dest >= 0 {
+        write_slot(f, i.dest, cst.ret, st)
+    }
+}
+
+/// The runtime functions this slice emits: the print primitives, `StrConcat` and the
+/// integer rendering an interpolation hole needs.
+fn run_runtime(f: Function, i: Instr, st: State, owned: Owned) {
+    if i.dest >= 0 {
+        if i.callee == "rt::IntToStr" {
+            st.refs[i.dest] = "${operand_int(i.args[0], st)}"
+            st.objects[i.dest] = new_object(owned, 0)
+        } else if i.callee == "rt::StrConcat" {
+            check_use(owned, f, i.args[0], st)
+            check_use(owned, f, i.args[1], st)
+            st.refs[i.dest] = operand_str(i.args[0], st) + operand_str(i.args[1], st)
+            st.objects[i.dest] = new_object(owned, 0)
+        } else if i.callee == "rt::ObjNewClass" {
+            st.objects[i.dest] = new_object(owned, operand_int(i.args[0], st))
+        } else if i.callee == "rt::ListNew" {
+            st.objects[i.dest] = new_object(owned, 0)
+        } else if i.callee == "rt::ListLen" {
+            st.values[i.dest] = list_of(owned, f, i.args[0], st).len()
+        } else if i.callee == "rt::StrLen" {
+            check_use(owned, f, i.args[0], st)
+            st.values[i.dest] = operand_str(i.args[0], st).len()
+        } else if i.callee == "rt::ListGet" {
+            check_use(owned, f, i.args[0], st)
+            object = objects_of(f, i.args[0], st)
+            at = operand_int(i.args[1], st)
+            if object == 0 or at < 0 or at >= owned.items[object].len() {
+                own_fail(owned, "a list index out of bounds")
+                return
+            }
+            write_slot(f, i.dest, owned.items[object][at], st)
+        }
+        return
+    }
+    if i.callee == "rt::ListPush" {
+        object = objects_of(f, i.args[0], st)
+        if object == 0 {
+            own_fail(owned, "a push into a list that is not there")
+            return
+        }
+        check_use(owned, f, i.args[1], st)
+        owned.items[object].add(read_operand(f, i.args[1], st))
+        return
+    }
+    if i.callee == "rt::PrintNl" {
+        print(st.pending)
+        st.pending = ""
+        return
+    }
+    if i.callee == "rt::PrintSep" {
+        st.pending += " "
+        return
+    }
+    if i.args.len() == 0 {
+        return
+    }
+    if i.callee == "rt::PrintInt" {
+        st.pending += "${operand_int(i.args[0], st)}"
+        return
+    }
+    if i.callee == "rt::PrintBool" {
+        if operand_bool(i.args[0], st) {
+            st.pending += "true"
+        } else {
+            st.pending += "false"
+        }
+        return
+    }
+    if i.callee == "rt::PrintStr" {
+        check_use(owned, f, i.args[0], st)
+        st.pending += operand_str(i.args[0], st)
+        return
+    }
+    st.pending += print_text(i.args[0].value)
+}
+
+/// A `release`: it takes one count from the object the operand holds, and it must not
+/// take a count that is not there. A literal is static, so releasing one is nothing.
+fn release_ref(owned: Owned, f: Function, o: Operand, st: State) {
+    id = objects_of(f, o, st)
+    if id == 0 {
+        return
+    }
+    if owned.counts[id] <= 0 {
+        if owned.failure == "" {
+            owned.failure = "a release of a reference that was not owned"
+        }
+        return
+    }
+    owned.counts[id] -= 1
+    if owned.counts[id] == 0 {
+        owned.freed[id] = true
+        drop_fields(owned, id)
+    }
+}
+
+/// A use of a reference whose count already reached zero: the object is gone.
+/// What an operand stands for right now, as a value that can cross a frame boundary.
+fn read_operand(f: Function, o: Operand, st: State) -> Slot {
+    if not o.is_temp {
+        v = o.value
+        if v.kind == "str" {
+            return Slot(kind: "ref", s: v.str_value)
+        }
+        if v.kind == "bool" {
+            return Slot(kind: "bool", b: v.bool_value)
+        }
+        if v.kind == "float" {
+            return Slot(kind: "float", x: v.float_value)
+        }
+        if v.kind == "int" {
+            return Slot(kind: "int", i: v.int_value)
+        }
+        return Slot(kind: v.kind)
+    }
+    kind = f.temps[o.index].kind
+    if kind == "ref" {
+        return Slot(kind: "ref", s: st.refs[o.index], obj: st.objects[o.index])
+    }
+    if kind == "bool" {
+        return Slot(kind: "bool", b: st.bools[o.index])
+    }
+    if kind == "float" {
+        return Slot(kind: "float", x: st.floats[o.index])
+    }
+    return Slot(kind: "int", i: st.values[o.index])
+}
+
+/// Store a value in a temporary, in the temporary's own kind.
+fn write_slot(f: Function, dest: int, value: Slot, st: State) {
+    kind = f.temps[dest].kind
+    if kind == "ref" {
+        st.refs[dest] = value.s
+        st.objects[dest] = value.obj
+        return
+    }
+    if kind == "bool" {
+        st.bools[dest] = value.b
+        return
+    }
+    if kind == "float" {
+        st.floats[dest] = value.x
+        return
+    }
+    st.values[dest] = value.i
+}
+
+/// Two's-complement `x & mask` for the masks the lowering emits (`2^k - 1`), written
+/// without the bitwise operators so the interpreter does not need a feature it cannot
+/// lower itself yet.
+fn masked(x: int, mask: int) -> int {
+    if x >= 0 {
+        return x % (mask + 1)
+    }
+    r = (0 - x) % (mask + 1)
+    if r == 0 {
+        return 0
+    }
+    return mask + 1 - r
+}
+
+fn compare(kind: string, left: int, right: int) -> bool {
+    if kind == "lt" {
+        return left < right
+    }
+    if kind == "le" {
+        return left <= right
+    }
+    if kind == "gt" {
+        return left > right
+    }
+    if kind == "ge" {
+        return left >= right
+    }
+    if kind == "eq" {
+        return left == right
+    }
+    return left != right
+}
+
+fn operand_int(o: Operand, st: State) -> int {
+    if o.is_temp {
+        return st.values[o.index]
+    }
+    return o.value.int_value
+}
+
+fn operand_str(o: Operand, st: State) -> string {
+    if o.is_temp {
+        return st.refs[o.index]
+    }
+    return o.value.str_value
+}
+
+fn operand_bool(o: Operand, st: State) -> bool {
+    if o.is_temp {
+        return st.bools[o.index]
+    }
+    return o.value.bool_value
+}

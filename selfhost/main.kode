@@ -1,0 +1,166 @@
+// The self-hosted compiler's entry point (stage S1 of
+// docs/PLAN-self-hosting.md).
+//
+//   kode-stage1 tokens <file.kode>
+//   kode-stage1 ast <file.kode>
+//   kode-stage1 check <file.kode>
+//   kode-stage1 mir <file.kode>
+//   kode-stage1 run <file.kode>
+//
+// `check` is the first slice of S3 (`selfhost/sema.kode`): name resolution only, so
+// its diagnostics are codes and messages until the JSON format lands.
+
+from "./ast" import ast_lines
+from "./dump" import position, tokens_lines
+from "./eval" import run
+from "./lexer" import lex
+from "./lower" import build
+from "./mir" import dump_lines
+from "./modules" import Loader
+from "./parser" import parse
+from "./report" import from_lex, render, render_diag
+from "./sema" import Sema
+
+argv = args()
+
+if argv.len() == 0 {
+    print("usage: kode-stage1 tokens <file.kode>")
+    exit(2)
+}
+
+command = argv[0]
+
+if command != "tokens" and command != "ast" and command != "check" and command != "mir" and command != "run" and command != "report" {
+    print("kode-stage1: `${command}` is not implemented yet; `tokens`, `ast`, `check`, `mir` and `run` exist")
+    exit(2)
+}
+
+if argv.len() < 2 {
+    print("kode-stage1: `${command}` needs a file name")
+    exit(2)
+}
+
+file = argv[1]
+src = ""
+try {
+    src = read_file(file)
+} catch e {
+    print("kode-stage1: cannot read ${file}: ${e.message}")
+    exit(1)
+}
+
+lx = lex(src)
+
+if lx.errors.len() > 0 {
+    // Diagnostics belong on stderr, and `kode tokens` puts them there. Each
+    // report ends with a newline of its own, and `stderr` adds one, so the
+    // stream gets a blank line between reports exactly like the oracle
+    // (`stderr` is WP-10, ADR 0045).
+    for err in lx.errors {
+        stderr(render(file, src, from_lex(err)))
+    }
+    exit(1)
+}
+
+if command == "check" {
+    // The checker needs the whole program, not one file: free functions and
+    // constants share one namespace across modules (`modules.kode`).
+    graph = Loader().graph(file, src)
+    if graph.problems.len() > 0 {
+        for problem in graph.problems {
+            stderr(render(problem.file, problem.src, problem.err))
+        }
+        exit(1)
+    }
+    checker = Sema(asts: graph.asts, mods: graph.modules, aliases: graph.aliases)
+    checker.run()
+    errors = 0
+    for diag in checker.diags {
+        src_of = src
+        if diag.file != "" and diag.file != file {
+            src_of = read_file(diag.file)
+        }
+        stderr(render_diag(diag.file, src_of, diag))
+        if not diag.warning {
+            errors += 1
+        }
+    }
+    if errors > 0 {
+        exit(1)
+    }
+    stderr("ok: ${file} has no errors")
+    exit(0)
+}
+
+if command == "ast" {
+    parsed = parse(src, lx)
+    if parsed.errors.len() > 0 {
+        for err in parsed.errors {
+            stderr(render(file, src, err))
+        }
+        exit(1)
+    }
+    print(ast_lines(parsed.ast).join("\n"))
+    exit(0)
+}
+
+// `report` walks the whole program and prints every construct this slice cannot
+// lower, one per line and once each, so the corpus ledger is generated from the
+// port instead of maintained by hand. Finding them is the point, so it exits 0.
+if command == "report" {
+    parsed = parse(src, lx)
+    if parsed.errors.len() > 0 {
+        for err in parsed.errors {
+            stderr(render(file, src, err))
+        }
+        exit(1)
+    }
+    graph = Loader().graph(file, src)
+    if graph.problems.len() > 0 {
+        for problem in graph.problems {
+            stderr(render(problem.file, problem.src, problem.err))
+        }
+        exit(1)
+    }
+    lowered = build(graph.asts, graph.order, true)
+    for reason in lowered.problems {
+        print(reason)
+    }
+    exit(0)
+}
+
+// `mir` and `run` are S4 (`selfhost/mir.kode`, `selfhost/eval.kode`): the first
+// slice lowers `print` of literals, so a program outside that shape stops here.
+if command == "mir" or command == "run" {
+    parsed = parse(src, lx)
+    if parsed.errors.len() > 0 {
+        for err in parsed.errors {
+            stderr(render(file, src, err))
+        }
+        exit(1)
+    }
+    graph = Loader().graph(file, src)
+    if graph.problems.len() > 0 {
+        for problem in graph.problems {
+            stderr(render(problem.file, problem.src, problem.err))
+        }
+        exit(1)
+    }
+    lowered = build(graph.asts, graph.order, false)
+    if not lowered.ok {
+        stderr("kode-stage1: MIR is not implemented for ${lowered.why} yet")
+        exit(2)
+    }
+    if command == "mir" {
+        print(dump_lines(lowered).join("\n"))
+        exit(0)
+    }
+    if not run(lowered) {
+        exit(1)
+    }
+    exit(0)
+}
+
+// The dump ends with a newline, and `print` adds one, so the lines are joined
+// without a trailing empty one.
+print(tokens_lines(src, lx).join("\n"))

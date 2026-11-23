@@ -1,0 +1,7 @@
+// An interpolation as a return value: the accumulator moves into the return
+// temporary, and the function owns nothing else.
+fn greet(y: string) -> string {
+    return "a${y}"
+}
+
+print(greet("z"))

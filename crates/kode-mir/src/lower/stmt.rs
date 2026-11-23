@@ -2,7 +2,7 @@ use kode_sema::Type;
 use kode_syntax::ast::{Arm, Expr, ExprKind, Pattern, Stmt, Target};
 
 use super::data::list_rt;
-use super::{default_operand, mir_ty, Lowerer, V};
+use super::{default_operand, Lowerer, V};
 use crate::ir::*;
 
 impl<'a> Lowerer<'a> {
@@ -56,7 +56,7 @@ impl<'a> Lowerer<'a> {
 
     /// Store into an optional number: keep the value and the `present` flag in
     /// step. `none` clears the flag; anything else sets it.
-    fn store_opt(&mut self, value_id: LocalId, flag_id: LocalId, scalar: Ty, v: V) {
+    pub(crate) fn store_opt(&mut self, value_id: LocalId, flag_id: LocalId, scalar: Ty, v: V) {
         let flag = match v.present.clone() {
             Some(f) => f,
             None => Operand::Bool(!matches!(v.op, Operand::NullRef)),
@@ -303,7 +303,7 @@ impl<'a> Lowerer<'a> {
                     .and_then(|a| kode_sema::types::ann_type(a, self.checked))
                     .and_then(|t| kode_sema::types::is_opt_scalar(&t))
                 {
-                    let scalar = mir_ty(&inner);
+                    let scalar = self.mty(&inner);
                     let v = self.expr(value);
                     let id = self.declare_var_opt(name, scalar);
                     let flag = self.opt_flags[&id];
@@ -311,13 +311,38 @@ impl<'a> Lowerer<'a> {
                     return;
                 }
                 let vty = self.expr_type(value).clone();
-                let ty = mir_ty(&vty);
+                // `x = maybe(1)`: the value's own type is the pair, so the new
+                // local is one too (ADR 0041).
+                if let Some(inner) = kode_sema::types::is_opt_scalar(&vty) {
+                    let scalar = self.mty(&inner);
+                    let v = self.expr(value);
+                    let id = self.declare_var_opt(name, scalar);
+                    let flag = self.opt_flags[&id];
+                    self.store_opt(id, flag, scalar, v);
+                    return;
+                }
+                let ty = self.mty(&vty);
                 let v = self.expr(value);
                 if let Some(id) = self.lookup(name) {
                     self.store_local(id, v, ty);
                 } else if let Some((offset, fty)) = self.this_field(name) {
                     let this = Operand::Local(self.this_local.unwrap());
-                    self.store_field(this, offset, mir_ty(&fty), v);
+                    if let Some(scalar) = kode_sema::types::is_opt_scalar(&fty) {
+                        let st = self.mty(&scalar);
+                        self.emit(Inst::Store {
+                            base: this.clone(),
+                            offset,
+                            value: Lowerer::opt_value(&v.op, st),
+                        });
+                        let flag = Self::opt_field_flag(value, &v);
+                        self.emit(Inst::Store {
+                            base: this,
+                            offset: offset + 8,
+                            value: flag,
+                        });
+                    } else {
+                        self.store_field(this, offset, self.mty(&fty), v);
+                    }
                 } else {
                     let id = self.declare_var(name, ty);
                     self.store_local(id, v, ty);
@@ -336,7 +361,7 @@ impl<'a> Lowerer<'a> {
                     Type::List(el) => (el, list_rt(el, RtFn::ListSet)),
                     _ => unreachable!("checked: a list or map"),
                 };
-                let op = if mir_ty(el) == Ty::Ref {
+                let op = if self.mty(el) == Ty::Ref {
                     self.own(v)
                 } else {
                     v.op
@@ -360,12 +385,31 @@ impl<'a> Lowerer<'a> {
                 let Type::Class(cn) = ot else {
                     unreachable!("checked: a class value")
                 };
-                let class = &self.checked.classes[self.checked.class_index[cn]];
-                let fi = class.fields.iter().position(|f| f.name == *name).unwrap();
-                let fty = mir_ty(&class.fields[fi].ty);
+                let ci = self.checked.class_index[cn];
+                let fields = self.checked.classes[ci].fields.clone();
+                let fi = fields.iter().position(|f| f.name == *name).unwrap();
+                let fty = self.mty(&fields[fi].ty);
+                let offset = self.field_offsets(ci).0[fi];
                 let ov = self.expr(obj);
                 let v = self.expr(value);
-                self.store_field(ov.op.clone(), 24 + 8 * fi as i32, fty, v);
+                if let Some(scalar) = kode_sema::types::is_opt_scalar(&fields[fi].ty) {
+                    // `p.n = none`: both slots, so the flag always moves with
+                    // the value (ADR 0041 §2).
+                    let st = self.mty(&scalar);
+                    self.emit(Inst::Store {
+                        base: ov.op.clone(),
+                        offset,
+                        value: Lowerer::opt_value(&v.op, st),
+                    });
+                    let flag = Self::opt_field_flag(value, &v);
+                    self.emit(Inst::Store {
+                        base: ov.op.clone(),
+                        offset: offset + 8,
+                        value: flag,
+                    });
+                } else {
+                    self.store_field(ov.op.clone(), offset, fty, v);
+                }
                 self.release_if_owned(ov);
             }
         }
@@ -495,7 +539,7 @@ impl<'a> Lowerer<'a> {
                     });
                 }
                 let name = &vars[vars.len() - 1].0;
-                let ety = mir_ty(el);
+                let ety = self.mty(el);
                 let var = self.declare_var(name, ety);
                 self.store_local(var, V::val(item), ety);
             }
@@ -511,7 +555,7 @@ impl<'a> Lowerer<'a> {
                 if vars.len() == 2 {
                     let val =
                         self.call_raw(RtFn::MapValAt, vec![h.clone(), Operand::Local(idx)], el);
-                    let ety = mir_ty(el);
+                    let ety = self.mty(el);
                     let vv = self.declare_var(&vars[1].0, ety);
                     self.store_local(vv, V::val(val), ety);
                 }
@@ -535,9 +579,65 @@ impl<'a> Lowerer<'a> {
         self.switch(exit);
     }
 
+    /// `Shape.Circle(r)` in a pattern: the variant index and the binding names,
+    /// in field order.
+    fn binding_pattern(&self, p: &Expr, ei: usize) -> Option<(usize, Vec<String>)> {
+        let ExprKind::MethodCall {
+            obj, name, args, ..
+        } = &p.kind
+        else {
+            return None;
+        };
+        let ExprKind::Ident(vn) = &obj.kind else {
+            return None;
+        };
+        if self.checked.enum_index.get(vn) != Some(&ei) {
+            return None;
+        }
+        let info = &self.checked.enums[ei];
+        let vi = info.variant_index(name)?;
+        let fields = &info.fields[vi];
+        if fields.is_empty() || fields.len() != args.len() {
+            return None;
+        }
+        let names: Vec<String> = args
+            .iter()
+            .map(|a| match &a.value.kind {
+                ExprKind::Ident(n) => n.clone(),
+                _ => String::new(),
+            })
+            .collect();
+        Some((vi, names))
+    }
+
+    /// `Shape.Circle` in a pattern position: the tag, not a value.
+    fn pattern_tag(&self, e: &Expr, ei: usize) -> Option<Operand> {
+        let ExprKind::Member { obj, name, .. } = &e.kind else {
+            return None;
+        };
+        let ExprKind::Ident(n) = &obj.kind else {
+            return None;
+        };
+        if self.checked.enum_index.get(n) != Some(&ei) {
+            return None;
+        }
+        self.checked.enums[ei]
+            .variant_index(name)
+            .map(|v| Operand::Int(v as i64))
+    }
+
     fn lower_match(&mut self, scrutinee: &Expr, arms: &[Arm]) {
         let st = self.expr_type(scrutinee);
         let sv = self.expr(scrutinee);
+        // A payload enum is a heap object, so a `match` on one compares tags.
+        let payload_ei = match st {
+            Type::Enum(n) => {
+                let ei = self.checked.enum_index[n];
+                self.checked.enums[ei].has_payloads().then_some(ei)
+            }
+            _ => None,
+        };
+        let mut obj_holder: Option<LocalId> = None;
         // A string scrutinee is kept alive in a hidden variable.
         let sop = if *st == Type::Str {
             let holder = self.hidden_ref();
@@ -548,6 +648,23 @@ impl<'a> Lowerer<'a> {
                 rv: Rvalue::Use(op),
             });
             Operand::Local(holder)
+        } else if payload_ei.is_some() {
+            // The object stays alive for field bindings; `sop` is only the tag.
+            let holder = self.hidden_ref();
+            let op = self.own(sv);
+            self.emit(Inst::Release(Operand::Local(holder)));
+            self.emit(Inst::Assign {
+                dst: holder,
+                rv: Rvalue::Use(op),
+            });
+            obj_holder = Some(holder);
+            let tag = self.new_temp(Ty::Int);
+            self.emit(Inst::Call {
+                dst: Some(tag),
+                callee: Callee::Rt(RtFn::EnumTag),
+                args: vec![Operand::Local(holder)],
+            });
+            Operand::Local(tag)
         } else {
             sv.op
         };
@@ -562,7 +679,17 @@ impl<'a> Lowerer<'a> {
                     return;
                 }
                 Pattern::Value(p) => {
-                    let pv = self.expr(p);
+                    // A variant pattern names a tag; constructing the variant
+                    // here would compare a pointer with an int. `Shape.Circle(r)`
+                    // additionally binds the fields (ADR 0039 §4.3).
+                    let binding = payload_ei.and_then(|ei| self.binding_pattern(p, ei));
+                    let pv = match &binding {
+                        Some((vi, _)) => V::val(Operand::Int(*vi as i64)),
+                        None => match payload_ei.and_then(|ei| self.pattern_tag(p, ei)) {
+                            Some(tag) => V::val(tag),
+                            None => self.expr(p),
+                        },
+                    };
                     let cond = self.new_temp(Ty::Bool);
                     if *st == Type::Str {
                         self.emit(Inst::Call {
@@ -585,6 +712,23 @@ impl<'a> Lowerer<'a> {
                         else_bb: next,
                     });
                     self.switch(arm_bb);
+                    if let (Some((vi, names)), Some(ei), Some(holder)) =
+                        (&binding, payload_ei, obj_holder)
+                    {
+                        let fields = self.checked.enums[ei].fields[*vi].clone();
+                        for (i, ((_, fty), name)) in fields.iter().zip(names.iter()).enumerate() {
+                            let load_ty = self.mty(fty);
+                            let f = self.new_temp(load_ty);
+                            self.emit(Inst::Load {
+                                dst: f,
+                                base: Operand::Local(holder),
+                                offset: 24 + 8 * i as i32,
+                                ty: load_ty,
+                            });
+                            let id = self.declare_var(name, load_ty);
+                            self.store_local(id, V::val(Operand::Local(f)), load_ty);
+                        }
+                    }
                     self.block(&arm.body);
                     self.term(Terminator::Goto(join));
                     self.switch(next);

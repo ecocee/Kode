@@ -15,7 +15,12 @@ pub fn cc_program() -> String {
 }
 
 /// Link an object file with the Kode runtime into an executable.
-pub fn link(object: &[u8], output: &Path, runtime_lib: &Path, strip: bool) -> Result<(), String> {
+pub fn link(
+    object: &[u8],
+    output: &Path,
+    runtime_libs: &[&Path],
+    strip: bool,
+) -> Result<(), String> {
     let obj_path = format!("{}.kode.o", output.display());
     std::fs::write(&obj_path, object).map_err(|e| format!("cannot write {obj_path}: {e}"))?;
     let cc = cc_program();
@@ -23,8 +28,22 @@ pub fn link(object: &[u8], output: &Path, runtime_lib: &Path, strip: bool) -> Re
     cmd.arg("-o")
         .arg(output)
         .arg(&obj_path)
-        .arg(runtime_lib)
+        .args(runtime_libs)
         .args(platform_args(strip));
+    // Opt-in linker map, for tests that need to know which archive members were
+    // pulled in. Never on by default: the map is large and only a diagnostic.
+    if let Ok(map) = std::env::var("KODE_LINK_MAP") {
+        if map.is_empty() {
+            return Err("KODE_LINK_MAP names an empty path".to_string());
+        }
+        if cfg!(target_os = "windows") {
+            cmd.arg(format!("-Wl,-Map={map}"));
+        } else if cfg!(target_os = "macos") {
+            cmd.arg(format!("-Wl,-map,{map}"));
+        } else {
+            cmd.arg(format!("-Wl,-Map={map}"));
+        }
+    }
     // A missing or non-executable linker must be reported as such, never as a
     // child that "ran" and exited 127.
     crate::force_fork_exec(&mut cmd);
@@ -32,11 +51,19 @@ pub fn link(object: &[u8], output: &Path, runtime_lib: &Path, strip: bool) -> Re
     let _ = std::fs::remove_file(&obj_path);
     match status {
         Ok(s) if s.success() => Ok(()),
-        Ok(s) => Err(format!("the linker `{cc}` failed with {s}")),
-        Err(e) => Err(format!(
-            "could not start the linker `{cc}` ({e}); {}",
-            install_hint()
-        )),
+        // Never leave a stale or half-written executable behind: a caller that
+        // ignores the error must not find a binary from an earlier build here.
+        Ok(s) => {
+            let _ = std::fs::remove_file(output);
+            Err(format!("the linker `{cc}` failed with {s}"))
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(output);
+            Err(format!(
+                "could not start the linker `{cc}` ({e}); {}",
+                install_hint()
+            ))
+        }
     }
 }
 

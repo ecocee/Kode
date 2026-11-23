@@ -1,0 +1,12 @@
+// A bool is a local like an int: false at the top of the block, then the value, and an
+// `if` branches on it.
+b = true
+if b {
+    print("yes")
+}
+c = false
+if c {
+    print("no")
+} else {
+    print("else")
+}

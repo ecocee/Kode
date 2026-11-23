@@ -119,6 +119,8 @@ pub fn lower(program: &Program, checked: &Checked, src: &dyn LineMap, mode: Mode
 pub(crate) struct ClosureSpec {
     pub params: Vec<(String, Ty)>,
     pub ret: Ty,
+    /// The optional-number return, when there is one (ADR 0041 §5).
+    pub ret_opt: Option<Ty>,
     pub captures: Vec<(String, Ty)>,
     pub body: Expr,
 }
@@ -139,6 +141,7 @@ fn lower_closure(
         lw.declare(name, id);
     }
     lw.param_count = 1 + spec.params.len();
+    lw.ret_opt = spec.ret_opt;
     // Captures are borrowed from the closure object, which owns them.
     for (i, (name, ty)) in spec.captures.iter().enumerate() {
         let id = lw.new_local(*ty, Some(name.clone()));
@@ -165,12 +168,12 @@ fn make_fnval(checked: &Checked, idx: usize) -> MirFunc {
     }];
     for (name, ty) in &sig.params {
         locals.push(LocalDecl {
-            ty: mir_ty(ty),
+            ty: mir_ty(checked, ty),
             name: Some(name.clone()),
         });
     }
     let args: Vec<Operand> = (1..=sig.params.len()).map(Operand::Local).collect();
-    let ret = mir_ty(&sig.ret);
+    let ret = mir_ty(checked, &sig.ret);
     let dst = if ret == Ty::Unit {
         None
     } else {
@@ -211,7 +214,7 @@ fn make_thunk(checked: &Checked, idx: usize) -> MirFunc {
     let mut insts = Vec::new();
     let mut args = Vec::new();
     for (i, (name, ty)) in sig.params.iter().enumerate() {
-        let t = mir_ty(ty);
+        let t = mir_ty(checked, ty);
         locals.push(LocalDecl {
             ty: t,
             name: Some(name.clone()),
@@ -225,7 +228,7 @@ fn make_thunk(checked: &Checked, idx: usize) -> MirFunc {
         });
         args.push(Operand::Local(id));
     }
-    let ret = mir_ty(&sig.ret);
+    let ret = mir_ty(checked, &sig.ret);
     let raw = if ret == Ty::Unit {
         insts.push(Inst::Call {
             dst: None,
@@ -298,26 +301,27 @@ fn plan_dispatches(
                 }
             }
             map.insert((iface.name.clone(), m.name.clone()), offset + out.len());
-            out.push(build_dispatch(iface, m, &impls, strings));
+            out.push(build_dispatch(checked, iface, m, &impls, strings));
         }
     }
     map
 }
 
 fn build_dispatch(
+    checked: &Checked,
     iface: &InterfaceInfo,
     m: &IfaceMethod,
     impls: &[(i64, usize)],
     strings: &mut Strings,
 ) -> MirFunc {
-    let ret = mir_ty(&m.ret);
+    let ret = mir_ty(checked, &m.ret);
     let mut locals = vec![LocalDecl {
         ty: Ty::Ref,
         name: Some("this".into()),
     }];
     for (name, ty) in &m.params {
         locals.push(LocalDecl {
-            ty: mir_ty(ty),
+            ty: mir_ty(checked, ty),
             name: Some(name.clone()),
         });
     }
@@ -408,13 +412,27 @@ fn lower_fn(
     dispatch: &HashMap<(String, String), usize>,
 ) -> MirFunc {
     let sig = &checked.fns[index];
-    let ret = mir_ty(&sig.ret);
+    let ret = mir_ty(checked, &sig.ret);
     let mut lw = Lowerer::new(checked, src, strings, dispatch, ret, false);
-    for (name, ty) in &sig.params {
-        let id = lw.new_local(mir_ty(ty), Some(name.clone()));
-        lw.declare(name, id);
-    }
+    lw.ret_opt = kode_sema::types::is_opt_scalar(&sig.ret).map(|s| mir_ty(checked, &s));
+    // Parameters are locals 0..n, in ABI order, so every parameter gets its
+    // local before anything else is allocated.
+    let raws: Vec<LocalId> = sig
+        .params
+        .iter()
+        .map(|(name, ty)| lw.new_local(mir_ty(checked, ty), Some(name.clone())))
+        .collect();
     lw.param_count = sig.params.len();
+    for ((name, ty), raw) in sig.params.iter().zip(raws) {
+        if let Some(scalar) = kode_sema::types::is_opt_scalar(ty) {
+            // A pair arrives boxed (ADR 0041 §5); decode it into the value and
+            // flag locals the body uses. The box is borrowed, so the caller frees
+            // it.
+            lw.decode_opt_param(name, raw, mir_ty(checked, &scalar));
+        } else {
+            lw.declare(name, raw);
+        }
+    }
     if is_method {
         lw.this_local = Some(0);
         lw.cur_class = sig
@@ -442,9 +460,15 @@ fn lower_fn(
     lw.finish(sig.name.clone())
 }
 
-pub(crate) fn mir_ty(t: &Type) -> Ty {
+pub(crate) fn mir_ty(checked: &Checked, t: &Type) -> Ty {
     match t {
-        Type::Int | Type::Enum(_) => Ty::Int,
+        // A tag-only enum stays an `int`; one with a payload variant is a heap
+        // object, and so is every value of that enum (ADR 0039 §2).
+        Type::Enum(n) => match checked.enum_index.get(n) {
+            Some(&ei) if checked.enums[ei].has_payloads() => Ty::Ref,
+            _ => Ty::Int,
+        },
+        Type::Int => Ty::Int,
         Type::Float => Ty::Float,
         Type::Bool => Ty::Bool,
         Type::Unit => Ty::Unit,
@@ -517,6 +541,15 @@ pub(crate) struct V {
     pub present: Option<Operand>,
 }
 
+/// The `present` flag of a value used where a pair is expected: its own flag,
+/// `false` for `none`, `true` for a plain value the checker widened (ADR 0041).
+pub(crate) fn pair_flag(v: &V) -> Operand {
+    match &v.present {
+        Some(f) => f.clone(),
+        None => Operand::Bool(!matches!(v.op, Operand::NullRef)),
+    }
+}
+
 impl V {
     pub fn val(op: Operand) -> V {
         V {
@@ -555,6 +588,9 @@ pub(crate) struct Lowerer<'a> {
     ref_locals: Vec<LocalId>,
     pub param_count: usize,
     pub ret: Ty,
+    /// Set when the declared return type is an optional number: the pair leaves
+    /// boxed (ADR 0041 §5).
+    pub ret_opt: Option<Ty>,
     ret_local: Option<LocalId>,
     exit_bb: BlockId,
     propagate_bb: Option<BlockId>,
@@ -593,6 +629,7 @@ impl<'a> Lowerer<'a> {
             ref_locals: Vec::new(),
             param_count: 0,
             ret,
+            ret_opt: None,
             ret_local: None,
             exit_bb: 0,
             propagate_bb: None,
@@ -660,6 +697,14 @@ impl<'a> Lowerer<'a> {
 
     /// Declare an optional number or bool: a value local plus a flag local.
     /// Neither is a heap value, so neither is released at exit.
+    /// Decode a boxed `int?` parameter into the pair the body works with.
+    pub(crate) fn decode_opt_param(&mut self, name: &str, raw: LocalId, scalar: Ty) {
+        let v = self.unbox_pair(Operand::Local(raw), scalar);
+        let id = self.declare_var_opt(name, scalar);
+        let flag = self.opt_flags[&id];
+        self.store_opt(id, flag, scalar, v);
+    }
+
     pub fn declare_var_opt(&mut self, name: &str, scalar: Ty) -> LocalId {
         let id = self.new_local(scalar, Some(name.to_string()));
         let flag = self.new_local(Ty::Bool, None);
@@ -707,7 +752,12 @@ impl<'a> Lowerer<'a> {
     }
 
     pub fn ety(&self, e: &Expr) -> Ty {
-        mir_ty(self.expr_type(e))
+        mir_ty(self.checked, self.expr_type(e))
+    }
+
+    /// `mir_ty` with the enum declarations in reach.
+    pub fn mty(&self, t: &Type) -> Ty {
+        mir_ty(self.checked, t)
     }
 
     pub fn line_of(&self, offset: usize) -> i64 {
@@ -820,7 +870,16 @@ impl<'a> Lowerer<'a> {
         if ret == Ty::Unit {
             self.release_if_owned(v);
         } else {
-            let op = if ret == Ty::Ref { self.own(v) } else { v.op };
+            // A pair going back to the caller is boxed the same way a parameter
+            // is (ADR 0041 §5), so `int?` returns need no second return slot.
+            let op = match self.ret_opt {
+                Some(_) => {
+                    let flag = pair_flag(&v);
+                    self.box_pair(&v.op, flag)
+                }
+                None if ret == Ty::Ref => self.own(v),
+                None => v.op,
+            };
             let rl = self.ret_local(ret);
             self.emit(Inst::Assign {
                 dst: rl,
@@ -905,7 +964,7 @@ impl<'a> Lowerer<'a> {
     }
 }
 
-fn default_operand(t: Ty) -> Operand {
+pub(crate) fn default_operand(t: Ty) -> Operand {
     match t {
         Ty::Int | Ty::Unit => Operand::Int(0),
         Ty::Float => Operand::Float(0.0),

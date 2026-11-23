@@ -1,0 +1,84 @@
+// The import namespace family: a module alias is a qualifier in the one shared
+// namespace, so it may not repeat (`E0408`) or hide a declaration (`E0409`).
+//
+// The oracle records an alias while it loads a file and checks the list from the
+// checker (`crates/kode-sema/src/check/item.rs::collect_modules`), once every
+// top-level name of every file exists. The list is in load order — the aliases of a
+// file's imports come after the files those imports reach — and the check walks it
+// once, so the *second* of two equal aliases is the one reported, and an alias that
+// hides a function is reported even when a later file repeats it. The first alias is
+// the one that survives in `module_index`, which is what a member call resolves
+// through (`surviving`), so the reported duplicate is never the one that is used.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag_at
+from "./modules" import Alias, Module
+
+/// The diagnostics for every `import "..." as n` in the program, in load order.
+pub fn alias_diags(aliases: [Alias], globals: [string]) -> [Diag] {
+    diags: [Diag] = []
+    seen: [string] = []
+    for alias in aliases {
+        if seen.contains(alias.name) {
+            diags.add(Diag(file: alias.file, code: "E0408",
+                    message: "the module name `${alias.name}` is imported twice",
+                    start: alias.start, end: alias.end))
+        } else if globals.contains(alias.name) {
+            diags.add(Diag(file: alias.file, code: "E0409",
+                    message: "the module name `${alias.name}` hides another declaration",
+                    start: alias.start, end: alias.end,
+                    help: "choose another name, for example `import \"...\" as pkg`"))
+        } else {
+            seen.add(alias.name)
+        }
+    }
+    return diags
+}
+
+/// The alias a name resolves through, or an empty one when it resolves through none:
+/// the first in load order, as `module_index` holds it. A duplicate does not take the
+/// place of the first, and a name that hides a declaration is never inserted at all.
+pub fn surviving(aliases: [Alias], decls: [string], name: string) -> Alias {
+    if decls.contains(name) {
+        return Alias(name: "", target: "")
+    }
+    for alias in aliases {
+        if alias.name == name {
+            return alias
+        }
+    }
+    return Alias(name: "", target: "")
+}
+
+/// `mods.f(...)`: a call through a module alias has to name something that module
+/// exports (`E0410`/`E0411`), resolved through the alias that survived — the first in
+/// load order. The caret goes under the member name, as the oracle's does.
+pub fn check_alias(ast: Ast, mods: [Module], aliases: [Alias], decls: [string], diags: [Diag], id: int, base: string, callee: string) {
+    alias = surviving(aliases, decls, base)
+    if alias.name == "" {
+        return
+    }
+    declared = false
+    exported = false
+    for target in mods {
+        if target.key == alias.target {
+            if target.names.contains(callee) {
+                declared = true
+            }
+            if target.exports.contains(callee) {
+                exported = true
+            }
+        }
+    }
+    if exported {
+        return
+    }
+    if not declared {
+        message = "the module `${base}` has no method `${callee}`"
+        diag_at(ast, diags, "E0410", message, id, "name_span", "")
+        return
+    }
+    message = "`${callee}` is private to module `${base}`"
+    diag_at(ast, diags, "E0411", message, id, "name_span",
+        "mark it `pub` in that file to use it from here")
+}

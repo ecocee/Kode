@@ -1,0 +1,17 @@
+await f()
+await work(1)
+x = await load(url)
+if await ready() {
+}
+while await more() {
+    break
+}
+|| await later()
+|v: int| await save(v)
+await fetch("a") catch e {
+    return none
+}
+y = await a ?? b
+z = await xs[0]
+w = await obj.get().value
+print(await compute(1, 2))

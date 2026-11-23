@@ -1,0 +1,10 @@
+// A reference crosses two frames: the argument is retained on the way in, the result
+// moves out, and both are released once.
+fn join(a: string, b: string) -> string {
+    return a + b
+}
+
+x = join("one", "two")
+print(x)
+y = join(x, "!")
+print(y)

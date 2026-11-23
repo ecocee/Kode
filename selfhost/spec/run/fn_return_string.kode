@@ -1,0 +1,6 @@
+fn shout(s: string) -> string {
+    t = s + "!"
+    u = t + "!"
+    return u
+}
+print("main")

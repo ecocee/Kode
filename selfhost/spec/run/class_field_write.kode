@@ -1,0 +1,14 @@
+// A field write releases what the field held after the store, and retains a borrowed
+// value first.
+class P {
+    name: string = "a"
+    age: int = 3
+}
+p = P()
+y = "b"
+p.name = y
+print(p.name)
+p.name = "z"
+print(p.name)
+p.age = 7
+print(p.age)

@@ -1,0 +1,135 @@
+// What `name = value` does (S3): the type the name takes, and the two ways the value
+// cannot be stored.
+//
+// An annotated target takes the annotation's type and the value must fit it (`E0202`).
+// An unannotated target takes the type of its first value and keeps it, which is what
+// makes a later value of another type `E0202` too. A value that is nothing at all —
+// the result of `print`, which shows text and returns no value — is `E0205`.
+//
+// The answer is the binding to make, or an empty one: the oracle declares nothing when
+// the value does not fit, which is why a later use of that name is `E0201`.
+//
+// `selfhost/assign.kode` is the parser's module of the same word: it builds the
+// `TargetVar`/`TargetIndex`/`TargetField` nodes. This one decides what those nodes
+// mean once the tree exists.
+
+from "./annotations" import resolve_ann
+from "./ast" import Ast, is_type_node
+from "./diag" import Diag, diag, diag_help
+from "./containers" import literal_fails
+from "./functions" import call_fails
+from "./members" import Members, member_fails, value_type
+from "./names" import Names
+from "./scope" import Scope
+from "./signatures" import SigTable
+from "./typing" import Local, coerce_value, expr_type, local_in, type_any
+
+/// `x = 1`: the binding an assignment to a name makes, declaring it in `scopes` when it
+/// stands. A call the checker refuses, or a value the rules refuse, declares nothing so
+/// the next line's use of the name is `E0201`, as in the oracle.
+pub fn bind_target(ast: Ast, scopes: Scope, names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int, target: int) -> Local {
+    kids = ast.nodes[id].kids
+    value = -1
+    if kids.len() >= 2 {
+        value = kids[kids.len() - 1]
+    }
+    if value >= 0 and call_fails(ast, scopes.frames, names, sigs, value) {
+        return Local(name: "", ty: type_any())
+    }
+    // `x = a.z` or `x = Shape.Circle` fails to produce a value, so the oracle declares
+    // nothing and the next use of `x` is `E0201`.
+    if value >= 0 and member_fails(ast, scopes.frames, names, members, value) {
+        return Local(name: "", ty: type_any())
+    }
+    one = bound_local(ast, scopes.frames, names, sigs, members, diags, id, target)
+    if one.name != "" {
+        scopes.declare(one.name, one.ty)
+    }
+    return one
+}
+
+/// `[]` or `{}`: a literal with nothing to take a type from.
+fn empty_collection(ast: Ast, id: int) -> bool {
+    kind = ast.nodes[id].kind
+    if kind != "List" and kind != "Map" {
+        return false
+    }
+    return ast.nodes[id].kids.len() == 0
+}
+
+/// The binding one `name = value` makes: `name` is "" when the name already existed or
+/// the value did not fit, so the caller declares nothing.
+pub fn bound_local(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, members: Members, diags: [Diag], id: int, target: int) -> Local {
+    name = ast.attr_text(target, "name")
+    if names.consts.contains(name) {
+        diag(ast, diags, "E0312", "`${name}` is a constant and cannot be changed", target)
+        return Local(name: "", ty: type_any())
+    }
+    kids = ast.nodes[id].kids
+    ann = -1
+    value = -1
+    i = kids.len() - 1
+    while i >= 1 {
+        if is_type_node(ast.nodes[kids[i]].kind) {
+            ann = kids[i]
+        } else if value < 0 {
+            value = kids[i]
+        }
+        i -= 1
+    }
+    vt = type_any()
+    if value >= 0 {
+        vt = value_type(ast, frames, names, sigs, members, value)
+    }
+    // A list or map literal the checker refuses declares nothing, which is what makes
+    // the next line's use of the name `E0201` (`e0213_mixed_list`).
+    if value >= 0 and literal_fails(ast, frames, names, value) {
+        return Local(name: "", ty: type_any())
+    }
+    if vt.kind == "unit" {
+        diag_help(ast, diags, "E0205", "this call returns nothing, so it cannot be stored in a variable",
+            value, "`print(...)` shows text and gives back no value")
+        return Local(name: "", ty: type_any())
+    }
+    have = local_in(frames, name)
+    want = type_any()
+    if ann >= 0 {
+        want = resolve_ann(ast, names, diags, ann)
+    }
+    // A type may be written once: the second time the name already exists (`E0313`).
+    if ann >= 0 and have.name != "" {
+        diag_help(ast, diags, "E0313", "`${name}` is already declared", target,
+            "write the type only the first time")
+        if value >= 0 {
+            coerce_value(ast, diags, value, vt, have.ty, name)
+        }
+        return Local(name: "", ty: type_any())
+    }
+    if ann >= 0 and want.kind != "invalid" {
+        if value >= 0 and not coerce_value(ast, diags, value, vt, want, name) {
+            return Local(name: "", ty: type_any())
+        }
+        return Local(name: name, ty: want)
+    }
+    // No annotation this slice can use: `none` and an empty collection need one, and
+    // the oracle reports the value rather than the declaration.
+    if (ann < 0 or want.kind == "invalid") and have.name == "" {
+        if vt.kind == "none" {
+            hint = "write it like `${name}: User? = none`"
+            diag_help(ast, diags, "E0219", "`none` needs a declared type", value, hint)
+            return Local(name: "", ty: type_any())
+        }
+        if value >= 0 and empty_collection(ast, value) {
+            hint = "write it like `${name}: [int] = []`"
+            diag_help(ast, diags, "E0222", "an empty list or map needs a declared type", value, hint)
+            return Local(name: "", ty: type_any())
+        }
+    }
+    if have.name != "" {
+        if value >= 0 {
+            coerce_value(ast, diags, value, vt, have.ty, name)
+        }
+        return Local(name: "", ty: type_any())
+    }
+    return Local(name: name, ty: vt)
+}

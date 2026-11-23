@@ -1,0 +1,9 @@
+// `==` compares addresses on a payload enum, so it is refused.
+enum Shape {
+    Circle(radius: float)
+    Empty
+}
+
+a = Shape.Circle(radius: 1.0)
+b = Shape.Circle(radius: 1.0)
+print(a == b)

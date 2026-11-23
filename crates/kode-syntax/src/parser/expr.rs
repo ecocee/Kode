@@ -68,6 +68,29 @@ impl Parser {
                 );
                 continue;
             }
+            // `s is Shape.Circle` binds at comparison precedence and names a
+            // variant, so it is parsed here rather than as a binary operator.
+            if matches!(self.peek(), TokenKind::Is) && min_bp <= 10 {
+                self.bump();
+                self.skip_newlines();
+                let (enum_name, _) = self.ident("the enum name after `is`")?;
+                self.expect(
+                    TokenKind::Dot,
+                    "a `.` and a variant name after the enum name",
+                )?;
+                let (variant, name_span) = self.ident("a variant name after `is`")?;
+                let span = lhs.span.join(name_span);
+                lhs = self.mk(
+                    span,
+                    ExprKind::Is {
+                        obj: Box::new(lhs),
+                        enum_name,
+                        variant,
+                        name_span,
+                    },
+                );
+                continue;
+            }
             let Some((op, l_bp, r_bp)) = infix(self.peek()) else {
                 break;
             };

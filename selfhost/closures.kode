@@ -1,0 +1,89 @@
+// Closures and `await`: the two prefix forms whose operand is a whole expression.
+//
+// `|x: int| x * 2` needs a type on every parameter (`E0241` otherwise) and its body
+// is a full expression, so `catch` works inside a closure body. `await expr` takes a
+// unary, so `await f().g()` awaits the whole chain. They live here rather than in
+// `expr.kode` to keep that file the operator grammar, and they ask for their operand
+// through `Expressions`.
+
+from "./ast" import Ast
+from "./contracts" import Expressions
+from "./cursor" import Cursor
+from "./infix" import BP_UNARY
+from "./tokens" import TokenKind
+from "./types" import Types
+
+pub class Forms {
+    c: Cursor
+    ast: Ast
+    exprs: Expressions
+
+    /// `await expr`: the keyword's span joined to the operand's.
+    fn await_expr() -> int {
+        start = c.at
+        c.advance()
+        operand = exprs.expr_bp(BP_UNARY)
+        if operand < 0 {
+            return operand
+        }
+        id = ast.counted("Await")
+        ast.kid(id, operand)
+        ast.span(id, "span", c.token_start(start), ast.nodes[operand].end)
+        return id
+    }
+
+    /// `|x: int| x * 2`, and `|| expr` when there are no parameters. Every
+    /// parameter needs its type; the body is a full expression, so `catch` works
+    /// inside a closure body.
+    fn closure() -> int {
+        start = c.at
+        c.advance()
+        id = ast.counted("Closure")
+        if c.peek() != TokenKind.Pipe {
+            more = true
+            while more {
+                name_at = c.at
+                c.advance()
+                param = ast.add("ClosureParam")
+                ast.text(param, "name", c.text_of(name_at))
+                ast.span(param, "name_span", c.token_start(name_at), c.token_end(name_at))
+                ast.kid(id, param)
+                if c.peek() == TokenKind.Colon {
+                    c.advance()
+                } else {
+                    c.fail(
+                        "E0241",
+                        "the parameter `${c.text_of(name_at)}` of a closure needs a type",
+                        c.token_start(name_at),
+                        c.token_end(name_at),
+                        "write it like `|x: int| x * 2`",
+                    )
+                    c.recover_line()
+                    return -1
+                }
+                ty = Types(c: c, ast: ast).type_ann()
+                if ty >= 0 {
+                    ast.kid(param, ty)
+                }
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                } else {
+                    more = false
+                }
+            }
+        }
+        if c.peek() == TokenKind.Pipe {
+            c.advance()
+        } else {
+            c.fail("E0102", "expected `|` to close the parameters", c.token_start(c.at), c.token_end(c.at), "write it like `|x: int| x * 2`")
+        }
+        body = exprs.expr()
+        if body >= 0 {
+            ast.kid(id, body)
+            ast.span(id, "span", c.token_start(start), ast.nodes[body].end)
+        } else {
+            ast.span(id, "span", c.token_start(start), c.token_end(start))
+        }
+        return id
+    }
+}

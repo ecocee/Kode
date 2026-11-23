@@ -1,0 +1,192 @@
+// What a function or a class says about its arguments and its result (S3).
+//
+// A call has to know more than a name: how many arguments the callee takes, what
+// each one has to be, and whether the result can be used where it is written. That
+// is one small record per callee, collected before any file is walked — a program's
+// namespace is shared across modules, so a call may come before or in another file
+// from its definition.
+//
+// A class's record is its constructor: the fields that have no default value, in
+// declaration order, and an instance as the result (the oracle's rule: `class A { x:
+// int }` needs `A(1)`, while `x: int = 0` needs nothing).
+//
+// The annotations are resolved here only to learn a type, so anything wrong with one
+// goes to a scratch list: the walk reports each of those once, and this pass must not
+// report it a second time.
+
+from "./annotations" import resolve_ann
+from "./ast" import Ast, is_type_node
+from "./diag" import Diag
+from "./items" import pop_type_params, push_type_params
+from "./names" import Names
+from "./typing" import Type, type_any, type_named
+
+/// One parameter or field: the name a message uses, the type it demands, and whether
+/// a call may leave it out (a field with a default value).
+pub class ParamSig {
+    name: string
+    ty: Type
+    optional: bool = false
+}
+
+/// A callee's shape. `ret` is none when the function declares no return type, which
+/// is not the same as declaring nothing to return.
+pub class Signature {
+    /// The name a return message prints: a function's own name, or a method's.
+    name: string
+    /// The name a call message prints: `P.m` for a method, the name itself otherwise.
+    label: string = ""
+    params: [ParamSig] = []
+    ret: Type? = none
+    /// The function's own type parameters (`fn pair<T>`); an argument binds one.
+    type_params: [string] = []
+    /// True for a class's constructor: a call that fails still builds the instance,
+    /// so the name it is assigned to stays declared (a failed function gives nothing).
+    is_ctor: bool = false
+    /// True for a method: its receiver's type parameters are already known, so only the
+    /// ones it declares itself have to be inferred from arguments (`E0250`).
+    is_method: bool = false
+    /// The type parameters the method declares itself, without its class's.
+    own_params: [string] = []
+}
+
+/// Every signature in the program, looked up by name.
+pub class SigTable {
+    list: [Signature] = []
+
+    fn add(sig: Signature) {
+        list.add(sig)
+    }
+
+    /// The signature `name` declares, or one whose `name` is "" when it declares
+    /// none — which is what a builtin, a runtime function and a method answer.
+    fn find(label: string) -> Signature {
+        for sig in list {
+            if sig.label == label {
+                return sig
+            }
+        }
+        return Signature(name: "")
+    }
+}
+
+pub fn collect_signatures(asts: [Ast], names: Names, table: SigTable) {
+    quiet: [Diag] = []
+    for ast in asts {
+        if ast.nodes.len() == 0 {
+            continue
+        }
+        for id in ast.nodes[0].kids {
+            kind = ast.nodes[id].kind
+            if kind == "Fn" {
+                table.add(fn_signature(ast, names, quiet, id))
+            } else if kind == "Class" {
+                table.add(class_signature(ast, names, quiet, id))
+                for member in ast.nodes[id].kids {
+                    if ast.nodes[member].kind == "Method" {
+                        table.add(method_signature(ast, names, quiet, id, member))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `fn f(a: int, b: string) -> int`: its parameters in order, its return type, and
+/// the type parameters its own annotations may name.
+fn fn_signature(ast: Ast, names: Names, quiet: [Diag], id: int) -> Signature {
+    sig = Signature(name: ast.attr_text(id, "name"))
+    sig.label = sig.name
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "TypeParam" {
+            sig.type_params.add(ast.attr_text(kid, "name"))
+        }
+    }
+    before = push_type_params(ast, names, id)
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Param" {
+            sig.params.add(ParamSig(name: ast.attr_text(kid, "name"), ty: annotation_of(ast, names, quiet, kid)))
+        } else if is_type_node(kind) {
+            sig.ret = resolve_ann(ast, names, quiet, kid)
+        }
+    }
+    pop_type_params(names, before)
+    return sig
+}
+
+/// `class A { x: int, y: int = 0 }`: every field is a constructor parameter, in
+/// declaration order, and a call builds an `A`. The ones with a default value may be
+/// left out, but they still take the position they are declared in — `A(1)` sets `x`,
+/// so a required `y` after it is still missing.
+fn class_signature(ast: Ast, names: Names, quiet: [Diag], id: int) -> Signature {
+    sig = Signature(name: ast.attr_text(id, "name"), ret: type_named(ast.attr_text(id, "name")))
+    sig.label = sig.name
+    sig.is_ctor = true
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "TypeParam" {
+            sig.type_params.add(ast.attr_text(kid, "name"))
+        }
+    }
+    before = push_type_params(ast, names, id)
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Field" {
+            continue
+        }
+        param = ParamSig(name: ast.attr_text(kid, "name"), ty: annotation_of(ast, names, quiet, kid))
+        param.optional = has_default(ast, kid)
+        sig.params.add(param)
+    }
+    pop_type_params(names, before)
+    return sig
+}
+
+/// A method: the same shape as a function, keyed by `Class.method` for a call and by
+/// its own name for a return, with the class's type parameters in scope for its
+/// annotations (`class Box<T> { fn get() -> T }`).
+fn method_signature(ast: Ast, names: Names, quiet: [Diag], class_id: int, id: int) -> Signature {
+    name = ast.attr_text(id, "name")
+    sig = Signature(name: name, label: ast.attr_text(class_id, "name") + "." + name)
+    sig.is_method = true
+    before = push_type_params(ast, names, class_id)
+    for one in names.params {
+        sig.type_params.add(one)
+    }
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "TypeParam" {
+            names.params.add(ast.attr_text(kid, "name"))
+            sig.type_params.add(ast.attr_text(kid, "name"))
+            sig.own_params.add(ast.attr_text(kid, "name"))
+        }
+    }
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Param" {
+            sig.params.add(ParamSig(name: ast.attr_text(kid, "name"), ty: annotation_of(ast, names, quiet, kid)))
+        } else if is_type_node(kind) {
+            sig.ret = resolve_ann(ast, names, quiet, kid)
+        }
+    }
+    pop_type_params(names, before)
+    return sig
+}
+
+/// A `Param` or a `Field`'s annotation, or `any` when it has none: nothing is
+/// claimed about a value the program did not describe.
+pub fn annotation_of(ast: Ast, names: Names, quiet: [Diag], id: int) -> Type {
+    for kid in ast.nodes[id].kids {
+        if is_type_node(ast.nodes[kid].kind) {
+            return resolve_ann(ast, names, quiet, kid)
+        }
+    }
+    return type_any()
+}
+
+fn has_default(ast: Ast, id: int) -> bool {
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Default" {
+            return true
+        }
+    }
+    return false
+}

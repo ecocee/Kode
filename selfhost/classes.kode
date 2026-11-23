@@ -1,0 +1,185 @@
+// The class table the walk needs before it walks anything: what each class holds, and
+// what its methods take and give back.
+//
+// The layout is the oracle's, pinned from `kode mir`: the object header is 24 bytes, so
+// field `i` lives at `24 + 8 * i`; `rt::ObjNewClass(fields, mask, 7)` takes the field
+// count, a bitmask of which fields are references (bit `i` for field `i`) and the
+// oracle's constant flag word; a method is a MIR function named `Class.method` whose `_0`
+// is `this`.
+
+from "./ast" import Ast
+
+pub class FieldInfo {
+    name: string = ""
+    /// The file the field was written in: its default is a node in that tree, not in
+    /// the entry's.
+    ast: Ast = Ast()
+    /// The annotation as written: `int`, `bool`, `string`.
+    written: string = ""
+    offset: int = 0
+    /// The AST node of the field's default, or -1 when the field needs an argument to
+    /// the constructor (which this slice refuses).
+    default_node: int = -1
+}
+
+pub class MethodInfo {
+    name: string = ""
+    /// The declared parameter kinds in slot terms, `this` excluded.
+    params: [string] = []
+    ret: string = "unit"
+    /// The `Block` or `ExprBody` node of the body, or -1.
+    body: int = -1
+    sugar: bool = false
+}
+
+pub class ClassInfo {
+    name: string = ""
+    fields: [FieldInfo] = []
+    methods: [MethodInfo] = []
+}
+
+/// Read every class's shape from the program — every module of it — before any body is
+/// walked.
+pub fn collect_classes(asts: [Ast]) -> [ClassInfo] {
+    out: [ClassInfo] = []
+    for ast in asts {
+        for id in top_level(ast) {
+            if ast.nodes[id].kind != "Class" {
+                continue
+            }
+            info = ClassInfo(name: ast.attr_text(id, "name"))
+            for kid in ast.nodes[id].kids {
+                kind = ast.nodes[kid].kind
+                if kind == "Field" {
+                    info.fields.add(read_field(ast, kid, info.fields.len()))
+                    continue
+                }
+                if kind == "Method" {
+                    info.methods.add(read_method(ast, kid))
+                }
+            }
+            out.add(info)
+        }
+    }
+    return out
+}
+
+/// A file's top-level items, or nothing for a file that has no tree.
+pub fn top_level(ast: Ast) -> [int] {
+    kids: [int] = []
+    if ast.nodes.len() == 0 {
+        return kids
+    }
+    for id in ast.nodes[0].kids {
+        kids.add(id)
+    }
+    return kids
+}
+
+fn read_field(ast: Ast, id: int, index: int) -> FieldInfo {
+    field = FieldInfo(name: ast.attr_text(id, "name"), ast: ast, offset: 24 + 8 * index)
+    for part in ast.nodes[id].kids {
+        pkind = ast.nodes[part].kind
+        if pkind == "TypeName" {
+            field.written = ast.attr_text(part, "name")
+        } else if pkind == "Default" {
+            if ast.nodes[part].kids.len() > 0 {
+                field.default_node = ast.nodes[part].kids[0]
+            }
+        }
+    }
+    return field
+}
+
+fn read_method(ast: Ast, id: int) -> MethodInfo {
+    method = MethodInfo(name: ast.attr_text(id, "name"))
+    for part in ast.nodes[id].kids {
+        pkind = ast.nodes[part].kind
+        if pkind == "Param" {
+            method.params.add(parameter_slot(ast, part))
+        } else if pkind == "TypeName" {
+            method.ret = slot_of(ast.attr_text(part, "name"))
+        } else if pkind == "Block" {
+            method.body = part
+        } else if pkind == "ExprBody" {
+            method.body = part
+            method.sugar = true
+        }
+    }
+    return method
+}
+
+/// The slot kind an annotation names. Anything this slice cannot hold is read as `int`,
+/// which the caller's own annotation check refuses where it matters.
+pub fn slot_of(written: string) -> string {
+    if written == "string" {
+        return "ref"
+    }
+    if written == "bool" {
+        return "bool"
+    }
+    return "int"
+}
+
+fn parameter_slot(ast: Ast, id: int) -> string {
+    if ast.nodes[id].kids.len() == 0 {
+        return "int"
+    }
+    node = ast.nodes[id].kids[0]
+    if ast.nodes[node].kind != "TypeName" {
+        return "int"
+    }
+    return slot_of(ast.attr_text(node, "name"))
+}
+
+pub fn find_class(classes: [ClassInfo], name: string) -> int {
+    for k in 0..classes.len() {
+        if classes[k].name == name {
+            return k
+        }
+    }
+    return -1
+}
+
+pub fn find_field(c: ClassInfo, name: string) -> int {
+    for k in 0..c.fields.len() {
+        if c.fields[k].name == name {
+            return k
+        }
+    }
+    return -1
+}
+
+pub fn find_method(c: ClassInfo, name: string) -> int {
+    for k in 0..c.methods.len() {
+        if c.methods[k].name == name {
+            return k
+        }
+    }
+    return -1
+}
+
+/// Which fields hold a reference, as the bit the constructor call passes: field 0 is
+/// bit 0.
+pub fn ref_mask(c: ClassInfo) -> int {
+    mask = 0
+    bit = 1
+    for field in c.fields {
+        if slot_of(field.written) == "ref" {
+            mask += bit
+        }
+        bit = bit * 2
+    }
+    return mask
+}
+
+/// Whether every field can be built without an argument. A class whose fields need
+/// arguments is constructed by naming them, which this slice refuses.
+pub fn defaulted(c: ClassInfo) -> bool {
+    for field in c.fields {
+        if field.default_node < 0 {
+            return false
+        }
+    }
+    return true
+}

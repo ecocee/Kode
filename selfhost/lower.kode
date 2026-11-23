@@ -1,0 +1,379 @@
+// Lowering a program (S4): the declared functions and `<main>`, each assembled from
+// the walk's blocks — the zero-initialised entry, the `bb1` return block with its
+// releases, the walk's blocks and the `unreachable` one.
+//
+// The pieces live apart by idea: `lower_core.kode` is the builder, `lower_stmt.kode`
+// and `lower_expr.kode` are the walks, `ops.kode` the operator tables.
+
+from "./ast" import Ast
+from "./classes" import ClassInfo, collect_classes, top_level
+from "./consts" import collect_consts
+from "./lower_core" import Builder, FnSig
+from "./lower_stmt" import lower_ret_expr, lower_stmt
+from "./mir" import Block, Function, Instr, Mir, Operand, is_param
+
+/// Lower a program: every module's declarations first (a module after the files it
+/// imports), then the entry's own, then the entry's statements as `<main>`.
+///
+/// `asts` and `order` come from the module graph (`modules.kode`), and the entry is
+/// `asts[0]`: a module holds declarations only, so any other file's top-level statements
+/// are the checker's `E0403`, not something to lower.
+pub fn build(asts: [Ast], order: [int], collecting: bool) -> Mir {
+    mir = Mir()
+    classes = collect_classes(asts)
+    consts = collect_consts(asts)
+    entry_ast = Ast()
+    if asts.len() > 0 {
+        entry_ast = asts[0]
+    }
+    entry = Block(label: "bb0")
+    b = Builder(ast: entry_ast, main: Function(name: "<main>", entry: true), entry: entry, block: entry, end: Block(label: "bb1"), collecting: collecting, classes: classes, consts: consts, sigs: fn_table(asts, classes))
+    for index in order {
+        ast = asts[index]
+        is_entry = index == 0
+        for id in top_level(ast) {
+            kind = ast.nodes[id].kind
+            if kind == "Fn" {
+                fn_item(b, ast, id, mir)
+                if not mir.ok {
+                    return mir
+                }
+                continue
+            }
+            if kind == "Class" {
+                class_item(b, ast, id, mir)
+                if not mir.ok {
+                    return mir
+                }
+                continue
+            }
+            if kind == "Import" or kind == "Const" {
+                continue
+            }
+            if is_entry {
+                lower_stmt(b, id)
+            }
+        }
+    }
+    if not b.ok {
+        mir.ok = false
+        mir.why = b.why
+        return mir
+    }
+    finish(b)
+    mir.functions.add(b.main)
+    add_problems(mir, b.problems)
+    return mir
+}
+
+/// One `class` declaration: its fields are data (the class table already holds them),
+/// and each of its methods is a function of its own, `_0` being `this`.
+fn class_item(parent: Builder, ast: Ast, id: int, mir: Mir) {
+    name = ast.attr_text(id, "name")
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Method" {
+            continue
+        }
+        method_item(parent, ast, name, kid, mir)
+        if not mir.ok {
+            return
+        }
+    }
+}
+
+/// One method: `Class.method` with `this` as `_0`, then the declared parameters. The
+/// body is walked like a function's, in a builder of its own.
+fn method_item(parent: Builder, ast: Ast, class_name: string, id: int, mir: Mir) {
+    f = Function(name: "${class_name}.${ast.attr_text(id, "name")}")
+    entry = Block(label: "bb0")
+    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, consts: parent.consts, sigs: parent.sigs)
+    b.block_body = true
+    b.this_class = class_name
+    // `this` is the first parameter and a named variable of the class: it is read and
+    // never released, because the caller owns the object.
+    this_slot = b.temp("", "ref")
+    f.params.add(this_slot)
+    b.params.add(this_slot)
+    b.names.add("this")
+    b.slots.add(this_slot)
+    b.var_class.add(class_name)
+    body = -1
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Param" {
+            slot = annotation_slot(ast, kid)
+            if slot == "" {
+                b.stop("a parameter of type `${annotation_text(ast, kid)}`")
+                slot = "int"
+            }
+            index = b.temp("", slot)
+            f.params.add(index)
+            b.params.add(index)
+            b.names.add(ast.attr_text(kid, "name"))
+            b.slots.add(index)
+            b.var_class.add("")
+            continue
+        }
+        if kind == "TypeName" {
+            slot = annotation_slot(ast, kid)
+            if slot == "" {
+                b.stop("a return type of `${annotation_text(ast, kid)}`")
+                slot = "int"
+            }
+            b.ret_kind = slot
+            continue
+        }
+        if kind == "Block" {
+            body = kid
+        } else if kind == "ExprBody" {
+            body = kid
+            b.block_body = false
+        }
+    }
+    f.ret = b.ret_kind
+    if body >= 0 {
+        if ast.nodes[body].kind == "ExprBody" {
+            lower_ret_expr(b, body)
+        } else {
+            for kid in ast.nodes[body].kids {
+                lower_stmt(b, kid)
+            }
+        }
+    }
+    if not b.ok {
+        mir.ok = false
+        mir.why = b.why
+        return
+    }
+    finish(b)
+    mir.functions.add(f)
+    add_problems(mir, b.problems)
+}
+
+/// One `fn` declaration: its parameters become `_0`, `_1`, ..., its body is walked
+/// with a builder of its own (the names and temporaries are the function's own), and
+/// it returns through `bb1`.
+fn fn_item(parent: Builder, ast: Ast, id: int, mir: Mir) {
+    f = Function(name: ast.attr_text(id, "name"))
+    entry = Block(label: "bb0")
+    b = Builder(ast: ast, main: f, entry: entry, block: entry, end: Block(label: "bb1"), collecting: parent.collecting, classes: parent.classes, consts: parent.consts, sigs: parent.sigs)
+    b.block_body = true
+    body = -1
+    for kid in ast.nodes[id].kids {
+        kind = ast.nodes[kid].kind
+        if kind == "Param" {
+            slot = annotation_slot(ast, kid)
+            if slot == "" {
+                b.stop("a parameter of type `${annotation_text(ast, kid)}`")
+                slot = "int"
+            }
+            index = b.temp("", slot)
+            f.params.add(index)
+            b.params.add(index)
+            b.names.add(ast.attr_text(kid, "name"))
+            b.slots.add(index)
+            b.var_class.add("")
+            continue
+        }
+        if kind == "TypeName" {
+            slot = annotation_slot(ast, kid)
+            if slot == "" {
+                b.stop("a return type of `${annotation_text(ast, kid)}`")
+                slot = "int"
+            }
+            b.ret_kind = slot
+            continue
+        }
+        if kind == "Block" {
+            body = kid
+        } else if kind == "ExprBody" {
+            body = kid
+            b.block_body = false
+        }
+    }
+    f.ret = b.ret_kind
+    if body >= 0 {
+        if ast.nodes[body].kind == "ExprBody" {
+            lower_ret_expr(b, body)
+        } else {
+            for kid in ast.nodes[body].kids {
+                lower_stmt(b, kid)
+            }
+        }
+    }
+    if not b.ok {
+        mir.ok = false
+        mir.why = b.why
+        return
+    }
+    finish(b)
+    mir.functions.add(f)
+    add_problems(mir, b.problems)
+}
+
+/// Assemble what the walk built: the fallthrough into `bb1`, the zero-initialised
+/// entry block, the return block with its releases, the walk's blocks, and — for a
+/// body that returns something — the `unreachable` block.
+fn finish(b: Builder) {
+    tail_unreachable = false
+    if b.ret_kind == "unit" {
+        // The block the walk ends in falls out to the return block — always, even when
+        // a `return` already jumped, which is why a bare `return` leaves a dead block.
+        b.emit(Instr(kind: "goto", target: "bb1"))
+    } else if b.block_body {
+        // A body that returns something never falls out: when the walk ended in a
+        // terminated block, a fresh block nothing can reach closes the function.
+        if b.terminated() {
+            tail_unreachable = true
+        } else {
+            b.emit(Instr(kind: "unreachable"))
+        }
+    }
+    // The entry opens with one zero per temporary, in index order: `0` for an int,
+    // `false` for a bool and `null` for a reference.
+    head: [Instr] = []
+    for k in 0..b.main.temps.len() {
+        // A parameter arrives with its value; only the walk's own temporaries start
+        // at zero.
+        if is_param(b.main, k) {
+            continue
+        }
+        head.add(zero_init(k, b.main.temps[k].kind))
+    }
+    for one in b.entry.instrs {
+        head.add(one)
+    }
+    b.main.blocks.add(Block(label: "bb0", instrs: head))
+    // Every named reference is released once on the way out.
+    for k in 0..b.main.temps.len() {
+        if b.main.temps[k].kind == "ref" and (b.main.temps[k].name != "" or b.owned_at_end(k)) {
+            b.end.instrs.add(Instr(kind: "release", args: [Operand(is_temp: true, index: k)]))
+        }
+    }
+    if b.ret_kind == "unit" or b.ret_temp < 0 {
+        b.end.instrs.add(Instr(kind: "return"))
+    } else {
+        b.end.instrs.add(Instr(kind: "return", args: [Operand(is_temp: true, index: b.ret_temp)]))
+    }
+    b.main.blocks.add(b.end)
+    for extra in b.blocks {
+        b.main.blocks.add(extra)
+    }
+    if tail_unreachable {
+        b.main.blocks.add(Block(label: "bb${b.next_label}", instrs: [Instr(kind: "unreachable")]))
+    }
+}
+
+/// The slot kind an annotation needs, or "" when this slice cannot lower it: a
+/// parameter's type is its child, a return type is the `TypeName` itself.
+fn annotation_slot(ast: Ast, id: int) -> string {
+    node = id
+    if ast.nodes[id].kind == "Param" {
+        if ast.nodes[id].kids.len() == 0 {
+            return ""
+        }
+        node = ast.nodes[id].kids[0]
+    }
+    if ast.nodes[node].kind != "TypeName" {
+        return ""
+    }
+    name = ast.attr_text(node, "name")
+    if name == "int" {
+        return "int"
+    }
+    if name == "bool" {
+        return "bool"
+    }
+    if name == "float" {
+        return "float"
+    }
+    if name == "string" {
+        return "ref"
+    }
+    return ""
+}
+
+/// The annotation's own text, for the refusal that names it: `int`, `[int]`,
+/// `{string: [int]}`, and the node's kind when it is something else.
+fn annotation_text(ast: Ast, id: int) -> string {
+    node = id
+    if ast.nodes[id].kind == "Param" {
+        if ast.nodes[id].kids.len() == 0 {
+            return "?"
+        }
+        node = ast.nodes[id].kids[0]
+    }
+    kind = ast.nodes[node].kind
+    if kind == "TypeName" {
+        return ast.attr_text(node, "name")
+    }
+    if kind == "TypeList" {
+        if ast.nodes[node].kids.len() > 0 {
+            return "[${annotation_text(ast, ast.nodes[node].kids[0])}]"
+        }
+        return "[?]"
+    }
+    if kind == "TypeMap" {
+        if ast.nodes[node].kids.len() > 0 {
+            return "{string: ${annotation_text(ast, ast.nodes[node].kids[0])}}"
+        }
+        return "{string: ?}"
+    }
+    return kind
+}
+
+/// What each declared function and method returns, before any body is walked: a method
+/// is recorded as `Class.method`, which is the name its call uses. The namespace is the
+/// program's, so every module is in this one table.
+fn fn_table(asts: [Ast], classes: [ClassInfo]) -> [FnSig] {
+    sigs: [FnSig] = []
+    for ast in asts {
+        for id in top_level(ast) {
+            if ast.nodes[id].kind != "Fn" {
+                continue
+            }
+            ret = "unit"
+            for kid in ast.nodes[id].kids {
+                if ast.nodes[kid].kind == "TypeName" {
+                    ret = annotation_slot(ast, kid)
+                    if ret == "" {
+                        ret = "int"
+                    }
+                }
+            }
+            sigs.add(FnSig(name: ast.attr_text(id, "name"), ret: ret))
+        }
+    }
+    for info in classes {
+        for method in info.methods {
+            sigs.add(FnSig(name: "${info.name}.${method.name}", ret: method.ret))
+        }
+    }
+    return sigs
+}
+
+/// Merge a walk's findings into the program's, keeping the first-seen order.
+fn add_problems(mir: Mir, found: [string]) {
+    for reason in found {
+        seen = false
+        for one in mir.problems {
+            if one == reason {
+                seen = true
+            }
+        }
+        if not seen {
+            mir.problems.add(reason)
+        }
+    }
+}
+
+/// The initialising assignment a temporary starts with.
+fn zero_init(k: int, kind: string) -> Instr {
+    start = Value(kind: "int")
+    if kind == "ref" {
+        start = Value(kind: "null")
+    } else if kind == "bool" {
+        start = Value(kind: "bool")
+    }
+    return Instr(kind: "assign", dest: k, args: [Operand(value: start)])
+}

@@ -1,0 +1,14 @@
+// work packet: WP06 optional scalar fields
+// target: ok
+// Spans, class ids and "no parent" are `int?` fields, so an optional scalar has
+// to work in a class, not only as a local.
+class Node {
+    parent: int?
+    line: int
+}
+
+n = Node(parent: none, line: 7)
+print(n.line)
+if n.parent != none {
+    print(n.parent)
+}

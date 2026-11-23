@@ -1,0 +1,7 @@
+n = -1
+m = - -2
+k = ~0xff
+ok = not true
+flip = not not ok
+prod = a * -b - -c
+mixed = -x + ~y

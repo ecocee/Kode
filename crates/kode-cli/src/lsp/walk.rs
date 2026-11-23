@@ -146,7 +146,7 @@ pub fn expr(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 expr(bound, f);
             }
         }
-        ExprKind::Member { obj, .. } => expr(obj, f),
+        ExprKind::Member { obj, .. } | ExprKind::Is { obj, .. } => expr(obj, f),
         ExprKind::MethodCall { obj, args, .. } => {
             expr(obj, f);
             for a in args {

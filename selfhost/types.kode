@@ -1,0 +1,252 @@
+// Type annotations of the self-hosted compiler: `int`, `[T]`, `{string: T}`,
+// `Box<T>`, `Task<T>`, `Channel<T>`, `fn(int) -> int` and the `T?` suffix.
+//
+// Spans are the oracle's and look odd on purpose: every compound annotation spans
+// only its opening token (`[T]`, `{string: T}`, `Box<T>`, `fn(int) -> int` and
+// `Task<T>` all start and end on the first token), while `?` does widen the span
+// over the whole annotation.
+//
+// Failures inside an annotation return -1 so the item that holds it fails once;
+// the statement passes recover from there.
+
+from "./ast" import Ast
+from "./cursor" import Cursor
+from "./depth" import guard
+from "./tokens" import TokenKind
+
+pub class Types {
+    c: Cursor
+    ast: Ast
+
+    /// A type annotation, with the `?` suffix wrapping the whole thing. `[int]`,
+    /// `{string: [int]}` and `fn(int) -> int` recurse, so the nesting guard is here.
+    fn type_ann() -> int {
+        if guard(c) {
+            return -1
+        }
+        c.depth += 1
+        value = type_at()
+        c.depth -= 1
+        return value
+    }
+
+    fn type_at() -> int {
+        start = c.at
+        kind = c.peek()
+        if kind == TokenKind.Fn {
+            return fn_type(start)
+        }
+        if kind == TokenKind.LBracket {
+            c.advance()
+            id = ast.add("TypeList")
+            ast.span(id, "span", c.token_start(start), c.token_end(start))
+            inner = type_ann()
+            if inner >= 0 {
+                ast.kid(id, inner)
+            }
+            if not expect_type(TokenKind.RBracket, "`]`") {
+                return -1
+            }
+            return with_opt(id, start)
+        }
+        if kind == TokenKind.LBrace {
+            c.advance()
+            id = ast.add("TypeMap")
+            ast.span(id, "span", c.token_start(start), c.token_end(start))
+            // The key parses into the arena unattached: only the value is dumped.
+            // It has to be `string` (E0115), and its span starts at its first token.
+            key_at = c.at
+            key = type_ann()
+            if key < 0 {
+                return -1
+            }
+            if c.at != key_at + 1 or c.text_of(key_at) != "string" {
+                c.fail(
+                    "E0115",
+                    "map keys must be strings",
+                    c.token_start(key_at),
+                    c.token_end(key_at),
+                    "write it like `{string: int}`",
+                )
+                return -1
+            }
+            if not expect_type(TokenKind.Colon, "`:`") {
+                return -1
+            }
+            value = type_ann()
+            if value < 0 {
+                return -1
+            }
+            ast.kid(id, value)
+            if not expect_type(TokenKind.RBrace, "`}`") {
+                return -1
+            }
+            return with_opt(id, start)
+        }
+        if kind == TokenKind.Ident {
+            name_at = c.at
+            c.advance()
+            type_name = c.text_of(name_at)
+            // `Task<T>` and `Channel<T>` dump as their own kinds, not as a generic.
+            if c.peek() == TokenKind.Lt and (type_name == "Task" or type_name == "Channel") {
+                c.advance()
+                node = "TypeTask"
+                if type_name == "Channel" {
+                    node = "TypeChannel"
+                }
+                id = ast.add(node)
+                ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
+                inner = type_ann()
+                if inner < 0 {
+                    return -1
+                }
+                ast.kid(id, inner)
+                if not expect_type(TokenKind.Gt, "`>`") {
+                    return -1
+                }
+                return with_opt(id, start)
+            }
+            if c.peek() == TokenKind.Lt {
+                c.advance()
+                id = ast.add("TypeGeneric")
+                ast.text(id, "name", c.text_of(name_at))
+                ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
+                more = true
+                while more and not c.done() {
+                    arg = type_ann()
+                    if arg >= 0 {
+                        ast.kid(id, arg)
+                    }
+                    if c.peek() == TokenKind.Comma {
+                        c.advance()
+                    } else {
+                        more = false
+                    }
+                }
+                if not expect_type(TokenKind.Gt, "`>`") {
+                    return -1
+                }
+                return with_opt(id, start)
+            }
+            id = ast.add("TypeName")
+            ast.text(id, "name", c.text_of(name_at))
+            ast.span(id, "span", c.token_start(name_at), c.token_end(name_at))
+            return with_opt(id, start)
+        }
+        c.fail(
+            "E0111",
+            "expected a type name, found ${c.describe(c.at)}",
+            c.token_start(c.at),
+            c.token_end(c.at),
+            "types look like int, [int], {string: int} or User?",
+        )
+        return -1
+    }
+
+    /// `T?`: the annotation keeps its node, a `TypeOpt` boxes it.
+    fn with_opt(inner: int, start: int) -> int {
+        if c.peek() != TokenKind.Question {
+            return inner
+        }
+        q = c.at
+        c.advance()
+        id = ast.add("TypeOpt")
+        ast.span(id, "span", c.token_start(start), c.token_end(q))
+        ast.kid(id, inner)
+        return id
+    }
+
+    /// `fn(int, [T]) -> int`: a function type. The node spans only the `fn` token
+    /// and the return type is its last child; `?` after the arrow belongs to the
+    /// return type, because the return type is parsed before `with_opt` runs.
+    fn fn_type(start: int) -> int {
+        c.advance()
+        id = ast.add("TypeFn")
+        ast.span(id, "span", c.token_start(start), c.token_end(start))
+        if not expect_type(TokenKind.LParen, "`(`") {
+            return -1
+        }
+        if c.peek() != TokenKind.RParen {
+            more = true
+            while more and not c.done() {
+                arg = type_ann()
+                if arg < 0 {
+                    return -1
+                }
+                ast.kid(id, arg)
+                if c.peek() == TokenKind.Comma {
+                    c.advance()
+                    c.skip_newlines()
+                } else {
+                    more = false
+                }
+            }
+        }
+        if not expect_type(TokenKind.RParen, "`)`") {
+            return -1
+        }
+        if not expect_type(TokenKind.Arrow, "`->`") {
+            return -1
+        }
+        ret = type_ann()
+        if ret < 0 {
+            return -1
+        }
+        ast.kid(id, ret)
+        return with_opt(id, start)
+    }
+
+    /// One token the type grammar needs. The oracle reports these as E0103 over
+    /// the token it found, with no hint.
+    fn expect_type(kind: TokenKind, what: string) -> bool {
+        if c.peek() == kind {
+            c.advance()
+            return true
+        }
+        c.fail(
+            "E0103",
+            "expected ${what}, found ${c.describe(c.at)}",
+            c.token_start(c.at),
+            c.token_end(c.at),
+            "",
+        )
+        return false
+    }
+
+    /// `a: int` — a `Param` holds the name and its annotation. Function
+    /// parameters, enum payloads and interface signatures all dump as `Param`.
+    fn param(owner: int) {
+        if c.peek() != TokenKind.Ident {
+            c.fail(
+                "E0110",
+                "expected a parameter name, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "",
+            )
+            return
+        }
+        name_at = c.at
+        c.advance()
+        p = ast.add("Param")
+        ast.text(p, "name", c.text_of(name_at))
+        ast.span(p, "name_span", c.token_start(name_at), c.token_end(name_at))
+        ast.kid(owner, p)
+        if c.peek() == TokenKind.Colon {
+            c.advance()
+        } else {
+            c.fail(
+                "E0111",
+                "parameter `${c.text_of(name_at)}` needs a type",
+                c.token_start(name_at),
+                c.token_end(name_at),
+                "write it like `${c.text_of(name_at)}: int`",
+            )
+            return
+        }
+        ty = type_ann()
+        if ty >= 0 {
+            ast.kid(p, ty)
+        }
+    }
+}

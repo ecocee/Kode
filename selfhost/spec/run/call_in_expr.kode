@@ -1,0 +1,5 @@
+fn square(x: int) -> int => x * x
+fn add(a: int, b: int) -> int {
+    return a + b
+}
+print(add(square(2), square(3)))

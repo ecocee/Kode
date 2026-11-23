@@ -1,0 +1,10 @@
+// A method is `Class.method` with `this` first: the field read inside it borrows what
+// the object owns.
+class P {
+    name: string = "a"
+    fn label() -> string {
+        return this.name
+    }
+}
+p = P()
+print(p.label())

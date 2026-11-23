@@ -35,6 +35,10 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 | `kode test` runner | `crates/kode-mir/src/lower/tests.rs`, `crates/kode-cli/src/main.rs` |
 | imports, packages, `kode.toml`, `kode.lock` | `crates/kode-cli/src/driver.rs`, `source.rs` |
 | `kode fmt`, `kode explain` | `crates/kode-cli/src/fmt.rs`, `explain.rs` (reads `docs/errors/index.md`) |
+| `kode tokens` / `kode ast` dumps (the self-hosting oracles) | `crates/kode-syntax/src/dump.rs`, `dump/ast.rs` |
+| the bootstrap harness | `scripts/selfhost.sh` (plan: `docs/PLAN-self-hosting.md`) |
+| the self-hosted compiler (S1 lexer) | `selfhost/` — `tokens.kode`, `keywords.kode`, `bytes.kode`, `strings.kode`, `lexer.kode`, `dump.kode`, `main.kode`; cases in `selfhost/spec/`; parity via `./scripts/selfhost.sh stage1` |
+| the port's MIR lowering (S4) | `selfhost/lower_core.kode` (the builder), `lower_stmt.kode`, `lower_expr.kode`, `ops.kode`, `lower.kode` (functions, classes, `main`), `classes.kode` (the class table: offsets, defaults, method shapes), `consts.kode` (the const table, inlined at use), `pieces.kode` (interpolation, holes, literals, call arguments), `lists.kode` (list element kinds and the line an index passes); the dump is `mir.kode`, the interpreter `eval.kode` with the values and shadow counts in `own.kode`; the module graph it lowers is `modules.kode` (`Loaded.order` is the oracle's post-order); multi-file cases in `selfhost/spec/modules/`; gates via `./scripts/selfhost.sh mir\|run\|modules\|own\|report\|corpus`; `selfhost/spec/own/` is the ownership stress set |
 | language server | `kode lsp` in `kode-cli`; editor setup in `docs/editors.md` |
 | `kode doc` and the docs site | `docs/site/build.sh` |
 | PostgreSQL client | `crates/kode-rt/src/pg.rs` (API, handles, JSON results), `pg_wire.rs` (protocol, SCRAM), `sha256.rs` + `base64.rs` (SCRAM hashing) |
@@ -42,10 +46,12 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 | linking objects with the runtime | `crates/kode-link/src/link.rs` |
 | runtime functions | `crates/kode-rt/src/` (object, string, list, map, error, io, and others); register new ones in `kode-mir/src/ir.rs` (`RtFn`) and `crates/kode-llvm/src/lower.rs` (`RT`) |
 | benchmarks and measurements | `benchmarks/`, `benchmarks/report.md` |
+| third-party notices in a release | `scripts/third-party-notices.py` (the generator), `THIRD-PARTY-NOTICES.md` (generated — regenerate, never hand-edit; CI checks it) |
+| licensing, trademark and community docs | `LICENSE` (unmodified Apache-2.0 — do not fill in the appendix), `TRADEMARKS.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` |
 
 ## Rules
 
-1. **Tests first.** A new feature starts as a `.kode` file with a `.out` file in `tests/run-pass/`, or a `.kode` file with an `.err` file (the error code) in `tests/compile-fail/`.
+1. **Tests first.** A new feature starts as a `.kode` file with a `.out` file in `tests/run-pass/`, or a `.kode` file with an `.err` file (the error code) in `tests/compile-fail/`. A run-pass program that writes to stderr adds a `name.err` with the expected text: `llvm_conformance` compares it exactly, and programs without one must keep stderr empty.
 2. **Every error has a stable code** (`E0xxx`, warnings `W0xxx`) and a hint. Add new codes to `docs/errors/index.md`, and make sure `kode explain` works for them.
 3. **Do not change language behavior without an ADR** in `docs/adr/` (context, decision, alternatives, consequences).
 4. **Only MIR reaches the backend.** Do not read the AST in `kode-llvm`.
@@ -59,6 +65,7 @@ Paths below were true when this file was last checked. If one is wrong, fix this
 ## Workflow
 
 - One branch per plan item, named `feat/<item>` or `fix/<item>`, with its tests, ADR and docs in the same commit set, so `git log` reads like the plan.
+- Every commit needs a `Signed-off-by` line: `git commit -s` on new commits, `git commit --amend -s --no-edit` or `git rebase --signoff <base>` on ones already made. The `dco` workflow rejects a pull request whose commits lack it.
 - Write a short plan (files, tests, risks) before starting an item and wait for approval at each gate in the plan.
 - If a failure is still unresolved after two attempts, stop and report what you found.
 - After each item, report: what changed, tests and ADRs added, measurements, risks, and the next item.

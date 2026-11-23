@@ -1,0 +1,31 @@
+// Generic classes (ADR 0040): one class per set of type arguments, inferred at
+// the constructor, with fields and methods substituted.
+class Box<T> {
+    value: T
+    fn get() -> T => value
+    fn replace(next: T) -> T {
+        old = value
+        value = next
+        return old
+    }
+}
+
+a = Box(value: 1)
+print(a.get(), a.value)
+print(a.replace(7), a.get())
+
+// A second instance of the same declaration, with a different element type.
+s = Box(value: "hi")
+print(s.get())
+
+xs = [Box(value: 1), Box(value: 2)]
+print(xs[0].get() + xs[1].get())
+
+// Two type parameters, inferred from two fields.
+class Pair<A, B> {
+    first: A
+    second: B
+}
+
+p = Pair(first: 3, second: 4)
+print(p.first + p.second)

@@ -1,0 +1,460 @@
+// What a call and a return have to satisfy (S3).
+//
+// A call is checked against the signature of the function or class it names: too
+// many arguments are `E0207`, arguments the callee has no parameter for are `E0215`,
+// parameters the call leaves out are `E0216`, and an argument of the wrong type is
+// `E0208` — with the oracle's second form for a type parameter, whose type comes from
+// the arguments and so has to agree with itself.
+//
+// A function that declares a result has to produce one on every path (`E0305`), a
+// `return` has to produce the declared type (`E0310`), and an `=>` body with no
+// declared result may not produce a value (`E0304`).
+//
+// Every rule stays quiet when it cannot prove the mistake: a callee this slice has no
+// signature for (a builtin, a runtime function, a method, a closure), an argument of
+// type `any`, and two named types (this slice does not read `implements`).
+
+from "./ast" import Ast
+from "./diag" import Diag, diag, diag_help
+from "./generics" import call_problem, value_problem
+from "./names" import Names
+from "./signatures" import ParamSig, SigTable, Signature
+from "./stdlib" import StdSig, builder_method, builtin, free_fn
+from "./typing" import Local, Type, expr_type, mixed_number, type_any, type_article, type_assignable, type_from_spec, type_inner, type_name
+
+// ---- a call ----
+
+/// `f(1, 2)`, `A(1)`, `bytes(4)`, `exec(...)`: the arguments against the callee,
+/// whichever of the three tables knows it.
+pub fn check_call(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, diags: [Diag], id: int) {
+    callee = ast.attr_text(id, "callee")
+    sig = sigs.find(callee)
+    if sig.name != "" {
+        user_call(ast, frames, names, diags, sig, id)
+        return
+    }
+    std = free_fn(callee)
+    if std.name != "" {
+        std_call(ast, frames, names, diags, std, id, false, false)
+        return
+    }
+    one = builtin(callee)
+    if one.name != "" {
+        std_call(ast, frames, names, diags, one, id, true, false)
+    }
+}
+
+/// `obj.push(1)`, `p.m("x")`: a method of a builtin class, or of a class the program
+/// declares. A receiver whose type this slice cannot name (a module alias, a call it
+/// cannot type) is left alone.
+pub fn check_method_call(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() == 0 {
+        return
+    }
+    name = ast.attr_text(id, "name")
+    recv = expr_type(ast, frames, names, kids[0])
+    if recv.kind != "named" {
+        return
+    }
+    if recv.name == "StringBuilder" {
+        std = builder_method(name)
+        if std.name != "" {
+            std_call(ast, frames, names, diags, std, id, true, true)
+        }
+        return
+    }
+    sig = sigs.find("${recv.name}.${name}")
+    if sig.name != "" {
+        user_call(ast, frames, names, diags, sig, id)
+    }
+}
+
+/// A call to a function or class the program declares, or to one of its methods.
+fn user_call(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], sig: Signature, id: int) {
+    args = arg_nodes(ast, id)
+    if args.len() > sig.params.len() {
+        takes = "arguments"
+        if sig.params.len() == 1 {
+            takes = "argument"
+        }
+        // The count found carries no noun: `takes 1 argument, found 2`.
+        message = "`${sig.label}` takes ${sig.params.len()} ${takes}, found ${args.len()}"
+        diag_help(ast, diags, "E0207", message, id, "its parameters are (${param_list(sig)})")
+        return
+    }
+    bound: [Local] = []
+    used: [string] = []
+    at = 0
+    for arg in args {
+        value = arg_value(ast, arg)
+        name = ast.attr_text(arg, "name")
+        index = -1
+        if name != "" {
+            index = param_index(sig, name)
+            if index < 0 {
+                diag_at(ast, diags, "E0215", "`${sig.label}` has no parameter `${name}`", arg, "name_span", "")
+                continue
+            }
+        } else {
+            index = next_param(sig, used, at)
+            if index < 0 {
+                continue
+            }
+            at = index + 1
+        }
+        used.add(sig.params[index].name)
+        check_argument(ast, frames, names, diags, sig, bound, index, value)
+    }
+    for p in sig.params {
+        if p.optional or used.contains(p.name) {
+            continue
+        }
+        message = "missing argument `${p.name}` for `${sig.label}`"
+        diag_help(ast, diags, "E0216", message, id, "pass it like `${p.name}: ...`")
+    }
+}
+
+/// One argument against its parameter. A parameter whose annotation is one of the
+/// callee's type parameters binds that type at its first argument, and the later ones
+/// have to agree with it.
+fn check_argument(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], sig: Signature, bound: [Local], index: int, value: int) {
+    if value < 0 {
+        return
+    }
+    want = sig.params[index].ty
+    got = expr_type(ast, frames, names, value)
+    slot = type_param_slot(want, got, sig.type_params)
+    if slot.name != "" {
+        found = bound_type(bound, slot.name)
+        if found.kind == "" {
+            bound.add(slot)
+            return
+        }
+        if type_assignable(slot.ty, found) {
+            return
+        }
+        message = "argument ${index + 1} of `${sig.label}` should be ${type_bare(found)}, found ${type_article(got)}"
+        diag_help(ast, diags, "E0208", message, value, "the type arguments come from the arguments, so they must agree")
+        return
+    }
+    if type_assignable(got, want) {
+        return
+    }
+    message = "argument `${sig.params[index].name}` of `${sig.label}` should be ${type_article(want)}, found ${type_article(got)}"
+    report_argument(ast, diags, message, got, want, value)
+}
+
+fn arg_nodes(ast: Ast, id: int) -> [int] {
+    args: [int] = []
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Arg" {
+            args.add(kid)
+        }
+    }
+    return args
+}
+
+fn arg_value(ast: Ast, id: int) -> int {
+    for kid in ast.nodes[id].kids {
+        return kid
+    }
+    return -1
+}
+
+fn param_index(sig: Signature, name: string) -> int {
+    i = 0
+    while i < sig.params.len() {
+        if sig.params[i].name == name {
+            return i
+        }
+        i += 1
+    }
+    return -1
+}
+
+/// The first parameter from `at` on that the call has not provided yet.
+fn next_param(sig: Signature, used: [string], at: int) -> int {
+    i = at
+    while i < sig.params.len() {
+        if not used.contains(sig.params[i].name) {
+            return i
+        }
+        i += 1
+    }
+    return -1
+}
+
+/// `a: int, b: string`, the list in `E0207`'s hint.
+fn param_list(sig: Signature) -> string {
+    out = ""
+    for p in sig.params {
+        if out != "" {
+            out += ", "
+        }
+        out += "${p.name}: ${type_name(p.ty)}"
+    }
+    return out
+}
+
+/// Where one of the callee's type parameters sits in the expected type, and what the
+/// argument has there: `T` itself, or the inside of a `[T]`, `{string: T}` or `T?` that
+/// the argument matches. A `name` of "" means the expected type names no parameter, and
+/// the caller compares the two types directly.
+fn type_param_slot(want: Type, got: Type, type_params: [string]) -> Local {
+    if want.kind == "named" and type_params.contains(want.name) {
+        return Local(name: want.name, ty: got)
+    }
+    if want.kind == "list" or want.kind == "map" or want.kind == "opt" {
+        if got.kind == want.kind {
+            return type_param_slot(type_inner(want), type_inner(got), type_params)
+        }
+    }
+    return Local(name: "", ty: type_any())
+}
+
+/// The type bound to a type parameter at an earlier argument, or one whose `kind` is
+/// "" when nothing is bound yet.
+fn bound_type(bound: [Local], name: string) -> Type {
+    for one in bound {
+        if one.name == name {
+            return one.ty
+        }
+    }
+    return Type(kind: "")
+}
+
+/// The bare form a positional message uses: `int`, but `` `[string]` `` for a type
+/// that needs its own punctuation.
+fn type_bare(t: Type) -> string {
+    name = type_name(t)
+    if name == "int" or name == "float" or name == "bool" or name == "string" or name == "bytes" {
+        return name
+    }
+    return "`${name}`"
+}
+
+/// Would this call be refused? Asked before the name it is assigned to is declared,
+/// with a scratch list, so the call is reported once, where it stands, and the name
+/// stays undeclared — which is why the next line is `E0201`, as in the oracle.
+///
+/// Only a function the program declares can refuse this way. A builtin still gives its
+/// result (`b = bytes("four")` binds a buffer and the oracle only reports the argument),
+/// and so does a class constructor (`a = A()` still makes an `A`).
+pub fn call_fails(ast: Ast, frames: [[Local]], names: Names, sigs: SigTable, id: int) -> bool {
+    // A generic function used as a value is no value at all (`E0251`).
+    if value_problem(ast, sigs, id).found {
+        return true
+    }
+    if ast.nodes[id].kind != "Call" {
+        return false
+    }
+    // A call whose type parameters cannot be inferred produces nothing either (`E0250`,
+    // `E0422`).
+    if call_problem(ast, sigs, id).found {
+        return true
+    }
+    sig = sigs.find(ast.attr_text(id, "callee"))
+    if sig.name == "" or sig.is_ctor {
+        return false
+    }
+    scratch: [Diag] = []
+    check_call(ast, frames, names, sigs, scratch, id)
+    return scratch.len() > 0
+}
+
+/// A runtime function or a builtin: `exec(...)`, `bytes(...)`, `sb.push(...)`. The
+/// oracle names a runtime function's arguments positionally and describes a builtin's
+/// single argument in words.
+///
+/// `is_method` is what makes the arguments nameless: a builtin method is called the
+/// way a declared one is, and the oracle lets a name through (`sb.push(s: "a")` is
+/// clean, `sb.push(x: 5)` only reports the type), while a free builtin says
+/// "`len` does not take named arguments".
+fn std_call(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], std: StdSig, id: int, is_builtin: bool, is_method: bool) {
+    args = arg_nodes(ast, id)
+    if not is_method {
+        // Once, at the first named argument, as the oracle does.
+        for arg in args {
+            if ast.attr_text(arg, "name") != "" {
+                diag_at(ast, diags, "E0215", "`${std.name}` does not take named arguments", arg, "name_span", "")
+                break
+            }
+        }
+    }
+    if args.len() != std.params.len() {
+        takes = "arguments"
+        if std.params.len() == 1 {
+            takes = "argument"
+        }
+        message = "`${std.name}` takes ${std.params.len()} ${takes}, found ${args.len()}"
+        diag(ast, diags, "E0207", message, id)
+        return
+    }
+    i = 0
+    while i < args.len() {
+        value = arg_value(ast, args[i])
+        got = expr_type(ast, frames, names, value)
+        want = type_from_spec(std.params[i])
+        if is_builtin {
+            // A builtin takes kinds, not types: `len` accepts a list of anything.
+            if got.kind != "any" and not std.accepts.contains(got.kind) {
+                expects = std.expects
+                if expects == "" {
+                    expects = type_article(want)
+                }
+                message = "`${std.name}` expects ${expects}, found ${type_article(got)}"
+                diag(ast, diags, "E0208", message, value)
+            }
+        } else if not type_assignable(got, want) {
+            message = "argument ${i + 1} of `${std.name}` should be ${type_article(want)}, found ${type_article(got)}"
+            report_argument(ast, diags, message, got, want, value)
+        }
+        i += 1
+    }
+}
+
+/// `E0208` for an argument, with the help the oracle adds when a number is only the
+/// wrong width: numbers never convert on their own.
+fn report_argument(ast: Ast, diags: [Diag], message: string, got: Type, want: Type, value: int) {
+    if mixed_number(got, want) {
+        diag_help(ast, diags, "E0208", message, value, "numbers never convert automatically; use int(x) or float(x)")
+        return
+    }
+    diag(ast, diags, "E0208", message, value)
+}
+
+// ---- a return ----
+
+/// `E0305`: a function that declares a result has to return on every path.
+pub fn check_paths(ast: Ast, diags: [Diag], id: int, body: int, sig: Signature) {
+    if sig.name == "" or sig.ret == none {
+        return
+    }
+    if always_returns(ast, body) {
+        return
+    }
+    ret = sig.ret ?? type_any()
+    message = "`${sig.name}` must return ${type_article(ret)} on every path"
+    diag_at(ast, diags, "E0305", message, id, "name_span",
+        "end the function with a `return`, or give both branches of the last `if` a `return`")
+}
+
+/// `E0310` for a `return`, and `E0304` for a `=>` body that gives a value the
+/// declaration never mentioned.
+pub fn check_return(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int, sig: Signature) {
+    if sig.name == "" or sig.ret == none {
+        return
+    }
+    ret = sig.ret ?? type_any()
+    kids = ast.nodes[id].kids
+    if kids.len() == 0 {
+        diag(ast, diags, "E0310", "expected to return ${type_article(ret)}", id)
+        return
+    }
+    value = kids[0]
+    got = expr_type(ast, frames, names, value)
+    if type_assignable(got, ret) {
+        return
+    }
+    message = "the returned value should be ${type_article(ret)}, found ${type_article(got)}"
+    diag(ast, diags, "E0310", message, value)
+}
+
+/// `fn f(a: int) => a + 1`: an expression body with no declared result.
+pub fn check_expr_body(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int, body: int, sig: Signature) {
+    if sig.name == "" {
+        return
+    }
+    value = body_expr(ast, body)
+    if value < 0 {
+        return
+    }
+    got = expr_type(ast, frames, names, value)
+    if sig.ret == none {
+        if got.kind == "unit" or got.kind == "none" or got.kind == "any" {
+            return
+        }
+        message = "`${sig.name}` is declared to give nothing but the body gives ${type_article(got)}"
+        diag_help(ast, diags, "E0304", message, value, "write `-> ${type_name(got)}` after the parameters")
+        return
+    }
+    want = sig.ret ?? type_any()
+    if type_assignable(got, want) {
+        return
+    }
+    message = "the returned value should be ${type_article(want)}, found ${type_article(got)}"
+    diag(ast, diags, "E0310", message, value)
+}
+
+fn body_expr(ast: Ast, id: int) -> int {
+    for kid in ast.nodes[id].kids {
+        return kid
+    }
+    return -1
+}
+
+/// Does every path through `id` end in `return` or `throw`? A `Block` answers with
+/// its last statement, an `if` needs both branches, and a `match` needs every arm. A
+/// `try` never counts, even when every branch returns: the oracle still asks for a
+/// `return` after it, which is why `try` is not in this list.
+pub fn always_returns(ast: Ast, id: int) -> bool {
+    kind = ast.nodes[id].kind
+    if kind == "Return" or kind == "Throw" {
+        return true
+    }
+    if kind == "Then" or kind == "Else" or kind == "Handler" or kind == "Finally" or kind == "ExprBody" {
+        for kid in ast.nodes[id].kids {
+            return always_returns(ast, kid)
+        }
+        return false
+    }
+    if kind == "Block" {
+        kids = ast.nodes[id].kids
+        if kids.len() == 0 {
+            return false
+        }
+        return always_returns(ast, kids[kids.len() - 1])
+    }
+    if kind == "If" {
+        has_then = false
+        has_else = false
+        ok = true
+        for kid in ast.nodes[id].kids {
+            tag = ast.nodes[kid].kind
+            if tag == "Then" {
+                has_then = true
+                if not always_returns(ast, kid) {
+                    ok = false
+                }
+            } else if tag == "Else" {
+                has_else = true
+                if not always_returns(ast, kid) {
+                    ok = false
+                }
+            }
+        }
+        return has_then and has_else and ok
+    }
+    if kind == "Match" {
+        arms = 0
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "Arm" {
+                arms += 1
+                if not always_returns(ast, kid) {
+                    return false
+                }
+            }
+        }
+        return arms > 0
+    }
+    if kind == "Arm" {
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "Block" {
+                return always_returns(ast, kid)
+            }
+        }
+        return false
+    }
+    return false
+}

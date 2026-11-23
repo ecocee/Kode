@@ -1,0 +1,5 @@
+print(0x6b, 0xff, 0xFF)
+print(0b1010, 0o755)
+print(0x1_000, 0b1111_0000)
+print(0x7fffffffffffffff)
+print(0x10 + 1, -0x10)

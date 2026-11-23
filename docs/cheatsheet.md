@@ -11,10 +11,24 @@ f = 3.5                     # float (64-bit)
 ok = true                   # bool
 s = "hi ${n}"               # string, with ${} interpolation
 n: int = 0                  # a declared type, written once
+mask = 0xff                 # base 2, 8 and 16 literals: 0b1010, 0o755, 0x6b
+buf = bytes(4)              # a buffer of 4 zero bytes (ADR 0043)
+sb = StringBuilder()        # building text without quadratic `+` (ADR 0044)
+sb.push("a")
+sb.push("b")
+text = sb.build()           # "ab"
+print("answer:", 42)        # stdout: `answer: 42`
+stderr("kode: warning")     # stderr, same argument rules (ADR 0045)
 ```
 
-- Types are `int`, `float`, `bool`, `string`, `[T]`, `{string: T}`, classes,
+- Types are `int`, `float`, `bool`, `string`, `bytes`, `[T]`, `{string: T}`, classes,
   enums, interfaces, `Task<T>`, `Channel<T>`, `fn(T) -> R` and `T?`.
+- A `bytes` buffer has `size()`, `get(i)` and `set(i, v)`; it is not printable and
+  not a `[int]`.
+- A `StringBuilder` has `push(s)` and `build()`; it is not printable. Push in a loop,
+  build once.
+- `print(...)` writes to stdout and `stderr(...)` to stderr; both separate arguments
+  with a space and end the line.
 - Numbers never convert on their own: use `int(x)` or `float(x)`.
 
 ## Optionals
@@ -32,7 +46,8 @@ if score != none {
 ```
 
 - `?.` reads a field only when the object is not none.
-- `int?`, `float?` and `bool?` work as **local variables** and are stored as a
+- `int?`, `float?` and `bool?` work as **local variables**, **class fields**,
+  **parameters** and **returns** and are stored as a
   value plus a `present` flag, with no boxing. As a parameter, return type, field
   or list item they are still E0219.
 - Narrowing holds inside `if x != none { }`, inside `while x != none { }`, and in
@@ -194,6 +209,8 @@ kode test                    # run the test blocks
 kode fmt app.kode            # format
 kode doc src -o docs/api     # HTML reference for pub items
 kode explain E0220           # what a code means
+kode tokens app.kode         # tokens: span, line:column, kind, text (self-hosting oracle)
+kode ast app.kode            # syntax tree with spans (same; both take --format=json)
 kode lsp                     # language server on stdio
 kode doctor                  # version, target, linker, runtime ABI
 kode init [name]             # make the current folder a package

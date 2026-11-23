@@ -1,0 +1,7 @@
+// A generic class in a type position needs its arguments.
+class Box<T> {
+    value: T
+}
+
+b: Box = none
+print(b)

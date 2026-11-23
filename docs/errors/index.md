@@ -57,7 +57,7 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0216 | missing argument |
 | E0217 | unknown field or method |
 | E0218 | this value has no fields |
-| E0219 | optional type not supported here (an optional number only works as a local) |
+| E0219 | optional type not supported here (an optional number cannot be a list or map item yet) |
 | E0220 | value may be none and cannot be used directly |
 | E0221 | `?.` or `??` used on something that is not an optional |
 | E0222 | an empty list or map needs a declared type |
@@ -80,8 +80,7 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0242 | bad function value: `map`/`filter` callback, or `this` used inside a closure |
 | E0250 | cannot infer a type parameter of a generic function |
 | E0251 | a generic function cannot be used as a value |
-| E0252 | a method cannot have type parameters yet |
-| E0253 | enum payloads are not supported yet (`Shape.Circle(1)`) |
+| E0252 | a generic class's method cannot have its own type parameters yet |
 
 ## Declarations and statements (E03xx)
 
@@ -118,6 +117,12 @@ test in `tests/compile-fail/`, which is the source of truth for the exact messag
 | E0412 | a dependency is not a package (no `kode.toml`) |
 | E0413 | dependency version mismatch, or a version without a path |
 | E0414 | two packages share a name, or a package depends on itself |
+| E0421 | wrong number of type arguments (ADR 0040) |
+| E0422 | a generic class constructor cannot infer a type argument |
+| E0423 | a generic class needs type arguments, `Box<int>` |
+| E0417 | a payload variant used as a value, without its fields |
+| E0419 | a field read on an enum variant without narrowing |
+| E0420 | `==` on an enum with payloads (ADR 0039) |
 
 ## Warnings
 

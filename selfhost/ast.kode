@@ -1,0 +1,254 @@
+// The syntax tree of the self-hosted compiler, as an arena (ADR 0042).
+//
+// One `Ast` owns every node; a node names its children by `int` ids and its parent by
+// one `int?` (ADR 0042). Neither edge is a reference, so no cycle is expressible and
+// one release frees the whole tree. The dump format is the one
+// `crates/kode-syntax/src/dump/ast.rs` defines and the harness compares: kind,
+// then `attr=value` pairs in a fixed order, then children indented two spaces.
+
+from "./bytes" import utf8_len
+from "./cursor" import Cursor
+
+/// One node: the dump kind, attributes already rendered in dump order, children.
+pub class Node {
+    kind: string
+    attrs: [string] = []
+    /// The child edge, in dump order. ADR 0042 sketches `first_child`/`next_sibling`
+    /// as `int?`; a list holds the same information in the order the dump needs, and
+    /// the parent edge below is what a later pass climbs.
+    kids: [int] = []
+    /// None for the root, and for a node the parse built and then dropped: the key of
+    /// a `{K: V}` annotation is parsed to be checked and never dumped, and an error
+    /// path abandons whatever it had built. Set when the node is attached, so it
+    /// always names the real parent.
+    parent: int? = none
+    /// The node's own extent, for a parent that has to span it.
+    start: int = 0
+    end: int = 0
+}
+
+pub class Ast {
+    /// The file this tree was parsed from, as the report prints it.
+    file: string = ""
+    /// The file's text: a node's span is a byte offset into it, and the lowering needs
+    /// the line an offset falls on (`rt::ListGet` takes one).
+    src: string = ""
+    nodes: [Node] = []
+    /// `Program expr_count=`: how many expression nodes the parser made.
+    expr_count: int = 0
+
+    /// A new node, returned as its id.
+    fn add(kind: string) -> int {
+        nodes.add(Node(kind: kind))
+        return nodes.len() - 1
+    }
+
+    /// A new expression node, counted for `expr_count`.
+    fn counted(kind: string) -> int {
+        expr_count += 1
+        return add(kind)
+    }
+
+    fn text(id: int, name: string, value: string) {
+        nodes[id].attrs.add("${name}=\"${escape(value)}\"")
+    }
+
+    fn num(id: int, name: string, value: int) {
+        nodes[id].attrs.add("${name}=${value}")
+    }
+
+    fn flag(id: int, name: string, value: bool) {
+        shown = "false"
+        if value {
+            shown = "true"
+        }
+        nodes[id].attrs.add("${name}=${shown}")
+    }
+
+    /// `name=a..b`, unquoted. The `span` attribute is also the node's extent,
+    /// which is what a parent reads when it has to end where its child ended.
+    fn span(id: int, name: string, start: int, end: int) {
+        nodes[id].attrs.add("${name}=${start}..${end}")
+        if name == "span" {
+            nodes[id].start = start
+            nodes[id].end = end
+        }
+    }
+
+    /// An attribute printed without quotes, such as an operator.
+    fn raw(id: int, name: string, value: string) {
+        nodes[id].attrs.add("${name}=${value}")
+    }
+
+    /// The span of a node copied from one token: a closed group keeps its brackets,
+    /// which is why the caller passes the token rather than the child.
+    fn span_of(id: int, c: Cursor, token: int) {
+        span(id, "span", c.token_start(token), c.token_end(token))
+    }
+
+    /// A node that turns out to be another kind of the same shape: `spawn f()` keeps
+    /// the callee and arguments a `Call` found and becomes `Spawn` over a wider span.
+    /// Attributes are rendered in dump order when built, so the old `span` has to be
+    /// replaced rather than added to.
+    fn retype(id: int, kind: string, start: int, end: int) {
+        renamed: [string] = []
+        for attr in nodes[id].attrs {
+            if attr.slice(0, 5) == "span=" {
+                renamed.add("span=${start}..${end}")
+            } else {
+                renamed.add(attr)
+            }
+        }
+        nodes[id].attrs = renamed
+        nodes[id].kind = kind
+        nodes[id].start = start
+        nodes[id].end = end
+    }
+
+    /// Every child in one call, in order.
+    fn kids(id: int, children: [int]) {
+        for child in children {
+            kid(id, child)
+        }
+    }
+
+    fn kid(id: int, child: int) {
+        nodes[id].kids.add(child)
+        nodes[child].parent = id
+    }
+
+    /// The value of a text attribute (`name="x"`) with its quotes stripped, or
+    /// "" when the node has no such attribute. A pass reads what the dump shows.
+    fn attr_text(id: int, key: string) -> string {
+        prefix = "${key}=\""
+        for attr in nodes[id].attrs {
+            if attr.starts_with(prefix) and attr.size() > prefix.size() {
+                return attr.slice(prefix.size(), attr.size() - 1)
+            }
+        }
+        return ""
+    }
+
+    /// The value of an attribute printed without quotes: an operator (`op=+`) and a
+    /// flag (`pub=true`) carry no quote to strip, which is why `attr_text` cannot
+    /// read them.
+    fn attr_raw(id: int, key: string) -> string {
+        prefix = "${key}="
+        for attr in nodes[id].attrs {
+            if attr.starts_with(prefix) {
+                return attr.slice(prefix.size(), attr.size())
+            }
+        }
+        return ""
+    }
+
+    /// The two ends of the node's `span` attribute, or an empty list when it has
+    /// none (`Class` and a few wrappers carry no span).
+    fn attr_span(id: int) -> [int] {
+        return attr_span_named(id, "span")
+    }
+
+    /// The same for any other `a..b` attribute; an `Import` keeps its path's extent
+    /// in `path_span`, and a diagnostic points at the path, not at the whole line.
+    fn attr_span_named(id: int, key: string) -> [int] {
+        prefix = "${key}="
+        for attr in nodes[id].attrs {
+            if attr.starts_with(prefix) {
+                rest = attr.slice(prefix.size(), attr.size())
+                dots = rest.find("..")
+                if dots < 0 {
+                    return []
+                }
+                return [rest.slice(0, dots).to_int(), rest.slice(dots + 2, rest.size()).to_int()]
+            }
+        }
+        return []
+    }
+}
+
+/// `TypeName`, `TypeList`, `TypeFn` and the rest: an annotation names types, not
+/// values, so a walk over expressions never enters one.
+pub fn is_type_node(kind: string) -> bool {
+    if kind.size() < 4 {
+        return false
+    }
+    return kind.slice(0, 4) == "Type"
+}
+
+/// Does this item declare type parameters (`fn id<T>`, `class Box<T>`)?
+pub fn has_type_param(ast: Ast, id: int) -> bool {
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "TypeParam" {
+            return true
+        }
+    }
+    return false
+}
+
+/// The whole tree, one line per node, in source order.
+pub fn ast_lines(ast: Ast) -> [string] {
+    lines: [string] = []
+    lines.add("Program expr_count=${ast.expr_count}")
+    if ast.nodes.len() > 0 {
+        for kid in ast.nodes[0].kids {
+            walk(ast, kid, 1, lines)
+        }
+    }
+    return lines
+}
+
+/// One node and everything under it. The dumps nest as deep as the source does.
+fn walk(ast: Ast, id: int, depth: int, out: [string]) {
+    node = ast.nodes[id]
+    line = "  ".repeat(depth) + node.kind
+    for attr in node.attrs {
+        line += " " + attr
+    }
+    out.add(line)
+    for kid in node.kids {
+        walk(ast, kid, depth + 1, out)
+    }
+}
+
+/// Escape what would break the one-line rule, exactly as the Rust dump does.
+/// Characters are copied whole (`utf8_len`), so a multibyte character survives
+/// and a control character becomes `\u{..}`.
+fn escape(s: string) -> string {
+    out = ""
+    at = 0
+    while at < s.size() {
+        b = s.byte_at(at)
+        if b == 9 {
+            out += "\\t"
+            at += 1
+        } else if b == 10 {
+            out += "\\n"
+            at += 1
+        } else if b == 13 {
+            out += "\\r"
+            at += 1
+        } else if b == 34 {
+            out += "\\\""
+            at += 1
+        } else if b == 92 {
+            out += "\\\\"
+            at += 1
+        } else if b < 32 or b == 127 {
+            out += "\\u{${escape_hex(b)}}"
+            at += 1
+        } else {
+            width = utf8_len(b)
+            out += s.slice(at, at + width)
+            at += width
+        }
+    }
+    return out
+}
+
+fn escape_hex(value: int) -> string {
+    digits = "0123456789abcdef"
+    if value < 16 {
+        return digits.char_at(value)
+    }
+    return digits.char_at(value / 16) + digits.char_at(value % 16)
+}

@@ -221,6 +221,46 @@ pub unsafe extern "C" fn kode_list_set8(p: *mut Header, idx: i64, raw: i64, line
     *(*r.ptr() as *mut u8).add(idx as usize) = raw as u8;
 }
 
+// ---- byte buffers ----
+//
+// `bytes(n)` is a packed list of `n` zero bytes: the same object, so retain,
+// release and drop already work, and `size`/`get` reuse the packed accessors.
+// Only the range check in `set` is its own (ADR 0043).
+
+/// A buffer of `n` zero bytes.
+///
+/// # Safety
+/// `n` must not be negative.
+#[no_mangle]
+pub extern "C" fn kode_bytes_new(n: i64) -> *mut Header {
+    unsafe {
+        if n < 0 {
+            fatal(&format!("a byte buffer cannot have {n} bytes"));
+        }
+        let p = alloc_object(SIZE, LIST | PACKED1);
+        let r = Raw(p);
+        let mut v = ManuallyDrop::new(vec![0u8; n as usize]);
+        *r.ptr() = v.as_mut_ptr() as *mut u64;
+        *r.len() = v.len() as i64;
+        *r.cap() = v.capacity() as i64;
+        p
+    }
+}
+
+/// `b.set(i, v)`: one byte, `0..=255`, in range.
+///
+/// # Safety
+/// `p` must be a byte buffer.
+#[no_mangle]
+pub unsafe extern "C" fn kode_bytes_set(p: *mut Header, idx: i64, value: i64, line: i64) {
+    if !(0..=255).contains(&value) {
+        fatal(&format!(
+            "byte value {value} is not in 0..=255 at line {line}"
+        ));
+    }
+    kode_list_set8(p, idx, value, line);
+}
+
 // ---- slicing: a copy of a range ----
 
 /// A new list holding `start..end`. Bounds are clamped to the list, so a bound

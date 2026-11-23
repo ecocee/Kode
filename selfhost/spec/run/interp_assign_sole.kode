@@ -1,0 +1,5 @@
+// A hole and nothing else: the accumulator is the variable itself, retained for the
+// slot, so the store moves rather than retaining a second time.
+y = "b"
+x = "${y}"
+print(x)

@@ -1,0 +1,252 @@
+// The MIR an interpreter runs (S4): the data model and its dump.
+//
+// A `Mir` is a list of `Function`s; a function has its temporaries (`Temp` — an `int`,
+// a `ref` or a `bool`, and the variable name when it is one) and its `Block`s; a
+// block has `Instr`s; an instruction has a `dest` temporary, `Operand` arguments (a
+// `Value` literal or a temporary), a callee, a `goto` target and, for a branch, the
+// second target. `dump_lines` prints that the way `kode mir` does; `selfhost/lower.kode`
+// is the walk that builds it.
+
+/// A literal an instruction carries, with the value it stands for.
+pub class Value {
+    kind: string
+    int_value: int = 0
+    float_value: float = 0.0
+    bool_value: bool = false
+    str_value: string = ""
+}
+
+/// An instruction's argument: a literal, or the temporary that holds a value.
+pub class Operand {
+    is_temp: bool = false
+    index: int = 0
+    value: Value = Value(kind: "any")
+    /// The caller already holds the one reference this operand is: an interpolation's
+    /// accumulator, retained for whoever asked for it. A store moves it, never retains.
+    owned: bool = false
+}
+
+/// A piece of an interpolation: an operand, and whether the concatenation owns it
+/// (a hole that became a temporary) or only borrows it (a variable, a literal).
+pub class Piece {
+    op: Operand
+    owned: bool = false
+}
+
+/// One instruction: an assignment (`dest = arg`), an `add` into `dest`, a call, a
+/// `goto` or a `return`.
+pub class Instr {
+    kind: string
+    dest: int = -1
+    callee: string = ""
+    args: [Operand] = []
+    target: string = ""
+    alt: string = ""
+    /// The byte offset of a `load` or a `store`: field `i` is at `24 + 8 * i`.
+    offset: int = 0
+}
+
+pub class Block {
+    label: string
+    instrs: [Instr] = []
+}
+
+/// One temporary: its type, and the variable whose name it is (empty for an
+/// intermediate, which the dump leaves uncommented).
+pub class Temp {
+    kind: string = "int"
+    name: string = ""
+    /// Whether the temporary only borrowed its reference (a field `load`): a slot that
+    /// keeps it must retain it, and the walk must not release what it does not own.
+    borrowed: bool = false
+}
+
+pub class Function {
+    name: string
+    /// The slot kind the function returns: `unit`, `int`, `bool`, `ref` or `float`.
+    ret: string = "unit"
+    entry: bool = false
+    /// The parameter temporaries, in order. The header prints them as `_0: int`.
+    params: [int] = []
+    temps: [Temp] = []
+    blocks: [Block] = []
+}
+
+pub class Mir {
+    functions: [Function] = []
+    /// False when the program is outside this slice; `why` says which part.
+    ok: bool = true
+    why: string = ""
+    /// Every construct the walk could not lower, once each, in the order it met
+    /// them: filled in only by `kode-stage1 report`, which keeps walking after a
+    /// refusal instead of stopping at the first one.
+    problems: [string] = []
+}
+
+/// The lowering state: the tree, the function being filled, and the names in scope.
+
+/// The dump's lines: the oracle's layout, the `let` block, then the blocks.
+pub fn dump_lines(mir: Mir) -> [string] {
+    lines: [string] = []
+    for f in mir.functions {
+        head = "fn ${f.name}("
+        first = true
+        for k in f.params {
+            if not first {
+                head += ", "
+            }
+            first = false
+            head += "_${k}: ${f.temps[k].kind}"
+        }
+        head += ") -> ${f.ret} {"
+        if f.entry {
+            head += "  // entry"
+        }
+        lines.add(head)
+        for k in 0..f.temps.len() {
+            // A parameter is declared by the header, not by a `let`.
+            if is_param(f, k) {
+                continue
+            }
+            line = "    let _${k}: ${f.temps[k].kind}"
+            if f.temps[k].name != "" {
+                line += "  // ${f.temps[k].name}"
+            }
+            lines.add(line)
+        }
+        for b in f.blocks {
+            lines.add("  ${b.label}:")
+            for i in b.instrs {
+                lines.add("    ${instr_text(i)}")
+            }
+        }
+        lines.add("}")
+        // The oracle ends its dump with a blank line; `main` joins these with a
+        // newline and `print` adds the last one.
+        lines.add("")
+    }
+    return lines
+}
+
+/// Whether temporary `k` is one of the function's parameters.
+pub fn is_param(f: Function, k: int) -> bool {
+    for one in f.params {
+        if one == k {
+            return true
+        }
+    }
+    return false
+}
+
+fn instr_text(i: Instr) -> string {
+    if i.kind == "goto" {
+        return "goto ${i.target}"
+    }
+    if i.kind == "return" {
+        if i.args.len() > 0 {
+            return "return ${operand_text(i.args[0])}"
+        }
+        return "return"
+    }
+    if i.kind == "unreachable" {
+        return "unreachable"
+    }
+    if i.kind == "release" {
+        return "release ${operand_text(i.args[0])}"
+    }
+    if i.kind == "retain" {
+        return "retain ${operand_text(i.args[0])}"
+    }
+    if i.kind == "branch" {
+        return "branch ${operand_text(i.args[0])}, ${i.target}, ${i.alt}"
+    }
+    if i.kind == "store" {
+        return "store ${operand_text(i.args[0])}+${i.offset}, ${operand_text(i.args[1])}"
+    }
+    if i.kind == "load" and i.dest >= 0 {
+        return "_${i.dest} = load ${operand_text(i.args[0])}+${i.offset}"
+    }
+    if i.dest >= 0 {
+        if i.kind == "assign" {
+            return "_${i.dest} = ${operand_text(i.args[0])}"
+        }
+        if i.kind == "call" {
+            return "_${i.dest} = call ${i.callee}(${call_args(i)})"
+        }
+        // A unary instruction names one operand: `_0 = neg _1`.
+        if i.args.len() == 1 {
+            return "_${i.dest} = ${i.kind} ${operand_text(i.args[0])}"
+        }
+        return "_${i.dest} = ${i.kind} ${operand_text(i.args[0])}, ${operand_text(i.args[1])}"
+    }
+    return "call ${i.callee}(${call_args(i)})"
+}
+
+fn call_args(i: Instr) -> string {
+    parts = ""
+    for arg in i.args {
+        if parts != "" {
+            parts += ", "
+        }
+        parts += operand_text(arg)
+    }
+    return parts
+}
+
+fn operand_text(o: Operand) -> string {
+    if o.is_temp {
+        return "_${o.index}"
+    }
+    return value_text(o.value)
+}
+
+/// A value the way the dump writes it: a string quoted, a float in its shortest form.
+pub fn value_text(v: Value) -> string {
+    if v.kind == "int" {
+        return "${v.int_value}"
+    }
+    if v.kind == "float" {
+        return "${v.float_value}"
+    }
+    if v.kind == "bool" {
+        if v.bool_value {
+            return "true"
+        }
+        return "false"
+    }
+    if v.kind == "str" {
+        return "\"${quoted(v.str_value)}\""
+    }
+    return "null"
+}
+
+/// A value the way the program prints it: a string is its own text, where a dump
+/// quotes and escapes it.
+pub fn print_text(v: Value) -> string {
+    if v.kind == "str" {
+        return v.str_value
+    }
+    return value_text(v)
+}
+
+/// A string with the escapes a dump writes: quote, backslash, tab, newline, return.
+fn quoted(text: string) -> string {
+    out = ""
+    for k in 0..text.size() {
+        b = text.byte_at(k)
+        if b == 34 {
+            out += "\\\""
+        } else if b == 92 {
+            out += "\\\\"
+        } else if b == 9 {
+            out += "\\t"
+        } else if b == 10 {
+            out += "\\n"
+        } else if b == 13 {
+            out += "\\r"
+        } else {
+            out += text.slice(k, k + 1)
+        }
+    }
+    return out
+}

@@ -1,0 +1,44 @@
+// The program's constants: a `const` is not lowered, its value is written where the name
+// was used (`kode mir` prints `_0 = add 5, 1` for `const TAX = 5; print(TAX + 1)`).
+//
+// The namespace is the program's, like functions and classes, so a constant declared in
+// any module is visible by its bare name.
+
+from "./ast" import Ast
+
+pub class ConstInfo {
+    name: string = ""
+    /// The file the constant was written in: its value is a node in that tree.
+    ast: Ast = Ast()
+    /// The node that holds the value.
+    node: int = -1
+}
+
+/// Every `const` of every module, in load order.
+pub fn collect_consts(asts: [Ast]) -> [ConstInfo] {
+    out: [ConstInfo] = []
+    for ast in asts {
+        if ast.nodes.len() == 0 {
+            continue
+        }
+        for id in ast.nodes[0].kids {
+            if ast.nodes[id].kind != "Const" {
+                continue
+            }
+            if ast.nodes[id].kids.len() < 1 {
+                continue
+            }
+            out.add(ConstInfo(name: ast.attr_text(id, "name"), ast: ast, node: ast.nodes[id].kids[0]))
+        }
+    }
+    return out
+}
+
+pub fn find_const(consts: [ConstInfo], name: string) -> int {
+    for k in 0..consts.len() {
+        if consts[k].name == name {
+            return k
+        }
+    }
+    return -1
+}

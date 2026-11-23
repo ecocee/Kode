@@ -1,0 +1,45 @@
+// Optional scalars as class fields (ADR 0041): a value and its flag, no boxing.
+class Span {
+    start: int?
+    file: string
+    end: int?
+}
+
+// `none` in the constructor, and a value in the next.
+a = Span(start: none, file: "a.kode", end: none)
+print(a.file, a.start, a.end)
+
+b = Span(start: 3, file: "b.kode", end: 9)
+print(b.start, b.end)
+if b.start != none {
+    print("starts at", b.start!)
+}
+
+// A field moves between present and none after construction.
+b.end = none
+print(b.end, b.start)
+b.end = 4
+print(b.end ?? 0)
+
+// Reading a field through `this` in a method, and `?.` on a none object.
+class Point {
+    x: int?
+
+    fn show() {
+        if x != none {
+            print("x =", x)
+        } else {
+            print("x = none")
+        }
+    }
+}
+Point(x: 2).show()
+Point(x: none).show()
+
+class Line {
+    origin: Point?
+}
+empty = Line(origin: none)
+print(empty.origin?.x)
+filled = Line(origin: Point(x: 5))
+print(filled.origin?.x)

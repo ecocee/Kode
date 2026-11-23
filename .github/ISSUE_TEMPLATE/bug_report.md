@@ -7,6 +7,10 @@ assignees: ''
 
 ---
 
+> **This form is for bugs, not vulnerabilities.** A security problem goes to
+> `info@ecocee.in` or GitHub's private reporting, never a public issue: see
+> [SECURITY.md](https://github.com/ecocee/Kode/blob/main/SECURITY.md).
+
 ## What happened
 A short description of the problem.
 

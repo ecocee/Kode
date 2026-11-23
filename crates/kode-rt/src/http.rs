@@ -5,12 +5,11 @@
 //! Parsing, limits, timeouts and response writing are in `http_wire.rs`
 
 use std::net::TcpListener;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::error::{fatal, take_err};
 use crate::http_wire::{checked_port, event_loop, tls_event_loop, Request};
-use crate::object::{kode_release, Header, THREADED};
+use crate::object::{kode_release, Header};
 use crate::string::{bytes, from_bytes, from_external};
 
 // `router.rs` and tests import it from here.
@@ -74,7 +73,6 @@ fn call_handler(handler: Handler, req: &Request) -> (i64, Vec<u8>, Vec<u8>) {
 /// `handler` must be a compiled Kode function with the handler signature.
 #[no_mangle]
 pub unsafe extern "C" fn kode_http_serve(port: i64, handler: Handler) {
-    THREADED.store(true, Ordering::SeqCst);
     let port = checked_port(port);
     let listener = TcpListener::bind(("0.0.0.0", port))
         .unwrap_or_else(|e| fatal(&format!("cannot listen on port {port}: {e}")));
@@ -151,7 +149,6 @@ pub unsafe extern "C" fn kode_http_serve_tls(
 ) {
     let cert = tls_path(cert, "certificate");
     let key = tls_path(key, "private key");
-    THREADED.store(true, Ordering::SeqCst);
     let (listener, config) = tls_listener(port, &cert, &key);
     let h = handler as usize;
     tls_event_loop(listener, config, move |req| {

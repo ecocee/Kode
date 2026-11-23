@@ -1,0 +1,13 @@
+// Two objects, each holding a run-time string in a field: the fields' counts have to
+// come from the store, and go with the objects.
+class Box {
+    text: string = "empty"
+}
+a = Box()
+b = Box()
+a.text = "one" + "!"
+b.text = "two" + "?"
+print(a.text)
+print(b.text)
+a.text = b.text
+print(a.text)

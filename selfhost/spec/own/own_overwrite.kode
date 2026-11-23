@@ -1,0 +1,6 @@
+// A name is overwritten while it still holds a reference: the lowering must release
+// the old value and retain nothing extra.
+x = "a"
+print(x)
+x = "b"
+print(x)

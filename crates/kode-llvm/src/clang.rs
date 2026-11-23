@@ -57,14 +57,21 @@ pub fn clang_program() -> String {
         .unwrap_or_else(|_| "clang".to_string())
 }
 
-/// Compile IR text into an object file at `object`.
+/// Compile IR text into an object file at `object`, optimized (`-O2`).
 pub fn compile_ir(ir: &str, object: &Path) -> Result<(), ClangError> {
+    compile_ir_with(ir, object, "-O2")
+}
+
+/// Compile IR text into an object file at `object`, at the given optimisation
+/// flag. `-O0` exists for measurements (`kode build --opt=none`), so a benchmark
+/// can compare two compilers that are both unoptimized.
+pub fn compile_ir_with(ir: &str, object: &Path, opt_flag: &str) -> Result<(), ClangError> {
     let ll = object.with_extension("ll");
     std::fs::write(&ll, ir)
         .map_err(|e| ClangError::Io(format!("cannot write {}: {e}", ll.display())))?;
     let program = clang_program();
     let mut cmd = Command::new(&program);
-    cmd.args(["-O2", "-Wno-override-module", "-c"]);
+    cmd.arg(opt_flag).args(["-Wno-override-module", "-c"]);
     // `-fPIC` is meaningless for Windows objects, and MSVC-target clang rejects
     // it as an error rather than ignoring it.
     if !cfg!(windows) {

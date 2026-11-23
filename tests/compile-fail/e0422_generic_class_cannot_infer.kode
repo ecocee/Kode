@@ -1,0 +1,7 @@
+// No field mentions `T`, so the constructor cannot infer it.
+class Id<T> {
+    n: int
+}
+
+i = Id(n: 1)
+print(i.n)

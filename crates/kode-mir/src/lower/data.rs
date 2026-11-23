@@ -36,7 +36,7 @@ pub(crate) fn list_rt(el: &Type, base: RtFn) -> RtFn {
 impl<'a> Lowerer<'a> {
     /// Store a value in a 64-bit slot (list item, map value).
     pub fn raw_value(&mut self, op: Operand, ty: &Type) -> Operand {
-        let kind = match mir_ty(ty) {
+        let kind = match self.mty(ty) {
             Ty::Bool => CastKind::BoolToInt,
             Ty::Float => CastKind::FloatToBits,
             _ => return op,
@@ -51,7 +51,7 @@ impl<'a> Lowerer<'a> {
 
     /// Call a runtime function that returns a 64-bit slot, and convert it to `ty`.
     pub fn call_raw(&mut self, rt: RtFn, args: Vec<Operand>, ty: &Type) -> Operand {
-        let m = mir_ty(ty);
+        let m = self.mty(ty);
         let raw_ty = if matches!(m, Ty::Int | Ty::Ref) {
             m
         } else {
@@ -82,7 +82,7 @@ impl<'a> Lowerer<'a> {
         if !base.owned {
             return V::val(result);
         }
-        if mir_ty(ty) == Ty::Ref {
+        if self.mty(ty) == Ty::Ref {
             self.emit(Inst::Retain(result.clone()));
             self.release_if_owned(base);
             self.owned(result)
@@ -133,13 +133,15 @@ impl<'a> Lowerer<'a> {
             args: if packed(el) {
                 vec![]
             } else {
-                vec![Operand::Int((el.is_ref() && *el != Type::NoneT) as i64)]
+                vec![Operand::Int(
+                    (self.mty(el) == Ty::Ref && *el != Type::NoneT) as i64,
+                )]
             },
         });
         let lv = self.owned(Operand::Local(t));
         for x in items {
             let v = self.expr(x);
-            let op = if mir_ty(el) == Ty::Ref {
+            let op = if self.mty(el) == Ty::Ref {
                 self.own(v)
             } else {
                 v.op
@@ -163,13 +165,15 @@ impl<'a> Lowerer<'a> {
         self.emit(Inst::Call {
             dst: Some(t),
             callee: Callee::Rt(RtFn::MapNew),
-            args: vec![Operand::Int((el.is_ref() && *el != Type::NoneT) as i64)],
+            args: vec![Operand::Int(
+                (self.mty(el) == Ty::Ref && *el != Type::NoneT) as i64,
+            )],
         });
         let mv = self.owned(Operand::Local(t));
         for (k, v) in pairs {
             let kv = self.expr(k);
             let vv = self.expr(v);
-            let op = if mir_ty(el) == Ty::Ref {
+            let op = if self.mty(el) == Ty::Ref {
                 self.own(vv)
             } else {
                 vv.op
@@ -273,7 +277,7 @@ impl<'a> Lowerer<'a> {
                 vec![]
             } else {
                 vec![Operand::Int(
-                    (out_el.is_ref() && *out_el != Type::NoneT) as i64,
+                    (self.mty(&out_el) == Ty::Ref && *out_el != Type::NoneT) as i64,
                 )]
             },
         });
@@ -322,7 +326,7 @@ impl<'a> Lowerer<'a> {
         let res_ty = if name == "filter" {
             Ty::Bool
         } else {
-            mir_ty(&out_el)
+            self.mty(&out_el)
         };
         let dst = (res_ty != Ty::Unit).then(|| self.new_temp(res_ty));
         self.emit(Inst::CallIndirect {
@@ -340,7 +344,7 @@ impl<'a> Lowerer<'a> {
                 else_bb: skip,
             });
             self.switch(keep);
-            let kept = if mir_ty(&el) == Ty::Ref {
+            let kept = if self.mty(&el) == Ty::Ref {
                 self.own(V::val(item))
             } else {
                 item
@@ -415,7 +419,22 @@ impl<'a> Lowerer<'a> {
         self.borrow_result(ov, result, res_ty)
     }
 
-    pub(crate) fn member(&mut self, obj: &Expr, name: &str, safe: bool) -> V {
+    pub(crate) fn member(&mut self, e: &Expr, obj: &Expr, name: &str, safe: bool) -> V {
+        // `if s is Shape.Circle { s.radius }`: the checker resolved the field
+        // and proved the variant (ADR 0039 §4.4).
+        if let Some(&(ei, vi, fi)) = self.checked.enum_field_reads.get(&e.id) {
+            let fty = self.checked.enums[ei].fields[vi][fi].1.clone();
+            let ov = self.expr(obj);
+            let ty = self.mty(&fty);
+            let dst = self.new_temp(ty);
+            self.emit(Inst::Load {
+                dst,
+                base: ov.op.clone(),
+                offset: 24 + 8 * fi as i32,
+                ty,
+            });
+            return self.borrow_result(ov, Operand::Local(dst), &fty);
+        }
         // `util.TAX`: a public constant from an imported module.
         if let ExprKind::Ident(n) = &obj.kind {
             if self.lookup(n).is_none()
@@ -449,11 +468,19 @@ impl<'a> Lowerer<'a> {
                 && self.this_field(n).is_none()
             {
                 if let Some(&ei) = self.checked.enum_index.get(n) {
-                    let tag = self.checked.enums[ei]
-                        .variants
-                        .iter()
-                        .position(|v| v == name)
-                        .unwrap();
+                    let info = self.checked.enums[ei].clone();
+                    let tag = info.variant_index(name).unwrap();
+                    // In an enum with payloads every variant is an object, even
+                    // the ones without fields (ADR 0039 §2).
+                    if info.has_payloads() {
+                        let p = self.new_temp(Ty::Ref);
+                        self.emit(Inst::Call {
+                            dst: Some(p),
+                            callee: Callee::Rt(RtFn::ObjNewClass),
+                            args: vec![Operand::Int(0), Operand::Int(0), Operand::Int(tag as i64)],
+                        });
+                        return self.owned(Operand::Local(p));
+                    }
                     return V::val(Operand::Int(tag as i64));
                 }
             }
@@ -462,18 +489,44 @@ impl<'a> Lowerer<'a> {
             unreachable!("checked: a class value")
         };
         let class = &self.checked.classes[self.checked.class_index[cn]];
+        let ci = self.checked.class_index[cn];
         let fi = class.fields.iter().position(|f| f.name == name).unwrap();
         let fty = &class.fields[fi].ty;
-        let offset = 24 + 8 * fi as i32;
+        let ci_offsets = self.field_offsets(ci);
+        let offset = ci_offsets.0[fi];
         let ov = self.expr(obj);
 
+        // `p.n` where `n` is `int?`: the value and its flag (ADR 0041 §2).
+        if let Some(scalar) = kode_sema::types::is_opt_scalar(fty) {
+            if safe {
+                return self.safe_opt_field(ov, offset, &scalar, fty);
+            }
+            let vty = self.mty(&scalar);
+            let value = self.new_temp(vty);
+            let flag = self.new_temp(Ty::Bool);
+            self.emit(Inst::Load {
+                dst: value,
+                base: ov.op.clone(),
+                offset,
+                ty: vty,
+            });
+            self.emit(Inst::Load {
+                dst: flag,
+                base: ov.op.clone(),
+                offset: offset + 8,
+                ty: Ty::Bool,
+            });
+            self.release_if_owned(ov);
+            return V::opt(Operand::Local(value), Operand::Local(flag));
+        }
+
         if !safe {
-            let dst = self.new_temp(mir_ty(fty));
+            let dst = self.new_temp(self.mty(fty));
             self.emit(Inst::Load {
                 dst,
                 base: ov.op.clone(),
                 offset,
-                ty: mir_ty(fty),
+                ty: self.mty(fty),
             });
             return self.borrow_result(ov, Operand::Local(dst), fty);
         }
@@ -510,7 +563,58 @@ impl<'a> Lowerer<'a> {
         self.owned(Operand::Local(t))
     }
 
+    /// `p?.n` on an `int?` field: none when `p` is none, otherwise the field's
+    /// value and flag (ADR 0041 §2).
+    fn safe_opt_field(&mut self, ov: V, offset: i32, scalar: &Type, fty: &Type) -> V {
+        let vty = self.mty(scalar);
+        let value = self.new_temp(vty);
+        self.emit(Inst::Assign {
+            dst: value,
+            rv: Rvalue::Use(super::default_operand(vty)),
+        });
+        let flag = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: flag,
+            rv: Rvalue::Use(Operand::Int(0)),
+        });
+        let isnull = self.new_temp(Ty::Bool);
+        self.emit(Inst::Assign {
+            dst: isnull,
+            rv: Rvalue::Binary(BinOp::Eq, ov.op.clone(), Operand::NullRef),
+        });
+        let load_bb = self.new_block();
+        let join = self.new_block();
+        self.term(Terminator::Branch {
+            cond: Operand::Local(isnull),
+            then_bb: join,
+            else_bb: load_bb,
+        });
+        self.switch(load_bb);
+        self.emit(Inst::Load {
+            dst: value,
+            base: ov.op.clone(),
+            offset,
+            ty: vty,
+        });
+        self.emit(Inst::Load {
+            dst: flag,
+            base: ov.op.clone(),
+            offset: offset + 8,
+            ty: Ty::Bool,
+        });
+        self.term(Terminator::Goto(join));
+        self.switch(join);
+        self.release_if_owned(ov);
+        let _ = fty;
+        V::opt(Operand::Local(value), Operand::Local(flag))
+    }
+
     pub(crate) fn method_call(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> V {
+        // `Shape.Circle(radius: 1.5)`: a class instance whose class id is the
+        // variant tag (ADR 0039 §3).
+        if let Some(&(ei, vi)) = self.checked.enum_ctor_calls.get(&e.id) {
+            return self.construct_enum(e, ei, vi, args);
+        }
         // `util.add(...)`: a public function or class from an imported module.
         let module_method = match &obj.kind {
             ExprKind::Ident(n) => {
@@ -571,8 +675,9 @@ impl<'a> Lowerer<'a> {
                 .expect("dispatch was generated");
             let ov = self.expr(obj);
             let vals = self.call_vals(e.id, args, Some(ov), sig.params.len());
-            let ret = mir_ty(&sig.ret);
-            let ops: Vec<Operand> = vals.iter().map(|v| v.op.clone()).collect();
+            let ret = self.mty(&sig.ret);
+            let mut boxes = Vec::new();
+            let ops = self.pass_vals(&sig.params, &vals, &mut boxes);
             let dst = (ret != Ty::Unit).then(|| self.new_temp(ret));
             self.emit(Inst::Call {
                 dst,
@@ -580,14 +685,13 @@ impl<'a> Lowerer<'a> {
                 args: ops,
             });
             self.error_check();
+            for b in boxes {
+                self.emit(Inst::Release(b));
+            }
             for v in vals {
                 self.release_if_owned(v);
             }
-            return match dst {
-                Some(d) if ret == Ty::Ref => self.owned(Operand::Local(d)),
-                Some(d) => V::val(Operand::Local(d)),
-                None => V::unit(),
-            };
+            return self.decode_ret(&sig.ret, dst);
         }
         if matches!(ot, Type::Class(n) if n == "Router") {
             return self.router_add(obj, name, args);
@@ -614,7 +718,7 @@ impl<'a> Lowerer<'a> {
             }
             (Type::List(el), "add") => {
                 let v = self.expr(&args[0].value);
-                let op = if mir_ty(el) == Ty::Ref {
+                let op = if self.mty(el) == Ty::Ref {
                     self.own(v)
                 } else {
                     v.op
@@ -650,8 +754,73 @@ impl<'a> Lowerer<'a> {
                 self.release_if_owned(ov);
                 self.owned(Operand::Local(t))
             }
+            (Type::Bytes, "size") => {
+                let t = self.new_temp(Ty::Int);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::ListLen),
+                    args: vec![ov.op.clone()],
+                });
+                self.release_if_owned(ov);
+                V::val(Operand::Local(t))
+            }
+            (Type::Bytes, "get") => {
+                let i = self.expr(&args[0].value);
+                let line = Operand::Int(self.line_of(e.span.start));
+                let t = self.new_temp(Ty::Int);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::ListGet8),
+                    args: vec![ov.op.clone(), i.op.clone(), line],
+                });
+                self.release_if_owned(i);
+                self.release_if_owned(ov);
+                V::val(Operand::Local(t))
+            }
+            (Type::Bytes, "set") => {
+                let i = self.expr(&args[0].value);
+                let v = self.expr(&args[1].value);
+                let line = Operand::Int(self.line_of(e.span.start));
+                self.emit(Inst::Call {
+                    dst: None,
+                    callee: Callee::Rt(RtFn::BytesSet),
+                    args: vec![ov.op.clone(), i.op.clone(), v.op.clone(), line],
+                });
+                self.release_if_owned(v);
+                self.release_if_owned(i);
+                self.release_if_owned(ov);
+                V::unit()
+            }
+            (Type::Builder, "push") => {
+                let s = self.expr(&args[0].value);
+                self.emit(Inst::Call {
+                    dst: None,
+                    callee: Callee::Rt(RtFn::BufferPush),
+                    args: vec![ov.op.clone(), s.op.clone()],
+                });
+                self.release_if_owned(s);
+                self.release_if_owned(ov);
+                V::unit()
+            }
+            (Type::Builder, "build") => {
+                let t = self.new_temp(Ty::Ref);
+                self.emit(Inst::Call {
+                    dst: Some(t),
+                    callee: Callee::Rt(RtFn::BufferBuild),
+                    args: vec![ov.op.clone()],
+                });
+                self.release_if_owned(ov);
+                self.owned(Operand::Local(t))
+            }
             (Type::Class(cn), m) => {
                 let checked = self.checked;
+                // `u.id(1)` resolved to one instance of a generic method
+                // (ADR 0040 slice 1c): it is an ordinary method with `this`.
+                if let Some(&idx) = checked.generic_calls.get(&e.id) {
+                    let n = checked.fns[idx].params.len() - 1;
+                    let vals = self.call_vals(e.id, args, Some(ov), n);
+                    return self.emit_call(idx, vals);
+                }
                 let mi = checked.classes[checked.class_index[cn]].methods[m];
                 let n = checked.fns[mi].params.len() - 1;
                 let vals = self.call_vals(e.id, args, Some(ov), n);
@@ -700,13 +869,104 @@ impl<'a> Lowerer<'a> {
     }
 
     /// `ClassName(field: value, ...)`
+    /// The `present` flag a value gets in an optional-scalar field: the
+    /// argument's own flag, `false` for `none`, and `true` for a plain value
+    /// the checker widened (ADR 0041 §2).
+    pub(crate) fn opt_field_flag(e: &Expr, v: &V) -> Operand {
+        if let Some(p) = &v.present {
+            return p.clone();
+        }
+        if matches!(e.kind, ExprKind::None) {
+            return Operand::Int(0);
+        }
+        Operand::Int(1)
+    }
+
+    /// Byte offset of each field and the class's slot count. A field is one
+    /// 8-byte slot, except an optional scalar: the value and its `present`
+    /// flag are two slots (ADR 0041 §2).
+    pub(crate) fn field_offsets(&self, ci: usize) -> (Vec<i32>, i32) {
+        let mut at = 24i32;
+        let mut offsets = Vec::new();
+        for f in &self.checked.classes[ci].fields {
+            offsets.push(at);
+            at += if kode_sema::types::is_opt_scalar(&f.ty).is_some() {
+                16
+            } else {
+                8
+            };
+        }
+        (offsets, (at - 24) / 8)
+    }
+
     pub(crate) fn construct(&mut self, e: &Expr, ci: usize, args: &[Arg]) -> V {
         let checked = self.checked;
         let fields = &checked.classes[ci].fields;
+        let (offsets, slots_total) = self.field_offsets(ci);
         let mask: i64 = fields
             .iter()
             .enumerate()
-            .filter(|(_, f)| mir_ty(&f.ty) == Ty::Ref)
+            .filter(|(_, f)| {
+                self.mty(&f.ty) == Ty::Ref && kode_sema::types::is_opt_scalar(&f.ty).is_none()
+            })
+            .fold(0, |m, (i, _)| m | (1 << ((offsets[i] - 24) / 8)));
+        let p = self.new_temp(Ty::Ref);
+        self.emit(Inst::Call {
+            dst: Some(p),
+            callee: Callee::Rt(RtFn::ObjNewClass),
+            args: vec![
+                Operand::Int(slots_total as i64),
+                Operand::Int(mask),
+                Operand::Int(ci as i64),
+            ],
+        });
+        let obj = self.owned(Operand::Local(p));
+        let slots = checked.call_args[&e.id].clone();
+        for (i, f) in fields.iter().enumerate() {
+            let arg = match slots[i] {
+                Some(ai) => &args[ai].value,
+                None => f
+                    .default
+                    .as_ref()
+                    .expect("the type checker made sure a default exists"),
+            };
+            let v = self.expr(arg);
+            if let Some(scalar) = kode_sema::types::is_opt_scalar(&f.ty) {
+                let st = self.mty(&scalar);
+                self.emit(Inst::Store {
+                    base: Operand::Local(p),
+                    offset: offsets[i],
+                    value: Lowerer::opt_value(&v.op, st),
+                });
+                let flag = Self::opt_field_flag(arg, &v);
+                self.emit(Inst::Store {
+                    base: Operand::Local(p),
+                    offset: offsets[i] + 8,
+                    value: flag,
+                });
+                continue;
+            }
+            let op = if self.mty(&f.ty) == Ty::Ref {
+                self.own(v)
+            } else {
+                v.op
+            };
+            self.emit(Inst::Store {
+                base: Operand::Local(p),
+                offset: offsets[i],
+                value: op,
+            });
+        }
+        obj
+    }
+
+    pub(crate) fn construct_enum(&mut self, e: &Expr, ei: usize, vi: usize, args: &[Arg]) -> V {
+        let checked = self.checked;
+        let fields = checked.enums[ei].fields[vi].clone();
+        let mask: i64 = fields
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, t))| mir_ty(checked, t) == Ty::Ref)
             .fold(0, |m, (i, _)| m | (1 << i));
         let p = self.new_temp(Ty::Ref);
         self.emit(Inst::Call {
@@ -715,21 +975,15 @@ impl<'a> Lowerer<'a> {
             args: vec![
                 Operand::Int(fields.len() as i64),
                 Operand::Int(mask),
-                Operand::Int(ci as i64),
+                Operand::Int(vi as i64),
             ],
         });
         let obj = self.owned(Operand::Local(p));
         let slots = checked.call_args[&e.id].clone();
-        for (i, f) in fields.iter().enumerate() {
-            let v = match slots[i] {
-                Some(ai) => self.expr(&args[ai].value),
-                None => self.expr(
-                    f.default
-                        .as_ref()
-                        .expect("the type checker made sure a default exists"),
-                ),
-            };
-            let op = if mir_ty(&f.ty) == Ty::Ref {
+        for (i, (_, ty)) in fields.iter().enumerate() {
+            let ai = slots[i].expect("the type checker made sure every field is given");
+            let v = self.expr(&args[ai].value);
+            let op = if mir_ty(checked, ty) == Ty::Ref {
                 self.own(v)
             } else {
                 v.op

@@ -114,16 +114,20 @@ tests and an ADR where behavior changes; the list is the order, not a schedule.
 | 9.4 | Database client (PostgreSQL wire protocol) | no data store means no backends | **done** (ADR 0033): SCRAM-SHA-256, simple + extended protocol, JSON results, opportunistic TLS, `pg.pool`; md5, `COPY`, binary format and cancellation remain |
 | 9.5 | `weak` references | two objects pointing at each other leak forever | **design done** (ADR 0038, leak evidence in `benchmarks/leaks/`); implementation pending |
 | 9.6 | Byte buffers and fixed-width ints (`u8`, `i32`, `[]byte`) | binary protocols, files and crypto need bytes, not 64-bit ints | |
-| 9.7 | Enum payloads, `is`, safe downcast | tag-only enums force unsafe casts for real data shapes | |
+| 9.7 | Enum payloads, `is`, safe downcast | tag-only enums force unsafe casts for real data shapes | **design done** (ADR 0039); four slices in its §9 |
 | 9.8 | Optional scalars as fields and parameters | `int?` works only as a local (E0219) | |
-| 9.9 | Generic classes, generic methods, constraints | generic containers cannot be written in Kode | |
+| 9.9 | Generic classes, generic methods, constraints | generic containers cannot be written in Kode | **design done** (ADR 0040); three slices in its §9 |
 | 9.10 | Checked arithmetic on `+ - *` | silent wraparound is a correctness bug in a language people trust | |
 | 9.11 | Package registry and publishing | path-only dependencies do not scale past one machine | |
 | 9.12 | Verified Windows release | the CI job exists; a real Windows run must pass before anyone downloads it | |
 | 9.13 | LLVM backend, replacing Cranelift | the measured 1.6-2.4x gap against C `-O2` is code quality; Cranelift has no loop optimizer to build on | **done** (ADR 0035, B7): textual LLVM IR from MIR, `clang` builds the object, no `llvm-sys`; LLVM is the only backend since B8; the Cranelift implementation and its crates are gone |
 
 **9.1-9.4 are done.** 9.5 (`weak` references) has its ADR (0038) and its leak
-evidence (`benchmarks/leaks/`); the implementation is the next branch.
+evidence (`benchmarks/leaks/`); the implementation is the next branch. 9.7 and
+9.9, the two prerequisites S2 of the self-hosting plan needs, have their designs
+(ADR 0039, ADR 0040) and an ordered slice list each. Generic classes go first:
+they change the checker only, while payload enums change a value
+representation.
 
 The path from here to a Kode-written compiler is its own plan:
 [PLAN-self-hosting.md](PLAN-self-hosting.md). It makes 9.5-9.9 prerequisites

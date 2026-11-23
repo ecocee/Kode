@@ -1,0 +1,7 @@
+// `stderr(...)` takes what `print(...)` takes and writes it to stderr (ADR 0045).
+stderr("kode: warning")
+stderr("at line", 4)
+stderr("values:", [1, 2])
+stderr()
+
+print("stdout still works")

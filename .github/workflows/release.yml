@@ -111,7 +111,7 @@ jobs:
           mkdir -p dist
           cp target/release/kode dist/kode
           chmod 755 dist/kode
-          for f in README.md CHANGELOG.md LICENSE; do
+          for f in README.md CHANGELOG.md LICENSE THIRD-PARTY-NOTICES.md; do
             [ ! -f "$f" ] || cp "$f" dist/
           done
           tar -czf "kode-${VERSION}-linux-x86_64.tar.gz" -C dist .
@@ -126,7 +126,7 @@ jobs:
           mkdir -p "$ROOT/DEBIAN" "$ROOT/usr/bin" "$ROOT/usr/share/doc/kode"
           cp dist/kode "$ROOT/usr/bin/kode"
           chmod 755 "$ROOT/usr/bin/kode"
-          for f in README.md CHANGELOG.md LICENSE; do
+          for f in README.md CHANGELOG.md LICENSE THIRD-PARTY-NOTICES.md; do
             [ ! -f "$f" ] || cp "$f" "$ROOT/usr/share/doc/kode/"
           done
           cat > "$ROOT/DEBIAN/control" <<EOF
@@ -208,7 +208,7 @@ jobs:
           mkdir -p dist
           cp target/release/kode dist/kode
           chmod 755 dist/kode
-          for f in README.md CHANGELOG.md LICENSE; do
+          for f in README.md CHANGELOG.md LICENSE THIRD-PARTY-NOTICES.md; do
             [ ! -f "$f" ] || cp "$f" dist/
           done
           tar -czf "kode-${VERSION}-macos-arm64.tar.gz" -C dist .
@@ -296,7 +296,7 @@ jobs:
           mkdir -p dist
           cp target/release/kode dist/kode
           chmod 755 dist/kode
-          for f in README.md CHANGELOG.md LICENSE; do
+          for f in README.md CHANGELOG.md LICENSE THIRD-PARTY-NOTICES.md; do
             [ ! -f "$f" ] || cp "$f" dist/
           done
           tar -czf "kode-${VERSION}-windows-x86_64.tar.gz" -C dist .

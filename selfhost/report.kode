@@ -1,0 +1,122 @@
+// The diagnostic report, rendered byte for byte as `kode-diagnostics` renders it:
+// the code and message, the position, the offending source line with a caret under
+// the span, and the hint. The harness compares this against `kode ast`'s stderr.
+//
+// Columns count characters, not bytes (a caret sits under the character it names),
+// a span that crosses a line ends at that line's end, and a zero-width span still
+// shows one caret.
+
+from "./bytes" import is_continuation
+from "./chars" import CR, LF
+from "./cursor" import ParseError
+from "./diag" import Diag
+from "./tokens" import LexError
+
+/// One diagnostic, ending in a newline. The caller adds the blank line that
+/// separates reports, as the CLI's `eprintln` over a string does.
+pub fn render(file: string, src: string, err: ParseError) -> string {
+    return render_parts(file, src, err.code, err.message, err.start, err.end, err.help, false)
+}
+
+/// A checker's diagnostic renders exactly like a parse error: the same code, the same
+/// position and source line, the same carets and hint.
+pub fn render_diag(file: string, src: string, d: Diag) -> string {
+    return render_parts(file, src, d.code, d.message, d.start, d.end, d.help, d.warning)
+}
+
+fn render_parts(file: string, src: string, code: string, message: string, start_at: int, end_at: int, help: string, warning: bool) -> string {
+    start = snap(src, start_at)
+    text_start = line_start(src, start)
+    text_end = line_end(src, start)
+    number = "${line_of(src, start)}"
+    pad = " ".repeat(number.len())
+    column = src.slice(text_start, start).len() + 1
+    end = snap(src, end_at)
+    if end > text_end {
+        end = text_end
+    }
+    if end < start {
+        end = start
+    }
+    width = src.slice(start, end).len()
+    if width < 1 {
+        width = 1
+    }
+    text = src.slice(text_start, text_end)
+    if text.size() > 0 and text.byte_at(text.size() - 1) == CR {
+        text = text.slice(0, text.size() - 1)
+    }
+    word = "error"
+    if warning {
+        word = "warning"
+    }
+    out = "${word}[${code}]: ${message}\n"
+    out += "${pad}--> ${file}:${number}:${column}\n"
+    out += "${pad} |\n"
+    out += "${number} | ${text}\n"
+    out += "${pad} | ${" ".repeat(column - 1)}${"^".repeat(width)}\n"
+    if help.len() > 0 {
+        out += "${pad} = help: ${help}\n"
+    }
+    return out
+}
+
+/// A lexer error has the same shape as a parse error and renders the same way;
+/// the two classes stay separate because a pass should not depend on the stage
+/// after it to describe its own failures.
+pub fn from_lex(err: LexError) -> ParseError {
+    return ParseError(
+        code: err.code,
+        message: err.message,
+        start: err.start,
+        end: err.end,
+        help: err.help,
+    )
+}
+
+/// An offset inside a character moves back to the character's first byte, so a
+/// caret never splits one.
+fn snap(src: string, offset: int) -> int {
+    at = offset
+    if at > src.size() {
+        at = src.size()
+    }
+    while at > 0 and at < src.size() and is_continuation(src.byte_at(at)) {
+        at -= 1
+    }
+    return at
+}
+
+fn line_start(src: string, offset: int) -> int {
+    at = offset
+    while at > 0 {
+        if src.byte_at(at - 1) == LF {
+            return at
+        }
+        at -= 1
+    }
+    return 0
+}
+
+fn line_end(src: string, offset: int) -> int {
+    at = offset
+    while at < src.size() {
+        if src.byte_at(at) == LF {
+            return at
+        }
+        at += 1
+    }
+    return src.size()
+}
+
+fn line_of(src: string, offset: int) -> int {
+    line = 1
+    at = 0
+    while at < offset {
+        if src.byte_at(at) == LF {
+            line += 1
+        }
+        at += 1
+    }
+    return line
+}

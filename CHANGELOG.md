@@ -4,14 +4,968 @@
 
 ### Changed
 
-- **Branch layout.** `main` is the Rust compiler and the only source of releases;
-  the Kode-hosted compiler lives on `next/selfhost` (renamed from
-  `selfhost/harness-tier1`, whose history and commits are preserved under both
-  names). Feature work uses short-lived `feat/`, `fix/`, `perf/`, `test/`, `docs/`
-  and `ci/` branches; `CONTRIBUTING.md` records the rule.
+- **Branch layout.** The Kode-written compiler now lives on `next/selfhost`
+  (renamed from `selfhost/harness-tier1`; both names point at the same history and
+  the old remote ref is kept until the new one has run CI). `main` keeps the Rust
+  compiler and remains the only source of releases. `CONTRIBUTING.md` records the
+  rule: short-lived branches named by intent, never by compiler stage.
 
 Release notes for the `kode` compiler. Versions follow the binary, not the
 language: a patch release fixes bugs, a minor release may add syntax.
+
+## Unreleased
+
+### Fixed
+
+- **Every program grew by ~281 KB because the embedded runtime was unoptimized.**
+  `kode-rt` is a *build* dependency of `kode-cli`, and build dependencies do not
+  inherit `[profile.release]`, so Cargo compiled the runtime at `opt-level = 0` with
+  256 codegen units. The compiler embedded that 22.8 MB archive instead of the
+  12.5 MB optimized one, and hello world went from 983,376 to 1,264,808 bytes
+  stripped, with `_rust_eh_personality` alone growing from 136 KB to 307 KB.
+  `[profile.release.build-override]` now sets `opt-level = 3` and
+  `codegen-units = 1` (`lto` and `panic` are rejected in that profile): the archive
+  is 12.7 MB, hello is **983,464 bytes** stripped, and a release build of the
+  compiler takes ~36 s instead of ~10 s.
+
+- **Reference counts are atomic in every program.** `kode_retain`/`kode_release`
+  read a global `THREADED` flag with a relaxed load and used plain arithmetic while
+  it was false. A task, channel or server thread set it with a `SeqCst` store, but a
+  thread that had already loaded `false` could keep touching the same `rc` field
+  non-atomically while another thread used `fetch_add`/`fetch_sub` on it — two
+  different access kinds to one location, which is undefined behaviour even when the
+  count happens to stay balanced. Nothing can be decided per object instead: any
+  object may be handed to a task or a channel, and proving it never escapes needs an
+  escape analysis the compiler does not have. Every count is atomic now (`Relaxed`
+  increment, `Release` decrement, one `Acquire` fence for the thread that frees) and
+  the flag is gone. Measured cost on one arm64 machine: 1.6 ns per RC operation;
+  `sieve`, `string_build/plus`, `fib` and `loop_mod` are unchanged at 10 ms
+  resolution, and the allocation counts are identical (79 and 72,056). A new test
+  shares an object created *after* four worker threads already exist.
+
+- **A release build could not link `StringBuilder`, or any runtime function newer
+  than the archive it embedded.** `cargo build --release -p kode-rt` uplifts the
+  staticlib to `target/release/libkode_rt.a`; a later build writes
+  `deps/libkode_rt-<hash>.a` and leaves the uplifted copy in place. `build.rs`
+  tried the fixed paths first and embedded the stale copy, so
+  `kode build x.kode --release` failed with undefined `_kode_buffer_new`,
+  `_kode_buffer_push` and `_kode_buffer_build` while `kode -V` looked fine — the
+  debug compiler embedded a fresh archive and worked, which is why the
+  conformance suite never saw it. The build script now picks the **newest**
+  archive among all candidates, and refuses to embed one older than the newest
+  file under `kode-rt/src`, so the next stale copy is a clear build error instead
+  of a link error in a user's program.
+
+### Added
+
+### Added
+
+- **`KODE_LINK_MAP` for tests that need to know what the linker pulled.** Setting it
+  to a path passes a linker map to `cc` (`-Wl,-map,<path>` on macOS,
+  `-Wl,-Map=<path>` elsewhere); unset, linking is unchanged. The runtime-split CI
+  step uses it to assert hello world selects **no** members of `libkode_rt_net.a`
+  and a TLS server does select them, which `nm` on a stripped binary could not show
+  and generic Rust glue made unreliable.
+
+### Added
+
+- **The runtime is linked in two halves.** At build time the embedded archive is
+  split into a core archive and a network archive (rustls, aws-lc, TLS, PostgreSQL,
+  `sha256`, `base64`). `kode build` links core alone and retries with both only if
+  the linker asks for a symbol core does not define, so nothing can go missing:
+  programs that never reach the network stop paying for it. hello world drops from
+  983,464 to **302,024 bytes** stripped, the `tasks` example from 1,101,736 to
+  420,312, and a plaintext HTTP server from 1,135,768 to 454,328. TLS servers
+  (2,786,472) and PostgreSQL programs (2,967,752) link the network half and are
+  unchanged. The split needs `ar` and `nm`; without them the build copies the whole
+  archive into core and every program links exactly as before. `KODE_RT_LIB` still
+  overrides the runtime with a single archive.
+
+### Added
+
+- **MIR removes provably redundant retain/release pairs.** `rc_elim` in
+  `crates/kode-mir/src/opt.rs` drops `release x` when the block has only set `x` to
+  `null` (releasing null is a no-op), and drops `retain x` … `release x` when nothing
+  between them can outlive or reassign `x` — only calls whose callee borrows
+  (user/std/closure functions, and the read-only print/format/length runtime
+  functions), loads and stores of other values, and releases of other locals. A call
+  that *consumes* an argument keeps its pair: `ChanSend` transfers the reference and
+  `ListPush`/`MapSet` take ownership of a heap item, which is why the runtime side is
+  a whitelist rather than an assumption. `KODE_RC_ELIM=0` turns the pass off and
+  `KODE_RC_STATS=1` prints what it removed. Measured: 0 operations removed in hello
+  and collatz, 1 in `plus` and `sieve`, 2 in `string_builder`, 13 in `classes`; no
+  change in time (plus 186.0 vs 185.3 ms, within noise), allocations (72,056 both)
+  or RSS. It is a correctness-neutral cleanup today, not a speedup — the pass cannot
+  touch the retain/release around the calls that dominate the string benchmark
+  without proving those calls borrow.
+
+- **`KODE_TASK_STACK_MB`, and an out-of-memory message.** A `spawn` task reserved a
+  fixed 64 MiB stack: enough for deep recursion, but 1,000 tasks reserve 64 GiB of
+  address space. `KODE_TASK_STACK_MB` (1–1024, default 64) sets it. Allocation
+  failure used to abort inside Rust's `handle_alloc_error`; it now prints
+  `kode: runtime error: out of memory (allocating N bytes)` instead.
+
+- **`kode build --opt=none`.** Skips MIR optimization *and* passes `-O0` to clang, so
+  a benchmark can compare two compilers that are both unoptimized. `--debug` keeps
+  its behaviour — MIR optimizer off, clang still `-O2` — and its help text now says
+  so instead of "do not optimize the generated code". `fib(38)`: `--opt=none`
+  277.9 ms against `cc -O0` 105.8 ms, `--debug` 58.2 ms against `cc -O2` 57.7 ms, and
+  3.8 ms for the default build, which measures `inline_calls` rather than a language
+  difference. The report shows all four rows and says which pair is like for like.
+
+- **Lists: literals, `Index`, `len`, `for … in` — with element ownership.** Four shapes
+  pinned from `kode mir` first, and one of them was not what it looked like:
+  `rt::ListGet(xs, i, line)`'s third operand is the **source line**, not a version or an
+  element kind (the oracle builds it as `vec![list, index, self.line_of(e.span.start)]`),
+  which is why probing two programs gave 2 and then 4. A literal is
+  `rt::ListNew(kind)` plus a `ListPush` per element (a borrowed element retained first,
+  since the list holds a count); `for x in xs` is four blocks — cond, body, step, exit —
+  over a copy of the list, with the copy released in `bb1` beside the named references
+  and the loop variable retaining the element it borrowed. `len` is `rt::ListLen` for a
+  list and `rt::StrLen` for a string. The interpreter keeps each list's elements in
+  `Owned.items` and drops them with the list, so the shadow counts prove the ownership
+  (the string for-in fixture would leak or double-free otherwise). Fixtures `list_int`,
+  `list_string`, `for_in_list`, `for_in_string`: mir and run **67/67**; the mutation gate
+  now catches **4** of its mutants rather than 2. The `report` fixtures had used a list
+  literal as their blocker and now use a map literal. Honest number: the ledger **rose**
+  from 293 to **305** constructs in the same 52 programs — 56 retired, 68 newly reachable,
+  because a list no longer stops the walk before what comes after it. `eval.kode` split
+  into `eval.kode` (468) and `own.kode` (130) to stay under the line budget, and
+  `readiness`'s fallback line finally names the real next step instead of S3.
+
+- **Bool locals, short-circuit `and`/`or`, the bitwise operators and `const`.** Four
+  shapes, all pinned from `kode mir` first. A bool is a local like an int (`let _0: bool`,
+  `_0 = false`, then the value); `a and b` / `a or b` allocate the result temporary
+  *before* the left side, assign it, branch, and give the right side a block
+  (`branch _2, bb2, bb3` for `and`, `branch _3, bb5, bb4` for `or`) — genuinely
+  short-circuiting; `&`, `|`, `^`, `<<`, `>>` are `bitand`/`bitor`/`bitxor`/`shl`/`shr`
+  and `~x` is `bitnot`; a `const` is never lowered, its literal is written where the name
+  was used (`_0 = add 5, 1`). Fixtures `bool_local`, `bool_logic`, `bitops`,
+  `const_inline`: mir and run are **63/63**, and the ledger drops **25** constructs
+  (318 → 293). `lower_expr.kode` also crossed 500 lines, so its leaf pieces
+  (interpolation, hole, literal, call arguments, integer operands) moved to
+  `selfhost/pieces.kode`, which walks no expression and so keeps the import graph acyclic.
+
+- **A program is every file it imports.** `mir`, `run` and `report` now load the module
+  graph (the loader the checker already had) and lower the whole program in the oracle's
+  order: post-order, so a file's own items come after everything it imports and `<main>`
+  closes the dump — `b`, `a`, `<main>` for a chain, `y`, `x`, `local`, `<main>` for two
+  imports. Names stay flat, exactly as the oracle prints them (`fn shout`, not
+  `words.shout`), so one function/class table serves the program and an imported class's
+  methods are lowered in the file that wrote them. A field's default is now read from the
+  file that declared it (a node id is only meaningful in its own tree, which is how the
+  first cut turned a module's `v: int = 4` into `""`). New `./scripts/selfhost.sh modules`
+  gate over `selfhost/spec/modules/{chain,two,class_import}`: oracle dump and port dump
+  byte-identical, output and exit code equal — **3/3**; mir/run stay **59/59**, and the
+  corpus retires `statement Import` (320 → 318 constructs). Alias-qualified calls
+  (`words.shout("hi")`) are still refused; bare `import` and `from … import` are what the
+  port's own sources use.
+
+- **Classes: objects, fields and methods.** `class P { name: string = "a" ... }` now
+  lowers end to end. The oracle's layout is pinned in `selfhost/classes.kode`: a 24-byte
+  header, field `i` at `24 + 8 * i`, `_0 = call rt::ObjNewClass(count, ref_mask, 7)` with
+  a bit per reference field, one `store` per default, `p.name` as `_N = load _p+24`, a
+  field write as `retain` (a borrowed value) → `load` the old field → `store` → `release`
+  the old one, and a method as a MIR function `Class.method(_0 = this, …)` called with
+  `this` first. A field read is a *borrow*, so `print(p.name)` releases nothing, while a
+  method that returns `this.name` retains it. `selfhost/eval.kode` runs all of it: objects
+  with real field slots, `load`/`store` by offset, and an object's reference fields
+  dropped with it when its last count goes. Five fixtures
+  (`class_field_read`, `class_field_write`, `class_field_owned`, `class_method_call`,
+  `class_method_param`) and an ownership stress case (`own_field`): mir and run are
+  **59/59**, `own` **5/5** with the mutation now caught on two fixtures. Classes are
+  shallow so far — a field access needs a name bound straight from `P()` in the same
+  function, and a class-typed parameter or return is still refused, which is the next
+  slice.
+
+- **Unary operators lower.** `-x` and `not x` become one temporary and one instruction
+  (`_1 = neg _0`, `_0 = not true`), named as the oracle names them. `mir.kode` learned the
+  one-operand dump line and `eval.kode` the two instructions. Cheap and measurable: the
+  corpus went from **4/58** to **6/58** programs (`int_arith` and `bools_logic` now lower,
+  run and match), 6 constructs retired (311 left in 52 programs), and mir/run are **54/54**
+  with `unary_neg` and `unary_not` as the new fixtures. `not` outside a `print` still
+  needs bool locals.
+
+- **An interpolated string is a value, not just a `print` argument.** `x = "a${y}b"`,
+  `f("${y}")` and `return "a${y}"` all lower now. The accumulator is the caller's
+  ownership: a lone hole is the variable retained for the slot (so the store moves
+  instead of retaining a second time), two pieces are an intermediate, and a call site
+  releases what it made. Five fixtures in `selfhost/spec/run/` (`interp_assign`,
+  `interp_assign_sole`, `interp_assign_int`, `interp_arg`, `interp_return`) are
+  byte-identical to `kode mir`; the mir and run gates are now 52/52, and the corpus
+  drops one blocker (318 → 317 constructs).
+
+- **The interpreter owns what it borrows.** `selfhost/eval.kode` used to ignore
+  `retain`/`release`; it now keeps shadow reference counts, so a run fails when a
+  `release` takes a count that was never there, when a reference is used after its last
+  release, or when `<main>` returns with a count still standing — the three bugs the MIR
+  ownership lines exist to prevent, which the byte-identical dumps could not see. New
+  `./scripts/selfhost.sh own` gate: four stress cases in `selfhost/spec/own/` (overwrite,
+  branch reassignment, a string across two frames, a loop that reassigns and
+  interpolates) must stay silent, and a mutant port whose every `retain` became a
+  `release` must be caught — otherwise "no violation" would only mean the check never
+  ran. `run` also gained its exit status: 1 on an ownership violation, 0 otherwise.
+
+- **The lowering is split by idea, not by size.** `selfhost/lower.kode` had grown to 1,124
+  lines in one class. It is now five files: `lower_core.kode` (the `Builder` every step
+  shares: the tree, the function being filled, blocks, names, and the refusal channels),
+  `lower_stmt.kode` (statements, `if`/`while`, `return`, `print`, interpolation),
+  `lower_expr.kode` (literals, operators, calls, the divisibility mask), `ops.kode` (the
+  operator tables) and `lower.kode` (the program: functions, `main`, assembly). A pure
+  move — the same 47/47 dumps, 47/47 runs, 5/5 reports and 4/4 corpus cases, and every
+  file is now under 400 lines.
+
+- **The port lowers calls, so user functions run.** `name(args)` lowers to
+  `_N = call name(a, b)` (or a bare `call` for a unit callee), arguments in order, the
+  destination sized from the callee's declared return kind — known before any body is
+  walked, because recursion and forward calls both need it. `selfhost/eval.kode` gives a
+  call a frame of its own: parameters receive the arguments, the body runs to its
+  `return`, and the returned value is written where the caller asked. The corpus moves
+  from 2/58 to **4/58** (`functions`, `early_return_strings` now match dumps, output and
+  exit codes); `mir` and `run` are **47/47**.
+
+- **Two divergences the new fixtures and corpus programs exposed.** A parameter is a
+  named variable even though its `Temp.name` stays empty, so `print(msg)` inside a
+  function released the parameter and `return s` did not retain it; `is_variable()`
+  covers both now. And `(x % 2^k) == 0` is a divisibility test the oracle lowers as
+  `bitand x, 2^k - 1` (exact for two's complement, unlike `x % 2^k` itself, which is why
+  only the test is fused) — the port divided, so `is_even` differed.
+
+- **The port lowers `fn` declarations and `return`.** Each declaration becomes its own
+  `fn` in the dump — parameters as `_0`, `_1` in the header (no `let`, no zero init), the
+  return temporary allocated at the first `return`, a `bb1` return block that releases the
+  named references before it returns, and `unreachable` closing a block-body function that
+  returns something (not the `=> expr` sugar, which ends at `bb1`). Calls are still out:
+  this lands the declarations half of the slice. Six run fixtures (`fn_void_param`,
+  `fn_return_int`, `fn_return_string`, `fn_sugar`, `fn_early_return`, `retain_on_assign`)
+  and two report fixtures (`fn_body_blocker`, `call_arg_blocker`) came first; `mir` is
+  **39/39** and `run` **39/39**, `report` **5/5**.
+
+- **A reference store now retains a borrowed value, as the oracle does.** `b = a` on a
+  string emitted `release _1; _1 = _0` where the oracle emits `retain _0; release _1;
+  _1 = _0`. The 33 existing fixtures never assigned one string variable to another, so
+  the dump gate passed over a real divergence; `retain_on_assign` pins it now, and the
+  same rule is what a `return` of a borrowed reference needs.
+
+- **The port's walk reports every unsupported construct, not just the first.**
+  `kode-stage1 report <file>` keeps walking past a refusal and lists each construct it
+  cannot lower, once, in order; `mir`/`run` still stop at the first and exit 2, so the
+  byte-identical gates are untouched. Refusals now hand back a poison operand so the same
+  failure is not reported again as a wrong type, and a refused declaration registers its
+  name so later reads are not either. `selfhost/spec/report/` pins it with three fixtures,
+  and the corpus numbers change shape with it: 2 of 58 programs lower, and the other 56
+  need **296 constructs** (78 distinct) instead of 56 first-blocker lines. The
+  out-of-scope ledger is now generated by `./scripts/selfhost.sh ledger` and `corpus` fails
+  when the committed file differs from a fresh run.
+
+- **CI runs every self-hosting gate, not three of them.** The `selfhost` job stopped at
+  `parse`; it now runs `check` (codes, reports and the self-check), `mir`, `run` and
+  `corpus` as well, records the work packets and readiness level informationally, and has
+  a 30-minute ceiling because the port can hang on a program it mis-lowers. Nothing else
+  in the job changed.
+
+- **A corpus gate, with the out-of-scope programs recorded rather than skipped.**
+  `./scripts/selfhost.sh corpus` runs the `mir` and `run` comparisons over
+  `tests/run-pass` instead of the hand-written fixtures, and it fails in both directions
+  against `selfhost/spec/corpus-out-of-scope.txt`: a stale line when a listed program
+  starts lowering, a missing line when an unlisted one starts refusing. Today **2 of 58**
+  programs are in scope (`hello`, `nesting_ok`, both byte-identical and running) and 56
+  are recorded with the reason the port gives; the plan now carries that table, which
+  ranks the remaining S4 work (functions and calls first, 22 programs). Both failure
+  directions were exercised on a scratch copy of the list before committing.
+
+- **Split `selfhost/mir.kode` by idea.** The MIR model and its dump stay in
+  `selfhost/mir.kode` (198 lines); the walk that builds them moves to
+  `selfhost/lower.kode` (645), and `main.kode` imports `build` from there. Behaviour is
+  unchanged — 33/33 dumps, 33/33 runs, check text 170/170, self-parse and self-check
+  55/55 — which is the point of a pure move. `lower.kode` is one class, so it is over
+  AGENTS' ~500-line guideline; getting under it means breaking `Builder` up, which is a
+  separate item and not worth bundling with a move.
+
+- **Pins for the cases slice 7 introduced.** `selfhost/spec/run/while_in_if.kode` runs a
+  loop inside an `if` arm (dump identical to the oracle; prints `0 1 2 3`), and
+  `tests/compile-fail/e0314_continue_outside` covers the one missing rejection —
+  `continue` outside a loop was only covered for `break`. Probing showed the other two
+  cases cannot be run fixtures: `break`/`continue` outside a loop and `while` on a
+  non-bool are checker errors (`E0314`, `E0209`) that never reach MIR. Gates: parse
+  **173/173**, check **170/170** with **170/170** reports, mir **33/33**, run **33/33**,
+  and `cargo test -p kode-cli --test conformance` still passes.
+
+- **S4 slice 7: `while`, `break` and `continue`.** A loop creates its condition, body
+  and exit blocks in that order, ends the code before it with `goto <cond>`, and sends
+  `continue` to the condition and `break` to the exit through a stack of loop targets;
+  a nested loop is created inside the outer body. Every instruction now goes through a
+  single `emit`, which starts a fresh block when the current one already ends in a
+  terminator — the oracle's extra `goto`-only blocks after an arm that leaves the loop.
+  The interpreter needed no change, since it already followed `goto` and `branch`
+  (`selfhost/mir.kode`). Five fixtures came first in `selfhost/spec/run/`, so the gates
+  report **32/32** dumps byte-identical and **32/32** runs with the oracle's output and
+  exit code. `for`, `else` on a loop and `break` inside a `match` arm are not in.
+
+- **S4 slice 6: comparisons and `if`, and real control flow in the interpreter.** MIR
+  now has more than one block: `bb0`, the exit `bb1`, then the blocks in creation order;
+  an `if` makes its then-block, its join and its else-block, splits with
+  `branch _1, bb2, bb4` and joins with `goto`. Comparisons lower to
+  `lt`/`le`/`gt`/`ge`/`eq`/`ne` into a `bool` temporary (`false` to start, printed by
+  `rt::PrintBool`). The interpreter holds a `State` and a program counter, following
+  `goto`, `branch` and `return` instead of the old one-block walk
+  (`selfhost/mir.kode`, `selfhost/eval.kode`). Five fixtures came first in
+  `selfhost/spec/run/`, so the gates report **27/27** dumps byte-identical and
+  **27/27** runs with the oracle's output and exit code. `while`, `and`/`or`/`not`,
+  bool variables and string equality are not in.
+
+- **S4 slice 5: string interpolation, including its literal-head release.** A `print`
+  argument that is an interpolation lowers to a `StrConcat` chain: the head becomes the
+  accumulator (a literal head is released after its first concat — the `release "hi "`
+  line — and a variable head is retained), each further piece releases the old
+  accumulator, an int hole is an owned `rt::IntToStr` temporary released right after its
+  concat, and a lone hole is only a `retain`. The print releases the value it read
+  (`selfhost/mir.kode`); the interpreter renders ints and treats `retain` as a no-op
+  (`selfhost/eval.kode`). Five fixtures came first in `selfhost/spec/run/`, so the gates
+  report **22/22** dumps byte-identical and **22/22** runs with the oracle's output and
+  exit code. Interpolation as a value, non-name holes and float/bool holes are not in.
+
+- **S4 slice 4: strings built at run time, with the oracle's retain/release lines.**
+  MIR temporaries now have a type, so a string is a `ref`: `let _0: ref`, zeroed to
+  `null`, released before every store (including the first one) and once more in `bb1`;
+  an intermediate is released right after its last use; `+` on strings lowers to
+  `_N = call rt::StrConcat(a, b)` with borrowed literals and a moved result
+  (`selfhost/mir.kode`). The interpreter keeps a string per reference temporary and
+  treats `release` as a no-op, since it has no counts to drop (`selfhost/eval.kode`).
+  Five fixtures came first in `selfhost/spec/run/`, so the gates report **17/17** dumps
+  byte-identical and **17/17** runs with the oracle's output and exit code.
+  Interpolation is not in yet: it also releases its literal head, a rule of its own.
+
+- **S4 slice 3: reassignment and the rest of the integer operators.** A declaration
+  now lowers its value before it allocates the variable (`x = 1 + 2` is
+  `_0 = add 1, 2` then `_1 = _0`, which slice 2 only got right by accident), a
+  reassignment writes the existing temporary (`x = x + 1` is `_1 = add _0, 1` then
+  `_0 = _1`), and `- * / %` lower to the oracle's `sub`/`mul`/`div`/`rem` alongside
+  `add` (`selfhost/mir.kode`, `selfhost/eval.kode`). `div` and `rem` truncate toward
+  zero, as the language does: `0 - 7 / 2` is `-3`. Five fixtures came first in
+  `selfhost/spec/run/`, so the gates report **12/12** dumps byte-identical and
+  **12/12** runs with the oracle's output and exit code.
+
+- **S4 slice 2: a local, a name read and `+`, with the oracle's temporaries.** The
+  self-hosted MIR now lowers `x = <int expression>` and `print(<int expression>)`
+  (`selfhost/mir.kode`, learning the oracle's rules: one temporary per variable and per
+  `add`, numbered in walk order; the `let` block before `bb0`, with the variable's name
+  as a comment; one `_N = 0` per temporary at the top of `bb0`; `_N = add a, b` for a
+  sum). `selfhost/eval.kode` keeps one `int` per temporary and resolves assignment,
+  `add` and `rt::PrintInt` against it. Four fixtures came first in
+  `selfhost/spec/run/` (a local, `1 + 2`, two locals summed, `1 + 2 + 3`), and the
+  gates report **7/7** dumps byte-identical and **7/7** runs with the oracle's output
+  and exit code. Out of scope still: other operators, reassignment, string temporaries
+  and their retain/release, blocks and user calls.
+
+- **S4 has begun: a MIR, a dump and an interpreter for `print` of literals.** The
+  self-hosted compiler's first S4 slice lowers a program whose statements are
+  `print(...)` calls over scalar literals into one function, `<main>`, with `bb0`
+  calling the runtime print primitives (`rt::PrintStr`, `PrintInt`, `PrintFloat`,
+  `PrintBool`, `PrintSep`, `PrintNl`) and `goto bb1; return` after them
+  (`selfhost/mir.kode`), prints that MIR in `kode mir`'s own layout, and runs it
+  (`selfhost/eval.kode`), so `kode-stage1 mir` and `kode-stage1 run` are new modes.
+  A program outside the slice stops with a reason on stderr and exit 2 rather than
+  dumping MIR that would not run. The fixtures came first: `selfhost/spec/run/` holds
+  three programs and their `.out`, and `./scripts/selfhost.sh mir` reports **3/3**
+  dumps byte-identical while `run` reports **3/3** cases whose output is
+  byte-identical and whose exit code equals the oracle's — each `.out` is checked
+  against the oracle's own `kode run`, and a run that does not exit 0 fails the gate,
+  so printing the right text and then leaving differently is caught.
+
+- **`check text` is a gate, and it is green: 169/169.** The oracle prints
+  `checked in 0.38 ms` on success, which is a wall-clock measurement rather than
+  diagnostic text, so `./scripts/selfhost.sh check` drops that one line (and only it)
+  before comparing, and now compares the rendered report for the run-pass programs too,
+  not just the compile-fail ones. Every case's report — code, message, position, source
+  line, carets, hint, order — is byte-identical to the oracle's, and `check` exits
+  nonzero when a case's codes, its report or the port's self-check differs. Measuring the
+  clean programs turned up one false warning: a variable holding a closure that is
+  called (`greet("Bob")`, `f(21)`) is read, so it no longer says `W0001` — which had made
+  `closures.kode`, `fn_values.kode` and `optional_params.kode` warn. `check text`
+  **111 → 169/169**.
+
+- **`E0408` and `E0409` name their file.** Both are recorded while the module graph
+  loads, before any file is walked, so the `import ... as` alias now carries the file it
+  is written in (`Alias.file`) and the report's `-->` line no longer reads `--> :2:25`.
+  Compile-fail reports byte-identical: 110 → **111/169**.
+
+- **Diagnostics point where the oracle points.** Four rules were underlining more than
+  the oracle does: `E0215` (a named argument, or any named argument to a builtin) now
+  underlines the argument's name, `E0305` (a function whose body can fall off its end)
+  the function's name rather than its whole signature, `E0419` (a payload field read
+  without the narrowing that makes it safe) the field rather than the whole `s.radius`,
+  and `E0218` (`x.y` on a value with no fields) the receiver. The interface form of
+  `E0218` keeps pointing at the field, because there the field is the mistake. `check
+  text` over the compile-fail corpus: 103 → **110/169**.
+
+- **Generic calls and generic annotations are checked, and S3 is complete.** The gate now
+  reports **169/169** programs with the oracle's own code set — every compile-fail fixture
+  and every run-pass program. `selfhost/generics.kode` infers: a free function's type
+  parameter has to appear in a parameter type (`E0250`), a generic class's in one of its
+  fields at the constructor (`E0422`), and a method of a generic class already has its
+  class's parameters from the receiver, so only the ones it declares itself are asked for
+  — which is also why a generic class's method may not declare any of its own yet
+  (`E0252`, in `names.kode`). A generic function used as a value is `E0251`. Annotations
+  follow: `Box<int, int>` is `` `Box` takes 1 type argument, found 2`` (`E0421`) and a
+  bare `Box` is `` `Box` is a generic class, so it needs type arguments`` (`E0423`), both
+  of which leave the declaration unannotated so the value is reported next, exactly as
+  the oracle does. A parameter whose type the slice cannot read (`fn(T) -> U`) silences
+  the inference rule rather than guessing. `E0206` now points at the callee name, not the
+  whole call. `check text` moves 95 → **103/169**; `self-check` 51 → **52/52**.
+
+- **Warnings exist, and `W0001` is the first.** A `Diag` now says whether it is an error
+  or a warning: it renders as `warning[W0001]: ...` and `check` exits 0 when nothing but
+  warnings was found. `selfhost/unused.kode` records every name an assignment declared and
+  `sema.kode` marks the ones read (a name starting with `_` is exempt), so an unused
+  variable says `variable `x` is assigned but never used` with the oracle's hint. The
+  oracle suppresses warnings for a program that has errors, and so does the port. Gate:
+  161 → **162/169**; `tests/compile-fail/w0001_unused.kode` is identical but for the
+  oracle's timing line.
+
+- **`throw`, `catch`, the list callbacks and the web layer are checked.**
+  `selfhost/throws.kode` refuses a `throw` that is neither a string nor an `Error`
+  (`E0226`), and a `catch` block that does not answer with the expression's type
+  (`E0227`) — including a block that ends in nothing at all. `xs.map(f)` and
+  `xs.filter(f)` demand a callback that takes one item and gives one back (`E0242`),
+  whether it is a closure with a written parameter or a named function.
+  `selfhost/server.kode` knows the two shapes of a handler: a route's
+  `fn name(req: Request) -> Response` (`E0233`) and `serve`/`serve_tls`'s `Router` or
+  `fn name(method: string, path: string, body: string) -> string` (`E0232`), and a
+  `Router()` value now has that name instead of `any`. Gate: 156 → **161/169**,
+  `check text` **95/169**.
+
+- **`match` is checked.** What may be matched, what a pattern has to be, and what a
+  `match` has to cover: `E0223` refuses a value that is not an int, a string, a bool or an
+  enum (and a pattern of the wrong type), `E0224` counts the missing cases — an enum's
+  variants by name, both bools, or the `_` arm an int or a string needs — and `E0225`
+  reports a variant an enum does not declare, with the closest one it does. `E0420`
+  refuses `==` and `!=` on a payload enum, whose value is a reference. `selfhost/names.kode`
+  now records every variant (and whether it carries payloads), which is what all four
+  read. Gate: 152 → **156/169**, `check text` **90/169**.
+
+- **The port's hints match the oracle's.** An unknown name (`E0201`) now says which
+  mistake it probably is: a module needs `.member`, an enum value is written
+  `Enum.Variant`, a near miss gets `did you mean ...?` (the same Levenshtein search the
+  member rules use), and anything else is created first. `E0206` suggests a declared
+  function, class or builtin, or says how to define one, and `E0403` says what a module
+  may contain. `check text` (byte-identical reports) moves **79 → 86/169**.
+
+- **The port renders a diagnostic the way the oracle does.** `check` now prints the
+  whole report — `error[CODE]: message`, the `--> file:line:column` line, the offending
+  source line with its carets, and the hint — instead of the bare code and message. The
+  tree carries its file (`Ast.file`), a `Diag` names it, and `report.render_diag` shares
+  one renderer with the parser's errors. `./scripts/selfhost.sh check` reports how many
+  programs are byte-identical (`check text`), so a wrong span or missing hint is visible
+  before it becomes a gate: **79/111** today, the rest being the wording gaps and the
+  families S3 has not reached.
+
+- **A user call and a class field now have a type.** `members.value_type` answers what
+  `typing.kode` cannot on its own: a function's or method's declared result, a class
+  constructor's instance, and a field's type — through `?.` too. The operators and
+  `print` ask it, so `f() + "a"` is `E0203`, `print(f())` on a function that declares no
+  result is `E0205`, and `y = f()` binds a typed `y`. A result written in the callee's
+  own type parameters (`fn id<T>() -> T`) stays `any`, as do a generic class's fields
+  (ADR 0030), so no rule guesses. Gate holds at **152/169**, self-check **47/47**.
+
+- **The port's checker knows what a class has.** `selfhost/members.kode` collects every
+  field and method a class or interface declares (and the fields of the prelude classes
+  `Json`, `ProcessResult`, `Error`, `Request`, `Response`, `HttpResponse` and `Router`),
+  so a `.` on a class is checked instead of guessed: an unknown name is `E0217` with the
+  oracle's "did you mean" hint (from the new `selfhost/suggest.kode`), and a receiver
+  with no fields at all — an interface, a number, a list, an enum — is `E0218`.
+  `E0417` reports a payload variant used as a value instead of called, `E0228` a
+  method parameter that shares a field's name, and `E0234`/`E0235` a class that does not
+  implement its interfaces' methods with exactly the same parameter and result types.
+  `?.` now also refuses a field that is not a reference (`E0219`), and a failed `.`
+  declares nothing, so the next use of the name is `E0201` as in the oracle. Gate:
+  145 → **152/169**, self-check **47/47**.
+
+- **The port's checker knows what may be none.** `selfhost/optional.kode` ports the
+  optional rules: `E0219` for the shapes that are not supported yet (a list of `int?`, a
+  map of `int?`, an optional of something that is neither a reference nor a scalar) and
+  for `none` written without a type, `E0222` for an empty list or map that has no type to
+  take, `E0220` for reaching inside a value that may be none (`.` without `?.`, a method
+  call, an index, and `!` on something that cannot be none), `E0221` for going the other
+  way (`??` or `?.` on a value that cannot be none, and a default of the wrong type), and
+  `E0313` for writing a type on a name that already exists. `E0419` is the payload-enum
+  rule: reading `s.radius` is only valid where `s` is narrowed to `Shape.Circle`, which
+  the walker now tracks for the then branch of an `is` test (ADR 0039 §4.4), so
+  `tests/run-pass/enum_is.kode` stays clean. `??` keeps an optional default
+  (`env("A") ?? env("B")` is a `string?`), an enum variant types as its enum, and a `Json`
+  value or an optional says what it is. Gate: 138 → **145/169**, self-check **45/45**.
+
+- **The port's checker knows what may be indexed, sliced, collected and looped over.**
+  `selfhost/containers.kode` ports the rules whose subject is a value's shape:
+  `E0209` for a condition that is not a bool (the oracle's `if` and `while` wording, the
+  `else if` form included, since it is another `If` inside the `Else`), `E0211` for a
+  value that cannot be indexed (`a string cannot be indexed`, "`Json` cannot be changed in
+  place" for an index target) or sliced (bounds first, so a bad bound on a map is the
+  bound's error alone), `E0212` for an index, key or slice bound of the wrong type —
+  a list index is an int, a map key a string, a `Json` value either — `E0213` for a list
+  item or map value that is not the type of the first one (and a list that cannot hold
+  `none` or nothing at all), and `E0214` for a `for ... in` over something that is not a
+  list or a map. A refused literal declares no name, so the next line is `E0201` as in
+  the oracle, and `for` now binds a list's item (or index and item), a map's key (or key
+  and value) with the types they really have rather than `any`. Optionals are left to
+  `E0220`'s own family, and a range loop's bounds to `E0203`'s. Two supporting rules
+  were fixed: `none` fits only an optional (so `[1, none]` is `E0213`), and an enum is
+  printable. Gate: 130 → **138/169**, self-check **44/44**.
+
+- **The port's checker knows the builtins, the runtime functions and methods.**
+  `selfhost/stdlib.kode` mirrors the oracle's tables: the runtime functions a program
+  calls by name (`exec` and its `(string, [string], string)` among them), the
+  one-argument builtins with the words the oracle uses for each (`len` "a string, a
+  list or a map", `bytes` "a length", `int`, `float`, `string`, `assert`), and
+  `StringBuilder`'s `push`/`build`. `selfhost/signatures.kode` records every method as
+  `Class.method`, with its class's type parameters in scope, and keeps the bare name
+  for a return message — the oracle prints `` `m` `` there but `` `P.m` `` in a call.
+  `selfhost/functions.kode` resolves a method call through its receiver's type and
+  reports the three shapes the oracle uses: a runtime function names its arguments
+  positionally ("argument 2 of `exec` should be `[string]`, found a string"), a
+  builtin describes the value it wants ("`bytes` expects a length, found a string"),
+  and a method of a class the program declares is a call like any other, named
+  parameter help included. Every row also carries what the call answers, so an
+  expression typed through it is checked like any other value: `print(exec(...))` is
+  `E0203` ``cannot print `ProcessResult` yet``, `print(assert(x))` is `E0205` "this call
+  returns nothing", and `print(env("HOME"))` is ``cannot print `string?` yet`` — the
+  print rule now tells a scalar optional (`int?`, `float?`, `bool?` print fine) from the
+  rest, and a bare `none`, as the oracle does. Named arguments separate the two kinds of
+  builtin: a free
+  one refuses them once, at the first (`len(x: 1)` is `E0215`), while a builtin method
+  takes a name the way a declared one does — `sb.push(s: "a")` is clean and
+  `sb.push(x: 5)` reports only the type — and `sb.build(1)` is the plain arity
+  `E0207`. A call that fails still binds the name when it is a
+  builtin or a constructor (`b = bytes("four")` reports only the argument), which the
+  oracle confirms; a refused function still declares nothing. The wrong-number-width
+  hint ("numbers never convert automatically") now also appears on a user call.
+  Gate: 122 → **126/165**, self-check **43/43**. Four fixtures keep the result-type and
+  print rules honest: `tests/compile-fail/e0203_print_process_result.kode`,
+  `e0205_print_nothing.kode` and `e0203_print_optional_string.kode`, plus
+  `tests/run-pass/optional_scalar_print.kode` (an `int?`, a `float?` and a `bool?`, none
+  included, print as `none`, `4`, `true`), so the gate is **130/169** with the same
+  self-check.
+
+- **The port's checker knows what a function promises.** `selfhost/signatures.kode`
+  records every function's parameters and result, and every class's constructor — its
+  fields in declaration order, the ones with a default value optional but still taking
+  their position — before any file is walked, because a program's namespace is shared
+  across modules. `selfhost/functions.kode` then checks a call against it: `E0207` for
+  too many arguments (with the oracle's singular and plural), `E0215` for an argument
+  the callee has no parameter for, `E0216` for a parameter the call leaves out,
+  `E0208` for the wrong type — including the oracle's second form for a type
+  parameter, which is bound at its first argument (`T`, `[T]`, `{string: T}`, `T?`) and
+  has to agree at the rest — and `E0304`/`E0305`/`E0310` for a body that gives nothing
+  where a result was declared, a function that can fall off its last line, and a
+  `return` of the wrong type. A failed call declares nothing, so the name it was
+  assigned to is unknown on the next line, as in the oracle. Two type rules grew the
+  fix the families needed: `int?` is assignable to `int?` (it was not), and a type
+  parameter nested in a container is recognised. Gate: 109 → **122/165**, self-check
+  **42/42**. Methods, builtins and closures are silent: their signatures are not in the
+  table yet.
+
+  The `check` gate now compares the port's codes with the **oracle's own**, not with
+  the `.err` file: a `.err` names the codes the Rust conformance test looks for and may
+  leave out the follow-on ones (`E0102` after a parser error, `E0201` after a failed
+  call), so the old comparison failed a port that agreed with Stage 0. Six parser
+  fixtures and the named-argument ones became green by measuring the right thing.
+
+- **The port's parser refuses what the oracle refuses.** `selfhost/depth.kode`
+  enforces the 128-level nesting limit (ADR 0032) the way the oracle does, in two
+  places: a guard on entry to the expression, block and type productions, which
+  catches `((((1))))` and a tower of `if`s at the token the oracle points at, and a
+  walk over the finished tree with an explicit stack (mirroring
+  `crates/kode-syntax/src/depth.rs`, push order and transparent wrappers included),
+  which catches what a loop built — `1 + 1 + ...` is left-deep and costs the later
+  passes one frame per term. Both report `E0118`, and the walk only runs on a clean
+  tree. Recovery now matches the oracle on four productions: `fn` without a name and
+  `for` without a loop variable report `E0110` and skip the line (which is why the
+  closing `}` is then a statement, `E0102`); a type the oracle refused ends a typed
+  declaration instead of reporting `E0107` on the `:` it stopped at; and a signature
+  with a body ends the whole interface after `E0236`. The `parse` gate now compares
+  the entire `tests/compile-fail` corpus, not only the slice's own cases, so a
+  recovery that drifts is caught where it happens: **169/169** trees and
+  diagnostics byte-identical, **39/39** of the port's own files. CI runs it too:
+  the `selfhost` job now ends with `./scripts/selfhost.sh parse` after `stage1`,
+  which adds 1.8 s (416 processes over 208 programs) on the development machine.
+
+- **The port's checker learns declarations.** `selfhost/names.kode` collects every
+  name a program declares — functions, constants, classes, enums, interfaces, `from`
+  names — before any file is walked, and reports the declarations that cannot stand:
+  `E0301` (a name defined twice, with the oracle's wording for a class and for the
+  built-in `Error`), `E0302` (a builtin redefined), `E0306` (a parameter or field
+  twice), `E0307` (a constant that is not a plain value, with the `${}` hint) and
+  `E0308` (a constant defined twice). `selfhost/annotations.kode` turns a written type
+  into a `Type`, `selfhost/items.kode` is what a function or class declaration puts in
+  scope, and `selfhost/binding.kode` what `name = value` does — `E0312` (a constant
+  assigned), `E0205` (the value of `print`, which returns nothing) and, in the
+  operator rules, `E0204` (a literal division by zero). The walk tracks whether it is
+  inside a function and how many loops deep, so `return` at the top level is `E0311`
+  and `break`/`continue` outside a loop `E0314`. A value that does not fit its
+  annotation is `E0202` *and* declares no name, which is why
+  `tests/compile-fail/e0202_annotation.kode` reports `E0201` as well, like the oracle.
+  Gate: 95 → **105/165**, self-check **37/37**.
+
+- **The port's checker learns types.** `selfhost/typing.kode` says what a value is —
+  the primitives, `[T]`, `{string: T}`, `T?`, a named class, `any` — and types
+  literals, locals, unary and binary expressions, list and map literals and the calls
+  it can name; it also resolves annotations (`E0303`, with the fixed-width hint `u8`
+  gets). `selfhost/operands.kode` holds the operator and printing rules (`E0203`,
+  `E0210`), and an assignment keeps its target's type, so `x = 1` then `x = "a"` is
+  `E0202`. `selfhost/scope.kode` is the frame stack, which keeps `sema.kode` under its
+  size limit. A rule only fires when the mistake can be proved: an `any` operand, an
+  optional operand (narrowing is a later slice) and two named types (no `implements`
+  yet) are accepted. Gate: 85 → **95/165**, self-check **33/33**.
+
+- **The port's import namespace is complete.** `selfhost/namespace.kode` adds the two
+  alias rules the oracle keeps in the checker: a module alias may not repeat
+  (`E0408`, "the module name `x` is imported twice") or hide a declaration
+  (`E0409`, "the module name `x` hides another declaration", with the oracle's hint).
+  The alias list is kept in load order, so the *second* of two equal aliases is the
+  one reported, matching `crates/kode-sema/src/check/item.rs::collect_modules`, and
+  the first is the one that survives there — a member call resolves through it, so
+  `tests/compile-fail/e0408_duplicate_alias_across_files.kode` proves the order from
+  the outside: its `E0410` only appears when the alias from the imported file is the
+  one in force. A `.err` file may now list several codes (one per line or space
+  separated), which is what lets that case state both, and both conformance suites
+  check each one. `selfhost/diag.kode` holds the diagnostic record both passes
+  produce, and the builtin/std name table moved to `selfhost/builtins.kode`.
+  Gate: 82 → **85/165**, self-check **30/30**.
+
+- **The port's checker loads the module graph.** `selfhost/modules.kode` makes
+  `import`/`from` read what they name instead of only recording the path: paths
+  resolve relative to the file that wrote them (a bare path against the package root
+  from `kode.toml`), `.kode` is appended when absent, each file is read once, and the
+  oracle's module diagnostics are reproduced byte-for-byte — `E0401` missing file,
+  `E0402` cycle, `E0403` code in a module. What an import reaches is enforced too:
+  `E0405` a name the module does not define, `E0410` a member an alias does not have,
+  `E0411` a name or member that is not `pub`. `kode-stage1 check` therefore checks the
+  whole program: the port's own sources are clean under its own checker
+  (`self-check: 27/27`, a second gate in `./scripts/selfhost.sh check`), and the
+  corpus gate moves 75 → 82/164.
+
+- **The S3 checker starts (name resolution).** `selfhost/sema.kode` resolves every
+  name a program uses against top-level declarations, imports, builtins, the
+  runtime's free functions and modules, the prelude classes, and block scopes
+  (parameters, assignment targets, `for` and `catch` variables, match-arm payloads,
+  closure parameters), reporting `E0201`/`E0206`; `kode-stage1 check <file>` is the
+  new entry point. The gate comes first: `./scripts/selfhost.sh check` compares the
+  port's code set with the code each program's `.err` names, so progress is a number
+  — **75/164** today (18 compile-fail exact, 57 run-pass clean, 80 with no
+  diagnostic yet, 6 where the wider corpus still parses differently). `readiness`
+  now reports the checker level, and `all` runs the new pass.
+
+- **Function types in annotations (S2 slice 14).** The port parses the whole type
+  grammar now, `fn(int) -> int` included (in a parameter, a field, a local, a return
+  type, nested, zero-argument, after `?`), and `Task<T>`/`Channel<T>` dump as their
+  own kinds instead of a generic named `Task`. Malformed annotations also match the
+  oracle: a missing `]`, `}`, `>` or `->` is `E0103` over the token found (the port
+  had been saying `E0102` in its own words) and a map key that is not `string` is
+  `E0115`, which the port had not checked at all. `selfhost/spec/parse` is 30 tree
+  cases and 24 diagnostic cases, **54/54 byte-identical**, self-parse 25/25.
+  `./scripts/selfhost.sh readiness` also counts deferred packets apart and, with
+  nothing on the path blocked, names S3 as next and records that WP-12 stays until
+  S5 instead of pointing at the deliberately red WP-07.
+
+- **`stderr(...)` (WP-10, ADR 0045).** The same arguments and formatting as
+  `print`, written to stderr: variadic, space-separated, one line per call, with
+  the existing `E0203`/`E0205` rules. The port now reports diagnostics with
+  `stderr(render(...))` instead of opening `/dev/stderr` through `write_file`, so
+  it no longer has a Unix-only path. Runtime ABI marker `0006`. Evidence:
+  `tests/run-pass/stderr_stream.kode` (+ `.err`, compared by `llvm_conformance`),
+  `tests/compile-fail/e0203_stderr_bytes.kode`, and WP-10 met in the gates table.
+
+- **`StringBuilder` (WP-09, ADR 0044).** `sb = StringBuilder()` with `push(s)` and
+  `build()`: one growable byte buffer instead of a new string per `+`, which is what
+  S5 needs to emit IR text in linear time. `push` copies the bytes and does not
+  retain the argument; `build` returns the text so far as a new string and leaves the
+  builder usable. No new error code (`E0208`, `E0207`, `E0217`, `E0203` cover it).
+  Evidence: `tests/run-pass/string_builder.kode` (0 leaks),
+  `tests/compile-fail/e0208_builder_push.kode`, and the measured 185.2 ms → 5.2 ms
+  in `benchmarks/report.md`.
+
+### Docs
+
+- **ADR 0045: a `stderr` stream.** `stderr(...)` mirrors `print` on the
+  diagnostic stream with six new runtime symbols; the port uses it for parse
+  errors, which removes its last platform-specific workaround.
+
+- **ADR 0044: `StringBuilder`.** The last language feature S2–S5 need that is not a
+  diagnostic stream: a reference-counted `BUFFER` object with `push`/`build`, typed
+  as the builtin `Type::Builder`, with the ABI marker bumped to `0005`.
+
+- **ADR 0043: byte buffers and base-2/8/16 literals.** `bytes(n)` is a fixed-size
+  buffer of bytes backed by the packed-list object, so retain/release/drop and the
+  index accessors are the existing ones; `u8`/`i32` as numeric types stay out
+  (WP-08b) because reading bytes needs no new numeric type.
+
+- **ADR 0042: the AST is an arena.** The port's syntax tree is one list of nodes
+  owned by the tree, with children and parents as `int?` ids, so no cycle is
+  expressible and one release frees everything. `weak` (ADR 0038) stays proposed and
+  off the self-hosting path; the new `wp11-arena` gate probe compiles and runs the
+  shape on Stage 0.
+
+### Added
+
+- **The parser, slice 1 (S2).** `selfhost/ast.kode` is the syntax tree as one arena
+  of nodes with `int` child ids (ADR 0042), and `selfhost/parser.kode` parses
+  assignments of a literal or a name and call statements whose arguments are
+  literals or names. `kode-stage1 ast` prints the oracle's format;
+  `./scripts/selfhost.sh parse` diffs it with `kode ast` over
+  `selfhost/spec/parse` and reports 7/7 trees byte-identical, `expr_count`
+  included. Every other statement and expression is an `E0102` error until its
+  slice lands.
+
+- **Operators in the port's parser (S2 slice 1b).** Every infix operator at the
+  oracle's binding powers (`or` 2 … `* / %` 20), prefix `-`, `~` and `not`,
+  grouping (parentheses add no node), and a line that ends after an operator.
+  Float literals are re-read as values and printed like Rust's `{:?}`, so `2.50`
+  is `2.5`. Cases: `selfhost/spec/parse/{binary,parens,unary,line_break}.kode`,
+  all byte-identical to `kode ast`.
+
+- **Postfix expressions and value literals in the port's parser (S2 slice 2).**
+  `.name`, `.name(args)` (named and trailing-comma arguments), `?.name`, `[i]`,
+  every slice form, `obj!`, `[lists]`, `{maps}`, `none`, and string interpolation:
+  `Interp` of `Lit` text and `Hole` expressions whose inner tokens are re-lexed
+  with the hole's absolute offset, so inner spans match the oracle. The parser is
+  now five modules (`cursor`, `infix`, `expr`, `literals`, `parser`) so each stays
+  under the size rule. Cases: `selfhost/spec/parse/{postfix,collections,interp}.kode`,
+  **10/10 trees byte-identical**.
+
+- **Blocks and control flow in the port's parser (S2 slice 3).** `if`/`else`/
+  `else if`, `while`, both `for` forms (`0..n`, `0..=n`, `for x in xs`,
+  `for k, v in m`), `break`/`continue`, and a block as the body of each: one
+  statement per line, ending at a newline, the end of the file, or the closing
+  `}` — the oracle's rule, so `else` must follow `}` on its line. Cases:
+  `selfhost/spec/parse/{control_flow,blocks}.kode`, **12/12 trees
+  byte-identical**.
+
+- **Items and `return` in the port's parser (S2 slice 4).** `fn` declarations with
+  an optional `pub`, type parameters, annotated parameters, an optional return type
+  and either a block or `=> expr`; `return` with or without a value; and type
+  annotations (`T`, `[T]`, `{string: T}`, `Box<T>`, `T?`). The statement grammar
+  moved to `selfhost/stmt.kode` so `parser.kode` is the item level. The oracle's
+  odd spans are reproduced exactly: a `Fn` spans `fn` and its name, a `TypeList`/
+  `TypeMap`/`TypeGeneric` spans only its opening token. Cases:
+  `selfhost/spec/parse/{functions,returns}.kode`, **14/14 trees byte-identical**.
+
+- **Classes and `match` in the port's parser (S2 slice 5).** `class` declarations
+  with an optional `pub`, type parameters, `implements` names, fields with their
+  type and an optional `= default`, and methods; and `match` statements with
+  `Wildcard` or value arms (`PatternValue`, parsed at `BP_ARITH`) whose body is
+  always a `Block`. Two oracle quirks are reproduced: a method dumps as `Method`
+  with `pub=false` even when the source says `pub fn`, and a `Class` node carries
+  no `span`. Cases: `selfhost/spec/parse/{classes,matches}.kode`, **16/16 trees
+  byte-identical**.
+
+- **Enums, interfaces, imports and consts in the port's parser (S2 slice 6).**
+  `enum` with payload variants (`Circle(radius: float)`), `interface` signatures
+  (a body is `E0236`), all three `import` forms and `const` with an optional
+  annotation. The item grammar was split into `types.kode`, `decls.kode` and
+  `enums.kode` (a case's `kode fmt` output indents enum bodies deeply; that is the
+  formatter's existing behaviour, unchanged here). Cases:
+  `selfhost/spec/parse/{enums,interfaces,imports}.kode`, **19/19 trees
+  byte-identical**.
+
+- **`catch` now parses anywhere the oracle allows it.** The nested positions
+  (parentheses, argument lists, collections, interpolation holes) were the one gap
+  left in slice 7, because a `catch` body is a block of statements and the statement
+  grammar already imports the expression grammar. A one-method `Blocks` interface in
+  `selfhost/blocks.kode` breaks the cycle: `Exprs` carries a block parser, and a hole
+  re-lexes into its own cursor and takes the same parser over that cursor. `catch`
+  inside `${...}`, `f(a catch e { 1 })`, `[a catch e { 1 }]`, `(a catch e { 1 })` and
+  nested `((a catch x { 1 }) catch y { 2 })` are all covered by
+  `selfhost/spec/parse/catch_expr.kode`, and `parse` is still **22/22 trees
+  byte-identical**.
+
+- **Compound assignment in the port's parser (S2 slice 13).** `x += 1` and the other
+  ten operators now parse, and so do `xs[0] = 1`, `m["k"] += 2` and `obj.a.b = 3`: the
+  left side is parsed as an expression and then turned into a `TargetVar`,
+  `TargetIndex` or `TargetField`, with `obj?.name = 1` reported as `E0112`. The parsed
+  expression stays counted (the oracle's `expr_count`) and becomes the left side of the
+  `Binary` for `op=`, so `x += 1` dumps an `Assign` around a `Binary`. Assignments moved
+  to `selfhost/assign.kode`. Parsing the port's own source also found `""` dumped as an
+  empty `Interp` instead of `Str value=""`, now fixed. New cases `assign_targets`,
+  `empty_string` and `e0112_optional_target`.
+- **The port parses its own source.** With the above, `kode-stage1 ast` is
+  byte-identical to `kode ast` on all 25 files of `selfhost/`, and `./scripts/selfhost.sh
+  parse` checks it every run (`self-parse: 25/25`) next to **51/51** cases.
+
+- **The port's arena carries its parent edges (S2 slice 12).** Every node has
+  `parent: int?`, set when it is attached, so a later pass can climb from a node to the
+  statement that holds it without another tree or reverse edges; the child edge stays
+  the ordered `kids` list. Only the root and nodes built and then dropped (the key of a
+  `{K: V}` annotation, which is checked and never dumped) have no parent, which a
+  throwaway probe over every case confirmed node by node. New `deep_tree` case (generic
+  class, methods, interpolation, `match`, nested loops, `spawn`, `await`).
+- **A match arm without `=>` reports `E0103`** ("expected `=>` after the pattern,
+  found …") over the token found, and ends the whole `match`, as the oracle does; new
+  `parse-errors/e0103_match_arm.kode`. That work pushed `stmt.kode` past the size rule,
+  so `match` moved to `selfhost/matches.kode`, with `Blocks` offering `statement()` for
+  a single-statement arm. **48/48 cases byte-identical**, stage1 261/261 dumps.
+
+- **Typed local declarations in the port's parser (S2 slice 11).** `x: int = 5` now
+  parses, with the type node between the target and the value exactly where the oracle
+  dumps it, and any annotation the type grammar accepts (`[int]`, `{string: int}`,
+  `Box<int>`, `User?`). A missing `=` reports `E0107` ("expected `=` after the type")
+  with the `count: int = 0` hint, over the token that turned up. The target is not
+  counted for `expr_count`, because `x = 1` reuses the id of the name it parsed while a
+  declaration never made one. New cases `selfhost/spec/parse/typed_decl.kode` and
+  `parse-errors/e0107_typed_decl.kode`: **46/46 byte-identical**, stage1 259/259 dumps.
+
+- **The port's parser reports errors the way the oracle does (S2 slice 10).**
+  `selfhost/report.kode` renders a diagnostic as `kode-diagnostics` does: the code and
+  message, `--> file:line:col`, the source line, a caret as wide as the span (one
+  character at minimum, columns counted in characters) and the `= help:` line, so
+  `kode-stage1 ast` stderr is now byte-identical to `kode ast`'s. Token names follow
+  the oracle too (`Cursor.describe`: names and spellings in backticks, `a string`,
+  `the end of the file`), and codes, messages, hints and spans were corrected against
+  the Rust parser: `E0103` for an unclosed group (no hint), `E0105` for `fn` in a
+  block, `E0108` for a two-variable range loop, `E0110` for a missing parameter or
+  field name, `E0112` for an unassignable target, `E0116` for a non-string import
+  path, and generic statements now report through the expression parser. Recovery
+  matches too: a failed item abandons its line, so the same set of errors comes out in
+  the same order. New `selfhost/spec/parse-errors` with one case per code (19), and
+  `check_parse` compares stderr as well as stdout: **44/44 byte-identical**. Known
+  gap: typed local declarations (`x: int = 5`, `E0107`) are still unparsed.
+
+- **`spawn` in the port's parser (S2 slice 9).** `spawn f(1, 2)` dumps as `Spawn`
+  with the call's `callee`, `callee_span` and `Arg` children and a span from the
+  keyword. The oracle keeps the chain only if it ended as a plain call, so
+  `spawn obj.run(1)` and `spawn f().g` are `E0117` ("`spawn` needs a function call")
+  over the whole chain, with the documented help text; the port matches code,
+  message, span and help on all such probes. `Ast.retype` lets the call node become
+  a `Spawn` without a second allocation and rewrites its rendered `span` attribute,
+  and `expr_count` is bumped because the oracle does allocate two nodes. Case:
+  `selfhost/spec/parse/spawn.kode`, **25/25 trees byte-identical**. With this the
+  port parses every prefix form the oracle has, so `spawn` leaves the plan's
+  not-yet list.
+
+- **Closures and `await` in the port's parser (S2 slice 8).** `|x: int| x * 2` with
+  typed parameters (`E0241` otherwise) and `||` for none, plus `await expr` at unary
+  precedence. A closure body is a whole expression, so `catch` and `await` nest in it.
+  Both live in `selfhost/closures.kode` and reach the expression parser through an
+  `Expressions` interface in `contracts.kode`; interpolation moved to `interp.kode`
+  behind the same interface, `kids`/`span_of` moved to the arena, and `expr.kode` is
+  back to 453 lines. Cases: `selfhost/spec/parse/{closures,await}.kode`, **24/24 trees
+  byte-identical**.
+
+- **Errors and optionals in the port's parser (S2 slice 7).** `throw`,
+  `try`/`catch`/`finally`, `a ?? b`, `x is Shape.Circle` and `expr catch err { }`.
+  One documented gap: the oracle attaches `catch` at binding power 0, so it can sit
+  inside parentheses or an argument list; a `catch` body is a block of statements and
+  the statement grammar already imports the expression grammar (module cycles are
+  `E0402`), so the port parses `catch` only where a statement's expression starts.
+  Cases: `selfhost/spec/parse/{try_catch,optionals,catch_expr}.kode`, **22/22 trees
+  byte-identical**.
+
+- **`selfhost/stmt.kode` back under the size rule (437 lines).** The statement-end
+  handling moved to the cursor (`end_statement`, `at_statement_end`,
+  `recover_line`) and `starts_value` next to the token set, since a statement's end
+  is a property of the token stream. No grammar changed: all 22 parse cases stayed
+  byte-identical and the `E0101` report keeps its code, position and text.
+
+- **`selfhost/lexer.kode` split by scanner (322 lines, was 558).** The byte values
+  moved to `chars.kode` (one definition, imported everywhere, since modules share
+  one constant namespace), number literals to `numbers.kode` and string literals to
+  `strings.kode`. Both scanners are now pure functions of `src` and an offset that
+  return where they stopped plus the token or the errors, so the lexer keeps the
+  only mutable cursor. No dump changed: 235 corpus token dumps are byte-identical,
+  and the pre-split and post-split binaries agree on stdout, stderr and exit status
+  for both `tokens` and `ast` across all 262 `.kode` files in the repository.
+
+- **Byte buffers** (ADR 0043). `bytes(n)` gives `n` zero bytes, with `size()`,
+  `get(i)` and `set(i, v)`. The index is bounds-checked and `set` rejects values
+  outside `0..=255` instead of truncating them; the object is a packed list, so a
+  buffer is freed exactly like a list. `tests/run-pass/bytes_buffers.kode` covers an
+  empty buffer, a 100,000-byte buffer, and passing and returning one. The
+  `wp08-bytes` gate probe is `met`.
+
+- **Integer literals in bases 2, 8 and 16.** `0b1010`, `0o755` and `0x6b` are
+  `int` literals (prefix in either case, `_` between digits); a value that does not
+  fit an `int` is E0006. `tests/run-pass/hex_literals.kode`.
+
+- **Generic methods** (ADR 0040 slice 1c). A method may declare its own type
+  parameters: `fn id<T>(x: T) -> T => x` inside `class Util` compiles one instance
+  per call's type arguments (`Util.id.int`, `Util.id.str`), each an ordinary method
+  with `this` first, so a body can read fields and its own parameters together. A
+  method of a generic class still cannot declare its own parameters (E0252).
+
+- **Optional numbers as parameters and returns** (ADR 0041 §5). `int?`, `float?`
+  and `bool?` cross a call as one boxed pair (`null` for none), so no calling
+  convention, function value, closure or interface dispatch changed: the callee
+  decodes it into the two locals a pair already uses, and calls through a function
+  value box and decode the same way. A list or map of an optional number is still
+  E0219. `tests/compile-fail/e0219_optional_int.kode` is gone with the restriction.
+
+- **Optional numbers as class fields** (ADR 0041). `int?`, `float?` and `bool?` are
+  no longer locals only: a field takes two slots, the value and its `present` flag,
+  and construction, assignment, `this`-reads and `?.` move the two together. So a
+  span can hold "no parent" and "line if known" without a second `bool` field. A
+  parameter, a return type, or a list of optional numbers is still E0219 (WP-06b).
+
+- **`is` and narrowing** (ADR 0039 §4.4). `s is Shape.Circle` is one tag compare
+  and a bool, so it composes with `and`/`not`; inside `if s is Shape.Circle { ... }`
+  the value is narrowed and `s.radius` may be read, while an unnarrowed field read
+  is `E0419` with the narrowing to write. That closes ADR 0039: payload enums
+  construct, print, destructure and narrow, with `E0253` long gone.
+
+- **Pattern bindings on payload enums** (ADR 0039 §4.3). `Shape.Circle(r)` binds
+  the variant's fields in declaration order, positionally, as ordinary locals
+  inside the arm: `match v { Value.Pair(l, r) => ... }` handles a recursive tree
+  with no leaks. The arm still compares the tag, so a binding pattern is one tag
+  compare plus one field load per name; a wrong number of names is `E0207`, a
+  non-name in a binding position `E0201`, a duplicate name `E0306`. `is` and
+  narrowing are the last slice of ADR 0039.
+
+- **Payload enums are values** (ADR 0039, slice 1). `enum Shape { Circle(radius: float) }`
+  builds with `Shape.Circle(radius: 1.5)`, prints as it is written
+  (`Shape.Circle(radius: 1.5)`, `Shape.Empty`), and `match` compares the variant
+  tag. An enum with any payload variant stores every variant in the class layout
+  (tag in the object header), so tag-only enums keep the `int` representation and
+  the ABI is unchanged; `kode_enum_tag` is the one new runtime symbol. `E0417`
+  refuses a payload variant used as a value, `E0420` refuses `==`, and `E0253` is
+  gone. Binding fields in a pattern (`Shape.Circle(r)`) and `is` narrowing are the
+  next slices.
+
+- **The self-host plan is executable.** `./scripts/selfhost.sh gates` compiles one
+  probe per work packet (`selfhost/spec/gates/`) and prints `met`/`blocked` against
+  the target each probe declares; `readiness` turns that into the R0-R6 level and
+  names the next packet; `all` runs Stage 0, Stage 1 and the gates. The plan in
+  `docs/PLAN-self-hosting.md` is the same table, so the script and the document
+  cannot drift apart.
+
+- **Generic classes work** (ADR 0040). `class Box<T>` is instantiated once per
+  set of type arguments, inferred at the constructor (`Box(value: 1)` is
+  `Box.int`); fields and methods are substituted and each method compiles as an
+  ordinary function. `E0421`-`E0423` report arity, inference and bare-name
+  mistakes. Generic methods, constraints and explicit type arguments are still
+  missing.
+- **The self-hosting harness runs in CI.** A `selfhost` job records the Stage 0
+  oracle, builds the Kode lexer with it and compares 184 token dumps on every
+  push and pull request, uploading both measurement files (`.github/workflows/ci.yml`).
+- **Enum payload variants parse.** A variant may declare fields,
+  `Circle(radius: float)` (ADR 0039, slice 1a): the AST, `kode ast` (text and
+  JSON) and the nesting-limit walker carry them. Construction, printing and
+  tag-based `match` follow in slice 1 (see the bullet above); destructuring and
+  `is` are later slices.
+- **Designs for the two language features S2 needs** (ADRs 0039 and 0040): enum
+  payloads with `match` destructuring, `is` and narrowing, plus generic classes by
+  monomorphization. Design and slice order only — no compiler or runtime change
+  yet; each slice stays its own reviewable commit.
+- **A lexer written in Kode** (S1 of `docs/PLAN-self-hosting.md`).
+  `selfhost/lexer.kode` scans source into tokens with the same spans, escapes,
+  error codes and recovery as `crates/kode-syntax/src/lexer.rs`;
+  `./scripts/selfhost.sh stage1` builds it with Stage 0 and reports **184 of 184**
+  token dumps byte-identical over the corpus plus `selfhost/spec`. `ast` and the
+  later commands exit 2 until the parser lands (S2).
+- **The self-hosting harness and its oracles** (S0 of
+  `docs/PLAN-self-hosting.md`). `kode tokens` and `kode ast` print a stable,
+  diffable dump — token kind, text, byte span, line and column, or the tree with
+  its spans — in text or with `--format=json`, and `scripts/selfhost.sh
+  stage0|stage1|stage2|compare` dumps the whole corpus through them, checks
+  Stage 0 against itself first, records wall clock and peak RSS, and refuses to
+  compare against a Stage 1 that does not exist yet.
 
 ## 0.3.6
 

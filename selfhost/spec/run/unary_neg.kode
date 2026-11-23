@@ -1,0 +1,5 @@
+// Unary minus: one temporary and one `neg`, whether the operand is a literal or a name.
+x = 3
+y = -x
+print(y)
+print(-7)

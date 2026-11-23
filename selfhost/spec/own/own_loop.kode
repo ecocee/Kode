@@ -1,0 +1,9 @@
+// A reference reassigned every iteration, and interpolated after each write: the one
+// place a release out of order shows up as a count that never returns to zero.
+i = 0
+line = "seed"
+while i < 3 {
+    print("${line}")
+    line = line + "."
+    i = i + 1
+}

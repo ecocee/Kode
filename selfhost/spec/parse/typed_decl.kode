@@ -1,0 +1,20 @@
+x: int = 5
+name: string = "a"
+ok: bool = true
+nothing: User? = none
+items: [int] = [1, 2]
+table: {string: int} = {a: 1}
+box: Box<int> = none
+total: int = 1 + 2 * 3
+call: int = compute(1, 2)
+field: string = user.name
+nested: [Box<int>] = []
+fn f() -> int {
+    count: int = 0
+    if count > 0 {
+        inner: string = "x"
+    }
+    return count
+}
+multi: int =
+    7

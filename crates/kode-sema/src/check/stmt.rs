@@ -30,15 +30,23 @@ pub(crate) fn always_returns(stmts: &[Stmt]) -> bool {
 
 impl Checker {
     pub(crate) fn block(&mut self, stmts: &[Stmt]) {
-        self.block_with(stmts, None);
+        self.block_with(stmts, None, None);
     }
 
     /// Like `block`, but `narrow` holds inside it (an optional local that the
     /// surrounding condition proved is not `none`).
-    fn block_with(&mut self, stmts: &[Stmt], narrow: Option<(String, Type)>) {
+    fn block_with(
+        &mut self,
+        stmts: &[Stmt],
+        narrow: Option<(String, Type)>,
+        variant: Option<(String, String, usize)>,
+    ) {
         self.scopes.push();
         if let Some((name, ty)) = narrow {
             self.narrow(&name, ty);
+        }
+        if let Some((name, en, vi)) = variant {
+            self.narrow_variant(&name, &en, vi);
         }
         for s in stmts {
             self.stmt(s);
@@ -60,6 +68,7 @@ impl Checker {
         if narrows_when_true != when_true {
             return None;
         }
+        // `s is Shape.Circle` narrows to the variant in the true branch only.
         let name = match (&lhs.kind, &rhs.kind) {
             (ExprKind::Ident(n), ExprKind::None) | (ExprKind::None, ExprKind::Ident(n)) => {
                 n.clone()
@@ -71,6 +80,28 @@ impl Checker {
             Type::Opt(inner) => Some((name, *inner)),
             _ => None,
         }
+    }
+
+    /// `if s is Shape.Circle`: which local is narrowed, and to which variant.
+    fn variant_cond(&mut self, cond: &Expr, when_true: bool) -> Option<(String, String, usize)> {
+        if !when_true {
+            return None;
+        }
+        let ExprKind::Is {
+            obj,
+            enum_name,
+            variant,
+            ..
+        } = &cond.kind
+        else {
+            return None;
+        };
+        let ExprKind::Ident(n) = &obj.kind else {
+            return None;
+        };
+        let ei = *self.enum_index.get(enum_name)?;
+        let vi = self.enums[ei].variant_index(variant)?;
+        Some((n.clone(), enum_name.clone(), vi))
     }
 
     fn condition(&mut self, cond: &Expr, what: &str) {
@@ -112,9 +143,10 @@ impl Checker {
                 self.condition(cond, "`if`");
                 let yes = self.narrow_cond(cond, true);
                 let no = self.narrow_cond(cond, false);
-                self.block_with(then, yes);
+                let yes_v = self.variant_cond(cond, true);
+                self.block_with(then, yes, yes_v);
                 if let Some(e) = else_ {
-                    self.block_with(e, no.clone());
+                    self.block_with(e, no.clone(), None);
                 }
                 // `if x == none { return }`: the code after the branch only runs
                 // when the condition was false, so `x` is known there.
@@ -128,7 +160,9 @@ impl Checker {
                 self.condition(cond, "`while`");
                 let yes = self.narrow_cond(cond, true);
                 self.loop_depth += 1;
-                self.block_with(body, yes);
+                // A loop body may run again after its condition changed, so no
+                // variant narrowing here.
+                self.block_with(body, yes, None);
                 self.loop_depth -= 1;
             }
             Stmt::For {
@@ -375,6 +409,7 @@ impl Checker {
     ) {
         // A new value could be `none`, so a narrowed type stops applying.
         self.narrowed.retain(|(_, n, _)| n != name);
+        self.narrowed_variants.retain(|(_, n, _, _)| n != name);
         let ann = ty.and_then(|a| self.resolve_type(a));
         let Some(vt) = vt else { return };
         if vt == Type::Unit {
@@ -497,6 +532,97 @@ impl Checker {
         self.pop_scope();
     }
 
+    /// `Shape.Circle(r)`: a pattern that binds the variant's fields, in
+    /// declaration order (ADR 0039 §4.3). Returns true when the pattern has
+    /// that shape, with a scope pushed and the names declared in it.
+    fn pattern_bindings(&mut self, st: &Option<Type>, p: &Expr) -> Option<String> {
+        let Some(Type::Enum(en)) = st else {
+            return None;
+        };
+        let ExprKind::MethodCall {
+            obj, name, args, ..
+        } = &p.kind
+        else {
+            return None;
+        };
+        let ExprKind::Ident(vn) = &obj.kind else {
+            return None;
+        };
+        if vn != en {
+            return None;
+        }
+        let &ei = self.enum_index.get(en)?;
+        let info = self.enums[ei].clone();
+        let vi = info.variant_index(name)?;
+        let fields = info.fields[vi].clone();
+        if fields.is_empty() {
+            return None;
+        }
+        self.scopes.push();
+        if args.len() != fields.len() {
+            let list = fields
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.errors.push(
+                Diagnostic::error(
+                    "E0207",
+                    format!(
+                        "`{en}.{name}` has {} field{}, so the pattern binds {}",
+                        fields.len(),
+                        if fields.len() == 1 { "" } else { "s" },
+                        fields.len()
+                    ),
+                    p.span,
+                )
+                .with_help(format!("write `{en}.{name}({list})`")),
+            );
+            return Some(name.clone());
+        }
+        let mut seen: Vec<String> = Vec::new();
+        for (a, (_, fty)) in args.iter().zip(fields.iter()) {
+            let ExprKind::Ident(b) = &a.value.kind else {
+                self.errors.push(
+                    Diagnostic::error("E0201", "a pattern binds a name", a.value.span).with_help(
+                        "write the field name on its own, for example `Shape.Circle(r)`",
+                    ),
+                );
+                continue;
+            };
+            if seen.contains(b) {
+                self.errors.push(Diagnostic::error(
+                    "E0306",
+                    format!("the pattern binds `{b}` twice"),
+                    a.value.span,
+                ));
+                continue;
+            }
+            seen.push(b.clone());
+            self.scopes.declare(b, fty.clone(), a.value.span, false);
+        }
+        Some(name.clone())
+    }
+
+    /// The variant a pattern names, when the pattern is `Enum.Variant` and the
+    /// scrutinee is that enum.
+    fn pattern_variant(&self, st: &Option<Type>, p: &Expr) -> Option<String> {
+        let Some(Type::Enum(en)) = st else {
+            return None;
+        };
+        let ExprKind::Member { obj, name, .. } = &p.kind else {
+            return None;
+        };
+        let ExprKind::Ident(vn) = &obj.kind else {
+            return None;
+        };
+        if vn != en {
+            return None;
+        }
+        let info = &self.enums[self.enum_index[en]];
+        info.variants.contains(name).then(|| name.clone())
+    }
+
     fn match_stmt(&mut self, scrutinee: &Expr, arms: &[Arm], span: Span) {
         let st = self.expr(scrutinee);
         let mut has_wild = false;
@@ -518,6 +644,21 @@ impl Checker {
             match &arm.pattern {
                 Pattern::Wildcard => has_wild = true,
                 Pattern::Value(p) => {
+                    // `Shape.Circle(r)`: the fields are bound for the arm.
+                    if let Some(name) = self.pattern_bindings(&st, p) {
+                        variants.push(name);
+                        self.block(&arm.body);
+                        self.pop_scope();
+                        continue;
+                    }
+                    // `Shape.Circle` in a pattern names a tag; the same
+                    // expression in value position is a constructor, so it is
+                    // resolved here rather than through `self.expr` (ADR 0039).
+                    if let Some(name) = self.pattern_variant(&st, p) {
+                        variants.push(name);
+                        self.block(&arm.body);
+                        continue;
+                    }
                     let pt = self.expr(p);
                     if let (Some(s), Some(pt)) = (&st, &pt) {
                         if s != pt {

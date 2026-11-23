@@ -1,0 +1,33 @@
+fn hello() {
+    print("hi")
+}
+
+// a comment between items
+
+pub fn add(a: int, b: int) -> int {
+    return a + b
+}
+fn twice(n: int) -> int => n * 2
+fn greet(name: string) -> string => "hi ${name}"
+fn id<T>(x: T) -> T {
+    return x
+}
+fn many<T, U>(a: T, b: U) {
+}
+fn names(xs: [string], m: {string: int}, u: User?) {
+    for x in xs {
+        print(x)
+    }
+}
+fn boxed() -> Box<int> {
+    return Box(1)
+}
+fn multi(
+    a: int,
+    b: string,
+) -> [int] {
+    return [a]
+}
+fn nested() -> {string: [int]} {
+    return {a: [1, 2]}
+}

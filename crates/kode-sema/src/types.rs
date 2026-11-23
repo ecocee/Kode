@@ -4,6 +4,10 @@ pub enum Type {
     Float,
     Bool,
     Str,
+    /// `bytes(n)`: a buffer of `n` bytes (ADR 0043).
+    Bytes,
+    /// `StringBuilder()`: a growable buffer for building text (ADR 0044).
+    Builder,
     /// The result of a call that returns nothing, such as `print(...)`.
     Unit,
     List(Box<Type>),
@@ -32,6 +36,8 @@ impl Type {
             Type::Float => "float".into(),
             Type::Bool => "bool".into(),
             Type::Str => "string".into(),
+            Type::Bytes => "bytes".into(),
+            Type::Builder => "StringBuilder".into(),
             Type::Unit => "nothing".into(),
             Type::List(t) => format!("[{}]", t.name()),
             Type::Map(t) => format!("{{string: {}}}", t.name()),
@@ -54,6 +60,8 @@ impl Type {
             Type::Float => "a float".into(),
             Type::Bool => "a bool".into(),
             Type::Str => "a string".into(),
+            Type::Bytes => "a bytes buffer".into(),
+            Type::Builder => "a StringBuilder".into(),
             Type::Unit => "nothing".into(),
             other => format!("`{}`", other.name()),
         }
@@ -64,6 +72,8 @@ impl Type {
         matches!(
             self,
             Type::Str
+                | Type::Bytes
+                | Type::Builder
                 | Type::List(_)
                 | Type::Map(_)
                 | Type::Class(_)
@@ -87,6 +97,8 @@ impl Type {
             "float" => Some(Type::Float),
             "bool" => Some(Type::Bool),
             "string" => Some(Type::Str),
+            "bytes" => Some(Type::Bytes),
+            "StringBuilder" => Some(Type::Builder),
             _ => None,
         }
     }
@@ -136,6 +148,8 @@ pub fn ann_type(ann: &kode_syntax::ast::TypeAnn, checked: &crate::Checked) -> Op
                     .map(|_| Type::Interface(n.clone()))
             })
             .or_else(|| checked.enum_index.get(n).map(|_| Type::Enum(n.clone()))),
+        // `Box<int>` is syntax only until instantiation lands (ADR 0040).
+        TypeAnnKind::Generic(_, _) => None,
         TypeAnnKind::List(i) => Some(Type::List(Box::new(ann_type(i, checked)?))),
         TypeAnnKind::Map(i) => Some(Type::Map(Box::new(ann_type(i, checked)?))),
         TypeAnnKind::Opt(i) => Some(Type::Opt(Box::new(ann_type(i, checked)?))),

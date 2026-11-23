@@ -1,0 +1,597 @@
+// The checker's types (S3): what a value is.
+//
+// A `Type` is a kind and, for the containers, the type inside it. `any` is "this
+// slice cannot tell" — what a call, a method call or an index answers — and every
+// rule treats it as compatible, so the checker never invents an error it cannot
+// prove. The oracle has full inference; the port has the part its families need, and
+// grows from here.
+//
+// `selfhost/annotations.kode` turns a written type into one of these,
+// `selfhost/operands.kode` says which of them an operator accepts, and
+// `selfhost/assign.kode` says what an assignment does with them.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag, diag_help
+from "./names" import Names
+from "./stdlib" import builtin, free_fn
+
+/// A value's type.
+pub class Type {
+    /// "int", "float", "bool", "string", "bytes", "none", "unit", "list", "map",
+    /// "opt", "named" (a class, enum or interface) or "any".
+    kind: string
+    /// The item type of a list or map, or what an optional wraps.
+    inner: Type? = none
+    /// The declared name of a "named" type.
+    name: string = ""
+}
+
+/// One bound name and the type it holds: `x = 1` binds an int.
+pub class Local {
+    name: string
+    ty: Type
+}
+
+pub fn type_any() -> Type {
+    return Type(kind: "any")
+}
+
+pub fn type_prim(kind: string) -> Type {
+    return Type(kind: kind)
+}
+
+pub fn type_named(name: string) -> Type {
+    return Type(kind: "named", name: name)
+}
+
+pub fn type_of(kind: string, inner: Type) -> Type {
+    return Type(kind: kind, inner: inner)
+}
+
+pub fn type_is_any(t: Type) -> bool {
+    return t.kind == "any"
+}
+
+/// What a list, map or optional holds; `any` when this slice cannot name it.
+pub fn type_inner(t: Type) -> Type {
+    return t.inner ?? type_any()
+}
+
+/// The type a written name means on its own: the five primitives. A class is
+/// `type_named`, which `annotations.kode` builds because only it knows what is
+/// declared.
+pub fn type_of_name(name: string) -> Type {
+    if name == "int" or name == "float" or name == "bool" or name == "string" or name == "bytes" {
+        return type_prim(name)
+    }
+    return type_any()
+}
+
+/// "an int", "a string", "`[int]`": the oracle's wording inside a message.
+pub fn type_article(t: Type) -> string {
+    if t.kind == "int" {
+        return "an int"
+    }
+    if t.kind == "float" {
+        return "a float"
+    }
+    if t.kind == "bool" {
+        return "a bool"
+    }
+    if t.kind == "string" {
+        return "a string"
+    }
+    if t.kind == "bytes" {
+        return "a bytes buffer"
+    }
+    if t.kind == "unit" {
+        return "nothing"
+    }
+    return "`${type_name(t)}`"
+}
+
+/// "int", "[int]", "{string: int}", "int?" — the oracle's `Type::name`.
+pub fn type_name(t: Type) -> string {
+    if t.kind == "list" {
+        inside = type_name(type_inner(t))
+        return "[" + inside + "]"
+    }
+    if t.kind == "map" {
+        inside = type_name(type_inner(t))
+        return "{string: " + inside + "}"
+    }
+    if t.kind == "opt" {
+        inside = type_name(type_inner(t))
+        return inside + "?"
+    }
+    if t.kind == "named" {
+        return t.name
+    }
+    return t.kind
+}
+
+/// Can `print` and `stderr` show it? The runtime formats ints, floats, bools and
+/// strings, and lists and maps whose items it can. `any` is left alone, and `unit` is
+/// asked about first by the caller (`E0205` is another family).
+pub fn type_printable(t: Type) -> bool {
+    if t.kind == "int" or t.kind == "float" or t.kind == "bool" or t.kind == "string" {
+        return true
+    }
+    if t.kind == "list" or t.kind == "map" {
+        return type_printable(type_inner(t))
+    }
+    // An optional prints only when its item is a scalar (`is_opt_scalar`): `int?`,
+    // `float?` and `bool?` show the number or `none`, while `string?` has no text of
+    // its own and a bare `none` has no type at all. `any` must stay quiet.
+    if t.kind == "opt" {
+        return type_inner(t).kind == "int" or type_inner(t).kind == "float" or type_inner(t).kind == "bool"
+    }
+    if t.kind == "any" {
+        return true
+    }
+    return false
+}
+
+/// Can a value that is `got` be stored where `to` is expected? `any` fits anywhere.
+pub fn type_assignable(got: Type, to: Type) -> bool {
+    if got.kind == "any" or to.kind == "any" {
+        return true
+    }
+    // `none` fits only where an optional is expected, which is what makes
+    // `[1, none]` an `E0213` while `x: int? = none` is fine.
+    if got.kind == "none" {
+        return to.kind == "opt" or to.kind == "none" or to.kind == "any"
+    }
+    // An optional fits an optional when what it wraps fits: `int?` is assignable to
+    // `int?`, which is not the same question as `int` fitting `int?`.
+    if to.kind == "opt" and got.kind == "opt" {
+        return type_assignable(type_inner(got), type_inner(to))
+    }
+    if to.kind == "opt" {
+        return type_assignable(got, type_inner(to))
+    }
+    if got.kind == "opt" {
+        return false
+    }
+    if got.kind != to.kind {
+        return false
+    }
+    if got.kind == "named" and to.kind == "named" {
+        // A class may be stored where one of its interfaces is expected, and this
+        // slice does not read `implements`, so two names are never called a
+        // mismatch. `E0234`/`E0235` are the family that checks the relation.
+        return true
+    }
+    if got.kind == "list" or got.kind == "map" {
+        return type_assignable(type_inner(got), type_inner(to))
+    }
+    return true
+}
+
+/// The type of a list whose items disagree: `any`, so nothing more is claimed.
+pub fn type_common(a: Type, b: Type) -> Type {
+    if a.kind == "any" or b.kind == "any" {
+        return type_any()
+    }
+    if type_assignable(a, b) and type_assignable(b, a) {
+        return a
+    }
+    return type_any()
+}
+
+pub fn same_type(a: Type, b: Type) -> bool {
+    if a.kind != b.kind {
+        return false
+    }
+    return a.name == b.name
+}
+
+/// Do two types name the same thing? `int` and `int`, `[int]` and `[int]`, `A?` and
+/// `A?` — what `E0235` compares an interface method with the class's.
+pub fn type_same(a: Type, b: Type) -> bool {
+    if a.kind != b.kind or a.name != b.name {
+        return false
+    }
+    if a.kind != "list" and a.kind != "map" and a.kind != "opt" {
+        return true
+    }
+    return type_same(a.inner!, b.inner!)
+}
+
+/// Is it a reference (ADR 0041 §3): a string, bytes, a list, a map, an optional, a class
+/// or an interface — not a number, a bool, an enum or nothing. `?.` can only produce a
+/// reference, so this is what `E0219` asks.
+pub fn type_is_ref(t: Type, names: Names) -> bool {
+    if t.kind == "string" or t.kind == "bytes" or t.kind == "list" or t.kind == "map" or t.kind == "opt" {
+        return true
+    }
+    if t.kind == "named" {
+        return not names.enums.contains(t.name)
+    }
+    return false
+}
+
+pub fn mixed_number(a: Type, b: Type) -> bool {
+    if a.kind == "int" and b.kind == "float" {
+        return true
+    }
+    return a.kind == "float" and b.kind == "int"
+}
+
+/// The innermost binding of a name in a scope stack, or an empty one.
+pub fn local_in(frames: [[Local]], name: string) -> Local {
+    i = frames.len() - 1
+    while i >= 0 {
+        for one in frames[i] {
+            if one.name == name {
+                return one
+            }
+        }
+        i -= 1
+    }
+    return Local(name: "", ty: type_any())
+}
+
+/// The type of an expression, or `any` when this slice cannot tell. It never reports:
+/// the callers decide what a wrong type means.
+pub fn expr_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    kind = ast.nodes[id].kind
+    if kind == "Int" {
+        return type_prim("int")
+    }
+    if kind == "Float" {
+        return type_prim("float")
+    }
+    if kind == "Bool" {
+        return type_prim("bool")
+    }
+    if kind == "Str" or kind == "Interp" {
+        return type_prim("string")
+    }
+    if kind == "None" {
+        return type_prim("none")
+    }
+    if kind == "Ident" {
+        found = local_in(frames, ast.attr_text(id, "name"))
+        return found.ty
+    }
+    if kind == "Unary" {
+        return unary_type(ast, frames, names, id)
+    }
+    if kind == "Binary" {
+        return binary_type(ast, frames, names, id)
+    }
+    if kind == "List" {
+        return list_type(ast, frames, names, id)
+    }
+    if kind == "Map" {
+        return map_type(ast, frames, names, id)
+    }
+    if kind == "Member" {
+        return member_type(ast, frames, names, id)
+    }
+    if kind == "MethodCall" {
+        return method_type(ast, frames, names, id)
+    }
+    if kind == "Unwrap" {
+        t = type_any()
+        for kid in ast.nodes[id].kids {
+            t = expr_type(ast, frames, names, kid)
+            break
+        }
+        if t.kind == "opt" {
+            return type_inner(t)
+        }
+        return type_any()
+    }
+    if kind == "Coalesce" {
+        lhs = type_any()
+        for kid in ast.nodes[id].kids {
+            lhs = expr_type(ast, frames, names, kid)
+            break
+        }
+        if lhs.kind != "opt" {
+            return type_any()
+        }
+        // The default decides: one that fits the item gives the item, one that is itself
+        // optional gives the optional (`env("A") ?? env("B")`), anything else is unknown.
+        rhs = type_any()
+        if ast.nodes[id].kids.len() > 1 {
+            rhs = expr_type(ast, frames, names, ast.nodes[id].kids[1])
+        }
+        if type_assignable(rhs, type_inner(lhs)) {
+            return type_inner(lhs)
+        }
+        if type_assignable(rhs, lhs) {
+            return lhs
+        }
+        return type_any()
+    }
+    if kind == "Is" {
+        return type_prim("bool")
+    }
+    if kind == "Index" {
+        return index_type(ast, frames, names, id)
+    }
+    if kind == "Slice" {
+        return slice_type(ast, frames, names, id)
+    }
+    if kind == "Call" {
+        return call_type(ast, names, id)
+    }
+    return type_any()
+}
+
+fn unary_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return type_any()
+    }
+    op = ast.attr_raw(id, "op")
+    t = expr_type(ast, frames, names, kids[0])
+    if type_is_any(t) {
+        return type_any()
+    }
+    if op == "not" {
+        return type_prim("bool")
+    }
+    if op == "~" {
+        return type_prim("int")
+    }
+    return t
+}
+
+fn binary_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return type_any()
+    }
+    op = ast.attr_raw(id, "op")
+    l = expr_type(ast, frames, names, kids[0])
+    r = expr_type(ast, frames, names, kids[1])
+    if type_is_any(l) or type_is_any(r) {
+        return type_any()
+    }
+    if op == "+" or op == "-" or op == "*" or op == "/" or op == "%" {
+        if l.kind == "int" and r.kind == "int" {
+            return type_prim("int")
+        }
+        if l.kind == "float" and r.kind == "float" and op != "%" {
+            return type_prim("float")
+        }
+        if op == "+" and l.kind == "string" and r.kind == "string" {
+            return type_prim("string")
+        }
+        return type_any()
+    }
+    if op == "==" or op == "!=" or op == "<" or op == "<=" or op == ">" or op == ">=" {
+        return type_prim("bool")
+    }
+    if op == "and" or op == "or" or op == "in" {
+        return type_prim("bool")
+    }
+    if op == "<<" or op == ">>" or op == "&" or op == "|" or op == "^" {
+        return type_prim("int")
+    }
+    return type_any()
+}
+
+fn list_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    element = type_any()
+    first = true
+    for kid in ast.nodes[id].kids {
+        t = expr_type(ast, frames, names, kid)
+        if first {
+            element = t
+            first = false
+        } else {
+            element = type_common(element, t)
+        }
+    }
+    return type_of("list", element)
+}
+
+/// `{"a": 1}`: an `Entry` holds the key first, then the value.
+fn map_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    element = type_any()
+    first = true
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Entry" {
+            continue
+        }
+        parts = ast.nodes[kid].kids
+        if parts.len() < 2 {
+            continue
+        }
+        t = expr_type(ast, frames, names, parts[1])
+        if first {
+            element = t
+            first = false
+        } else {
+            element = type_common(element, t)
+        }
+    }
+    return type_of("map", element)
+}
+
+/// `x.field`: this slice knows the field of one thing — a variant of an enum, which is
+/// a value of that enum (`Shape.Circle`). Everything else is `any`.
+fn member_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    if ast.nodes[id].kids.len() == 0 {
+        return type_any()
+    }
+    obj = ast.nodes[id].kids[0]
+    if ast.nodes[obj].kind != "Ident" {
+        return type_any()
+    }
+    name = ast.attr_text(obj, "name")
+    if names.enums.contains(name) {
+        return type_named(name)
+    }
+    return type_any()
+}
+
+/// `Shape.Circle(radius: 1.0)`: a payload variant builds a value of its enum.
+fn method_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    if ast.nodes[id].kids.len() == 0 {
+        return type_any()
+    }
+    obj = ast.nodes[id].kids[0]
+    if ast.nodes[obj].kind != "Ident" {
+        return type_any()
+    }
+    name = ast.attr_text(obj, "name")
+    if names.enums.contains(name) {
+        return type_named(name)
+    }
+    return type_any()
+}
+
+/// `x[i]`: the item of a list, the value of a map, and for a `Json` value another
+/// `Json`. Anything else is `any` — `selfhost/containers.kode` is what says so out loud.
+pub fn index_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return type_any()
+    }
+    ot = expr_type(ast, frames, names, kids[0])
+    it = expr_type(ast, frames, names, kids[1])
+    if type_is_any(ot) or type_is_any(it) {
+        return type_any()
+    }
+    if ot.kind == "list" and it.kind == "int" {
+        return type_inner(ot)
+    }
+    if ot.kind == "map" and it.kind == "string" {
+        return type_inner(ot)
+    }
+    if ot.kind == "named" and ot.name == "Json" and (it.kind == "string" or it.kind == "int") {
+        return type_named("Json")
+    }
+    return type_any()
+}
+
+/// `xs[a..b]`: a list keeps its item type; anything else is `any`.
+pub fn slice_type(ast: Ast, frames: [[Local]], names: Names, id: int) -> Type {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return type_any()
+    }
+    ot = expr_type(ast, frames, names, kids[0])
+    if ot.kind == "list" {
+        return ot
+    }
+    return type_any()
+}
+
+/// What a `for ... in` statement binds: a list gives its item (and the index first when
+/// two names are written), a map gives the key (then the value), anything else an int.
+pub fn loop_vars(ast: Ast, frames: [[Local]], names: Names, id: int, count: int) -> [Type] {
+    out: [Type] = []
+    iter = -1
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Iter" {
+            iter = kid
+        }
+    }
+    t = type_any()
+    if iter >= 0 and ast.nodes[iter].kids.len() > 0 {
+        t = expr_type(ast, frames, names, ast.nodes[iter].kids[0])
+    }
+    // A thing this slice cannot see through does not become an int: its items are
+    // unknown, so what the loop binds is unknown too.
+    if type_is_any(t) {
+        i = 0
+        while i < count {
+            out.add(type_any())
+            i += 1
+        }
+        return out
+    }
+    if t.kind == "list" and count == 1 {
+        out.add(type_inner(t))
+        return out
+    }
+    if t.kind == "list" and count >= 2 {
+        out.add(type_prim("int"))
+        out.add(type_inner(t))
+        return out
+    }
+    if t.kind == "map" and count == 1 {
+        out.add(type_prim("string"))
+        return out
+    }
+    if t.kind == "map" and count >= 2 {
+        out.add(type_prim("string"))
+        out.add(type_inner(t))
+        return out
+    }
+    i = 0
+    while i < count {
+        out.add(type_prim("int"))
+        i += 1
+    }
+    return out
+}
+
+/// A call's type for the callees this slice can name: a class constructor builds an
+/// instance, `print` and `stderr` give back nothing, and the converting builtins
+/// return what they convert to.
+fn call_type(ast: Ast, names: Names, id: int) -> Type {
+    callee = ast.attr_text(id, "callee")
+    if names.classes.contains(callee) {
+        return type_named(callee)
+    }
+    if callee == "print" or callee == "stderr" {
+        return type_prim("unit")
+    }
+    if callee == "StringBuilder" {
+        return type_named("StringBuilder")
+    }
+    if callee == "Router" {
+        return type_named("Router")
+    }
+    std = free_fn(callee)
+    if std.name != "" {
+        return type_from_spec(std.ret)
+    }
+    one = builtin(callee)
+    if one.name != "" {
+        return type_from_spec(one.ret)
+    }
+    return type_any()
+}
+
+/// A type written as the spec `selfhost/stdlib.kode` stores, since that module cannot
+/// import this one. "" is "this slice does not know".
+pub fn type_from_spec(spec: string) -> Type {
+    if spec == "" {
+        return type_any()
+    }
+    if spec == "[string]" {
+        return type_of("list", type_prim("string"))
+    }
+    if spec == "string?" {
+        return type_of("opt", type_prim("string"))
+    }
+    if spec == "ProcessResult" or spec == "Json" {
+        return type_named(spec)
+    }
+    return type_prim(spec)
+}
+
+/// `E0202`: a value that does not fit where it is stored. Returns whether it fits, so
+/// the caller can stop declaring a name the oracle would not declare either.
+pub fn coerce_value(ast: Ast, diags: [Diag], value: int, got: Type, want: Type, name: string) -> bool {
+    if type_assignable(got, want) {
+        return true
+    }
+    message = "the value for `${name}` should be ${type_article(want)}, found ${type_article(got)}"
+    if mixed_number(got, want) {
+        diag_help(ast, diags, "E0202", message, value,
+            "numbers never convert automatically; use int(x) or float(x)")
+        return false
+    }
+    diag(ast, diags, "E0202", message, value)
+    return false
+}

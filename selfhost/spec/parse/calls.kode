@@ -1,0 +1,4 @@
+print(1)
+print(x)
+print(1, 2.5, "three", true)
+log(msg, 0x20)

@@ -6,7 +6,7 @@ use std::process::Command;
 use crate::style;
 
 /// The ABI marker in the embedded runtime (`kode-rt/src/lib.rs`).
-const RT_ABI: &str = "0004";
+const RT_ABI: &str = "0006";
 
 pub fn run() -> Result<u8, String> {
     let on = style::on_stdout();
@@ -28,7 +28,10 @@ pub fn run() -> Result<u8, String> {
         (
             true,
             "runtime",
-            format!("{} KB embedded, ABI {RT_ABI}", crate::RUNTIME.len() / 1024),
+            format!(
+                "{} KB embedded, ABI {RT_ABI}",
+                (crate::RUNTIME_CORE.len() + crate::RUNTIME_NET.len()) / 1024
+            ),
         ),
         (cc_ok, "linker", format!("{cc}: {cc_text}")),
         (pkg_ok, "package", pkg_text),

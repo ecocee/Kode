@@ -1,0 +1,5 @@
+// work packet: WP10 stderr stream
+// target: ok
+// Diagnostics must not go through /dev/stderr, which is Unix-only.
+stderr("kode: a diagnostic")
+print("stdout still works")

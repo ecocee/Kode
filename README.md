@@ -72,10 +72,22 @@ skipped. For current measurements and known gaps, see [docs/STATUS.md](docs/STAT
 
 ## Performance
 
-Measured on one development machine (macOS arm64, Apple silicon):
+Measured on one development machine (macOS arm64, Apple silicon) with the
+release compiler; the exact medians, the provenance and the method are in
+[benchmarks/report.md](benchmarks/report.md).
 
-- `fib(35)` in 93 ms against Python's 4,658 ms and C's 58 ms.
-- `examples/hello.kode` builds to a 450,696-byte binary, 373,336 bytes after `strip -x`.
+- `fib(38)` in the default build finishes in about 4 ms against C's 58 ms, but
+  that is **not** a language comparison: Kode's MIR inliner inlines the recursive
+  call once before clang sees it, so the two binaries run different call trees
+  (five call sites against two). At equal settings it is parity: `--debug`, which
+  skips the MIR optimizer but leaves clang at `-O2`, takes about 58 ms against C's
+  58 ms. With optimization off on both sides (`--opt=none` against `cc -O0`) the
+  same call tree takes about 278 ms in Kode and about 106 ms in C.
+- Loop-heavy programs land between parity and about 2.6× behind C: `loop_mod`
+  and `collatz` around 1.1–1.3×, `sieve` about 2.6×.
+- `examples/hello.kode` builds to a release binary of 392,200 bytes, 302,024 bytes after `strip -x`. The runtime archive is split: TLS and PostgreSQL code
+  is only linked when the program uses it, so a server binary that speaks
+  plaintext HTTP is about 444 KB stripped and one that serves TLS about 2.7 MB.
 
 Full numbers, targets and the rows that still miss are in [benchmarks/report.md](benchmarks/report.md).
 
@@ -145,7 +157,7 @@ crates/
   kode-rt/            runtime library linked into every program
   kode-cli/           the `kode` command
 tests/run-pass/       programs that must run (.kode + .out), checked for leaks
-tests/compile-fail/   programs that must fail (.kode + .err with the error code)
+tests/compile-fail/   programs that must fail (.kode + .err with the error code(s))
 examples/             small programs, one idea each (see examples/README.md)
 benchmarks/           proof of the cost claims
 docs/                 spec, cheat sheet, design notes, decisions (ADRs), roadmap, error codes
@@ -157,4 +169,23 @@ Start with [docs/cheatsheet.md](docs/cheatsheet.md) for the shape of the languag
 
 ## License
 
-Apache-2.0
+Apache-2.0: see [LICENSE](LICENSE). Copyright 2025–2026 Ecocee.
+
+The license covers the code and the documentation. The names "Kode" and
+"Ecocee" and the project's logos are trademarks of the owner and are not
+licensed by it: [TRADEMARKS.md](TRADEMARKS.md) says what is allowed and what is
+not.
+
+Contributions are accepted under the same license and need a DCO sign-off
+(`git commit -s`); see [CONTRIBUTING.md](CONTRIBUTING.md). Community expectations
+are in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and security reports go through
+[SECURITY.md](SECURITY.md).
+
+### Shipping a program you built
+
+`kode build` links the Kode runtime into your binary, and the runtime links
+crates from crates.io. Redistributing that binary therefore redistributes their
+object code: ship `LICENSE` and
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) alongside it. Your own `.kode`
+source stays yours — Apache-2.0 covers the compiler and the runtime, not the
+programs you write with them.

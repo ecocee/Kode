@@ -1,0 +1,5 @@
+// An interpolation outside a print: the accumulator is the value the slot takes, and
+// the walk owns it.
+y = "b"
+x = "a${y}b"
+print(x)

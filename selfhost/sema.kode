@@ -1,0 +1,625 @@
+// The checker (S3): the walk over a loaded program.
+//
+// `./scripts/selfhost.sh check` compares the codes this pass reports with the code
+// each program is expected to fail with, so a family lands when that count moves.
+//
+// A name is in scope when it is a builtin, a runtime function, a prelude class, a
+// module alias, a top-level declaration, or bound in an enclosing block by a
+// parameter, an assignment target, a `for` variable, a `catch` variable, a match
+// arm's payload or a closure parameter. Scopes are pushed per block, so a name
+// declared in a block is gone when the block ends, and a name used before its
+// declaration is unknown — the oracle's rule.
+//
+// The pieces are elsewhere on purpose: `names.kode` collects every declared name and
+// reports a declaration that cannot stand, `scope.kode` is the frame stack,
+// `typing.kode` says what a value is, `annotations.kode` what a written type means,
+// `items.kode` what a declaration puts in scope, `operands.kode` which operands an
+// operator and `print` accept, `assign.kode` what an assignment does, and
+// `namespace.kode` the rules of a module alias. The namespace is program-wide, not
+// per file: every file's names are collected before any of them is walked.
+
+from "./annotations" import resolve_ann
+from "./ast" import Ast, is_type_node
+from "./binding" import bind_target
+from "./builtins" import Builtins
+from "./containers" import check_callback, check_condition, check_container, check_index_target, open_for_in
+from "./diag" import Diag, diag, diag_help
+from "./functions" import call_fails, check_call, check_expr_body, check_method_call, check_paths, check_return
+from "./generics" import call_problem, method_problem, report, value_problem
+from "./items" import pop_type_params, setup_class, setup_fn
+from "./matching" import check_match
+from "./members" import Members, check_implements, collect_members
+from "./modules" import Alias, Module
+from "./names" import Names, collect
+from "./namespace" import alias_diags, check_alias
+from "./operands" import check_operator, check_print
+from "./optional" import Narrow, check_method_optional, check_optional, narrowing_of
+from "./patterns" import bind_arm_names
+from "./suggest" import closest
+from "./throws" import check_catch, check_throw
+from "./unused" import UnusedVar, mark_used, record
+from "./scope" import Scope
+from "./server" import check_router, check_serve
+from "./signatures" import SigTable, Signature, collect_signatures
+from "./typing" import type_any, type_prim
+
+pub class Sema {
+    narrows: [[Narrow]] = []
+    /// Every file the program loads, the entry first, from `modules.kode`.
+    asts: [Ast] = []
+    /// The file being walked; `asts` drives it, so the visitors stay one-file code.
+    ast: Ast = Ast()
+    /// The loaded modules, for what a module alias may reach (`E0411`).
+    mods: [Module] = []
+    /// Every `import "..." as n` in the program, in load order (`E0408`/`E0409`).
+    aliases: [Alias] = []
+    diags: [Diag] = []
+    /// Every declaration in the program: what a name resolves against, and what an
+    /// annotation may name.
+    names: Names = Names()
+    /// Bound names and what they hold, innermost frame last.
+    scopes: Scope = Scope()
+    /// The names a program starts with, in their own file (`builtins.kode`).
+    builtins: Builtins = Builtins()
+    /// Every function's and class's parameters and result (`signatures.kode`).
+    sigs: SigTable = SigTable()
+    /// Every class and interface member, and every `implements` relation
+    /// (`members.kode`).
+    members: Members = Members()
+    /// The signature of the function being walked, which `return` reads; a name of
+    /// "" means no function (a method, or the top level).
+    current: Signature = Signature(name: "")
+    /// `return` needs a function (`E0311`) and `break`/`continue` a loop (`E0314`).
+    in_fn: bool = false
+    loops: int = 0
+    /// Every name an assignment declared, for `W0001` (`unused.kode`).
+    unused: [UnusedVar] = []
+
+    /// Check a loaded program; the caller prints `diags`.
+    fn run() {
+        for one in asts {
+            ast = one
+            collect(ast, names, builtins, diags)
+        }
+        // Calls are checked against a program-wide table, so it is built before any
+        // file is walked (`signatures.kode`).
+        collect_signatures(asts, names, sigs)
+        collect_members(asts, names, members)
+        check_implements(asts, names, members, diags)
+        // An alias is a program-wide name, so its rules run once every file's
+        // declarations exist (`namespace.kode`).
+        for d in alias_diags(aliases, names.decls) {
+            diags.add(d)
+        }
+        scopes.push()
+        for one in asts {
+            ast = one
+            walk_program()
+        }
+        scopes.pop()
+        report_unused()
+    }
+
+    /// `W0001`: a name an assignment declared and nothing ever read. It is a warning, so
+    /// it does not stop the program and does not make `check` fail.
+    fn report_unused() {
+        // The oracle reports warnings only when the program has no errors: a broken
+        // program has bigger things to say.
+        for one in diags {
+            if not one.warning {
+                return
+            }
+        }
+        for one in unused {
+            if one.used {
+                continue
+            }
+            message = "variable `${one.name}` is assigned but never used"
+            hint = "remove it, or start the name with `_` if this is intentional"
+            diags.add(Diag(file: one.file, code: "W0001", message: message, start: one.start,
+                    end: one.end, help: hint, warning: true))
+        }
+    }
+
+    fn walk_program() {
+        for id in ast.nodes[0].kids {
+            if is_item(ast.nodes[id].kind) {
+                check_item(id)
+            } else {
+                visit(id)
+            }
+        }
+    }
+
+    fn check_item(id: int) {
+        kind = ast.nodes[id].kind
+        if kind == "Fn" {
+            check_fn(id, ast.attr_text(id, "name"))
+        } else if kind == "Class" {
+            check_class(id)
+        } else if kind == "Const" {
+            for kid in ast.nodes[id].kids {
+                if is_type_node(ast.nodes[kid].kind) {
+                    resolve_ann(ast, names, diags, kid)
+                } else {
+                    visit(kid)
+                }
+            }
+        }
+    }
+
+    /// `label` is what the signature table keys the item by — its name, or
+    /// `Class.method` — so a method is never checked against a free function that
+    /// shares its name. "" walks the item without signature rules.
+    fn check_fn(id: int, label: string) {
+        scopes.push()
+        before = setup_fn(ast, names, scopes, diags, id)
+        was = in_fn
+        in_fn = true
+        sig = Signature(name: "")
+        if label != "" {
+            sig = sigs.find(label)
+        }
+        previous = current
+        current = sig
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "Block" {
+                visit(kid)
+                check_paths(ast, diags, id, kid, sig)
+            } else if kind == "ExprBody" {
+                visit(kid)
+                check_expr_body(ast, scopes.frames, names, diags, id, kid, sig)
+            }
+        }
+        current = previous
+        in_fn = was
+        scopes.pop()
+        pop_type_params(names, before)
+    }
+
+    /// A method reads its class's fields and methods by bare name.
+    fn check_class(id: int) {
+        class_name = ast.attr_text(id, "name")
+        scopes.push()
+        before = setup_class(ast, names, scopes, diags, id)
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "Method" {
+                check_fn(kid, "${class_name}.${ast.attr_text(kid, "name")}")
+            }
+            if kind == "Field" {
+                for part in ast.nodes[kid].kids {
+                    if not is_type_node(ast.nodes[part].kind) {
+                        visit(part)
+                    }
+                }
+            }
+        }
+        scopes.pop()
+        pop_type_params(names, before)
+    }
+
+    fn is_bound(name: string) -> bool {
+        if names.all.contains(name) or builtins.has(name) {
+            return true
+        }
+        return scopes.find(name).name != ""
+    }
+
+    /// One node. The kinds that bind or resolve names have their own function;
+    /// everything else is walked through, and a type annotation is skipped. The two
+    /// operator nodes are checked here and still walked, because their operands are
+    /// expressions like any other.
+    fn visit(id: int) {
+        kind = ast.nodes[id].kind
+        if kind == "Ident" {
+            visit_ident(id)
+            return
+        }
+        if kind == "Assign" {
+            visit_assign(id)
+            return
+        }
+        if kind == "Call" {
+            visit_call(id)
+            return
+        }
+        if kind == "MethodCall" {
+            visit_method(id)
+            return
+        }
+        if kind == "Catch" {
+            visit_catch(id)
+            return
+        }
+        if kind == "Closure" {
+            visit_closure(id)
+            return
+        }
+        if kind == "For" {
+            visit_for(id)
+            return
+        }
+        if kind == "ForIn" {
+            visit_for_in(id)
+            return
+        }
+        if kind == "While" {
+            visit_while(id)
+            return
+        }
+        if kind == "If" {
+            visit_if(id)
+            return
+        }
+        if kind == "Try" {
+            visit_try(id)
+            return
+        }
+        if kind == "Match" {
+            visit_match(id)
+            return
+        }
+        if kind == "Block" {
+            visit_block(id)
+            return
+        }
+        if kind == "Return" {
+            visit_return(id)
+            return
+        }
+        if kind == "Break" or kind == "Continue" {
+            visit_loop_keyword(id)
+            return
+        }
+        if kind == "Throw" {
+            check_throw(ast, scopes.frames, names, sigs, members, diags, id)
+        }
+        if kind == "TargetVar" {
+            scopes.declare(ast.attr_text(id, "name"), type_any())
+            return
+        }
+        if kind == "Var" or kind == "CatchVar" {
+            return
+        }
+        if is_type_node(kind) {
+            return
+        }
+        if kind == "Binary" or kind == "Unary" {
+            check_operator(ast, scopes.frames, names, sigs, members, diags, id)
+        }
+        if kind == "Index" or kind == "Slice" or kind == "List" or kind == "Map" {
+            check_container(ast, scopes.frames, names, diags, id)
+        }
+        if kind == "Unwrap" or kind == "Coalesce" or kind == "Member" {
+            check_optional(ast, scopes.frames, names, narrows, members, diags, id)
+        }
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+    }
+
+    fn visit_block(id: int) {
+        scopes.push()
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+        scopes.pop()
+    }
+
+    /// An unknown name is `E0201`, and the hint is the oracle's: a module is reached
+    /// with a `.`, an enum value is written `Enum.Variant`, a near miss gets the name it
+    /// probably meant, and anything else is a name not created yet.
+    fn visit_ident(id: int) {
+        name = ast.attr_text(id, "name")
+        generic = value_problem(ast, sigs, id)
+        if generic.found {
+            report(ast, diags, id, generic)
+            return
+        }
+        if name != "" and is_bound(name) {
+            mark_used(unused, name)
+            return
+        }
+        if name == "" {
+            return
+        }
+        message = "unknown variable `${name}`"
+        if is_alias(name) {
+            diag_help(ast, diags, "E0201", message, id, "`${name}` is a module; use `${name}.member`")
+            return
+        }
+        if names.enums.contains(name) {
+            diag_help(ast, diags, "E0201", message, id,
+                "enum values are written like `${name}.VariantName`")
+            return
+        }
+        close = closest(name, scope_names())
+        if close != "" {
+            diag_help(ast, diags, "E0201", message, id, "did you mean `${close}`?")
+            return
+        }
+        diag_help(ast, diags, "E0201", message, id,
+            "create it first with `${name} = ...` on an earlier line")
+    }
+
+    fn is_alias(name: string) -> bool {
+        for one in aliases {
+            if one.name == name {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The names an unknown variable is compared with: every binding in scope and every
+    /// constant, as the oracle's candidates.
+    fn scope_names() -> [string] {
+        out: [string] = scopes.names()
+        for one in names.consts {
+            out.add(one)
+        }
+        return out
+    }
+
+    /// The names an unknown callee is compared with: the program's functions and
+    /// classes, and every builtin.
+    fn callee_names() -> [string] {
+        out: [string] = []
+        for one in names.fns {
+            out.add(one)
+        }
+        for one in names.classes {
+            out.add(one)
+        }
+        for one in builtins.names {
+            out.add(one)
+        }
+        return out
+    }
+
+    /// `x = 1` binds `x` (`binding.kode`); `xs[0] = 1` is a read of what it indexes into.
+    fn visit_assign(id: int) {
+        kids = ast.nodes[id].kids
+        if kids.len() == 0 {
+            return
+        }
+        target = kids[0]
+        if ast.nodes[target].kind == "TargetVar" {
+            one = bind_target(ast, scopes, names, sigs, members, diags, id, target)
+            if one.name != "" {
+                record(ast, unused, target)
+            }
+        } else {
+            if ast.nodes[target].kind == "TargetIndex" {
+                check_index_target(ast, scopes.frames, names, diags, target)
+            }
+            visit(target)
+        }
+        i = 1
+        while i < kids.len() {
+            if not is_type_node(ast.nodes[kids[i]].kind) {
+                visit(kids[i])
+            }
+            i += 1
+        }
+    }
+
+    fn visit_call(id: int) {
+        callee = ast.attr_text(id, "callee")
+        // A variable that holds a closure and is called is read, so `greet("Bob")`
+        // counts as a use of `greet` (`W0001`).
+        if callee != "" {
+            mark_used(unused, callee)
+        }
+        if callee != "" and not is_bound(callee) {
+            message = "unknown function `${callee}`"
+            close = closest(callee, callee_names())
+            if close != "" {
+                diag_at(ast, diags, "E0206", message, id, "callee_span", "did you mean `${close}`?")
+            } else {
+                diag_at(ast, diags, "E0206", message, id, "callee_span",
+                    "define it first with `fn name(...) { ... }`")
+            }
+        }
+        check_serve(ast, scopes.frames, names, sigs, members, diags, id)
+        report(ast, diags, id, call_problem(ast, sigs, id))
+        if callee == "print" or callee == "stderr" {
+            check_print(ast, scopes.frames, names, sigs, members, diags, id)
+        } else {
+            check_call(ast, scopes.frames, names, sigs, diags, id)
+        }
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+    }
+
+    /// `mods.f(...)`: the module alias rules are `namespace.kode`'s.
+    fn visit_method(id: int) {
+        callee = ast.attr_text(id, "name")
+        kids = ast.nodes[id].kids
+        if kids.len() > 0 and ast.nodes[kids[0]].kind == "Ident" {
+            base = ast.attr_text(kids[0], "name")
+            check_alias(ast, mods, aliases, names.decls, diags, id, base, callee)
+        }
+        check_method_call(ast, scopes.frames, names, sigs, diags, id)
+        check_method_optional(ast, scopes.frames, names, diags, id)
+        check_callback(ast, scopes.frames, names, sigs, members, diags, id)
+        check_router(ast, scopes.frames, names, sigs, members, diags, id)
+        report(ast, diags, id, method_problem(ast, scopes.frames, names, sigs, members, id))
+        for kid in kids {
+            visit(kid)
+        }
+    }
+
+    /// `expr catch err { }`: the variable is an attribute and is in scope in the
+    /// block, like the statement form's `CatchVar`.
+    fn visit_catch(id: int) {
+        scopes.push()
+        scopes.declare(ast.attr_text(id, "var"), type_any())
+        check_catch(ast, scopes.frames, names, sigs, members, diags, id)
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+        scopes.pop()
+    }
+
+    fn visit_closure(id: int) {
+        scopes.push()
+        body: [int] = []
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "ClosureParam" {
+                scopes.declare(ast.attr_text(kid, "name"), type_any())
+            } else {
+                body.add(kid)
+            }
+        }
+        for kid in body {
+            visit(kid)
+        }
+        scopes.pop()
+    }
+
+    /// `for i in 0..3`: the variable counts, so it is an int.
+    fn visit_for(id: int) {
+        scopes.push()
+        scopes.declare(ast.attr_text(id, "var"), type_prim("int"))
+        loops += 1
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+        loops -= 1
+        scopes.pop()
+    }
+
+    /// `for i, v in xs`: the variables are `Var` children, the body a block.
+    fn visit_for_in(id: int) {
+        open_for_in(ast, scopes, names, diags, id)
+        loops += 1
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "Iter" or kind == "Block" {
+                visit(kid)
+            }
+        }
+        loops -= 1
+        scopes.pop()
+    }
+
+    /// `if cond { } else { }`: the condition is a bool, `cond` may narrow a value for the
+    /// then branch, and an `else if` is another `If` inside the `Else`.
+    fn visit_if(id: int) {
+        kids = ast.nodes[id].kids
+        bound = Narrow(name: "", variant: "")
+        if kids.len() > 0 {
+            kind = ast.nodes[kids[0]].kind
+            if kind != "Then" and kind != "Else" {
+                check_condition(ast, scopes.frames, names, diags, kids[0], "`if`")
+            }
+            bound = narrowing_of(ast, kids[0])
+        }
+        for kid in kids {
+            if ast.nodes[kid].kind == "Then" and bound.name != "" {
+                narrows.add([])
+                narrows[narrows.len() - 1].add(bound)
+                visit(kid)
+                narrows.pop()
+            } else {
+                visit(kid)
+            }
+        }
+    }
+
+    /// `while cond { }`: a loop (`break`/`continue` work inside) with a bool condition.
+    fn visit_while(id: int) {
+        kids = ast.nodes[id].kids
+        if kids.len() > 0 {
+            check_condition(ast, scopes.frames, names, diags, kids[0], "`while`")
+        }
+        loops += 1
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+        loops -= 1
+    }
+
+    fn visit_return(id: int) {
+        if not in_fn {
+            diag_help(ast, diags, "E0311", "`return` can only be used inside a function", id,
+                "top-level code simply runs to the end")
+        }
+        check_return(ast, scopes.frames, names, diags, id, current)
+        for kid in ast.nodes[id].kids {
+            visit(kid)
+        }
+    }
+
+    fn visit_loop_keyword(id: int) {
+        if loops > 0 {
+            return
+        }
+        word = "break"
+        if ast.nodes[id].kind == "Continue" {
+            word = "continue"
+        }
+        diag(ast, diags, "E0314", "`${word}` can only be used inside a loop", id)
+    }
+
+    /// `try { } catch err { } finally { }`: `err` is in scope in the handler only.
+    fn visit_try(id: int) {
+        opened = false
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "CatchVar" {
+                scopes.push()
+                opened = true
+                scopes.declare(ast.attr_text(kid, "name"), type_any())
+            } else if kind == "Handler" {
+                visit(kid)
+                if opened {
+                    scopes.pop()
+                    opened = false
+                }
+            } else {
+                visit(kid)
+            }
+        }
+        if opened {
+            scopes.pop()
+        }
+    }
+
+    fn visit_match(id: int) {
+        check_match(ast, scopes.frames, names, sigs, members, diags, id)
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "Arm" {
+                visit_arm(kid)
+            } else {
+                visit(kid)
+            }
+        }
+    }
+
+    fn visit_arm(id: int) {
+        scopes.push()
+        for kid in ast.nodes[id].kids {
+            kind = ast.nodes[kid].kind
+            if kind == "PatternValue" {
+                bind_arm_names(ast, scopes, kid)
+            } else {
+                visit(kid)
+            }
+        }
+        scopes.pop()
+    }
+
+}
+
+/// The node kinds that declare a name for the whole program.
+fn is_item(kind: string) -> bool {
+    if kind == "Fn" or kind == "Class" or kind == "Enum" or kind == "Interface" {
+        return true
+    }
+    return kind == "Const" or kind == "Import"
+}

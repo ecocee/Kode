@@ -1,0 +1,363 @@
+// Statements of the self-hosted compiler: assignments, expression statements,
+// blocks, `if`/`while`/`for`, `break`/`continue` and `return` (S2 slices 3-4).
+//
+// A statement ends at a newline, the end of the file, or the `}` that closes its
+// block, and the statement itself consumes none of them — the oracle's rule. That
+// is why `else` has to follow `}` on the same line.
+//
+// The expression grammar lives in `expr.kode`; items (`fn`) live in `parser.kode`.
+
+from "./assign" import Assigns
+from "./ast" import Ast
+from "./contracts" import Blocks
+from "./cursor" import Cursor
+from "./depth" import guard
+from "./expr" import Exprs
+from "./matches" import Matches
+from "./tokens" import TokenKind, starts_value
+
+pub class Stmts implements Blocks {
+    c: Cursor
+    ast: Ast
+
+    /// The expression parser over the same cursor, arena and error list.
+    fn assigns() -> Assigns {
+        return Assigns(c: c, ast: ast, exprs: ex())
+    }
+
+    fn matches() -> Matches {
+        return Matches(c: c, ast: ast, blocks: Stmts(c: c, ast: ast), exprs: ex())
+    }
+
+    fn ex() -> Exprs {
+        // The expression parser gets this same statement parser back for `catch`
+        // bodies, over one cursor and one arena.
+        return Exprs(c: c, ast: ast, blocks: Stmts(c: c, ast: ast))
+    }
+
+    // ---- statements ----
+
+    /// One statement, without consuming the end of the line.
+    fn statement() -> int {
+        kind = c.peek()
+        if kind == TokenKind.If {
+            return if_stmt()
+        }
+        if kind == TokenKind.While {
+            return while_stmt()
+        }
+        if kind == TokenKind.For {
+            return for_stmt()
+        }
+        if kind == TokenKind.Return {
+            return return_stmt()
+        }
+        if kind == TokenKind.Match {
+            return matches().match_stmt()
+        }
+        if kind == TokenKind.Throw {
+            return throw_stmt()
+        }
+        if kind == TokenKind.Try {
+            return try_stmt()
+        }
+        if kind == TokenKind.Fn {
+            token = c.at
+            c.advance()
+            c.fail(
+                "E0105",
+                "functions can only be defined at the top level of a file",
+                c.token_start(token),
+                c.token_end(token),
+                "move this `fn` out of the block",
+            )
+            c.recover_line()
+            return -1
+        }
+        if kind == TokenKind.Break or kind == TokenKind.Continue {
+            token = c.at
+            c.advance()
+            name = "Break"
+            if kind == TokenKind.Continue {
+                name = "Continue"
+            }
+            id = ast.add(name)
+            ast.span(id, "span", c.token_start(token), c.token_end(token))
+            return id
+        }
+        if kind == TokenKind.Ident and c.peek_at(1) == TokenKind.Colon {
+            return assigns().typed_decl()
+        }
+        if starts_value(kind) {
+            return assigns().expr_or_assign()
+        }
+        // Everything else is reported by the expression parser, so a stray `}` or
+        // `)` gets the same message the oracle gives it.
+        return assigns().expr_or_assign()
+    }
+
+    /// The block parser over another cursor, for a `catch` body inside an
+    /// interpolation hole.
+    fn with_cursor(next: Cursor) -> Blocks {
+        return Stmts(c: next, ast: ast)
+    }
+
+    /// `{ ... }` with one statement per line. Returns the `Block` node.
+    fn block() -> int {
+        if guard(c) {
+            return -1
+        }
+        c.depth += 1
+        id = block_at()
+        c.depth -= 1
+        return id
+    }
+
+    fn block_at() -> int {
+        open_at = c.at
+        id = ast.add("Block")
+        if c.peek() != TokenKind.LBrace {
+            c.fail(
+                "E0102",
+                "expected `{` to open a block, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "a body is written as `{ ... }`",
+            )
+            return id
+        }
+        c.advance()
+        closed = false
+        while not closed {
+            c.skip_newlines()
+            if c.peek() == TokenKind.RBrace {
+                c.advance()
+                closed = true
+            } else if c.done() {
+                c.fail(
+                    "E0106",
+                    "this block is never closed",
+                    c.token_start(open_at),
+                    c.token_end(open_at),
+                    "add a matching `}`",
+                )
+                closed = true
+            } else {
+                node = statement()
+                if node >= 0 {
+                    ast.kid(id, node)
+                }
+                c.end_statement()
+            }
+        }
+        return id
+    }
+
+    /// `if cond { } else { }`, and `else if` nesting through an `Else` block.
+    fn if_stmt() -> int {
+        c.advance()
+        cond = ex().expr()
+        then = block()
+        id = ast.add("If")
+        if cond >= 0 {
+            ast.kid(id, cond)
+        }
+        then_node = ast.add("Then")
+        if then >= 0 {
+            ast.kid(then_node, then)
+        }
+        ast.kid(id, then_node)
+        // `} else {` — the `else` has to follow the closing brace on its line.
+        if c.peek() == TokenKind.Else {
+            c.advance()
+            else_node = ast.add("Else")
+            if c.peek() == TokenKind.If {
+                inner = if_stmt()
+                b = ast.add("Block")
+                if inner >= 0 {
+                    ast.kid(b, inner)
+                }
+                ast.kid(else_node, b)
+            } else {
+                other = block()
+                if other >= 0 {
+                    ast.kid(else_node, other)
+                }
+            }
+            ast.kid(id, else_node)
+        }
+        return id
+    }
+
+    fn while_stmt() -> int {
+        c.advance()
+        cond = ex().expr()
+        body = block()
+        id = ast.add("While")
+        if cond >= 0 {
+            ast.kid(id, cond)
+        }
+        if body >= 0 {
+            ast.kid(id, body)
+        }
+        return id
+    }
+
+    /// `for i in 0..10 { }` and `for x in xs { }` — a range binds looser than an
+    /// operator, so `..` is not swallowed (`BP_ARITH`).
+    fn for_stmt() -> int {
+        c.advance()
+        if c.peek() != TokenKind.Ident {
+            c.fail(
+                "E0110",
+                "expected a loop variable name, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "",
+            )
+            c.recover_line()
+            return -1
+        }
+        names: [int] = []
+        names.add(c.at)
+        c.advance()
+        if c.peek() == TokenKind.Comma {
+            c.advance()
+            names.add(c.at)
+            c.advance()
+        }
+        if c.peek() == TokenKind.In {
+            c.advance()
+        } else {
+            c.fail(
+                "E0102",
+                "expected `in` after the loop variable, found ${c.describe(c.at)}",
+                c.token_start(c.at),
+                c.token_end(c.at),
+                "write `for x in xs` or `for i in 0..10`",
+            )
+        }
+        first = ex().expr_bp(BP_ARITH)
+        is_range = c.peek() == TokenKind.DotDot or c.peek() == TokenKind.DotDotEq
+        inclusive = c.peek() == TokenKind.DotDotEq
+        if is_range and names.len() > 1 {
+            c.fail(
+                "E0108",
+                "a range loop has exactly one variable",
+                c.token_start(names[1]),
+                c.token_end(names[1]),
+                "",
+            )
+            c.recover_line()
+            return -1
+        }
+        if is_range {
+            c.advance()
+            last = ex().expr_bp(BP_ARITH)
+            body = block()
+            id = ast.add("For")
+            ast.text(id, "var", c.text_of(names[0]))
+            ast.span(id, "var_span", c.token_start(names[0]), c.token_end(names[0]))
+            ast.flag(id, "inclusive", inclusive)
+            if first >= 0 {
+                ast.kid(id, first)
+            }
+            if last >= 0 {
+                ast.kid(id, last)
+            }
+            if body >= 0 {
+                ast.kid(id, body)
+            }
+            return id
+        }
+        body = block()
+        id = ast.add("ForIn")
+        for name in names {
+            v = ast.add("Var")
+            ast.text(v, "name", c.text_of(name))
+            ast.span(v, "span", c.token_start(name), c.token_end(name))
+            ast.kid(id, v)
+        }
+        iter = ast.add("Iter")
+        if first >= 0 {
+            ast.kid(iter, first)
+        }
+        ast.kid(id, iter)
+        if body >= 0 {
+            ast.kid(id, body)
+        }
+        return id
+    }
+
+    /// `return` and `return value`. The keyword's span, then the value.
+    fn return_stmt() -> int {
+        token = c.at
+        c.advance()
+        id = ast.add("Return")
+        ast.span(id, "span", c.token_start(token), c.token_end(token))
+        if not c.at_statement_end() {
+            value = ex().expr()
+            if value >= 0 {
+                ast.kid(id, value)
+            }
+        }
+        return id
+    }
+
+    /// `match x { 1 => a, _ => b }`. An arm's body is a block or one statement,
+    /// and either way the arm dumps a `Block`.
+    /// `throw "boom"`: the keyword's span, then the value.
+    fn throw_stmt() -> int {
+        token = c.at
+        c.advance()
+        value = ex().expr()
+        id = ast.add("Throw")
+        ast.span(id, "span", c.token_start(token), c.token_end(token))
+        if value >= 0 {
+            ast.kid(id, value)
+        }
+        return id
+    }
+
+    /// `try { } catch err { } finally { }`. The node has no span; its children are
+    /// the body `Block`, an optional `CatchVar`, an optional `Handler` and an
+    /// optional `Finally`. At least one of `catch`/`finally` has to follow.
+    fn try_stmt() -> int {
+        c.advance()
+        id = ast.add("Try")
+        body = block()
+        if body >= 0 {
+            ast.kid(id, body)
+        }
+        has_catch = c.peek() == TokenKind.Catch
+        has_finally = c.peek() == TokenKind.Finally
+        if not has_catch and not has_finally {
+            c.fail("E0102", "expected `catch` or `finally` after the `try` block", c.token_start(c.at), c.token_end(c.at), "write `try { } catch err { }`")
+        }
+        if has_catch {
+            c.advance()
+            var_at = c.at
+            c.advance()
+            catch_var = ast.add("CatchVar")
+            ast.text(catch_var, "name", c.text_of(var_at))
+            ast.span(catch_var, "span", c.token_start(var_at), c.token_end(var_at))
+            ast.kid(id, catch_var)
+            handler = ast.add("Handler")
+            handled = block()
+            if handled >= 0 {
+                ast.kid(handler, handled)
+            }
+            ast.kid(id, handler)
+        }
+        if c.peek() == TokenKind.Finally {
+            c.advance()
+            cleanup = ast.add("Finally")
+            cleaned = block()
+            if cleaned >= 0 {
+                ast.kid(cleanup, cleaned)
+            }
+            ast.kid(id, cleanup)
+        }
+        return id
+    }
+}

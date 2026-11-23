@@ -20,6 +20,9 @@ jobs:
   test:
     name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    # The full suite is a few minutes on Linux and longer on Windows; a hang in
+    # the compiler must fail the job instead of holding a runner for six hours.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -135,6 +138,13 @@ jobs:
         shell: bash
         run: ./target/debug/kode fmt tests/run-pass examples --check
 
+      # The notices that ship inside a release are generated from the lockfile;
+      # this fails if a dependency changed and the file was not regenerated.
+      - name: Third-party notices match the lockfile
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 scripts/third-party-notices.py --check
+
       - name: Release build
         run: cargo build --release -p kode-cli
 
@@ -146,3 +156,172 @@ jobs:
           ./target/release/kode build examples/hello.kode -o "$out/hello" --release
           test "$("$out/hello")" = "hello world"
           ./target/release/kode doctor
+
+      # The runtime is embedded as two archives, split at build time by symbol
+      # family. This is the only place the ELF half of that split is exercised:
+      # `ar`/`nm` differ from Apple's, so a green macOS build says nothing here.
+      - name: Runtime split on ELF (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          # Several kode-cli build directories can exist (a stale profile leaves
+          # one without archives); take the newest archive, like build.rs does.
+          core="$(ls -t $(find target/release/build -name libkode_rt_core.a) | head -1)"
+          net="$(dirname "$core")/libkode_rt_net.a"
+          test -n "$core"
+          test -f "$core" && test -f "$net"
+          echo "core: $(stat -c %s "$core") bytes, $(ar t "$core" | wc -l) members"
+          echo "net:  $(stat -c %s "$net") bytes, $(ar t "$net" | wc -l) members"
+          # Both halves must have members: an empty net archive means the split
+          # silently fell back to the whole runtime.
+          test "$(ar t "$core" | wc -l)" -gt 1
+          test "$(ar t "$net" | wc -l)" -gt 1
+          # A hello that linked the network half would be over 900 KB on x86_64.
+          tmp="$(mktemp -d)"
+          ./target/release/kode build examples/hello.kode -o "$tmp/hello" --release
+          raw="$(stat -c %s "$tmp/hello")"
+          cp "$tmp/hello" "$tmp/stripped"
+          strip -x "$tmp/stripped" 2>/dev/null || strip "$tmp/stripped"
+          echo "hello: $raw raw, $(stat -c %s "$tmp/stripped") stripped"
+          test "$(stat -c %s "$tmp/stripped")" -lt 600000
+          # Which archive members were actually pulled in, straight from the
+          # linker: generic Rust glue in `nm` output gave false positives, and a
+          # stripped binary has no symbol table at all.
+          KODE_LINK_MAP="$tmp/hello.map" ./target/release/kode build \
+            examples/hello.kode -o "$tmp/mapped" --release
+          test -s "$tmp/hello.map"
+          net_refs="$(grep -c 'libkode_rt_net\.a' "$tmp/hello.map" || true)"
+          core_refs="$(grep -c 'libkode_rt_core\.a' "$tmp/hello.map" || true)"
+          echo "hello map: $core_refs core members, $net_refs network members"
+          test "$core_refs" -gt 0
+          test "$net_refs" -eq 0
+          # The network half must be selected when it is needed: a TLS server is
+          # the smallest program that provably cannot link without it.
+          sed 's/^serve(port, routes)$/serve_tls(port, "cert.der", "key.der", routes)/' \
+            examples/api.kode > "$tmp/api_tls.kode"
+          KODE_LINK_MAP="$tmp/tls.map" ./target/release/kode build "$tmp/api_tls.kode" \
+            -o "$tmp/tls" --release
+          tls_net_refs="$(grep -c 'libkode_rt_net\.a' "$tmp/tls.map" || true)"
+          echo "tls map: $tls_net_refs network members"
+          test "$tls_net_refs" -gt 0
+          # A failed link must not leave a binary behind for a later step to run.
+          if KODE_RT_LIB="$tmp/missing.a" ./target/release/kode build \
+              examples/hello.kode -o "$tmp/broken" --release; then
+            echo "::error::a build with a missing runtime reported success"
+            exit 1
+          fi
+          test ! -e "$tmp/broken"
+
+      # A request has to come back out of a server that linked only the core
+      # archive: linking is not the same as serving.
+      - name: Plaintext HTTP server answers a request (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          ./target/release/kode build examples/api.kode -o "$tmp/api" --release
+          "$tmp/api" 18080 >"$tmp/log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do
+            if curl -fsS -o /dev/null -m 1 http://127.0.0.1:18080/notes 2>/dev/null \
+              || curl -sS -o /dev/null -m 1 http://127.0.0.1:18080/ 2>/dev/null; then
+              exit 0
+            fi
+            sleep 0.1
+          done
+          echo "::error::the server never answered"
+          cat "$tmp/log"
+          exit 1
+
+  # The self-hosting harness (docs/PLAN-self-hosting.md). Stage 0 records the
+  # oracle, Stage 0 then compiles the Kode port, and the two token dumps must
+  # agree byte for byte on every corpus file. The parser is compared too, over
+  # the whole compile-fail corpus, so what S2 refuses cannot drift. One runner is
+  # enough: the port is platform independent, and the point of the job is to catch
+  # a parity regression the moment it lands, not to test four architectures of it.
+  selfhost:
+    name: selfhost (stage0 -> stage1 -> parse -> check -> mir -> run -> report -> corpus)
+    runs-on: ubuntu-latest
+    # The port can hang on a program it mis-lowers, so the job has a ceiling
+    # rather than the runner's six hours.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # `kode build` emits LLVM IR and hands it to clang, so the port needs a
+      # clang and a C linker even though it is not the thing being built.
+      - name: Install clang and a C linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang gcc libc6-dev
+
+      - name: Stage 0 builds the oracle
+        run: ./scripts/selfhost.sh stage0
+
+      - name: Stage 0 builds the Kode lexer; token dumps must match
+        run: ./scripts/selfhost.sh stage1
+
+      # Trees and diagnostics, byte for byte: the S2 cases, the port's own
+      # sources, and every `tests/compile-fail` program — the oracle's own list
+      # of what a parser must refuse, and the gate that keeps recovery honest.
+      - name: Stage 1 parses the corpus; trees and diagnostics must match
+        run: ./scripts/selfhost.sh parse
+
+      # Codes, then the report itself, then the port's own sources: the S3
+      # gate runs `kode check` on both sides of the comparison and includes
+      # the self-check over `selfhost/*.kode`.
+      - name: Stage 1 checks the corpus; codes, reports and self-check must match
+        run: ./scripts/selfhost.sh check
+
+      # The S4 dump, byte for byte, over the hand-written fixtures.
+      - name: Stage 1 lowers the MIR fixtures; dumps must match
+        run: ./scripts/selfhost.sh mir
+
+      # The interpreter's stdout and exit code.
+      - name: Stage 1 runs the fixtures; output and exit code must match
+        run: ./scripts/selfhost.sh run
+
+      # Whole programs: every file's imports lowered in the oracle's order.
+      - name: Multi-file programs dump and run like the oracle
+        run: ./scripts/selfhost.sh modules
+
+      # The owning interpreter keeps shadow reference counts: silent on the stress cases,
+      # and loud on a mutant port whose every retain became a release.
+      - name: The interpreter releases exactly what it owns
+        run: ./scripts/selfhost.sh own
+
+      # The report walk lists every unsupported construct, not just the first; the
+      # fixtures pin it on programs that need several things.
+      - name: The walk reports every unsupported construct
+        run: ./scripts/selfhost.sh report
+
+      # The real corpus, with the programs the walk cannot lower yet listed by
+      # reason in selfhost/spec/corpus-out-of-scope.txt. The gate fails if that
+      # list goes stale in either direction, so a program cannot quietly leave
+      # (or silently join) the out-of-scope set.
+      - name: Stage 1 runs the real corpus, and its out-of-scope list is current
+        run: ./scripts/selfhost.sh corpus
+
+      # Informational: which work packets are met, and the readiness level. A
+      # blocked packet is the plan's own state, not a CI failure, so this step
+      # is allowed to report it and the gates above decide the job.
+      - name: Record the work packets and the readiness level (informational)
+        continue-on-error: true
+        run: ./scripts/selfhost.sh readiness
+
+      - name: Keep the measurements
+        uses: actions/upload-artifact@v4
+        with:
+          name: selfhost-measurements
+          path: |
+            target/selfhost/stage0.txt
+            target/selfhost/stage1.txt
+          if-no-files-found: error

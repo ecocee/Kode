@@ -1,0 +1,7 @@
+fn early(n: int) {
+    if n > 2 {
+        return
+    }
+    print("early", n)
+}
+print("main")

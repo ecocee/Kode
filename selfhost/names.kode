@@ -1,0 +1,385 @@
+// The names a program declares, and the rules about declaring one.
+//
+// Kode has one program-wide namespace: `sema.kode` collects every file's names before
+// it walks any of them, so a function may be called above its own line and
+// `stmt.kode` may use a constant from `infix.kode` without importing it. These tables
+// are what that lookup asks, and the same walk reports a declaration that cannot
+// stand: `E0301` (a name defined twice), `E0302` (a builtin redefined), `E0306` (a
+// parameter or field twice), `E0307` (a constant that is not a plain value) and
+// `E0308` (a constant defined twice).
+
+from "./ast" import Ast, has_type_param, is_type_node
+from "./builtins" import Builtins
+from "./diag" import Diag, diag_at, diag_help
+
+/// One payload field a variant declares: `Shape.Circle(radius: float)` has
+/// (`Shape`, `Circle`, `radius`). `selfhost/optional.kode` needs it to tell a payload
+/// field read without narrowing (`E0419`).
+pub class Payload {
+    enum_name: string
+    variant: string
+    field: string
+}
+
+/// A class that takes type parameters, and what they are called: the annotation rules
+/// need the count (`E0421`) and the name (`E0423`).
+pub class GenericClass {
+    name: string
+    params: [string] = []
+}
+
+/// One variant an enum declares, and whether it carries payload fields.
+pub class VariantName {
+    enum_name: string
+    name: string
+    payload: bool = false
+}
+
+pub class Names {
+    /// Every top-level name in the shared namespace, `from`-import names included:
+    /// what a name is resolved against.
+    all: [string] = []
+    /// The declarations alone: what a module alias may not hide (`E0409`).
+    decls: [string] = []
+    fns: [string] = []
+    consts: [string] = []
+    classes: [string] = []
+    enums: [string] = []
+    interfaces: [string] = []
+    /// The classes with type parameters: a bare `Box` is not a type (`E0423`).
+    generics: [string] = []
+    /// The type parameters of the item being walked (`fn id<T>`), which its own
+    /// annotations may name.
+    params: [string] = []
+    /// Every payload field the program's enums declare.
+    payloads: [Payload] = []
+    /// The type parameters of every generic class, in declaration order.
+    generic_params: [GenericClass] = []
+    /// Every variant the program's enums declare, in declaration order: what `match`
+    /// has to cover and what `Enum.Name` may name (`E0224`, `E0225`).
+    variants: [VariantName] = []
+}
+
+/// Is `name` a declared type: a class, an enum or an interface?
+pub fn is_type_name(names: Names, name: string) -> bool {
+    if names.classes.contains(name) or names.enums.contains(name) {
+        return true
+    }
+    return names.interfaces.contains(name)
+}
+
+/// The variant that owns a payload field of `enum_name`, or "" when no variant does.
+pub fn variant_of_field(names: Names, enum_name: string, field: string) -> string {
+    for one in names.payloads {
+        if one.enum_name == enum_name and one.field == field {
+            return one.variant
+        }
+    }
+    return ""
+}
+
+/// The type parameters `name` declares, or an empty list when it is not a generic class.
+pub fn generic_params_of(names: Names, name: string) -> [string] {
+    for one in names.generic_params {
+        if one.name == name {
+            return one.params
+        }
+    }
+    out: [string] = []
+    return out
+}
+
+/// Every variant `enum_name` declares, in declaration order.
+pub fn variants_of(names: Names, enum_name: string) -> [string] {
+    out: [string] = []
+    for one in names.variants {
+        if one.enum_name == enum_name {
+            out.add(one.name)
+        }
+    }
+    return out
+}
+
+pub fn has_variant(names: Names, enum_name: string, variant: string) -> bool {
+    for one in names.variants {
+        if one.enum_name == enum_name and one.name == variant {
+            return true
+        }
+    }
+    return false
+}
+
+/// Does any variant of `enum_name` carry payload fields? A payload enum is a reference,
+/// so `==` compares addresses and is refused (`E0420`).
+pub fn enum_has_payloads(names: Names, enum_name: string) -> bool {
+    for one in names.variants {
+        if one.enum_name == enum_name and one.payload {
+            return true
+        }
+    }
+    return false
+}
+
+/// Does `Enum.Variant` declare a payload field `field`?
+pub fn has_payload(names: Names, enum_name: string, variant: string) -> bool {
+    for one in names.payloads {
+        if one.enum_name == enum_name and one.variant == variant {
+            return true
+        }
+    }
+    return false
+}
+
+/// The field names `Enum.Variant` declares, in declaration order: what `E0417` prints as
+/// the constructor's arguments.
+pub fn payload_fields(names: Names, enum_name: string, variant: string) -> [string] {
+    out: [string] = []
+    for one in names.payloads {
+        if one.enum_name == enum_name and one.variant == variant {
+            out.add(one.field)
+        }
+    }
+    return out
+}
+
+/// Record one file's declarations, reporting the ones that cannot stand.
+pub fn collect(ast: Ast, names: Names, builtins: Builtins, diags: [Diag]) {
+    if ast.nodes.len() == 0 {
+        return
+    }
+    for id in ast.nodes[0].kids {
+        kind = ast.nodes[id].kind
+        if kind == "Fn" {
+            declare_fn(ast, names, builtins, diags, id)
+        } else if kind == "Const" {
+            declare_const(ast, names, diags, id)
+        } else if kind == "Class" {
+            declare_class(ast, names, diags, id)
+        } else if kind == "Enum" {
+            declare_named(ast, names, diags, id)
+        } else if kind == "Interface" {
+            declare_named(ast, names, diags, id)
+        } else if kind == "Import" {
+            // A `from` name is a way to reach something, not a declaration of its own,
+            // so it is in `all` and not in `decls`.
+            for kid in ast.nodes[id].kids {
+                names.all.add(ast.attr_text(kid, "name"))
+            }
+        }
+    }
+}
+
+fn add_decl(names: Names, name: string) {
+    names.all.add(name)
+    names.decls.add(name)
+}
+
+fn declare_fn(ast: Ast, names: Names, builtins: Builtins, diags: [Diag], id: int) {
+    name = ast.attr_text(id, "name")
+    if builtins.has(name) {
+        message = "`${name}` is a built-in function and cannot be redefined"
+        diag_at(ast, diags, "E0302", message, id, "name_span", "pick another name")
+    } else if names.decls.contains(name) {
+        message = "the name `${name}` is defined twice"
+        diag_at(ast, diags, "E0301", message, id, "name_span", "")
+    } else {
+        add_decl(names, name)
+        names.fns.add(name)
+    }
+    declare_params(ast, diags, id)
+}
+
+fn declare_params(ast: Ast, diags: [Diag], id: int) {
+    seen: [string] = []
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Param" {
+            continue
+        }
+        name = ast.attr_text(kid, "name")
+        if seen.contains(name) {
+            message = "the parameter `${name}` appears twice"
+            diag_at(ast, diags, "E0306", message, kid, "name_span", "")
+        } else {
+            seen.add(name)
+        }
+    }
+}
+
+fn declare_class(ast: Ast, names: Names, diags: [Diag], id: int) {
+    name = ast.attr_text(id, "name")
+    if names.decls.contains(name) {
+        what = "is defined twice"
+        if name == "Error" {
+            what = "is built in"
+        }
+        message = "the class `${name}` ${what}"
+        diag_at(ast, diags, "E0301", message, id, "name_span", "")
+        return
+    }
+    add_decl(names, name)
+    names.classes.add(name)
+    if has_type_param(ast, id) {
+        names.generics.add(name)
+        one = GenericClass(name: name)
+        for kid in ast.nodes[id].kids {
+            if ast.nodes[kid].kind == "TypeParam" {
+                one.params.add(ast.attr_text(kid, "name"))
+            }
+        }
+        names.generic_params.add(one)
+    }
+    declare_generic_methods(ast, diags, id)
+    declare_fields(ast, diags, id)
+    declare_field_params(ast, diags, id)
+}
+
+/// A generic class's method may not declare type parameters of its own yet (`E0252`):
+/// the two substitutions are kept apart in the oracle (ADR 0040 slice 1c).
+fn declare_generic_methods(ast: Ast, diags: [Diag], id: int) {
+    if not has_type_param(ast, id) {
+        return
+    }
+    class_name = ast.attr_text(id, "name")
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Method" {
+            continue
+        }
+        for part in ast.nodes[kid].kids {
+            if ast.nodes[part].kind != "TypeParam" {
+                continue
+            }
+            method = ast.attr_text(kid, "name")
+            message = "the method `${class_name}.${method}` cannot have type parameters yet: `${class_name}` already has its own"
+            hint = "take the class's type parameter instead, or move the method out as a free `fn`"
+            diag_at(ast, diags, "E0252", message, kid, "name_span", hint)
+            break
+        }
+    }
+}
+
+/// A method's parameter may not share a field's name: inside a method a field is used by
+/// its plain name, so the parameter would hide it (`E0228`). A generic class is checked
+/// per instantiation (ADR 0040).
+fn declare_field_params(ast: Ast, diags: [Diag], id: int) {
+    if has_type_param(ast, id) {
+        return
+    }
+    fields: [string] = []
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind == "Field" {
+            fields.add(ast.attr_text(kid, "name"))
+        }
+    }
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Method" {
+            continue
+        }
+        for part in ast.nodes[kid].kids {
+            if ast.nodes[part].kind != "Param" {
+                continue
+            }
+            name = ast.attr_text(part, "name")
+            if fields.contains(name) {
+                message = "the parameter `${name}` has the same name as a field"
+                hint = "rename the parameter; inside a method a field is used by its plain name"
+                diag_at(ast, diags, "E0228", message, part, "name_span", hint)
+            }
+        }
+    }
+}
+
+fn declare_fields(ast: Ast, diags: [Diag], id: int) {
+    seen: [string] = []
+    for kid in ast.nodes[id].kids {
+        if ast.nodes[kid].kind != "Field" {
+            continue
+        }
+        name = ast.attr_text(kid, "name")
+        if seen.contains(name) {
+            message = "the field `${name}` appears twice"
+            diag_at(ast, diags, "E0306", message, kid, "name_span", "")
+        } else {
+            seen.add(name)
+        }
+    }
+}
+
+fn declare_named(ast: Ast, names: Names, diags: [Diag], id: int) {
+    name = ast.attr_text(id, "name")
+    if names.decls.contains(name) {
+        message = "the name `${name}` is defined twice"
+        diag_at(ast, diags, "E0301", message, id, "name_span", "")
+        return
+    }
+    add_decl(names, name)
+    if ast.nodes[id].kind == "Enum" {
+        names.enums.add(name)
+        for variant in ast.nodes[id].kids {
+            if ast.nodes[variant].kind != "Variant" {
+                continue
+            }
+            variant_name = ast.attr_text(variant, "name")
+            carries = false
+            for part in ast.nodes[variant].kids {
+                if ast.nodes[part].kind == "Param" {
+                    carries = true
+                    names.payloads.add(Payload(enum_name: name, variant: variant_name,
+                            field: ast.attr_text(part, "name")))
+                }
+            }
+            names.variants.add(VariantName(enum_name: name, name: variant_name, payload: carries))
+        }
+    } else {
+        names.interfaces.add(name)
+    }
+}
+
+fn declare_const(ast: Ast, names: Names, diags: [Diag], id: int) {
+    value = const_value(ast, id)
+    if value < 0 or not plain_value(ast, value) {
+        at = id
+        if value >= 0 {
+            at = value
+        }
+        // The hint names `${}` itself, so it is built from two pieces: a string
+        // literal cannot hold that sequence.
+        hint = "use a number, true, false or a string without `$" + "{}`"
+        diag_help(ast, diags, "E0307", "a constant must be a plain value", at, hint)
+        return
+    }
+    name = ast.attr_text(id, "name")
+    if names.consts.contains(name) {
+        message = "the constant `${name}` is defined twice"
+        diag_at(ast, diags, "E0308", message, id, "name_span", "")
+        return
+    }
+    add_decl(names, name)
+    names.consts.add(name)
+}
+
+/// The value of a `const`, or -1 when it has none.
+fn const_value(ast: Ast, id: int) -> int {
+    for kid in ast.nodes[id].kids {
+        if not is_type_node(ast.nodes[kid].kind) {
+            return kid
+        }
+    }
+    return -1
+}
+
+/// A number, `true`, `false` or a plain string — what `E0307` demands. `-1` is a
+/// negation over a literal, which the oracle accepts.
+fn plain_value(ast: Ast, id: int) -> bool {
+    kind = ast.nodes[id].kind
+    if kind == "Int" or kind == "Float" or kind == "Bool" or kind == "Str" {
+        return true
+    }
+    if kind != "Unary" or ast.attr_raw(id, "op") != "-" {
+        return false
+    }
+    for kid in ast.nodes[id].kids {
+        inner = ast.nodes[kid].kind
+        return inner == "Int" or inner == "Float"
+    }
+    return false
+}

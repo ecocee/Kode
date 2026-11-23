@@ -1,0 +1,83 @@
+// The infix table of the expression grammar.
+//
+// Precedence is the oracle's (`crates/kode-syntax/src/parser/expr.rs`): `or` 2,
+// `and` 4, `|` 6, `^` 7, `&` 8, comparisons and `in` 10, `<< >>` 12, `+ -` 16,
+// `* / %` 20, unary `-` and `~` 30, and `not` 9, so `not a == b` is `not (a == b)`.
+
+from "./tokens" import TokenKind
+
+/// Binding powers: higher binds tighter.
+pub const BP_NOT = 9
+pub const BP_UNARY = 30
+/// Used by `for`: `0..n` and the body's `{` must not be swallowed.
+pub const BP_ARITH = 16
+
+/// One row of the infix table: the operator's dump symbol and its binding powers.
+pub class Infix {
+    op: string
+    left: int
+    right: int
+}
+
+/// The infix operators, at the precedence `parser/expr.rs` gives them. An empty
+/// `op` means the token does not continue an expression.
+pub fn infix_of(kind: TokenKind) -> Infix {
+    if kind == TokenKind.Or {
+        return Infix(op: "or", left: 2, right: 3)
+    }
+    if kind == TokenKind.And {
+        return Infix(op: "and", left: 4, right: 5)
+    }
+    if kind == TokenKind.Pipe {
+        return Infix(op: "|", left: 6, right: 7)
+    }
+    if kind == TokenKind.Caret {
+        return Infix(op: "^", left: 7, right: 8)
+    }
+    if kind == TokenKind.Amp {
+        return Infix(op: "&", left: 8, right: 9)
+    }
+    if kind == TokenKind.EqEq {
+        return Infix(op: "==", left: 10, right: 11)
+    }
+    if kind == TokenKind.NotEq {
+        return Infix(op: "!=", left: 10, right: 11)
+    }
+    if kind == TokenKind.Lt {
+        return Infix(op: "<", left: 10, right: 11)
+    }
+    if kind == TokenKind.Le {
+        return Infix(op: "<=", left: 10, right: 11)
+    }
+    if kind == TokenKind.Gt {
+        return Infix(op: ">", left: 10, right: 11)
+    }
+    if kind == TokenKind.Ge {
+        return Infix(op: ">=", left: 10, right: 11)
+    }
+    if kind == TokenKind.In {
+        return Infix(op: "in", left: 10, right: 11)
+    }
+    if kind == TokenKind.Shl {
+        return Infix(op: "<<", left: 12, right: 13)
+    }
+    if kind == TokenKind.Shr {
+        return Infix(op: ">>", left: 12, right: 13)
+    }
+    if kind == TokenKind.Plus {
+        return Infix(op: "+", left: 16, right: 17)
+    }
+    if kind == TokenKind.Minus {
+        return Infix(op: "-", left: 16, right: 17)
+    }
+    if kind == TokenKind.Star {
+        return Infix(op: "*", left: 20, right: 21)
+    }
+    if kind == TokenKind.Slash {
+        return Infix(op: "/", left: 20, right: 21)
+    }
+    if kind == TokenKind.Percent {
+        return Infix(op: "%", left: 20, right: 21)
+    }
+    return Infix(op: "", left: 0, right: 0)
+}

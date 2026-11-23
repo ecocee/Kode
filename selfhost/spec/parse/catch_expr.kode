@@ -1,0 +1,29 @@
+value catch err {
+    print(err)
+    return
+}
+x = parse(s) catch err {
+    return 0
+}
+return read(path) catch e {
+    throw e
+}
+fn load(p: string) -> Data {
+    data = read(p) catch err {
+        log(err)
+        return none
+    }
+    return data
+}
+print((read(p) catch e { 0 }))
+xs.add(compute() catch e {
+        print(e)
+})
+raw = [a catch e { 1 }, 2]
+m = {k: (b catch e { 2 })}
+s = "v=${f() catch e { 0 }}"
+fn g() -> int => (h() catch e { 0 })
+x = 1 + (f() catch e { 3 })
+deep = ((a catch x { 1 }) catch y { 2 })
+idx = xs[f() catch e { 0 }]
+call = f(a, b catch e { 1 }, c)

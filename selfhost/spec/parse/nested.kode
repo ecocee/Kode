@@ -1,0 +1,2 @@
+print(len(s))
+show(fmt(a, b))

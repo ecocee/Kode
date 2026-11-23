@@ -1,0 +1,6 @@
+// work packet: WP08 byte buffers
+// target: ok
+// Reading bytes and building IR text need byte-level values, not 64-bit ints.
+b = bytes(4)
+b.set(0, 0x6b)
+print(b.size(), b.get(0))

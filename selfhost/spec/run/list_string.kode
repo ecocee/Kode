@@ -1,0 +1,7 @@
+// A list of references holds a count of each element: pushing a variable retains it
+// first, and the list drops them all when it goes.
+name = "kode"
+names = [name, "rust"]
+print(names[1])
+print(names[0])
+print(len(names))

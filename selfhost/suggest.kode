@@ -1,0 +1,65 @@
+// "did you mean ...?" (S3): the declared name closest to the one that was written.
+//
+// The oracle offers a suggestion when a declared name is one or two edits away, and
+// only when the distance is strictly shorter than the mistake itself, so a two-letter
+// typo never suggests a one-letter name. `E0201`, `E0206`, `E0217` and `E0225` all ask
+// for the same answer, so it lives once here.
+
+/// The candidate closest to `target`, or "" when none is within two edits. The first
+/// candidate at the smallest distance wins, in the order they are written.
+pub fn closest(target: string, candidates: [string]) -> string {
+    best = ""
+    best_at = 3
+    limit = target.size()
+    if limit < 1 {
+        limit = 1
+    }
+    for one in candidates {
+        d = distance(target, one)
+        if d <= 2 and d < limit and d < best_at {
+            best = one
+            best_at = d
+        }
+    }
+    return best
+}
+
+/// The number of single-byte insertions, deletions and substitutions that turn `a` into
+/// `b`. Names are ASCII, so a byte is a character.
+fn distance(a: string, b: string) -> int {
+    if a.size() == 0 {
+        return b.size()
+    }
+    if b.size() == 0 {
+        return a.size()
+    }
+    prev: [int] = []
+    j = 0
+    while j <= b.size() {
+        prev.add(j)
+        j += 1
+    }
+    i = 1
+    while i <= a.size() {
+        cur: [int] = [i]
+        j = 1
+        while j <= b.size() {
+            cost = 0
+            if a.byte_at(i - 1) != b.byte_at(j - 1) {
+                cost = 1
+            }
+            v = prev[j] + 1
+            if cur[j - 1] + 1 < v {
+                v = cur[j - 1] + 1
+            }
+            if prev[j - 1] + cost < v {
+                v = prev[j - 1] + cost
+            }
+            cur.add(v)
+            j += 1
+        }
+        prev = cur
+        i += 1
+    }
+    return prev[b.size()]
+}

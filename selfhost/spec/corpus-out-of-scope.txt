@@ -1,0 +1,315 @@
+# `tests/run-pass` programs the S4 walk cannot lower yet: one line per program and
+# unsupported construct, `<program>\t<reason>`, in the order the walk meets them.
+#
+# Generated from the port, never edited by hand:
+#
+#     ./scripts/selfhost.sh ledger
+#
+# `corpus` regenerates it and fails when the file differs, so a program cannot
+# quietly leave the list (it lowers now) or join it (it stopped lowering) without
+# the commit saying so. `report` is the per-program view behind it.
+bitops.kode	statement `For`
+bool_lists.kode	a list whose elements this slice cannot type
+bool_lists.kode	statement `For`
+bool_lists.kode	an assignment to something other than a name
+bool_lists.kode	an index on a value this slice cannot type
+bool_lists.kode	a `for` over a value this slice cannot type
+bools_logic.kode	`==` on a `bool` and a `bool`
+bools_logic.kode	`!=` on a `bool` and a `bool`
+bytes_buffers.kode	a return type of `bytes`
+bytes_buffers.kode	a call to `bytes`, which this slice cannot lower
+bytes_buffers.kode	a statement that is not a call
+bytes_buffers.kode	a method call `get` on a value this slice cannot type
+bytes_buffers.kode	a method call `size` on a value this slice cannot type
+channel_heap.kode	a call to `channel`, which this slice cannot lower
+channel_heap.kode	a call to `send`, which this slice cannot lower
+channel_heap.kode	a call to `recv`, which this slice cannot lower
+channel_heap.kode	a call to `close`, which this slice cannot lower
+channels.kode	a call to `channel`, which this slice cannot lower
+channels.kode	statement `For`
+channels.kode	a call to `send`, which this slice cannot lower
+channels.kode	a call to `recv`, which this slice cannot lower
+channels.kode	a call to `close`, which this slice cannot lower
+channels.kode	statement `Try`
+channels_threads.kode	a parameter of type `TypeChannel`
+channels_threads.kode	statement `For`
+channels_threads.kode	a call to `send`, which this slice cannot lower
+channels_threads.kode	a call to `channel`, which this slice cannot lower
+channels_threads.kode	an expression of kind `Spawn`
+channels_threads.kode	a call to `recv`, which this slice cannot lower
+channels_threads.kode	a statement that is not a call
+classes.kode	a read of `balance`, which this slice cannot bind
+classes.kode	a hole reading `owner`, which this slice cannot bind
+classes.kode	a hole reading `balance`, which this slice cannot bind
+classes.kode	a read of `x`, which this slice cannot bind
+classes.kode	a read of `y`, which this slice cannot bind
+classes.kode	a return type of `Account`
+classes.kode	a `Account` whose fields need arguments
+classes.kode	a statement that is not a call
+classes.kode	a `Point` whose fields need arguments
+classes.kode	a `len` of a `?`
+classes.kode	an index on a value this slice cannot type
+classes.kode	a method call `summary` on a value this slice cannot type
+classes.kode	a member read of `owner` on a value this slice cannot type
+classes.kode	a list whose elements this slice cannot type
+classes.kode	a `for` over a value this slice cannot type
+closures.kode	an expression of kind `Closure`
+closures.kode	a call to `greet`, which this slice cannot lower
+closures.kode	a call to `c`, which this slice cannot lower
+closures.kode	a call to `i`, which this slice cannot lower
+closures.kode	a method call `map` on a value this slice cannot type
+closures.kode	an index on a value this slice cannot type
+collection_print.kode	a list whose elements this slice cannot type
+collection_print.kode	an expression of kind `Map`
+collection_print.kode	a method call `map` on a value this slice cannot type
+collection_print.kode	a method call `split` on a value this slice cannot type
+collections_memory.kode	a list whose elements this slice cannot type
+collections_memory.kode	statement `For`
+collections_memory.kode	a parameter of type `[string]`
+collections_memory.kode	a `len` of a `int`
+collections_memory.kode	an expression of kind `Map`
+collections_memory.kode	an assignment to something other than a name
+collections_memory.kode	a statement that is not a call
+collections_memory.kode	an index on a value this slice cannot type
+collections_memory.kode	a `len` of a `?`
+control_flow.kode	statement `For`
+enum_is.kode	a parameter of type `Shape`
+enum_is.kode	an expression of kind `Is`
+enum_is.kode	a member read of `radius` on a value this slice cannot type
+enum_is.kode	a member read of `side` on a value this slice cannot type
+enum_is.kode	statement `Enum`
+enum_is.kode	a read of `Shape`, which this slice cannot bind
+enum_is.kode	`and` on a `?`
+enum_is.kode	a read of `Color`, which this slice cannot bind
+enum_match_bindings.kode	a parameter of type `Value`
+enum_match_bindings.kode	statement `Match`
+enum_match_bindings.kode	statement `Enum`
+enum_match_bindings.kode	a read of `Value`, which this slice cannot bind
+enum_match_bindings.kode	a list whose elements this slice cannot type
+enum_match_bindings.kode	a `for` over a value this slice cannot type
+enum_payloads.kode	a parameter of type `Shape`
+enum_payloads.kode	statement `Match`
+enum_payloads.kode	statement `Enum`
+enum_payloads.kode	a read of `Shape`, which this slice cannot bind
+enum_payloads.kode	a list whose elements this slice cannot type
+enum_payloads.kode	a `for` over a value this slice cannot type
+enum_payloads.kode	a read of `Color`, which this slice cannot bind
+enum_print.kode	a parameter of type `Color`
+enum_print.kode	statement `Match`
+enum_print.kode	statement `Enum`
+enum_print.kode	a read of `Color`, which this slice cannot bind
+enum_print.kode	a list whose elements this slice cannot type
+enum_print.kode	a `for` over a value this slice cannot type
+enums_match.kode	a parameter of type `Color`
+enums_match.kode	statement `Match`
+enums_match.kode	statement `Enum`
+enums_match.kode	a read of `Color`, which this slice cannot bind
+errors.kode	`==` on a `str` and a `str`
+errors.kode	statement `Throw`
+errors.kode	an expression of kind `Catch`
+errors.kode	statement `Try`
+errors.kode	statement `For`
+file_io.kode	an expression of kind `Coalesce`
+file_io.kode	a call to `write_file`, which this slice cannot lower
+file_io.kode	a call to `read_file`, which this slice cannot lower
+file_io.kode	a `len` of a `?`
+file_io.kode	an index on a value this slice cannot type
+file_io.kode	an expression of kind `Catch`
+file_io.kode	a call to `now_ms`, which this slice cannot lower
+file_io.kode	a call to `sleep`, which this slice cannot lower
+file_io.kode	a call to `args`, which this slice cannot lower
+finally.kode	statement `Try`
+finally.kode	statement `Throw`
+finally.kode	statement `For`
+floats.kode	`x` holding a `float`
+floats.kode	`y` holding a `float`
+floats.kode	a read of `x`, which this slice cannot bind
+floats.kode	a read of `y`, which this slice cannot bind
+floats.kode	`+` on a `float` and a `float`
+floats.kode	`/` on a `float` and a `float`
+floats.kode	`<` on a `float` and a `float`
+floats.kode	`<=` on a `float` and a `float`
+floats.kode	`>` on a `float` and a `float`
+floats.kode	`==` on a `float` and a `float`
+floats.kode	`!=` on a `float` and a `float`
+floats.kode	a call to `float`, which this slice cannot lower
+floats.kode	a call to `int`, which this slice cannot lower
+fn_values.kode	a parameter of type `TypeFn`
+fn_values.kode	a call to `f`, which this slice cannot lower
+fn_values.kode	an expression of kind `Closure`
+fn_values.kode	a read of `double`, which this slice cannot bind
+fn_values.kode	a call to `g`, which this slice cannot lower
+fn_values.kode	a call to `add10`, which this slice cannot lower
+generic_classes.kode	a return type of `T`
+generic_classes.kode	a read of `value`, which this slice cannot bind
+generic_classes.kode	a parameter of type `T`
+generic_classes.kode	a `Box` whose fields need arguments
+generic_classes.kode	a list whose elements this slice cannot type
+generic_classes.kode	an index on a value this slice cannot type
+generic_classes.kode	a `Pair` whose fields need arguments
+generic_methods.kode	a parameter of type `T`
+generic_methods.kode	a return type of `T`
+generic_methods.kode	a hole reading `tag`, which this slice cannot bind
+generic_methods.kode	a `Util` whose fields need arguments
+generics.kode	a parameter of type `T`
+generics.kode	a return type of `T`
+generics.kode	a parameter of type `[T]`
+generics.kode	an index on a value this slice cannot type
+generics.kode	a parameter of type `TypeFn`
+generics.kode	a method call `map` on a value this slice cannot type
+generics.kode	an expression of kind `Closure`
+generics_nested.kode	a parameter of type `[T]`
+generics_nested.kode	a parameter of type `TypeFn`
+generics_nested.kode	a method call `filter` on a value this slice cannot type
+generics_nested.kode	a parameter of type `T`
+generics_nested.kode	a `for` over a value this slice cannot type
+generics_nested.kode	a return type of `T`
+generics_nested.kode	an index on a value this slice cannot type
+generics_nested.kode	an expression of kind `Closure`
+interfaces.kode	a read of `radius`, which this slice cannot bind
+interfaces.kode	a read of `side`, which this slice cannot bind
+interfaces.kode	a parameter of type `Shape`
+interfaces.kode	a method call `area` on a value this slice cannot type
+interfaces.kode	statement `Interface`
+interfaces.kode	a `Circle` whose fields need arguments
+interfaces.kode	a `Square` whose fields need arguments
+interfaces.kode	a list whose elements this slice cannot type
+interfaces.kode	a `for` over a value this slice cannot type
+json.kode	a call to `json_parse`, which this slice cannot lower
+json.kode	a read of `JsonKind`, which this slice cannot bind
+json.kode	an index on a value this slice cannot type
+json.kode	a call to `json_map`, which this slice cannot lower
+json.kode	an expression of kind `Catch`
+lines_comments.kode	a call to `assert`, which this slice cannot lower
+list_map_filter.kode	a method call `map` on a value this slice cannot type
+list_map_filter.kode	an index on a value this slice cannot type
+list_map_filter.kode	a method call `filter` on a value this slice cannot type
+list_map_filter.kode	a list whose elements this slice cannot type
+list_slice.kode	an expression of kind `Slice`
+list_slice.kode	an index on a value this slice cannot type
+list_slice.kode	a list whose elements this slice cannot type
+list_slice.kode	a statement that is not a call
+list_slice.kode	a method call `len` on a value this slice cannot type
+lists.kode	a statement that is not a call
+lists.kode	a method call `len` on a value this slice cannot type
+lists.kode	an assignment to something other than a name
+lists.kode	a read of `i`, which this slice cannot bind
+lists.kode	a list whose elements this slice cannot type
+lists.kode	a `for` over a value this slice cannot type
+lists.kode	an index on a value this slice cannot type
+lists.kode	a `len` of a `?`
+maps.kode	an expression of kind `Map`
+maps.kode	an assignment to something other than a name
+maps.kode	an index on a value this slice cannot type
+maps.kode	a `len` of a `?`
+maps.kode	a `for` over a value this slice cannot type
+modules.kode	a read of `json`, which this slice cannot bind
+modules.kode	an assignment to something other than a name
+modules.kode	a read of `math`, which this slice cannot bind
+modules.kode	an expression of kind `Catch`
+modules.kode	a read of `time`, which this slice cannot bind
+modules.kode	a statement that is not a call
+modules_alias.kode	a read of `words`, which this slice cannot bind
+optional_fields.kode	a read of `x`, which this slice cannot bind
+optional_fields.kode	an expression of kind `None`
+optional_fields.kode	a `Span` whose fields need arguments
+optional_fields.kode	an expression of kind `Unwrap`
+optional_fields.kode	an expression of kind `Coalesce`
+optional_fields.kode	a statement that is not a call
+optional_fields.kode	a `Line` whose fields need arguments
+optional_numbers.kode	an expression of kind `None`
+optional_numbers.kode	an expression of kind `Coalesce`
+optional_numbers.kode	`f` holding a `float`
+optional_numbers.kode	an expression of kind `Unwrap`
+optional_numbers.kode	a `bool` hole
+optional_params.kode	a parameter of type `TypeOpt`
+optional_params.kode	an expression of kind `Coalesce`
+optional_params.kode	an expression of kind `None`
+optional_params.kode	a `Acc` whose fields need arguments
+optional_params.kode	a statement that is not a call
+optional_params.kode	a read of `maybe`, which this slice cannot bind
+optional_params.kode	a call to `pick`, which this slice cannot lower
+optional_scalar_print.kode	an expression of kind `None`
+optionals.kode	a parameter of type `[User]`
+optionals.kode	a `for` over a value this slice cannot type
+optionals.kode	an expression of kind `None`
+optionals.kode	a list whose elements this slice cannot type
+optionals.kode	an expression of kind `Unwrap`
+optionals.kode	an expression of kind `Coalesce`
+optionals.kode	an index on a value this slice cannot type
+process.kode	statement `Try`
+process_failures.kode	statement `Try`
+process_failures.kode	a call to `exec`, which this slice cannot lower
+process_failures.kode	`and` on a `?`
+process_posix.kode	a call to `exec`, which this slice cannot lower
+request_response.kode	a call to `Request`, which this slice cannot lower
+request_response.kode	an index on a value this slice cannot type
+request_response.kode	an expression of kind `Catch`
+request_response.kode	a read of `Response`, which this slice cannot bind
+request_response.kode	a call to `json_obj`, which this slice cannot lower
+request_response.kode	an assignment to something other than a name
+request_response.kode	a call to `json_map`, which this slice cannot lower
+request_response.kode	a call to `response`, which this slice cannot lower
+stderr_stream.kode	a call to `stderr`, which this slice cannot lower
+stdlib_collections.kode	a method call `contains` on a value this slice cannot type
+stdlib_collections.kode	a method call `index_of` on a value this slice cannot type
+stdlib_collections.kode	a statement that is not a call
+stdlib_collections.kode	a method call `first` on a value this slice cannot type
+stdlib_collections.kode	a method call `last` on a value this slice cannot type
+stdlib_collections.kode	a list whose elements this slice cannot type
+stdlib_collections.kode	an expression of kind `Catch`
+stdlib_collections.kode	an expression of kind `Map`
+stdlib_collections.kode	a `len` of a `?`
+stdlib_collections.kode	an index on a value this slice cannot type
+stdlib_collections.kode	a method call `lines` on a value this slice cannot type
+stdlib_collections.kode	a method call `char_at` on a value this slice cannot type
+stdlib_collections.kode	a method call `is_empty` on a value this slice cannot type
+stdlib_collections.kode	a method call `count` on a value this slice cannot type
+string_builder.kode	a call to `StringBuilder`, which this slice cannot lower
+string_builder.kode	a statement that is not a call
+string_builder.kode	statement `For`
+string_memory.kode	statement `For`
+strings.kode	`==` on a `str` and a `str`
+strings.kode	`!=` on a `str` and a `str`
+strings.kode	statement `For`
+strings.kode	a hole that is a `Binary`
+strings.kode	a hole that is a `Float`
+strings.kode	a hole that is a `Bool`
+strings.kode	a hole that is a `Call`
+strings.kode	a call to `string`, which this slice cannot lower
+strings_std.kode	a method call `size` on a value this slice cannot type
+strings_std.kode	a method call `upper` on a value this slice cannot type
+strings_std.kode	a method call `lower` on a value this slice cannot type
+strings_std.kode	a method call `contains` on a value this slice cannot type
+strings_std.kode	a method call `starts_with` on a value this slice cannot type
+strings_std.kode	a method call `ends_with` on a value this slice cannot type
+strings_std.kode	a method call `find` on a value this slice cannot type
+strings_std.kode	a method call `slice` on a value this slice cannot type
+strings_std.kode	a method call `replace` on a value this slice cannot type
+strings_std.kode	a method call `split` on a value this slice cannot type
+strings_std.kode	a `len` of a `?`
+strings_std.kode	a method call `trim` on a value this slice cannot type
+strings_std.kode	a method call `repeat` on a value this slice cannot type
+strings_std.kode	a method call `to_int` on a value this slice cannot type
+strings_std.kode	a method call `to_float` on a value this slice cannot type
+strings_std.kode	a call to `chr`, which this slice cannot lower
+strings_std.kode	an expression of kind `Catch`
+strings_std.kode	a method call `byte_at` on a value this slice cannot type
+strings_std.kode	a statement that is not a call
+strings_std.kode	a method call `pop` on a value this slice cannot type
+strings_std.kode	a method call `join` on a value this slice cannot type
+strings_std.kode	a list whose elements this slice cannot type
+strings_std.kode	an index on a value this slice cannot type
+strings_std.kode	an expression of kind `Map`
+tasks.kode	statement `For`
+tasks.kode	`/` on a `float` and a `float`
+tasks.kode	statement `Throw`
+tasks.kode	an expression of kind `Spawn`
+tasks.kode	an expression of kind `Await`
+tasks.kode	a list whose elements this slice cannot type
+tasks.kode	a `for` over a value this slice cannot type
+tasks.kode	a statement that is not a call
+tasks.kode	an expression of kind `Catch`
+variables_scope.kode	`z` holding a `float`
+variables_scope.kode	a read of `z`, which this slice cannot bind
+variables_scope.kode	statement `For`

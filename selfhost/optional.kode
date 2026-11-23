@@ -1,0 +1,293 @@
+// The optional rules (S3): what may be done with a value that may be `none`, and what
+// `??`, `?.` and `!` mean.
+//
+// `T?` is a value that may be none, so reaching inside it is unsafe until the program
+// says otherwise: `.` is `E0220` (use `?.`), a method call is `E0220`, an index is
+// `E0220` (in `containers.kode`), and `??` and `!` are the two ways out. Using `??` on
+// something that cannot be none (`E0221`), `?.` on the same, or `!` on the same, is the
+// mistake in the other direction.
+//
+// A payload enum's field read is `E0419` until the value is narrowed: `if s is Shape.Circle`
+// makes `s.radius` safe inside the branch (ADR 0039 §4.4), which is what the `Narrow`
+// stack tracks. A field of a *class* is `E0217`'s family, a later slice, and a receiver
+// this slice cannot name is `any`: it says nothing.
+
+from "./ast" import Ast
+from "./diag" import Diag, diag, diag_at, diag_help
+from "./members" import Members, member_names, named_member
+from "./names" import Names, has_payload, has_variant, payload_fields, variant_of_field, variants_of
+from "./suggest" import closest
+from "./typing" import Local, Type, expr_type, local_in, type_article, type_assignable, type_inner, type_is_any, type_is_ref
+
+/// `s` narrowed to `Shape.Circle` inside a branch.
+pub class Narrow {
+    name: string
+    variant: string
+}
+
+/// The narrowing an `if` condition gives its true branch: `s is Shape.Circle`. Anything
+/// else — `a and b`, a bool variable, an equality test — narrows nothing here.
+pub fn narrowing_of(ast: Ast, cond: int) -> Narrow {
+    if ast.nodes[cond].kind != "Is" {
+        return Narrow(name: "", variant: "")
+    }
+    kids = ast.nodes[cond].kids
+    if kids.len() < 1 {
+        return Narrow(name: "", variant: "")
+    }
+    value = kids[0]
+    if ast.nodes[value].kind != "Ident" {
+        return Narrow(name: "", variant: "")
+    }
+    return Narrow(name: ast.attr_text(value, "name"),
+        variant: ast.attr_text(cond, "enum") + "." + ast.attr_text(cond, "variant"))
+}
+
+/// Is `name` narrowed to `variant` here?
+pub fn is_narrowed(narrows: [[Narrow]], name: string, variant: string) -> bool {
+    i = narrows.len() - 1
+    while i >= 0 {
+        for one in narrows[i] {
+            if one.name == name and one.variant == variant {
+                return true
+            }
+        }
+        i -= 1
+    }
+    return false
+}
+
+/// The optional rules that one walk of the tree reports from one place.
+pub fn check_optional(ast: Ast, frames: [[Local]], names: Names, narrows: [[Narrow]], members: Members, diags: [Diag], id: int) {
+    kind = ast.nodes[id].kind
+    if kind == "Unwrap" {
+        check_unwrap(ast, frames, names, diags, id)
+        return
+    }
+    if kind == "Coalesce" {
+        check_coalesce(ast, frames, names, diags, id)
+        return
+    }
+    if kind == "Member" {
+        check_member(ast, frames, names, narrows, members, diags, id)
+    }
+}
+
+/// `x!`: the value inside, which needs an optional.
+pub fn check_unwrap(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return
+    }
+    t = expr_type(ast, frames, names, kids[0])
+    if type_is_any(t) or t.kind == "opt" {
+        return
+    }
+    diag_help(ast, diags, "E0220", "`!` needs an optional, found ${type_article(t)}", id,
+        "only values of a type like `User?` can be none")
+}
+
+/// `x.field`, `x?.field`: a `.` on an optional, a `?.` on a value that cannot be none,
+/// a payload field read without the narrowing that makes it safe (`E0419`), a payload
+/// variant used as a value (`E0417`), and a field the receiver does not have (`E0217`,
+/// or `E0218` for something that has no fields at all).
+pub fn check_member(ast: Ast, frames: [[Local]], names: Names, narrows: [[Narrow]], members: Members, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return
+    }
+    obj = kids[0]
+    field = ast.attr_text(id, "name")
+    // `Shape.Circle`: the enum's own name reaches a variant, never a field.
+    if ast.nodes[obj].kind == "Ident" and local_in(frames, ast.attr_text(obj, "name")).name == "" {
+        base = ast.attr_text(obj, "name")
+        if names.enums.contains(base) {
+            if has_payload(names, base, field) {
+                message = "`${base}.${field}` is a constructor, not a value"
+                hint = "write `${base}.${field}(${payload_args(names, base, field)})`"
+                diag_at(ast, diags, "E0417", message, id, "name_span", hint)
+                return
+            }
+            if has_variant(names, base, field) {
+                return
+            }
+            unknown_variant(ast, names, diags, id, base, field)
+            return
+        }
+    }
+    t = expr_type(ast, frames, names, obj)
+    if type_is_any(t) {
+        return
+    }
+    safe = ast.attr_raw(id, "safe") == "true"
+    if t.kind == "opt" {
+        if not safe {
+            diag_help(ast, diags, "E0220", "this may be none, so `.` is not allowed", obj,
+                "use `?.`, `x ?? default` or `x!`")
+            return
+        }
+        check_safe_field(ast, names, members, diags, id, obj, type_inner(t), field)
+        return
+    }
+    if safe {
+        diag(ast, diags, "E0221", "`?.` needs an optional, found ${type_article(t)}", obj)
+        return
+    }
+    check_plain_field(ast, names, narrows, members, diags, id, t, obj, field)
+}
+
+/// `Shape.Circle(radius: float)`'s arguments as a message prints them: `radius: ...`.
+fn payload_args(names: Names, enum_name: string, variant: string) -> string {
+    out = ""
+    for one in payload_fields(names, enum_name, variant) {
+        if out != "" {
+            out = out + ", "
+        }
+        out = out + one + ": ..."
+    }
+    return out
+}
+
+/// `x.field`: a class's field, or the rule that says why there is none.
+fn check_plain_field(ast: Ast, names: Names, narrows: [[Narrow]], members: Members, diags: [Diag], id: int, t: Type, obj: int, field: string) {
+    if t.kind != "named" {
+        no_fields(ast, diags, obj, t)
+        return
+    }
+    if names.interfaces.contains(t.name) {
+        message = "the interface `${t.name}` has no fields"
+        diag_at(ast, diags, "E0218", message, id, "name_span",
+            "interfaces only have methods; call one instead")
+        return
+    }
+    if names.enums.contains(t.name) {
+        check_enum_field(ast, names, narrows, diags, id, t, obj, field)
+        return
+    }
+    one = named_member(members, t.name, field)
+    if one.name != "" and not one.is_method {
+        return
+    }
+    unknown_field(ast, names, members, diags, id, t.name, field)
+}
+
+/// `s.radius`: a payload field belongs to one variant, so reading it needs the value
+/// narrowed to that variant. Only a named receiver is reported, as in the oracle.
+fn check_enum_field(ast: Ast, names: Names, narrows: [[Narrow]], diags: [Diag], id: int, t: Type, obj: int, field: string) {
+    if ast.nodes[obj].kind != "Ident" {
+        no_fields(ast, diags, obj, t)
+        return
+    }
+    who = ast.attr_text(obj, "name")
+    variant = variant_of_field(names, t.name, field)
+    if variant == "" {
+        no_fields(ast, diags, obj, t)
+        return
+    }
+    if is_narrowed(narrows, who, "${t.name}.${variant}") {
+        return
+    }
+    message = "`${who}.${field}` is only valid when `${who}` holds `${t.name}.${variant}`"
+    hint = "narrow first: `if ${who} is ${t.name}.${variant} { ... }`"
+    diag_at(ast, diags, "E0419", message, id, "name_span", hint)
+}
+
+/// `a?.field`: the field of the optional's item, which has to be a reference for the
+/// result to stay an optional (`E0219` is the shapes that are not supported yet).
+fn check_safe_field(ast: Ast, names: Names, members: Members, diags: [Diag], id: int, obj: int, inner: Type, field: string) {
+    if inner.kind != "named" {
+        no_fields(ast, diags, obj, inner)
+        return
+    }
+    if names.interfaces.contains(inner.name) {
+        message = "the interface `${inner.name}` has no fields"
+        diag_at(ast, diags, "E0218", message, id, "name_span",
+            "interfaces only have methods; call one instead")
+        return
+    }
+    if names.enums.contains(inner.name) {
+        no_fields(ast, diags, obj, inner)
+        return
+    }
+    one = named_member(members, inner.name, field)
+    if one.name == "" or one.is_method {
+        unknown_field(ast, names, members, diags, id, inner.name, field)
+        return
+    }
+    if one.ty.kind == "opt" or type_is_ref(one.ty, names) {
+        return
+    }
+    message = "`?.` on ${type_article(one.ty)} is not supported yet"
+    diag_at(ast, diags, "E0219", message, id, "name_span",
+        "use `(x!).field`, or check `x != none` first")
+}
+
+/// `${type_article(t)} has no fields`: an int, a list, an enum — nothing to reach. The
+/// caret goes under the receiver (`x` in `x.y`), as the oracle's does; the interface form
+/// of `E0218` points at the field instead, because there the field is the mistake.
+fn no_fields(ast: Ast, diags: [Diag], obj: int, t: Type) {
+    diag(ast, diags, "E0218", "${type_article(t)} has no fields", obj)
+}
+
+/// `a.zzz`: the class has neither a field nor a method of that name, and the oracle
+/// offers the closest one it does declare.
+fn unknown_field(ast: Ast, names: Names, members: Members, diags: [Diag], id: int, owner: string, field: string) {
+    message = "`${owner}` has no field or method `${field}`"
+    close = closest(field, member_names(members, owner))
+    if close != "" {
+        diag_at(ast, diags, "E0217", message, id, "name_span", "did you mean `${close}`?")
+        return
+    }
+    diag_at(ast, diags, "E0217", message, id, "name_span", "")
+}
+
+/// `Enum.Nope`: the enum has no variant of that name (`E0225`), and the oracle offers
+/// the closest one it does declare.
+fn unknown_variant(ast: Ast, names: Names, diags: [Diag], id: int, owner: string, variant: string) {
+    message = "`${owner}` has no variant `${variant}`"
+    close = closest(variant, variants_of(names, owner))
+    if close != "" {
+        diag_at(ast, diags, "E0225", message, id, "name_span", "did you mean `${close}`?")
+        return
+    }
+    diag_at(ast, diags, "E0225", message, id, "name_span", "")
+}
+
+/// `x.m(...)`: a method call on an optional.
+pub fn check_method_optional(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 1 {
+        return
+    }
+    t = expr_type(ast, frames, names, kids[0])
+    if t.kind != "opt" {
+        return
+    }
+    diag_help(ast, diags, "E0220", "this may be none, so you cannot call a method on it", kids[0],
+        "use `x!` or `x ?? default` first")
+}
+
+/// `x ?? def`: the left side may be none, and the right side has to be what is inside.
+pub fn check_coalesce(ast: Ast, frames: [[Local]], names: Names, diags: [Diag], id: int) {
+    kids = ast.nodes[id].kids
+    if kids.len() < 2 {
+        return
+    }
+    l = expr_type(ast, frames, names, kids[0])
+    r = expr_type(ast, frames, names, kids[1])
+    if type_is_any(l) or type_is_any(r) {
+        return
+    }
+    if l.kind != "opt" {
+        message = "`??` needs an optional on the left, found ${type_article(l)}"
+        diag_help(ast, diags, "E0221", message, kids[0],
+            "only values of a type like `User?` can be none")
+        return
+    }
+    want = type_inner(l)
+    if type_assignable(r, want) or type_assignable(r, l) {
+        return
+    }
+    message = "the default should be ${type_article(want)}, found ${type_article(r)}"
+    diag(ast, diags, "E0221", message, id)
+}

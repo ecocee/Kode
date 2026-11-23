@@ -68,6 +68,21 @@ pub struct ModuleInfo {
 pub struct EnumInfo {
     pub name: String,
     pub variants: Vec<String>,
+    /// The fields of each variant, parallel to `variants` (ADR 0039).
+    pub fields: Vec<Vec<(String, Type)>>,
+}
+
+impl EnumInfo {
+    /// Any variant with a field makes every value of this enum a heap object
+    /// (ADR 0039 §2); a tag-only enum stays an `int`.
+    pub fn has_payloads(&self) -> bool {
+        self.fields.iter().any(|f| !f.is_empty())
+    }
+
+    /// The tag of a variant: its index in declaration order.
+    pub fn variant_index(&self, name: &str) -> Option<usize> {
+        self.variants.iter().position(|v| v == name)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -111,6 +126,9 @@ pub struct Checked {
     pub throws: Vec<bool>,
     /// Calls that go through a function value (`f(1)` where `f` is a variable).
     pub fn_value_calls: std::collections::HashSet<ExprId>,
+    /// The signature behind a call through a function value, so lowering knows
+    /// which arguments travel as a boxed pair (ADR 0041 §5).
+    pub fn_value_sigs: std::collections::HashMap<ExprId, (Vec<(String, Type)>, Type)>,
     /// Closure literals, by expression id.
     pub closures: HashMap<ExprId, ClosureInfo>,
     /// The body of every function in `fns`, in the same order: declared
@@ -118,6 +136,12 @@ pub struct Checked {
     pub bodies: Vec<FnDecl>,
     /// For a generic call: the instantiated function it resolved to.
     pub generic_calls: HashMap<ExprId, usize>,
+    /// For a constructor call on a generic class: the instance it built.
+    pub class_ctor_calls: HashMap<ExprId, usize>,
+    /// For `s.radius` on a narrowed enum: (enum, variant, field).
+    pub enum_field_reads: HashMap<ExprId, (usize, usize, usize)>,
+    /// For `Shape.Circle(..)`: (enum, variant).
+    pub enum_ctor_calls: HashMap<ExprId, (usize, usize)>,
     pub warnings: Vec<Diagnostic>,
 }
 
@@ -138,11 +162,20 @@ pub(crate) struct Checker {
     pub consts: HashMap<String, (Type, ConstVal)>,
     pub call_args: HashMap<ExprId, Vec<Option<usize>>>,
     pub fn_value_calls: std::collections::HashSet<ExprId>,
+    /// The signature behind a call through a function value, so lowering knows
+    /// which arguments travel as a boxed pair (ADR 0041 §5).
+    pub fn_value_sigs: std::collections::HashMap<ExprId, (Vec<(String, Type)>, Type)>,
     pub closures: HashMap<ExprId, ClosureInfo>,
     /// Inside a closure literal: fields of `this` cannot be reached (E0242).
     pub in_closure: bool,
     /// Generic declarations, by name. They are never lowered themselves.
     pub generic_index: HashMap<String, usize>,
+    /// `(class, method)` for a method that declares its own type parameters
+    /// (ADR 0040 slice 1c).
+    pub class_generic_index: HashMap<(String, String), usize>,
+    /// The class each generic declaration belongs to, parallel to
+    /// `generic_decls`; `None` for a free function.
+    pub generic_decl_class: Vec<Option<String>>,
     pub generic_decls: Vec<FnDecl>,
     /// (generic index, concrete type names) -> instantiated function index.
     pub instances: Vec<((usize, Vec<String>), usize)>,
@@ -151,6 +184,18 @@ pub(crate) struct Checker {
     /// How many entries of `bodies` have been checked so far.
     pub checked_bodies: usize,
     pub generic_calls: HashMap<ExprId, usize>,
+    /// Constructor calls that resolved to a generic class instance, and which
+    /// class instance each one is (ADR 0040).
+    pub class_ctor_calls: HashMap<ExprId, usize>,
+    /// `Shape.Circle(..)` calls, by expression: (enum, variant).
+    pub enum_ctor_calls: HashMap<ExprId, (usize, usize)>,
+    /// `s.radius` reads that a narrowing made safe.
+    pub enum_field_reads: HashMap<ExprId, (usize, usize, usize)>,
+    /// Generic class declarations, by name. They are never instantiated
+    /// themselves and never lowered; the source name is not a class in
+    /// `class_index`, which is what makes a bare `Box` an E0423.
+    pub generic_class_index: HashMap<String, usize>,
+    pub generic_classes: Vec<ClassDecl>,
     /// Bodies of `fns`, in the same order.
     pub bodies: Vec<FnDecl>,
     pub direct_throw: Vec<bool>,
@@ -158,6 +203,8 @@ pub(crate) struct Checker {
     pub scopes: Scopes,
     /// Locals proven not to be `none` in this block: (scope depth, name, type).
     narrowed: Vec<(usize, String, Type)>,
+    /// Locals narrowed to one variant: (depth, name, enum, variant).
+    narrowed_variants: Vec<(usize, String, String, usize)>,
     pub ret_type: Type,
     pub in_fn: bool,
     pub loop_depth: usize,
@@ -388,6 +435,7 @@ impl Checker {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            fields: vec![Vec::new(); 7],
         };
         let mut enum_index = HashMap::new();
         enum_index.insert("JsonKind".to_string(), 0);
@@ -416,10 +464,18 @@ impl Checker {
             consts: HashMap::new(),
             call_args: HashMap::new(),
             fn_value_calls: Default::default(),
+            fn_value_sigs: Default::default(),
             closures: HashMap::new(),
             in_closure: false,
             generic_index: HashMap::new(),
+            class_generic_index: HashMap::new(),
+            generic_decl_class: Vec::new(),
             generic_decls: Vec::new(),
+            class_ctor_calls: HashMap::new(),
+            enum_ctor_calls: HashMap::new(),
+            enum_field_reads: HashMap::new(),
+            generic_class_index: HashMap::new(),
+            generic_classes: Vec::new(),
             instances: Vec::new(),
             next_expr_id: program.expr_count + 1,
             bodies: Vec::new(),
@@ -429,6 +485,7 @@ impl Checker {
             calls: Vec::new(),
             scopes: Scopes::new(),
             narrowed: Vec::new(),
+            narrowed_variants: Vec::new(),
             ret_type: Type::Unit,
             in_fn: false,
             loop_depth: 0,
@@ -443,6 +500,7 @@ impl Checker {
         self.warnings = warnings;
         let depth = self.scopes.depth();
         self.narrowed.retain(|(d, _, _)| *d <= depth);
+        self.narrowed_variants.retain(|(d, _, _, _)| *d <= depth);
     }
 
     /// Remember that `name` is a `ty` (not `none`) until this block ends or the
@@ -452,6 +510,25 @@ impl Checker {
         self.narrowed
             .retain(|(d, n, _)| !(*d == depth && n == name));
         self.narrowed.push((depth, name.to_string(), ty));
+    }
+
+    /// Remember that `name` holds `variant` of `enum_name` until this block ends
+    /// or the variable is assigned.
+    pub(crate) fn narrow_variant(&mut self, name: &str, enum_name: &str, vi: usize) {
+        let depth = self.scopes.depth();
+        self.narrowed_variants
+            .retain(|(d, n, _, _)| !(*d == depth && n == name));
+        self.narrowed_variants
+            .push((depth, name.to_string(), enum_name.to_string(), vi));
+    }
+
+    /// The variant a local was narrowed to, if any.
+    pub(crate) fn narrowed_variant(&self, name: &str) -> Option<(String, usize)> {
+        self.narrowed_variants
+            .iter()
+            .rev()
+            .find(|(_, n, _, _)| n == name)
+            .map(|(_, _, e, vi)| (e.clone(), *vi))
     }
 
     /// The narrowed type of a local, if a check proved it is not `none`.
@@ -557,9 +634,13 @@ pub fn check(program: &Program, modules: &[ModuleInfo]) -> Result<Checked, Vec<D
         consts: c.consts,
         call_args: c.call_args,
         fn_value_calls: c.fn_value_calls,
+        fn_value_sigs: c.fn_value_sigs,
         closures: c.closures,
         bodies: c.bodies,
         generic_calls: c.generic_calls,
+        class_ctor_calls: c.class_ctor_calls,
+        enum_field_reads: c.enum_field_reads,
+        enum_ctor_calls: c.enum_ctor_calls,
         throws,
         warnings: c.warnings,
     })

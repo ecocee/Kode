@@ -1,0 +1,154 @@
+// Which value a literal names: integers in base 2, 8, 10 or 16 (ADR 0043),
+// floats the way the dump prints them, and strings split into their literal text
+// and `${...}` holes with the escapes undone.
+//
+// The parser asks these for a value; name resolution and typing are S3's job, so
+// nothing here decides what an out-of-range literal means beyond the oracle's
+// rules.
+
+from "./strings" import hole_end
+
+/// One piece of a string literal: either text, or the source of a `${...}` hole.
+/// `from` and `to` are absolute byte offsets in the file, so the hole's tokens
+/// keep the spans the oracle prints.
+pub class StrPart {
+    is_hole: bool
+    lit: string
+    /// The hole's byte range in the file (`from` is a keyword, so it is `start_at`).
+    start_at: int
+    end_at: int
+}
+
+/// The `int` a literal names, in base 2, 8, 10 or 16 (ADR 0043).
+pub fn parse_int(text: string) -> int {
+    body = text.replace("_", "")
+    radix = 10
+    start_at = 0
+    if body.size() >= 2 and body.byte_at(0) == 48 {
+        first = body.byte_at(1)
+        if first == 120 or first == 88 {
+            radix = 16
+            start_at = 2
+        } else if first == 98 or first == 66 {
+            radix = 2
+            start_at = 2
+        } else if first == 111 or first == 79 {
+            radix = 8
+            start_at = 2
+        }
+    }
+    value = 0
+    k = start_at
+    while k < body.size() {
+        value = value * radix + parse_digit(body.byte_at(k))
+        k += 1
+    }
+    return value
+}
+
+fn parse_digit(b: int) -> int {
+    if b >= 48 and b <= 57 {
+        return b - 48
+    }
+    if b >= 97 and b <= 102 {
+        return b - 97 + 10
+    }
+    if b >= 65 and b <= 70 {
+        return b - 65 + 10
+    }
+    return 0
+}
+
+/// A float the way the dump prints it: the shortest form of the value, so `2.50`
+/// is `2.5` and `1e6` is `1000000.0` (`format!("{v:?}")` in `dump/ast.rs`).
+pub fn float_text(text: string) -> string {
+    value = 0.0
+    value = text.replace("_", "").to_float() catch e {
+        0.0
+    }
+    return "${value}"
+}
+
+/// A string literal split into text and holes, in source order. The lexer has
+/// already rejected an unclosed hole, so a missing `}` here ends the part at `to`.
+pub fn string_parts(src: string, starts: int, ends: int) -> [StrPart] {
+    parts: [StrPart] = []
+    seg = starts
+    k = starts
+    while k < ends {
+        b = src.byte_at(k)
+        if b == 92 {
+            // A backslash escapes the byte after it, so `${` cannot be seen
+            // inside an escape.
+            k += 2
+        } else if b == 36 and k + 1 < ends and src.byte_at(k + 1) == 123 {
+            if k > seg {
+                parts.add(StrPart(is_hole: false, lit: unescape(src.slice(seg, k)), start_at: 0, end_at: 0))
+            }
+            close = hole_end(src, k + 2)
+            if close < 0 {
+                close = ends
+            }
+            parts.add(StrPart(is_hole: true, lit: "", start_at: k + 2, end_at: close))
+            k = close + 1
+            seg = k
+        } else {
+            k += 1
+        }
+    }
+    if ends > seg {
+        parts.add(StrPart(is_hole: false, lit: unescape(src.slice(seg, ends)), start_at: 0, end_at: 0))
+    }
+    return parts
+}
+
+/// The text a string literal holds, with the escapes the lexer accepts undone.
+pub fn parse_string(text: string) -> string {
+    if text.size() < 2 {
+        return ""
+    }
+    return unescape(text.slice(1, text.size() - 1))
+}
+
+/// The text a string segment holds, with `\n \t \r \0 \" \\` and `\$` undone.
+/// Bytes are copied in runs between escapes, so a multibyte character survives
+/// whatever a single-byte copy would do to it.
+pub fn unescape(body: string) -> string {
+    out = ""
+    seg = 0
+    k = 0
+    while k < body.size() {
+        b = body.byte_at(k)
+        if b == 92 and k + 1 < body.size() {
+            if k > seg {
+                out += body.slice(seg, k)
+            }
+            e = body.byte_at(k + 1)
+            if e == 110 {
+                out += "\n"
+            } else if e == 116 {
+                out += "\t"
+            } else if e == 114 {
+                out += "\r"
+            } else if e == 48 {
+                out += "\0"
+            } else if e == 34 {
+                out += "\""
+            } else if e == 92 {
+                out += "\\"
+            } else if e == 36 {
+                out += "$"
+            } else {
+                out += body.slice(k, k + 2)
+            }
+            k += 2
+            seg = k
+        } else {
+            k += 1
+        }
+    }
+    if body.size() > seg {
+        out += body.slice(seg, body.size())
+    }
+    return out
+}

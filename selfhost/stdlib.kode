@@ -1,0 +1,104 @@
+// The signatures of the functions a program starts with (S3).
+//
+// `builtins.kode` answers whether a name exists; this answers what it takes and what
+// it gives back. Three tables, because the oracle says three different things about
+// them:
+//
+//   - a runtime function (`exec`, `read_file`) names its arguments positionally:
+//     "argument 2 of `exec` should be `[string]`, found a string";
+//   - a one-argument builtin (`bytes`, `len`) describes the value it wants:
+//     "`bytes` expects a length, found a string";
+//   - a method on a builtin class (`sb.push`) is the builtin form too: "`push`
+//     expects a string, found an int".
+//
+// Types are written as specs (`"int"`, `"[string]"`, `"string?"`, `"ProcessResult"`)
+// rather than as `Type` values: this module is imported by `typing.kode`, which owns
+// `Type`, so it cannot import it back. `typing.type_from_spec` reads a spec.
+//
+// The source is `crates/kode-sema/src/std_fns.rs` (AGENTS.md: one row per function)
+// and the builtin arms of `crates/kode-sema/src/check/expr.rs`. The port cannot read
+// them, so this is a mirror; a row lands here when a fixture or a probe needs it.
+
+/// One row: a name, what it takes, what it gives back, and how a message describes it.
+///
+/// `params` is the exact list a runtime function demands, used with the checker's own
+/// assignability. `accepts` is the builtin form: the kinds a single argument may be
+/// (`int`, `list`, ...), because `len` takes a list of anything.
+pub class StdSig {
+    name: string
+    params: [string] = []
+    accepts: [string] = []
+    /// The wording of a builtin's `expects`; "" means the parameter type's article.
+    expects: string = ""
+    /// What the call answers, as a spec; "" for the sentinel row that means "unknown".
+    ret: string = ""
+}
+
+/// A runtime function called by name: `exec("cc", args, "")`.
+pub fn free_fn(name: string) -> StdSig {
+    if name == "read_file" {
+        return StdSig(name: name, params: ["string"], ret: "string")
+    }
+    if name == "write_file" {
+        return StdSig(name: name, params: ["string", "string"], ret: "unit")
+    }
+    if name == "args" {
+        return StdSig(name: name, ret: "[string]")
+    }
+    if name == "env" {
+        return StdSig(name: name, params: ["string"], ret: "string?")
+    }
+    if name == "exit" or name == "sleep" {
+        return StdSig(name: name, params: ["int"], ret: "unit")
+    }
+    if name == "now_ms" or name == "now_ns" {
+        return StdSig(name: name, ret: "int")
+    }
+    if name == "chr" {
+        return StdSig(name: name, params: ["int"], ret: "string")
+    }
+    if name == "json_parse" {
+        return StdSig(name: name, params: ["string"], ret: "Json")
+    }
+    if name == "json_null" {
+        return StdSig(name: name, ret: "Json")
+    }
+    if name == "exec" {
+        return StdSig(name: name, params: ["string", "[string]", "string"], ret: "ProcessResult")
+    }
+    return StdSig(name: "")
+}
+
+/// A one-argument builtin: `bytes(4)`, `len(x)`, `int(s)`.
+pub fn builtin(name: string) -> StdSig {
+    if name == "len" {
+        return StdSig(name: name, params: ["string"], accepts: ["string", "list", "map"], expects: "a string, a list or a map", ret: "int")
+    }
+    if name == "bytes" {
+        return StdSig(name: name, params: ["int"], accepts: ["int"], expects: "a length", ret: "bytes")
+    }
+    if name == "int" {
+        return StdSig(name: name, params: ["int"], accepts: ["int", "float", "bool"], expects: "an int, float or bool", ret: "int")
+    }
+    if name == "float" {
+        return StdSig(name: name, params: ["int"], accepts: ["int", "float"], expects: "an int or float", ret: "float")
+    }
+    if name == "string" {
+        return StdSig(name: name, params: ["string"], accepts: ["int", "float", "bool", "string"], expects: "an int, float or string", ret: "string")
+    }
+    if name == "assert" {
+        return StdSig(name: name, params: ["int"], accepts: ["bool"], expects: "a bool", ret: "unit")
+    }
+    return StdSig(name: "")
+}
+
+/// A method of a builtin class: `StringBuilder.push(s)` and `build()`.
+pub fn builder_method(name: string) -> StdSig {
+    if name == "push" {
+        return StdSig(name: name, params: ["string"], accepts: ["string"], ret: "unit")
+    }
+    if name == "build" {
+        return StdSig(name: name, ret: "string")
+    }
+    return StdSig(name: "")
+}

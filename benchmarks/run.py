@@ -28,10 +28,14 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-KODE = ROOT / "target" / "debug" / "kode"
+# The report measures what users ship, so it builds every program with the
+# release compiler. That compiler embeds the release-profile runtime archive, the
+# one a released `kode` would link; the debug compiler embeds an unoptimized one.
+KODE = ROOT / "target" / "release" / "kode"
 BUILD = HERE / "build"
 RUNS = int(os.environ.get("RUNS", "3"))
 PROGRAMS = ["fib", "loop_mod", "sieve", "mandel", "collatz"]
+STRING_BUILD = HERE / "string_build"
 TIME = shutil.which("time") or "/usr/bin/time"
 LANGUAGES = ["Kode", "C", "Go", "Node", "Python"]
 
@@ -118,6 +122,56 @@ def have(tool: str) -> bool:
     return shutil.which(tool) is not None
 
 
+def git(*args: str) -> str:
+    try:
+        r = subprocess.run(
+            ["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=20
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def provenance_lines() -> list[str]:
+    """Which compiler, which source, which flags produced these numbers."""
+    commit = git("rev-parse", "--short", "HEAD") or "unknown"
+    branch = git("rev-parse", "--abbrev-ref", "HEAD") or "unknown"
+    dirty = " (working tree had uncommitted changes)" if git("status", "--porcelain") else ""
+    version = subprocess.run(
+        [str(KODE), "--version"], capture_output=True, text=True
+    ).stdout.strip()
+    return [
+        "## Provenance",
+        "",
+        f"- source: `{commit}` on `{branch}`{dirty}",
+        f"- compiler: `{KODE.relative_to(ROOT)}` — {version}",
+        "- compiler profile: the workspace `release` profile (`Cargo.toml`: opt-level 3,",
+        "  LTO, one codegen unit, `panic = \"abort\"`, stripped), built with",
+        "  `cargo build --release -p kode-cli`",
+        "- program builds: `kode build <file> --release`; C is `cc -O2`, Go is a plain",
+        "  `go build`, Node and Python run their source",
+        "- the unoptimized pair: `kode build --opt=none` and `cc -O0`; `--debug`",
+        "  (MIR optimizer off, clang still `-O2`) is measured beside it",
+        f"- target: {platform.system()} {platform.release()} / {platform.machine()}",
+        "",
+    ]
+
+
+def require_compiler() -> int | None:
+    """Refuse to measure rather than quietly measure a different compiler."""
+    if KODE.exists():
+        return None
+    print(
+        f"benchmarks: {KODE} is missing, and the report measures release binaries.",
+        file=sys.stderr,
+    )
+    print(
+        "benchmarks: build it first: cargo build --release -p kode-cli",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def build(program: str, sources: dict[str, Path]) -> dict[str, list[str]]:
     """Build every available variant; return name -> command line."""
     out = BUILD / program
@@ -166,10 +220,182 @@ def tool_versions() -> list[str]:
     ]
 
 
+def measure(cmd: list[str], cwd: Path):
+    """(stats, peak RSS in KB) for one command line."""
+    stats = hyperfine_ms(cmd, cwd)
+    if stats is None:
+        ms = best_ms(cmd, cwd)
+        if ms is None:
+            return None
+        stats = {"median": ms, "min": ms, "max": ms, "sd": 0.0, "best_only": True}
+    rss = stats.pop("rss_kb", None) or peak_rss_kb(cmd, cwd)
+    return stats, rss
+
+
+def unoptimized_recursion_section() -> list[str]:
+    """`fib(38)` on both compilers, at each build's real optimisation setting.
+
+    The optimized table compares two different programs: Kode's MIR inliner inlines
+    the recursion once (`crates/kode-mir/src/opt.rs`, `inline_calls`) and clang then
+    optimizes the result, while the C build keeps the plain tree. `--debug` is not
+    the remedy: it skips the MIR optimizer but clang still runs `-O2`, so a
+    `--debug`-vs-`-O0` pair still compares an optimized backend with an unoptimized
+    one. `--opt=none` turns both off. Every build's output is checked first.
+    """
+    source = HERE / "fib" / "main.kode"
+    c_source = HERE / "fib" / "main.c"
+    if not source.exists() or not c_source.exists() or not have("cc"):
+        return []
+    out = BUILD / "fib-unoptimized"
+    out.mkdir(parents=True, exist_ok=True)
+
+    builds: list[tuple[str, list[str]]] = []
+    for label, flag, exe_name in (
+        ("Kode `--opt=none` (MIR and clang off)", "--opt=none", "kode-opt-none"),
+        ("Kode `--debug` (MIR off, clang `-O2`)", "--debug", "kode-debug"),
+    ):
+        exe = out / exe_name
+        r = subprocess.run(
+            [str(KODE), "build", str(source), "-o", str(exe), flag],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            return [
+                "## Unoptimized recursion", "",
+                f"`{source.name}` did not build with `{flag}`:", "",
+                "```", r.stderr.strip()[:500], "```", "",
+            ]
+        builds.append((label, [str(exe)]))
+
+    for label, flags, exe_name in (
+        ("C `-O0`", ["-O0"], "c-O0"),
+        ("C `-O2`", ["-O2"], "c-O2"),
+    ):
+        exe = out / exe_name
+        built = subprocess.run(
+            ["cc", *flags, "-o", str(exe), str(c_source)],
+            capture_output=True, text=True,
+        )
+        if built.returncode != 0:
+            return []
+        builds.append((label, [str(exe)]))
+
+    expected = None
+    for label, cmd in builds:
+        check = subprocess.run(cmd, capture_output=True, text=True)
+        if check.returncode != 0 or (expected is not None and check.stdout != expected):
+            return [
+                "## Unoptimized recursion", "",
+                "The builds did not agree, so none was timed:", "",
+                f"- {label}: `{check.stdout.strip()}` (exit {check.returncode})", "",
+            ]
+        expected = check.stdout
+
+    rows = []
+    for label, cmd in builds:
+        m = measure(cmd, out)
+        if m is None:
+            return []
+        rows.append((label, m[0], m[1]))
+    base = rows[0][1]["median"]
+    lines = [
+        "## Unoptimized recursion (`fib(38)`)",
+        "",
+        f"All four builds print `{expected.strip()}` before anything is timed. The",
+        "like-for-like pair is `Kode --opt=none` against `C -O0`. The other two rows",
+        "are there because `--debug` is not that pair: it skips Kode's MIR optimizer,",
+        "but clang still compiles at `-O2`, so a `--debug`-vs-`-O0` table would",
+        "compare an optimized backend against an unoptimized one.",
+        "",
+        "| build | median (ms) | peak RSS | vs Kode `--opt=none` |",
+        "|---|---:|---:|---:|",
+    ]
+    for label, stats, rss in rows:
+        rss_txt = f"{rss} KB" if rss else "\u2014"
+        lines.append(
+            f"| {label} | {stats['median']:.1f} | {rss_txt} | {stats['median'] / base:.2f}\u00d7 |"
+        )
+    lines += [
+        "",
+        "The optimized table above is the default build: Kode's MIR inliner inlines the",
+        "recursive call once (`crates/kode-mir/src/opt.rs`, `inline_calls`), which shows",
+        "up as five `bl` sites in the Kode binary against two in the C one. That row",
+        "measures inlining, not a language difference.",
+        "",
+    ]
+    return lines
+
+
+def hello_sizes() -> dict[str, int]:
+    """`examples/hello.kode`, because README quotes its binary size.
+
+    Measuring it here keeps that quote reproducible: the same command, the same
+    machine block, the same report.
+    """
+    source = ROOT / "examples" / "hello.kode"
+    if not source.exists():
+        return {}
+    exe = BUILD / "hello"
+    r = subprocess.run(
+        [str(KODE), "build", str(source), "-o", str(exe), "--release"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0 or not exe.exists():
+        return {}
+    sizes = {"hello (examples/hello.kode)": exe.stat().st_size}
+    stripped = BUILD / "hello.stripped"
+    shutil.copy2(exe, stripped)
+    if subprocess.run(["strip", "-x", str(stripped)], capture_output=True).returncode == 0:
+        sizes["hello (examples/hello.kode, stripped)"] = stripped.stat().st_size
+    return sizes
+
+
+def string_build_section() -> list[str]:
+    """WP-09: the same text built with `+` and with StringBuilder (ADR 0044)."""
+    sources = [("`+`", STRING_BUILD / "plus.kode"), ("StringBuilder", STRING_BUILD / "builder.kode")]
+    if not all(src.exists() for _, src in sources):
+        return []
+    out = BUILD / "string_build"
+    out.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for label, src in sources:
+        exe = out / src.stem
+        r = subprocess.run(
+            [str(KODE), "build", str(src), "-o", str(exe), "--release"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            return ["## String building (WP-09)", "", f"`{src.name}` did not build:", "", "```", r.stderr.strip()[:500], "```", ""]
+        m = measure([str(exe)], STRING_BUILD)
+        if m is None:
+            return []
+        rows.append((label, m[0], m[1]))
+    base = rows[0][1]["median"]
+    lines = [
+        "## String building (WP-09)",
+        "",
+        "The same 8,000-line IR-shaped text built two ways: `text = text + ...` and",
+        "`sb.push(...)` / `sb.build()`. Both programs print the byte length of the",
+        "result, so a wrong result would show up next to the time.",
+        "",
+        "| build | median (ms) | peak RSS | vs `+` |",
+        "|---|---:|---:|---:|",
+    ]
+    for label, stats, rss in rows:
+        rss_txt = f"{rss} KB" if rss else "—"
+        lines.append(f"| {label} | {stats['median']:.1f} | {rss_txt} | {stats['median'] / base:.2f}× |")
+    lines += ["", "Reproduce with `benchmarks/string_build/run.sh`.", ""]
+    return lines
+
+
 def main() -> int:
-    if not KODE.exists():
-        print(f"build the compiler first: cargo build --workspace ({KODE} is missing)", file=sys.stderr)
-        return 1
+    missing = require_compiler()
+    if missing is not None:
+        return missing
+    if "--string-build" in sys.argv[1:]:
+        section = string_build_section()
+        print("\n".join(section) if section else "no StringBuilder sources to measure", file=sys.stderr if not section else sys.stdout)
+        return 0 if section else 1
     BUILD.mkdir(exist_ok=True)
 
     rows = []          # one dict per program: {"program", "stats": {lang: {...}}, "rss": {lang: kb}}
@@ -216,6 +442,8 @@ def main() -> int:
         f"- Rust: {platform.python_version() if False else subprocess.run(['rustc', '--version'], capture_output=True, text=True).stdout.strip()}",
     ]
     lines += tool_versions()
+    lines += [""]
+    lines += provenance_lines()
     lines += [
         "",
         "Wall clock is the median of `hyperfine` runs (2 warmups, 5 to 20 runs), with",
@@ -236,6 +464,16 @@ def main() -> int:
         if "Kode" in stats and "C" in stats:
             ratio = f"{stats['Kode']['median'] / stats['C']['median']:.2f}×"
         lines.append(f"| {row['program']} | " + " | ".join(cells) + f" | {ratio} |")
+
+    lines += [
+        "",
+        "`fib` is optimizer-dependent and is not a language comparison: Kode's MIR",
+        "inliner inlines the recursion once before clang sees it, while the C build",
+        "keeps the plain tree — five `bl` sites in the Kode binary against two in the",
+        "C one. The table below it measures what each build actually is.",
+        "",
+    ]
+    lines += unoptimized_recursion_section()
 
     lines += ["", "## Full statistics and peak RSS", ""]
     for row in rows:
@@ -258,10 +496,18 @@ def main() -> int:
             )
         lines.append("")
 
+    lines += string_build_section()
+
+    sizes.update(hello_sizes())
     if sizes:
-        lines += ["## Binary size (`--release`, stripped)", ""]
+        lines += [
+            "## Binary size (`--release`)",
+            "",
+            "Kode binaries are not stripped unless a row says so.",
+            "",
+        ]
         for program, size in sizes.items():
-            lines.append(f"- `{program}`: {size / 1024:.0f} KB")
+            lines.append(f"- `{program}`: {size / 1024:.0f} KB ({size} bytes)")
         lines.append("")
 
     lines += [

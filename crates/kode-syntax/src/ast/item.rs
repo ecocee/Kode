@@ -71,6 +71,8 @@ pub struct ClassDecl {
     pub name: String,
     pub name_span: Span,
     pub is_pub: bool,
+    /// `class Box<T>`: the type parameters, in declaration order (ADR 0040).
+    pub type_params: Vec<(String, Span)>,
     pub implements: Vec<(String, Span)>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FnDecl>,
@@ -94,12 +96,22 @@ pub struct IfaceMethod {
     pub span: Span,
 }
 
+/// One variant of an enum: its name, and the fields it carries when the enum
+/// has payloads (ADR 0039). A bare variant like `Empty` has no fields.
+#[derive(Debug, Clone)]
+pub struct EnumVariant {
+    pub name: String,
+    pub name_span: Span,
+    /// `Circle(radius: float)` — empty for `Empty`.
+    pub fields: Vec<Param>,
+}
+
 #[derive(Debug, Clone)]
 pub struct EnumDecl {
     pub name: String,
     pub name_span: Span,
     pub is_pub: bool,
-    pub variants: Vec<(String, Span)>,
+    pub variants: Vec<EnumVariant>,
 }
 
 #[derive(Debug, Clone)]

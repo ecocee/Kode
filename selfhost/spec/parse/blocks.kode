@@ -1,0 +1,21 @@
+if a {
+}
+while a {
+}
+for x in xs {
+}
+if a {
+
+    x = 1
+
+}
+for i in 0..2 {
+    if i {
+        print(i)
+    } else {
+        print(0)
+    }
+}
+if a {
+    xs.add([1, {k: 2}])
+}

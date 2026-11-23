@@ -1,0 +1,40 @@
+// `W0001`: a variable that is assigned and never read.
+//
+// The rule is one of the oracle's warnings, not an error: it says the name is dead
+// weight, and a name that starts with `_` is the writer saying it is deliberate. Only a
+// name an assignment creates counts — a parameter, a `for` variable and a field are
+// declared by something else and are not this rule's — and one warning is enough however
+// many times the name is assigned.
+
+from "./ast" import Ast
+
+pub class UnusedVar {
+    /// The file the declaration is in, so the report can point there.
+    file: string
+    name: string
+    start: int
+    end: int
+    used: bool = false
+}
+
+/// Record the name an assignment just declared.
+pub fn record(ast: Ast, list: [UnusedVar], target: int) {
+    name = ast.attr_text(target, "name")
+    if name == "" or name.starts_with("_") {
+        return
+    }
+    span = ast.attr_span(target)
+    if span.len() != 2 {
+        return
+    }
+    list.add(UnusedVar(file: ast.file, name: name, start: span[0], end: span[1]))
+}
+
+/// A read of the name: it is no longer unused.
+pub fn mark_used(list: [UnusedVar], name: string) {
+    for one in list {
+        if one.name == name and not one.used {
+            one.used = true
+        }
+    }
+}

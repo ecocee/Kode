@@ -159,8 +159,8 @@ call. With weak links the last strong release must instead:
 `kode_weak_drop` decrements `weak_rc` and frees the shell when it reaches zero
 **and** `rc == 0`.
 
-`kode_weak_get` must not be racy in threaded programs (`THREADED` is already set
-by the first task or server thread). The upgrade is a compare-and-swap loop on
+`kode_weak_get` must not be racy in threaded programs (reference counts are
+atomic in every program, `crates/kode-rt/src/object.rs`). The upgrade is a compare-and-swap loop on
 `rc`: succeed only if the value read is greater than zero, otherwise return
 `null`. A plain load followed by `kode_retain` would be a use-after-free: the
 object can be destroyed between the two.

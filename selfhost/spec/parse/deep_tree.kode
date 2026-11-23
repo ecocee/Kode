@@ -1,0 +1,41 @@
+class Box<T> implements Sized {
+    value: T
+    count: int = 0
+
+    fn get() -> T {
+        return self.value
+    }
+
+    fn describe(label: string) -> string {
+        total: int = 0
+        for i in 0..self.count {
+            total += i
+        }
+        return "${label}: ${total} ${self.get()}"
+    }
+}
+fn build<T>(value: T) -> Box<T> {
+    b: Box<T> = Box(value: value)
+    cb: int = |n: int| n * 2
+    return b
+}
+fn main() {
+    box = build(1)
+    match box.count {
+        0 => {
+            print(box.describe("empty"))
+        }
+        1 => print("one")
+        _ => {
+            print("some")
+        }
+    }
+    xs = [[1, 2], [3]]
+    for row in xs {
+        if row[0] > 1 {
+            spawn work(row)
+        } else {
+            y: int = await compute(row)
+        }
+    }
+}

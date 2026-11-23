@@ -2,7 +2,11 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Builtin {
     Print,
+    /// Like `print`, on the diagnostic stream.
+    Stderr,
     Len,
+    Bytes,
+    StringBuilder,
     Int,
     Float,
     Str,
@@ -14,13 +18,17 @@ pub enum Builtin {
 }
 
 pub const BUILTIN_NAMES: &[&str] = &[
-    "print", "len", "int", "float", "string", "assert", "channel", "send", "recv", "close",
+    "print", "stderr", "len", "bytes", "StringBuilder", "int", "float", "string", "assert",
+    "channel", "send", "recv", "close",
 ];
 
 pub fn lookup(name: &str) -> Option<Builtin> {
     Some(match name {
         "print" => Builtin::Print,
+        "stderr" => Builtin::Stderr,
         "len" => Builtin::Len,
+        "bytes" => Builtin::Bytes,
+        "StringBuilder" => Builtin::StringBuilder,
         "int" => Builtin::Int,
         "float" => Builtin::Float,
         "string" => Builtin::Str,

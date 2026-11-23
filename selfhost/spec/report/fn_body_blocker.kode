@@ -1,0 +1,5 @@
+fn helper() -> int {
+    ms = {"k": 1}
+    return 1
+}
+print("main")

@@ -489,7 +489,11 @@ mod tests {
             .unwrap();
             let err = read(&file).unwrap_err();
             assert_eq!(err.code, "E0406", "accepted {bad:?}");
-            assert!(err.message.contains("compiler version"), "got: {}", err.message);
+            assert!(
+                err.message.contains("compiler version"),
+                "got: {}",
+                err.message
+            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1,0 +1,183 @@
+// Number literals: `42`, `1_000`, `3.14`, `2.5e3`, and the base-prefixed forms of
+// ADR 0043 (`0x6b`, `0b1010`, `0o755`).
+//
+// The scan is a pure function of `src` and the start offset, so the lexer keeps
+// the only mutable cursor: this module returns where it stopped and what it found,
+// and the lexer emits the token or the error. That keeps `lexer.kode` to the scan
+// loop and the punctuation.
+
+from "./bytes" import byte_at, is_digit, is_ident_part
+from "./chars" import CAP_A, CAP_B, CAP_E, CAP_F, CAP_O, CAP_X, DOT, LOW_A, LOW_B, LOW_E, LOW_F, LOW_O, LOW_X, MINUS, NINE, PLUS, UNDERSCORE, ZERO
+
+/// Where a number scan stopped, and either the token it produced or the one error
+/// it reported.
+pub class NumScan {
+    end: int
+    is_float: bool = false
+    ok: bool = true
+    code: string = ""
+    message: string = ""
+    help: string = ""
+    err_start: int = 0
+    err_end: int = 0
+}
+
+fn eat_digits(src: string, start_at: int) -> int {
+    at = start_at
+    while is_digit(byte_at(src, at)) or byte_at(src, at) == UNDERSCORE {
+        at += 1
+    }
+    return at
+}
+
+/// The base of a `0x` / `0b` / `0o` literal at `start`, or 0 (ADR 0043).
+fn radix_of_prefix(src: string, start: int) -> int {
+    if byte_at(src, start) != ZERO {
+        return 0
+    }
+    b = byte_at(src, start + 1)
+    if b == LOW_X or b == CAP_X {
+        return 16
+    }
+    if b == LOW_B or b == CAP_B {
+        return 2
+    }
+    if b == LOW_O or b == CAP_O {
+        return 8
+    }
+    return 0
+}
+
+/// `0`..`9` is 0..9, `a`..`f` or `A`..`F` is 10..15, anything else -1.
+fn digit_value(b: int) -> int {
+    if b >= ZERO and b <= NINE {
+        return b - ZERO
+    }
+    if b >= CAP_A and b <= CAP_F {
+        return b - CAP_A + 10
+    }
+    if b >= LOW_A and b <= LOW_F {
+        return b - LOW_A + 10
+    }
+    return -1
+}
+
+fn is_radix_digit(src: string, at: int, radix: int) -> bool {
+    b = byte_at(src, at)
+    if b == UNDERSCORE {
+        return true
+    }
+    return digit_value(b) >= 0 and digit_value(b) < radix
+}
+
+/// Scan one number starting at `start`, which is known to be a digit.
+pub fn scan_number(src: string, start: int) -> NumScan {
+    i = start
+    radix = radix_of_prefix(src, i)
+    if radix > 0 {
+        i += 2
+        digits_start = i
+        while is_radix_digit(src, i, radix) {
+            i += 1
+        }
+        // `0x6bz` is one bad literal, not `0x6b` then `z`.
+        if is_ident_part(byte_at(src, i)) {
+            while is_ident_part(byte_at(src, i)) {
+                i += 1
+            }
+        }
+        digits = src.slice(digits_start, i)
+        ok = digits.size() > 0
+        k = 0
+        while ok and k < digits.size() {
+            b = digits.byte_at(k)
+            ok = b == UNDERSCORE or (digit_value(b) >= 0 and digit_value(b) < radix)
+            k += 1
+        }
+        if ok {
+            return NumScan(end: i)
+        }
+        like = "`0o755`"
+        if radix == 16 {
+            like = "`0x6b`"
+        } else if radix == 2 {
+            like = "`0b1010`"
+        }
+        return NumScan(
+            end: i,
+            ok: false,
+            code: "E0006",
+            message: "this is not a valid number",
+            help: "write a base-${radix} integer like ${like}, up to 9223372036854775807",
+            err_start: start,
+            err_end: i,
+        )
+    }
+    is_float = false
+    i = eat_digits(src, i)
+    if byte_at(src, i) == DOT and is_digit(byte_at(src, i + 1)) {
+        is_float = true
+        i += 1
+        i = eat_digits(src, i)
+    }
+    if byte_at(src, i) == LOW_E or byte_at(src, i) == CAP_E {
+        n1 = byte_at(src, i + 1)
+        n2 = byte_at(src, i + 2)
+        if is_digit(n1) {
+            is_float = true
+            i += 1
+            i = eat_digits(src, i)
+        } else if (n1 == PLUS or n1 == MINUS) and is_digit(n2) {
+            is_float = true
+            i += 2
+            i = eat_digits(src, i)
+        }
+    }
+    if is_ident_part(byte_at(src, i)) {
+        while is_ident_part(byte_at(src, i)) {
+            i += 1
+        }
+        text = src.slice(start, i)
+        return NumScan(
+            end: i,
+            ok: false,
+            code: "E0006",
+            message: "`${text}` is not a valid number",
+            help: "write numbers like 42, 1_000, 3.14 or 2.5e3",
+            err_start: start,
+            err_end: i,
+        )
+    }
+    text = src.slice(start, i).replace("_", "")
+    ok = true
+    // The value itself is not part of the token -- the dump prints the source
+    // text -- but the conversion is what decides E0005 versus Int.
+    if is_float {
+        _exact = 0.0
+        _exact = text.to_float() catch e {
+            ok = false
+            0.0
+        }
+    } else {
+        _whole = 0
+        _whole = text.to_int() catch e {
+            ok = false
+            0
+        }
+    }
+    if ok {
+        return NumScan(end: i, is_float: is_float)
+    }
+    if is_float {
+        return NumScan(end: i, ok: false, is_float: true, code: "E0006", message: "this is not a valid number", err_start: start, err_end: i)
+    }
+    return NumScan(
+        end: i,
+        ok: false,
+        code: "E0005",
+        message: "this integer is too large",
+        help: "int is a 64-bit signed integer (max 9223372036854775807)",
+        err_start: start,
+        err_end: i,
+    )
+}

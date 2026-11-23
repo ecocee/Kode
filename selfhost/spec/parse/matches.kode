@@ -1,0 +1,38 @@
+match x {
+    1 => print(1)
+    _ => print(0)
+}
+match name {
+    "a" => print("a")
+    "b" => { print("b") }
+    _ => print("other")
+}
+match point {
+    Point(1, 2) => { print(1) }
+    _ => print(2)
+}
+match xs[0] {
+    -1 => print("neg")
+    _ => {
+        a = 1
+        print(a)
+    }
+}
+fn describe(n: int) -> string {
+    match n {
+        0 => return "zero"
+        _ => return "many"
+    }
+}
+class Matcher {
+    fn run(x: int) {
+        match x {
+            1 => {
+                match x {
+                    _ => print(1)
+                }
+            }
+            _ => break
+        }
+    }
+}

@@ -1,0 +1,84 @@
+// The operator tables the lowering reads: a written operator's MIR mnemonic, or ""
+// when this slice has no instruction for it.
+
+pub fn compare_name(op: string) -> string {
+    if op == "<" {
+        return "lt"
+    }
+    if op == "<=" {
+        return "le"
+    }
+    if op == ">" {
+        return "gt"
+    }
+    if op == ">=" {
+        return "ge"
+    }
+    if op == "==" {
+        return "eq"
+    }
+    if op == "!=" {
+        return "ne"
+    }
+    return ""
+}
+
+pub fn operator_name(op: string) -> string {
+    if op == "+" {
+        return "add"
+    }
+    if op == "-" {
+        return "sub"
+    }
+    if op == "*" {
+        return "mul"
+    }
+    if op == "/" {
+        return "div"
+    }
+    if op == "%" {
+        return "rem"
+    }
+    if op == "&" {
+        return "bitand"
+    }
+    if op == "|" {
+        return "bitor"
+    }
+    if op == "^" {
+        return "bitxor"
+    }
+    if op == "<<" {
+        return "shl"
+    }
+    if op == ">>" {
+        return "shr"
+    }
+    return ""
+}
+
+/// The argument `rt::ListNew` takes: 1 when the list holds references, else 0.
+pub fn list_new_code(elem: string) -> int {
+    if elem == "str" {
+        return 1
+    }
+    return 0
+}
+
+/// The slot kind a list's elements are stored as.
+pub fn elem_slot(elem: string) -> string {
+    if elem == "str" {
+        return "ref"
+    }
+    return "int"
+}
+
+pub fn temp_kind(kind: string) -> string {
+    if kind == "str" {
+        return "ref"
+    }
+    if kind == "bool" {
+        return "bool"
+    }
+    return "int"
+}

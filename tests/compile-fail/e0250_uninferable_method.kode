@@ -1,0 +1,12 @@
+// A generic method is allowed now, but `T` must appear in a parameter type so the
+// call can infer it. A method only being generic is not enough.
+class Box {
+    value: int
+
+    fn get<T>() -> int {
+        return 1
+    }
+}
+
+b = Box(value: 1)
+print(b.get())

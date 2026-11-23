@@ -7,12 +7,33 @@
 //! sides and merged with a branch-free `select`. This removes branch mispredictions in
 //! code such as `if x % 2 == 0 { x = x / 2 } else { x = 3 * x + 1 }`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ir::*;
 
 pub fn optimize(p: &mut MirProgram) {
     inline_calls(p);
+
+    // `KODE_RC_ELIM=0` turns this off, so a regression can be bisected without a
+    // rebuild of the compiler. `KODE_RC_STATS=1` reports how much it removed.
+    if std::env::var_os("KODE_RC_ELIM").is_none_or(|v| v != "0") {
+        let mut removed = 0;
+
+        for f in p
+            .funcs
+            .iter_mut()
+            .chain(p.thunks.iter_mut())
+            .chain(p.closures.iter_mut())
+            .chain(p.fnvals.iter_mut())
+        {
+            removed += rc_elim(f);
+        }
+
+        if std::env::var_os("KODE_RC_STATS").is_some() {
+            eprintln!("rc_elim: removed {removed} retain/release operations");
+        }
+    }
+
     for f in p.funcs.iter_mut().chain(p.thunks.iter_mut()) {
         for _ in 0..3 {
             if !if_convert(f) {
@@ -20,6 +41,153 @@ pub fn optimize(p: &mut MirProgram) {
             }
         }
     }
+}
+
+fn is_local(o: &Operand, l: LocalId) -> bool {
+    matches!(o, Operand::Local(id) if *id == l)
+}
+
+fn rv_uses(rv: &Rvalue, l: LocalId) -> bool {
+    match rv {
+        Rvalue::Use(a) | Rvalue::Unary(_, a) | Rvalue::Cast(_, a) => is_local(a, l),
+        Rvalue::Binary(_, a, b) => is_local(a, l) || is_local(b, l),
+        Rvalue::Select(c, a, b) => is_local(c, l) || is_local(a, l) || is_local(b, l),
+    }
+}
+
+/// Does this callee only borrow its arguments?
+///
+/// User, std and closure bodies borrow: "parameters are borrowed" (rule 5 in
+/// `lower/mod.rs`), and the callee retains what it stores. A runtime function may
+/// *consume* an argument instead — `ChanSend` transfers the reference,
+/// `ListPush`/`MapSet` take ownership of a heap item — so a pair around those must
+/// stay. Only the read-only print/format/length family is listed here; anything new
+/// defaults to "may consume" and keeps its pair until it is reviewed.
+fn call_borrows(callee: &Callee) -> bool {
+    match callee {
+        Callee::User(_) | Callee::Std(_) => true,
+        Callee::Rt(f) => matches!(
+            f,
+            RtFn::StrConcat
+                | RtFn::PrintStr
+                | RtFn::PrintInt
+                | RtFn::PrintFloat
+                | RtFn::PrintBool
+                | RtFn::PrintNl
+                | RtFn::StrLen
+                | RtFn::IntToStr
+                | RtFn::FloatToStr
+                | RtFn::BoolToStr
+                | RtFn::ListLen
+        ),
+    }
+}
+
+/// Can `inst` run between `retain x` and `release x` without caring whether the
+/// retain happened? Calls may use `x` as an argument when the callee borrows, but
+/// nothing may reassign `x`, use it as a base or callee, store it, or retain it again.
+fn harmless_between(inst: &Inst, x: LocalId) -> bool {
+    match inst {
+        Inst::Call { dst, callee, .. } => *dst != Some(x) && call_borrows(callee),
+        Inst::CallIndirect { dst, callee, .. } => *dst != Some(x) && !is_local(callee, x),
+        Inst::Release(Operand::Local(y)) => *y != x,
+        Inst::Retain(_) => false,
+        Inst::Assign { dst, rv } => *dst != x && !rv_uses(rv, x),
+        Inst::Load { dst, base, .. } => *dst != x && !is_local(base, x),
+        Inst::Store { base, value, .. } => !is_local(base, x) && !is_local(value, x),
+        Inst::Release(_) => true,
+    }
+}
+
+/// Remove `retain`/`release` work that cannot change an object's lifetime.
+///
+/// Two shapes, both straight-line inside one block:
+///
+///  * `release x` where this block has only ever assigned `null` to `x`. Releasing
+///    null is a no-op in the runtime, so the call and its operand are dead.
+///  * `retain x` … `release x` where nothing in between can outlive or reassign `x`
+///    (only calls that take it as an argument, loads and stores of other values, and
+///    releases of other locals). Parameters are borrowed (rule 5 in
+///    `lower/mod.rs`), so a callee cannot drop the caller's reference, and the
+///    value's own owner keeps it alive across the call. The release then drops
+///    exactly the claim the retain added, so both can go.
+///
+/// Anything else keeps the pair: a store of `x`, a second retain, an assignment to
+/// `x`, `x` used as a base or callee, or an instruction that reads it as a value.
+fn rc_elim(f: &mut MirFunc) -> usize {
+    let types: Vec<Ty> = f.locals.iter().map(|l| l.ty).collect();
+    let mut removed = 0;
+
+    for block in f.blocks.iter_mut() {
+        let mut keep = vec![true; block.insts.len()];
+        let mut null: HashSet<LocalId> = HashSet::new();
+
+        for (i, inst) in block.insts.iter().enumerate() {
+            match inst {
+                Inst::Assign {
+                    dst,
+                    rv: Rvalue::Use(Operand::NullRef),
+                } if types[*dst] == Ty::Ref => {
+                    null.insert(*dst);
+                }
+                Inst::Assign { dst, .. } | Inst::Load { dst, .. } => {
+                    null.remove(dst);
+                }
+                Inst::Call { dst: Some(d), .. } | Inst::CallIndirect { dst: Some(d), .. } => {
+                    null.remove(d);
+                }
+                Inst::Release(Operand::Local(l)) if null.contains(l) => {
+                    keep[i] = false;
+                    removed += 1;
+                }
+                _ => {}
+            }
+        }
+
+        let mut i = 0;
+
+        while i < block.insts.len() {
+            let Inst::Retain(Operand::Local(x)) = block.insts[i] else {
+                i += 1;
+                continue;
+            };
+
+            if !keep[i] {
+                i += 1;
+                continue;
+            }
+
+            let release = (i + 1..block.insts.len()).find(|&j| {
+                keep[j] && matches!(block.insts[j], Inst::Release(Operand::Local(y)) if y == x)
+            });
+
+            let Some(j) = release else {
+                i += 1;
+                continue;
+            };
+
+            if (i + 1..j).all(|k| !keep[k] || harmless_between(&block.insts[k], x)) {
+                keep[i] = false;
+                keep[j] = false;
+                removed += 2;
+                i = j + 1;
+            } else {
+                i += 1;
+            }
+        }
+
+        let mut kept = Vec::with_capacity(block.insts.len());
+
+        for (idx, inst) in std::mem::take(&mut block.insts).into_iter().enumerate() {
+            if keep[idx] {
+                kept.push(inst);
+            }
+        }
+
+        block.insts = kept;
+    }
+
+    removed
 }
 
 /// Can this instruction run on a path where it would not have run before?
@@ -342,5 +510,119 @@ fn inline_calls(p: &mut MirProgram) {
                 bi += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn func(insts: Vec<Inst>) -> MirFunc {
+        MirFunc {
+            name: "f".to_string(),
+            param_count: 0,
+            ret: Ty::Unit,
+            locals: (0..4)
+                .map(|_| LocalDecl {
+                    ty: Ty::Ref,
+                    name: None,
+                })
+                .collect(),
+            blocks: vec![Block {
+                insts,
+                term: Terminator::Return(None),
+            }],
+        }
+    }
+
+    fn retain(l: LocalId) -> Inst {
+        Inst::Retain(Operand::Local(l))
+    }
+
+    fn release(l: LocalId) -> Inst {
+        Inst::Release(Operand::Local(l))
+    }
+
+    fn call(args: Vec<Operand>) -> Inst {
+        Inst::Call {
+            dst: None,
+            callee: Callee::Rt(RtFn::PrintStr),
+            args,
+        }
+    }
+
+    #[test]
+    fn a_borrowed_argument_pair_is_removed() {
+        let mut f = func(vec![retain(0), call(vec![Operand::Local(0)]), release(0)]);
+
+        assert_eq!(rc_elim(&mut f), 2);
+        assert_eq!(f.blocks[0].insts.len(), 1);
+    }
+
+    #[test]
+    fn releasing_a_local_the_block_set_to_null_is_removed() {
+        let mut f = func(vec![
+            Inst::Assign {
+                dst: 0,
+                rv: Rvalue::Use(Operand::NullRef),
+            },
+            release(0),
+        ]);
+
+        assert_eq!(rc_elim(&mut f), 1);
+        assert_eq!(f.blocks[0].insts.len(), 1);
+    }
+
+    #[test]
+    fn a_release_of_something_that_was_never_nulled_is_kept() {
+        let mut f = func(vec![
+            Inst::Assign {
+                dst: 0,
+                rv: Rvalue::Use(Operand::Local(1)),
+            },
+            release(0),
+        ]);
+
+        assert_eq!(rc_elim(&mut f), 0);
+        assert_eq!(f.blocks[0].insts.len(), 2);
+    }
+
+    #[test]
+    fn a_pair_whose_value_is_stored_is_kept() {
+        let mut f = func(vec![
+            retain(0),
+            Inst::Store {
+                base: Operand::Local(1),
+                offset: 8,
+                value: Operand::Local(0),
+            },
+            release(0),
+        ]);
+
+        assert_eq!(rc_elim(&mut f), 0);
+        assert_eq!(f.blocks[0].insts.len(), 3);
+    }
+
+    #[test]
+    fn a_pair_that_reassigns_the_local_is_kept() {
+        let mut f = func(vec![
+            retain(0),
+            Inst::Assign {
+                dst: 0,
+                rv: Rvalue::Use(Operand::Local(1)),
+            },
+            release(0),
+        ]);
+
+        assert_eq!(rc_elim(&mut f), 0);
+    }
+
+    #[test]
+    fn a_second_retain_keeps_the_pair() {
+        let mut f = func(vec![retain(0), retain(0), release(0)]);
+
+        // The inner pair goes; the outer retain still has no release, so it stays.
+        assert_eq!(rc_elim(&mut f), 2);
+        assert_eq!(f.blocks[0].insts.len(), 1);
     }
 }

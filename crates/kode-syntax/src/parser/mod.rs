@@ -215,9 +215,25 @@ impl Parser {
                 let ret = self.type_ann()?;
                 TypeAnnKind::Fn(params, Box::new(ret))
             }
+            // `Box<int>`: a class with type arguments (ADR 0040).
             TokenKind::Ident(name) => {
                 self.bump();
-                TypeAnnKind::Name(name)
+                if matches!(self.peek(), TokenKind::Lt) {
+                    self.bump();
+                    let mut args = Vec::new();
+                    loop {
+                        args.push(self.type_ann()?);
+                        if matches!(self.peek(), TokenKind::Comma) {
+                            self.bump();
+                            continue;
+                        }
+                        break;
+                    }
+                    self.expect(TokenKind::Gt, "`>`")?;
+                    TypeAnnKind::Generic(name, args)
+                } else {
+                    TypeAnnKind::Name(name)
+                }
             }
             TokenKind::LBracket => {
                 self.bump();

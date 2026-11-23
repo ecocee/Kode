@@ -1,0 +1,10 @@
+a = 1
+b = 2.5
+c = "text"
+d = true
+e = false
+f = 0x6b
+g = 0b1010
+h = 0o755
+name = 1_000
+quoted = "say \"hi\""
