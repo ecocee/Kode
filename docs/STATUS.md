@@ -237,8 +237,8 @@ plan targets). Wall clock: best of 3; RSS: peak of one run. Compiler: debug
 | `loop_mod` wall clock | within 2× of C `-O2` | 32 ms vs 14 ms = **2.40×** | **missed** |
 | `sieve` wall clock | within 2× of C `-O2` | 30 ms vs 15 ms = **1.94×** | met (thin margin) |
 | `mandel` wall clock | within 3× of C `-O2` | 17 ms vs 12 ms = **1.41×** | met |
-| idle HTTP server RSS | under 3 MB above the binary | 2,144 KB total, binary 440 KB → ~1.7 MB above | met |
-| echo server RSS at 1000 requests | flat | 2,144 → 2,432 KB at 1,000; 2,160 → 2,464 KB at 10,000 | provisionally met (+0.3 MB, no growth with load) |
+| idle HTTP server RSS | under 3 MB above the binary | 2,080 KB total, binary 1,892 KB → **233 KB above** (macOS arm64, 2026-11-24) | met |
+| echo server RSS at 1000 requests | flat | 2,080 → 2,336 KB at 1,000; 2,352 KB at 10,000 (+256 KB, then +16 KB for ten times the load) | met |
 | hello world binary | under 1 MB stripped | **1,073,176 bytes** (`kode build --release`, measured 2026-11-11 after the TLS runtime landed) | **missed** |
 | `kode check` | under 100 ms on 5k lines | 4,802-line file: **9–12 ms** | met |
 
@@ -246,9 +246,11 @@ Re-measured 2026-11-23 (`benchmarks/run.sh`, LLVM backend): the `fib(35)` row
 above predates the backend rewrite that let clang rewrite the recursion, so its
 93 ms no longer describes the benchmark — the program measures `fib(38)`, which
 takes 3.9 ms against C's 60.1 ms. The medians for every program are in
-`benchmarks/report.md`. The `idle HTTP server RSS` row still quotes the 440 KB
-binary from before the TLS runtime, so its "above the binary" figure needs the
-server re-measured.
+`benchmarks/report.md`. The two RSS rows were re-measured on 2026-11-24: the
+server above is 1,892 KB, sits 233 KB above its own binary when idle, and grows
+256 KB over the first thousand requests — measured natively on macOS arm64,
+because the container harness (`benchmarks/http/run.sh`) needs Docker, which is
+not installed here. The old container numbers are not directly comparable.
 
 Not measured, and why:
 
