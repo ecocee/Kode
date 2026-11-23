@@ -1,7 +1,7 @@
 //! Every heap value starts with the same header: `[refcount: i64][kind: i64]`.
 //! A refcount of -1 marks a static value (a string literal) that is never freed.
 
-use std::alloc::{alloc_zeroed, dealloc, handle_alloc_error, Layout};
+use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ptr::addr_of_mut;
 use std::sync::atomic::{fence, AtomicBool, AtomicI64, Ordering};
 
@@ -61,7 +61,10 @@ pub unsafe fn alloc_object(size: usize, kind: i64) -> *mut Header {
     let p = alloc_zeroed(l) as *mut Header;
 
     if p.is_null() {
-        handle_alloc_error(l);
+        // Report the size before aborting: `handle_alloc_error` prints a Rust
+        // message and aborts, which tells a server operator nothing about what
+        // the program was doing when the allocation failed.
+        crate::error::fatal(&format!("out of memory (allocating {size} bytes)"));
     }
 
     (*p).kind = kind;

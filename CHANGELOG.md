@@ -37,6 +37,12 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`KODE_TASK_STACK_MB`, and an out-of-memory message.** A `spawn` task reserved a
+  fixed 64 MiB stack: enough for deep recursion, but 1,000 tasks reserve 64 GiB of
+  address space. `KODE_TASK_STACK_MB` (1–1024, default 64) sets it. Allocation
+  failure used to abort inside Rust's `handle_alloc_error`; it now prints
+  `kode: runtime error: out of memory (allocating N bytes)` instead.
+
 - **`kode build --opt=none`.** Skips MIR optimization *and* passes `-O0` to clang, so
   a benchmark can compare two compilers that are both unoptimized. `--debug` keeps
   its behaviour — MIR optimizer off, clang still `-O2` — and its help text now says

@@ -126,7 +126,7 @@ Legend: **done** = code and tests exist; **partial** = some of it works;
 |---|---|---|
 | 3.1 TLS | **done, with limits** | ADR 0034: `https://` client verified against webpki roots, `serve_tls` with DER certificates; the TLS server is thread-per-connection, not epoll; costs in `benchmarks/http/tls.md` |
 | 3.2 Raw TCP/UDP sockets | **missing** | no socket API outside the HTTP server |
-| 3.3 Server hardening | **partial** | HTTP/1.1 keep-alive (`http.rs:103`); **no request size limit, no read timeout, no static files, no middleware, no graceful drain** (grep of `http.rs`/`router.rs`) |
+| 3.3 Server hardening | **partial** | HTTP/1.1 keep-alive; limits 8 KiB request line, 32 KiB headers, 8 MiB body, 1024 active connections, and read/idle/write plus a 5 s TLS handshake timeout (`http_wire.rs`); **no static files, no middleware, no graceful drain** |
 | 3.4 PostgreSQL client | **partial** | `pg_wire.rs`/`pg.rs` (ADR 0033): opportunistic TLS, SCRAM-SHA-256, simple + extended protocol, JSON results, `pg.pool`; **no md5, no `COPY`, no binary format, no cancellation**, `sslmode=require` still rejected |
 | 3.5 C FFI | **missing** | no `extern fn`; ADR not written |
 
