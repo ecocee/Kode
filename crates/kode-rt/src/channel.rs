@@ -5,11 +5,10 @@
 //! variable, so `recv` blocks instead of spinning.
 
 use std::collections::VecDeque;
-use std::sync::atomic::Ordering;
 use std::sync::{Condvar, Mutex};
 
 use crate::error::throw_msg;
-use crate::object::{alloc_object, free_object, kode_release, Header, CHAN, THREADED};
+use crate::object::{alloc_object, free_object, kode_release, Header, CHAN};
 
 const SIZE: usize = 24;
 
@@ -32,8 +31,6 @@ unsafe fn chan(p: *mut Header) -> &'static Chan {
 
 #[no_mangle]
 pub extern "C" fn kode_chan_new() -> *mut Header {
-    // Channels exist to move values between threads, so reference counts must be atomic.
-    THREADED.store(true, Ordering::SeqCst);
     unsafe {
         let p = alloc_object(SIZE, CHAN);
         let boxed = Box::new(Chan {

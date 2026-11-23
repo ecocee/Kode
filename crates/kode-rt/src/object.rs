@@ -47,10 +47,6 @@ fn local_count(delta: i64) {
     }
 }
 
-/// Set when the first task or server thread starts.
-/// From then on reference counts are atomic.
-pub static THREADED: AtomicBool = AtomicBool::new(false);
-
 pub fn live_objects() -> i64 {
     LIVE.load(Ordering::Relaxed)
 }
@@ -68,8 +64,11 @@ pub unsafe fn alloc_object(size: usize, kind: i64) -> *mut Header {
         handle_alloc_error(l);
     }
 
-    (*p).rc = 1;
     (*p).kind = kind;
+    // Write the first count through the atomic too: every access to `rc` is then
+    // atomic for the whole life of the object, which is the invariant the
+    // retain/release protocol below relies on.
+    rc_atomic(p).store(1, Ordering::Relaxed);
 
     if COUNT_LIVE.load(Ordering::Relaxed) {
         LIVE.fetch_add(1, Ordering::Relaxed);
@@ -103,8 +102,8 @@ pub extern "C" fn kode_rt_init() {
 
 /// View the refcount as an atomic.
 ///
-/// Every access in threaded mode goes through this,
-/// so a plain read can never race with an atomic update.
+/// Every access to `rc`, in every thread, goes through this, so the field is never
+/// touched both atomically and non-atomically.
 #[inline(always)]
 unsafe fn rc_atomic<'a>(p: *mut Header) -> &'a AtomicI64 {
     AtomicI64::from_ptr(addr_of_mut!((*p).rc))
@@ -118,20 +117,20 @@ pub unsafe extern "C" fn kode_retain(p: *mut Header) {
         return;
     }
 
-    if THREADED.load(Ordering::Relaxed) {
-        let rc = rc_atomic(p);
-        let before = rc.load(Ordering::Relaxed);
-        if before <= 0 {
-            return;
-        }
-        rc.fetch_add(1, Ordering::Relaxed);
-    } else {
-        if (*p).rc <= 0 {
-            return;
-        }
+    // Always atomic. Any object can be handed to a task or a channel, and the
+    // runtime cannot know which ones will be, so the decision cannot be made per
+    // object without proving it never escapes. A global "threads exist" switch
+    // is not sound either: a thread that read it before the switch would then
+    // touch this field non-atomically while another thread touched it
+    // atomically, which is undefined behaviour for the same memory.
+    let rc = rc_atomic(p);
+    let before = rc.load(Ordering::Relaxed);
 
-        (*p).rc += 1;
+    if before <= 0 {
+        return;
     }
+
+    rc.fetch_add(1, Ordering::Relaxed);
 }
 
 /// # Safety
@@ -142,30 +141,26 @@ pub unsafe extern "C" fn kode_release(p: *mut Header) {
         return;
     }
 
-    let last = if THREADED.load(Ordering::Relaxed) {
-        let rc = rc_atomic(p);
-        let before = rc.load(Ordering::Relaxed);
-        if before <= 0 {
-            return;
-        }
+    let rc = rc_atomic(p);
+    let before = rc.load(Ordering::Relaxed);
 
-        let prev = rc.fetch_sub(1, Ordering::Release);
+    if before <= 0 {
+        return;
+    }
 
-        debug_assert!(prev >= 1, "kode_release: double release");
+    // `Release` publishes this thread's writes to the object before the count
+    // can reach zero; the last owner acquires before destroying it, so it sees
+    // everything every other owner wrote. This is the standard atomic refcount
+    // protocol (one `Acquire` fence, paid only by the thread that frees).
+    let prev = rc.fetch_sub(1, Ordering::Release);
 
-        if prev == 1 {
-            fence(Ordering::Acquire);
-            true
-        } else {
-            false
-        }
+    debug_assert!(prev >= 1, "kode_release: double release");
+
+    let last = if prev == 1 {
+        fence(Ordering::Acquire);
+        true
     } else {
-        if (*p).rc <= 0 {
-            return;
-        }
-
-        (*p).rc -= 1;
-        (*p).rc == 0
+        false
     };
 
     if last {
@@ -297,21 +292,10 @@ mod tests {
         }
 
         assert_eq!(rc_of(p), -1);
-
-        THREADED.store(true, Ordering::SeqCst);
-
-        unsafe {
-            kode_retain(p);
-            kode_release(p);
-        }
-
-        assert_eq!(rc_of(p), -1);
     }
 
     #[test]
     fn concurrent_retain_release_stays_balanced() {
-        THREADED.store(true, Ordering::SeqCst);
-
         let s = crate::string::from_bytes(b"shared");
         let addr = s as usize;
 
@@ -343,8 +327,6 @@ mod tests {
     fn last_release_from_many_threads_frees_exactly_once() {
         let _g = counting();
 
-        THREADED.store(true, Ordering::SeqCst);
-
         let before = local_live();
 
         let s = crate::string::from_bytes(b"many owners");
@@ -365,6 +347,45 @@ mod tests {
         }
 
         assert_eq!(local_live(), before, "the string was freed exactly once");
+    }
+
+    #[test]
+    fn an_object_allocated_after_threads_start_stays_balanced() {
+        // No flag is set anywhere: counts are atomic for every object, so an
+        // object created while worker threads already exist can be shared.
+        let (tx, rx) = std::sync::mpsc::channel::<usize>();
+        let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+
+        let workers: Vec<_> = (0..4)
+            .map(|_| {
+                let rx = std::sync::Arc::clone(&rx);
+                std::thread::spawn(move || {
+                    let addr: usize = rx.lock().expect("pointer").recv().expect("address");
+                    for _ in 0..20_000 {
+                        unsafe {
+                            kode_retain(addr as *mut Header);
+                            kode_release(addr as *mut Header);
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        let s = crate::string::from_bytes(b"allocated during the race");
+
+        for _ in 0..workers.len() {
+            tx.send(s as usize).expect("send");
+        }
+
+        for t in workers {
+            t.join().expect("worker");
+        }
+
+        assert_eq!(rc_of(s), 1);
+
+        unsafe {
+            kode_release(s);
+        }
     }
 
     #[test]

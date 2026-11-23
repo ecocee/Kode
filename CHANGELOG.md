@@ -7,6 +7,21 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Fixed
 
+- **Reference counts are atomic in every program.** `kode_retain`/`kode_release`
+  read a global `THREADED` flag with a relaxed load and used plain arithmetic while
+  it was false. A task, channel or server thread set it with a `SeqCst` store, but a
+  thread that had already loaded `false` could keep touching the same `rc` field
+  non-atomically while another thread used `fetch_add`/`fetch_sub` on it — two
+  different access kinds to one location, which is undefined behaviour even when the
+  count happens to stay balanced. Nothing can be decided per object instead: any
+  object may be handed to a task or a channel, and proving it never escapes needs an
+  escape analysis the compiler does not have. Every count is atomic now (`Relaxed`
+  increment, `Release` decrement, one `Acquire` fence for the thread that frees) and
+  the flag is gone. Measured cost on one arm64 machine: 1.6 ns per RC operation;
+  `sieve`, `string_build/plus`, `fib` and `loop_mod` are unchanged at 10 ms
+  resolution, and the allocation counts are identical (79 and 72,056). A new test
+  shares an object created *after* four worker threads already exist.
+
 - **A release build could not link `StringBuilder`, or any runtime function newer
   than the archive it embedded.** `cargo build --release -p kode-rt` uplifts the
   staticlib to `target/release/libkode_rt.a`; a later build writes

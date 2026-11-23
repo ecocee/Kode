@@ -201,10 +201,10 @@ the code contradicts today.
    `strip -x`, which the budget row below records as met. The 1.2 MB figure
    quoted earlier came from a debug-built compiler, which embeds an unoptimized
    runtime archive.
-5. **Memory model is atomic now.**
-   `docs/design/memory-model.md` says "Counts are not atomic yet; concurrency
-   (M6) will make them atomic". Channels set `THREADED` and the object header
-   uses atomic counts (`crates/kode-rt/src/channel.rs`, `object.rs`).
+5. **Memory model is atomic everywhere.** Reference counts are atomic in every
+   program, not only once a task or channel starts: the old `THREADED` switch
+   let a running thread read the count non-atomically while another updated it
+   atomically (`crates/kode-rt/src/object.rs`). No mode switch remains.
 6. **`PLAN-v1.md` gap column is stale**: it lists "channels, `int?` + narrowing,
    `weak` fields" as gaps. Channels shipped (ADR 0026, `channel_heap.kode`),
    `int?` works as a local (ADR 0024). `finally` is also listed as a gap in

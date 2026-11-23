@@ -1,11 +1,10 @@
 //! `spawn` / `await`: tasks run on their own threads and share nothing.
 //! A task gets plain values (ints, floats, bools, strings) and returns one result.
 
-use std::sync::atomic::Ordering;
 use std::thread::{Builder, JoinHandle};
 
 use crate::error::{fatal, kode_err_throw, take_err};
-use crate::object::{alloc_object, free_object, kode_release, Header, TASK, THREADED};
+use crate::object::{alloc_object, free_object, kode_release, Header, TASK};
 
 struct TaskInner {
     handle: Option<JoinHandle<(u64, usize)>>,
@@ -24,7 +23,6 @@ pub unsafe extern "C" fn kode_task_spawn(
     block: *mut Header,
     result_is_ref: i64,
 ) -> *mut Header {
-    THREADED.store(true, Ordering::SeqCst);
     let (f, b) = (thunk as usize, block as usize);
     let handle = Builder::new()
         .stack_size(64 << 20)

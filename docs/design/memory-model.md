@@ -38,8 +38,10 @@ object is left at the end. `cargo test` sets it for every run-pass program.
 ## Known limits
 
 - A variable lives until its function exits or it is re-assigned, not until its block ends.
-- Counts use atomics once a program creates its first channel (`THREADED` in the object header,
-  set in `crates/kode-rt/src/channel.rs`); single-threaded programs pay nothing extra.
+- Reference counts are atomic in every program (`crates/kode-rt/src/object.rs`). The runtime
+  cannot know which objects a program will hand to a task or a channel, so the mode cannot be
+  chosen per object; a global "threads exist" switch let one thread read the count
+  non-atomically while another updated it atomically, which is undefined behaviour.
 - Two objects that point at each other leak, because reference counting cannot see a cycle.
   Measured with `KODE_LEAK_CHECK=1`: a two-object cycle leaks 2 objects, a ring of 10,000 leaks
   10,000 (`benchmarks/leaks/report.md`). `weak` references are designed in

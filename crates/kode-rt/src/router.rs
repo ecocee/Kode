@@ -22,7 +22,7 @@ use std::sync::{OnceLock, RwLock};
 use crate::error::{fatal, take_err, throw_msg};
 use crate::http_wire::{checked_port, event_loop};
 use crate::map::{kode_map_new, kode_map_set};
-use crate::object::{kode_obj_new, kode_release, kode_retain, Header, THREADED};
+use crate::object::{kode_obj_new, kode_release, kode_retain, Header};
 use crate::string::{bytes, from_bytes, from_external};
 
 type Handler = extern "C" fn(*mut Header) -> *mut Header;
@@ -332,7 +332,6 @@ pub unsafe extern "C" fn kode_http_serve_tls_router(
     let cert = crate::http::tls_path(cert, "certificate");
     let key = crate::http::tls_path(key, "private key");
     let id = *((router as *const i64).add(3));
-    THREADED.store(true, Ordering::SeqCst);
     let (listener, config) = crate::http::tls_listener(port, &cert, &key);
     crate::http_wire::tls_event_loop(listener, config, move |req| {
         dispatch(id, &req.method, &req.target, &req.headers, &req.body)
@@ -346,7 +345,6 @@ pub unsafe extern "C" fn kode_http_serve_tls_router(
 #[no_mangle]
 pub unsafe extern "C" fn kode_http_serve_router(port: i64, router: *mut Header) {
     let id = *((router as *const i64).add(3));
-    THREADED.store(true, Ordering::SeqCst);
     let port = checked_port(port);
     let listener = TcpListener::bind(("0.0.0.0", port))
         .unwrap_or_else(|e| fatal(&format!("cannot listen on port {port}: {e}")));

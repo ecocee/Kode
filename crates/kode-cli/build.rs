@@ -109,7 +109,11 @@ fn main() {
                 panic!(
                     "{} is older than the runtime sources; run `cargo build -p kode-rt{}` first",
                     lib_path.display(),
-                    if profile == "release" { " --release" } else { "" },
+                    if profile == "release" {
+                        " --release"
+                    } else {
+                        ""
+                    },
                 );
             }
         }
