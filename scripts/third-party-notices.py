@@ -198,10 +198,27 @@ def main(argv):
                 "run python3 scripts/third-party-notices.py"
             )
         if current != rendered:
-            sys.exit(
-                "third-party-notices: THIRD-PARTY-NOTICES.md is stale; "
-                "run python3 scripts/third-party-notices.py and commit the result"
+            # Report where they diverge: "stale" alone gives no way to tell a
+            # dependency change from a difference in the registry sources on a
+            # given host.
+            have = current.splitlines()
+            want = rendered.splitlines()
+            line = next(
+                (i for i in range(min(len(have), len(want))) if have[i] != want[i]),
+                min(len(have), len(want)),
             )
+            detail = [
+                "third-party-notices: THIRD-PARTY-NOTICES.md is stale; "
+                "run python3 scripts/third-party-notices.py and commit the result",
+                "first difference at line {} (committed {} lines, generated {})".format(
+                    line + 1, len(have), len(want)
+                ),
+            ]
+            if line < len(have):
+                detail.append("  committed: " + have[line][:200])
+            if line < len(want):
+                detail.append("  generated: " + want[line][:200])
+            sys.exit("\n".join(detail))
         print("third-party-notices: up to date")
         return 0
 
