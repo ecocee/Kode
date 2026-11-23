@@ -37,11 +37,19 @@ pub fn link(
     let _ = std::fs::remove_file(&obj_path);
     match status {
         Ok(s) if s.success() => Ok(()),
-        Ok(s) => Err(format!("the linker `{cc}` failed with {s}")),
-        Err(e) => Err(format!(
-            "could not start the linker `{cc}` ({e}); {}",
-            install_hint()
-        )),
+        // Never leave a stale or half-written executable behind: a caller that
+        // ignores the error must not find a binary from an earlier build here.
+        Ok(s) => {
+            let _ = std::fs::remove_file(output);
+            Err(format!("the linker `{cc}` failed with {s}"))
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(output);
+            Err(format!(
+                "could not start the linker `{cc}` ({e}); {}",
+                install_hint()
+            ))
+        }
     }
 }
 
