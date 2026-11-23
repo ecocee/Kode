@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Branch layout.** The Kode-written compiler now lives on `next/selfhost`
+  (renamed from `selfhost/harness-tier1`; both names point at the same history and
+  the old remote ref is kept until the new one has run CI). `main` keeps the Rust
+  compiler and remains the only source of releases. `CONTRIBUTING.md` records the
+  rule: short-lived branches named by intent, never by compiler stage.
+
 Release notes for the `kode` compiler. Versions follow the binary, not the
 language: a patch release fixes bugs, a minor release may add syntax.
 

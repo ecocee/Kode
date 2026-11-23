@@ -32,6 +32,22 @@ issue. The names "Kode" and "Ecocee" are not licensed with the code; see
 6. One idea per pull request. Ask before touching the memory model, the binary
    model or the backend: `AGENTS.md` lists what needs a maintainer decision.
 
+## Branches
+
+Two branches are long-lived, and everything else is short-lived:
+
+- `main` — the Rust compiler that ships releases. Runtime, CLI, docs and release
+  work targets it.
+- `next/selfhost` — the Kode-written compiler in `selfhost/`, with the gates in
+  `scripts/selfhost.sh`. Self-hosting work targets it until the port can build
+  itself. It was renamed from `selfhost/harness-tier1`, which still points at the
+  same history.
+
+Feature branches are named by intent and deleted after merge: `feat/<feature>`,
+`fix/<issue>`, `perf/<optimisation>`, `test/<coverage>`, `docs/<topic>`,
+`ci/<workflow>`, and `release/<version>` when a maintenance line is needed. Name a
+branch after the work, never after a compiler stage.
+
 ## The self-hosted compiler
 
 Much of the current work lives in `selfhost/`: a port of the compiler written in
