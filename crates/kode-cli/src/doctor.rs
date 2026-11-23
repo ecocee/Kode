@@ -28,7 +28,10 @@ pub fn run() -> Result<u8, String> {
         (
             true,
             "runtime",
-            format!("{} KB embedded, ABI {RT_ABI}", crate::RUNTIME.len() / 1024),
+            format!(
+                "{} KB embedded, ABI {RT_ABI}",
+                (crate::RUNTIME_CORE.len() + crate::RUNTIME_NET.len()) / 1024
+            ),
         ),
         (cc_ok, "linker", format!("{cc}: {cc_text}")),
         (pkg_ok, "package", pkg_text),

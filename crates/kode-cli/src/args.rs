@@ -84,10 +84,14 @@ pub fn parse() -> Result<Options, String> {
                     "llvm" => {}
                     "cranelift" => {
                         return Err(
-                            "the Cranelift backend was removed; LLVM is the only backend".into()
+                            "the Cranelift backend was removed; LLVM is the only backend".into(),
                         )
                     }
-                    _ => return Err(format!("unknown backend `{name}`; LLVM is the only backend")),
+                    _ => {
+                        return Err(format!(
+                            "unknown backend `{name}`; LLVM is the only backend"
+                        ))
+                    }
                 }
             }
             other if other.starts_with("--opt=") => {

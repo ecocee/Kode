@@ -15,7 +15,12 @@ pub fn cc_program() -> String {
 }
 
 /// Link an object file with the Kode runtime into an executable.
-pub fn link(object: &[u8], output: &Path, runtime_lib: &Path, strip: bool) -> Result<(), String> {
+pub fn link(
+    object: &[u8],
+    output: &Path,
+    runtime_libs: &[&Path],
+    strip: bool,
+) -> Result<(), String> {
     let obj_path = format!("{}.kode.o", output.display());
     std::fs::write(&obj_path, object).map_err(|e| format!("cannot write {obj_path}: {e}"))?;
     let cc = cc_program();
@@ -23,7 +28,7 @@ pub fn link(object: &[u8], output: &Path, runtime_lib: &Path, strip: bool) -> Re
     cmd.arg("-o")
         .arg(output)
         .arg(&obj_path)
-        .arg(runtime_lib)
+        .args(runtime_libs)
         .args(platform_args(strip));
     // A missing or non-executable linker must be reported as such, never as a
     // child that "ran" and exited 127.

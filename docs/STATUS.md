@@ -71,12 +71,14 @@ and a faster memory story for token/AST graphs. The first two now have designs
 | `kode fmt examples tests/run-pass --check` | passes |
 | `kode check` on every example and run-pass program | passes, 54 files |
 | `kode doctor` | all ok: kode 0.3.6, macos-aarch64, runtime ABI 0004, clang 2100 |
-| hello world, default build | 1,094,776 bytes |
-| hello world, `--release` | 1,073,176 bytes |
-| hello world, `--release` + `strip -x` | **983,376 bytes — under the 1 MB budget** |
-| plaintext benchmark server, stripped | 1,068,744 bytes |
+| hello world, `--release` | 392,200 bytes |
+| hello world, `--release` + `strip -x` | **302,024 bytes — under the 1 MB budget** |
+| tasks example, stripped | 420,312 bytes |
+| channels run-pass program, stripped | 319,576 bytes |
+| plaintext HTTP server (`serve`), stripped | 454,328 bytes |
+| TLS server (`serve_tls`), stripped | 2,786,472 bytes |
 | TLS benchmark server (`serve_tls`), stripped | 5,431,968 bytes (2026-11-09, debug compiler; not re-measured) |
-| embedded runtime archive | 12,204 KB, ABI 0006 (`kode doctor`) |
+| embedded runtime archives | 8,391,088 B core + 4,445,160 B network, ABI 0006 (`kode doctor`) |
 
 The hello-world rows were re-measured on 2026-11-24 with the release compiler;
 an earlier pass used a debug-built compiler, which embeds an unoptimized runtime
@@ -196,11 +198,11 @@ the code contradicts today.
 3. **Two cheat sheets.** `README.md` links `docs/agents/cheatsheet.md` in the
    status paragraph and `docs/cheatsheet.md` at the end. Both exist, with
    different content and different command lists.
-4. **Binary size.** Resolved: `README.md` and `benchmarks/report.md` quote one
-   measurement, made with the release compiler — 1,073,176 bytes, 983,376 after
-   `strip -x`, which the budget row below records as met. The 1.2 MB figure
-   quoted earlier came from a debug-built compiler, which embeds an unoptimized
-   runtime archive.
+4. **Binary size.** Resolved twice over. The debug-compiler figures were
+   retired, then the runtime archive was split into a core half and a network
+   half (TLS, PostgreSQL, rustls, aws-lc): hello is 302,024 bytes stripped and
+   plaintext HTTP servers 454,328, while programs that use TLS or PostgreSQL
+   link the second archive and pay for it (2.79 MB and 2.97 MB).
 5. **Memory model is atomic everywhere.** Reference counts are atomic in every
    program, not only once a task or channel starts: the old `THREADED` switch
    let a running thread read the count non-atomically while another updated it
@@ -246,7 +248,7 @@ plan targets). Wall clock: best of 3; RSS: peak of one run. Compiler: debug
 | `mandel` wall clock | within 3× of C `-O2` | 13 ms vs 11 ms = **1.17×** | met |
 | idle HTTP server RSS | under 3 MB above the binary | 2,080 KB total, binary 1,848 KB → **232 KB above** (macOS arm64, 2026-11-24) | met |
 | echo server RSS at 1000 requests | flat | 2,080 → 2,336 KB at 1,000; 2,352 KB at 10,000 (+256 KB, then +16 KB for ten times the load) | met |
-| hello world binary | under 1 MB stripped | **983,376 bytes** stripped, 1,073,176 unstripped (`kode build --release` with the release compiler at `461c406`, measured 2026-11-24) | met |
+| hello world binary | under 1 MB stripped | **302,024 bytes** stripped, 392,200 unstripped (`kode build --release`, measured 2026-11-23) | met |
 | `kode check` | under 100 ms on 5k lines | 4,802-line file: **9–12 ms** | met |
 
 Re-measured 2026-11-24 with the release compiler at `461c406`

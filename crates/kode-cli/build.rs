@@ -126,10 +126,173 @@ fn main() {
         "cargo:rerun-if-changed={}",
         workspace.join("kode-rt").join("src").display()
     );
+    // Split the archive so a program that never touches the network does not link
+    // TLS, HTTP or PostgreSQL. `ar` and `nm` come with the C toolchain the compiler
+    // already needs; when they are missing, core gets the whole archive and net a
+    // copy, which links exactly as before (bigger, never broken).
+    let core_lib = out_dir.join("libkode_rt_core.a");
+    let net_lib = out_dir.join("libkode_rt_net.a");
+
+    if let Err(why) = split_archive(&out_dir.join(lib_name), &core_lib, &net_lib) {
+        println!("cargo:warning=could not split the kode runtime ({why}); linking it whole");
+        fs::copy(out_dir.join(lib_name), &core_lib).expect("could not copy the runtime");
+        fs::copy(out_dir.join(lib_name), &net_lib).expect("could not copy the runtime");
+    }
+
     println!(
         "cargo:rerun-if-changed={}",
         workspace.join("kode-rt").join("Cargo.toml").display()
     );
+}
+
+/// Symbols only a networked program can reach.
+const NET_SYMBOLS: [&str; 12] = [
+    "aws_lc_",
+    "rustls",
+    "webpki",
+    "ring_core",
+    "scram",
+    "sha256",
+    "base64",
+    "kode_http",
+    "kode_tls",
+    "kode_pg",
+    "kode_router",
+    "kode_https",
+];
+
+/// Symbols the program's entry point always needs, so their objects stay in core
+/// even when they also define network entry points (the crate-root object does).
+const CORE_SYMBOLS: [&str; 4] = [
+    "kode_rt_init",
+    "kode_rt_finish",
+    "kode_retain",
+    "kode_release",
+];
+
+fn tool(name: &str, env: &str) -> String {
+    std::env::var(env).unwrap_or_else(|_| name.to_string())
+}
+
+fn run(cmd: &mut std::process::Command) -> Result<(), String> {
+    let out = cmd.output().map_err(|e| format!("cannot run it: {e}"))?;
+
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+/// Global symbols of one object file: the ones it defines and the ones it needs.
+/// Works for Mach-O (`nm -g` prints `addr T _name`, undefined entries are a
+/// two-column `U _name` line) and ELF (`addr T name`).
+fn symbols(nm: &str, object: &Path) -> Result<(Vec<String>, Vec<String>), String> {
+    let out = std::process::Command::new(nm)
+        .arg("-g")
+        .arg(object)
+        .output()
+        .map_err(|e| format!("cannot run `{nm}`: {e}"))?;
+
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+
+    let mut defined = Vec::new();
+    let mut undefined = Vec::new();
+
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+
+        match fields.as_slice() {
+            // ELF undefined: `                 U name`
+            [kind, name] if *kind == "U" => undefined.push(name.to_string()),
+            // Defined: `addr T name`, or an undefined symbol with an address slot.
+            [_addr, kind, name] if *kind == "U" => undefined.push(name.to_string()),
+            [_addr, _kind, name] => defined.push(name.to_string()),
+            _ => {}
+        }
+    }
+
+    Ok((defined, undefined))
+}
+
+fn split_archive(lib: &Path, core_lib: &Path, net_lib: &Path) -> Result<(), String> {
+    let ar = tool("ar", "KODE_AR");
+    let nm = tool("nm", "KODE_NM");
+    let work = lib.with_extension("split");
+
+    let _ = fs::remove_dir_all(&work);
+    fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+
+    run(std::process::Command::new(&ar)
+        .arg("x")
+        .arg(lib)
+        .current_dir(&work))
+    .map_err(|e| format!("`{ar} x` failed: {e}"))?;
+
+    let mut objects: Vec<PathBuf> = fs::read_dir(&work)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|e| e == "o"))
+        .collect();
+
+    objects.sort();
+
+    if objects.is_empty() {
+        return Err("the archive has no objects".to_string());
+    }
+
+    let mut core = Vec::new();
+    let mut net = Vec::new();
+
+    for obj in &objects {
+        // Apple's `nm` cannot read objects LLVM 22 wrote (compiler_builtins carries
+        // bitcode), so an unreadable object stays in core: present everywhere,
+        // never missing.
+        let Ok((defined, _)) = symbols(&nm, obj) else {
+            core.push(obj.clone());
+            continue;
+        };
+
+        let networked = defined
+            .iter()
+            .any(|s| NET_SYMBOLS.iter().any(|m| s.contains(m)));
+        let essential = defined
+            .iter()
+            .any(|s| CORE_SYMBOLS.iter().any(|m| s.contains(m)));
+
+        if networked && !essential {
+            net.push(obj.clone());
+        } else {
+            core.push(obj.clone());
+        }
+    }
+
+    if core.is_empty() || net.is_empty() {
+        return Err("nothing to split".to_string());
+    }
+
+    for (dest, members) in [(core_lib, &core), (net_lib, &net)] {
+        // `ar r` replaces or adds but never deletes, so a stale archive would keep
+        // every member. Start from nothing.
+        let _ = fs::remove_file(dest);
+
+        let names: Vec<String> = members
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .collect();
+
+        run(std::process::Command::new(&ar)
+            .arg("rcs")
+            .arg(dest)
+            .args(&names)
+            .current_dir(&work))
+        .map_err(|e| format!("`{ar} rcs` failed: {e}"))?;
+    }
+
+    let _ = fs::remove_dir_all(&work);
+    Ok(())
 }
 
 /// The newest modification time of any file under `dir`.

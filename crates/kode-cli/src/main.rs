@@ -27,7 +27,9 @@ use source::SourceMap;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The runtime library, built by `build.rs` and embedded in this binary.
-static RUNTIME: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libkode_rt.a"));
+static RUNTIME_CORE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libkode_rt_core.a"));
+/// TLS, HTTP and PostgreSQL. Linked only when the generated IR calls into it.
+static RUNTIME_NET: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libkode_rt_net.a"));
 
 /// Stack for the compiler thread.
 ///
@@ -166,13 +168,42 @@ fn llvm_object(mir: &kode_mir::ir::MirProgram, opt_flag: &str) -> Result<Vec<u8>
 
 /// Write the embedded runtime library to `dir` and return its path.
 /// `KODE_RT_LIB` can point at another runtime (for compiler development).
-fn runtime_lib(dir: &Path) -> Result<PathBuf, String> {
+fn runtime_libs(dir: &Path) -> Result<Vec<PathBuf>, String> {
     if let Ok(p) = std::env::var("KODE_RT_LIB") {
-        return Ok(PathBuf::from(p));
+        return Ok(vec![PathBuf::from(p)]);
     }
-    let path = dir.join("libkode_rt.a");
-    std::fs::write(&path, RUNTIME).map_err(|e| format!("cannot write the runtime library: {e}"))?;
-    Ok(path)
+
+    let core = dir.join("libkode_rt_core.a");
+    std::fs::write(&core, RUNTIME_CORE)
+        .map_err(|e| format!("cannot write the runtime library: {e}"))?;
+
+    let net = dir.join("libkode_rt_net.a");
+    std::fs::write(&net, RUNTIME_NET)
+        .map_err(|e| format!("cannot write the runtime library: {e}"))?;
+
+    Ok(vec![core, net])
+}
+
+/// Link against core alone, and only fall back to core plus the network archive if
+/// the linker asks for something core does not have. Programs that never touch the
+/// network stay on the first path; a program whose runtime shape pulls a symbol
+/// that merely shares an object with TLS code still links, just larger.
+fn link_runtime(object: &[u8], output: &Path, libs: &[PathBuf], strip: bool) -> Result<(), String> {
+    let refs = link_with(libs);
+
+    if refs.len() < 2 {
+        return kode_link::link(object, output, &refs, strip);
+    }
+
+    match kode_link::link(object, output, &refs[..1], strip) {
+        Ok(()) => Ok(()),
+        Err(first) => kode_link::link(object, output, &refs, strip)
+            .map_err(|second| format!("{second}\n(without the network half: {first})")),
+    }
+}
+
+fn link_with(libs: &[PathBuf]) -> Vec<&Path> {
+    libs.iter().map(|p| p.as_path()).collect()
 }
 
 /// Link into a temporary folder, run with the program arguments, clean up.
@@ -181,8 +212,8 @@ fn run_object(object: &[u8], tag: &str, prog_args: &[String]) -> Result<u8, Stri
     let dir = std::env::temp_dir().join(format!("kode-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let exe = dir.join("program");
-    let result = runtime_lib(&dir)
-        .and_then(|rt| kode_link::link(object, &exe, &rt, false))
+    let result = runtime_libs(&dir)
+        .and_then(|libs| link_runtime(object, &exe, &libs, false))
         .and_then(|_| {
             Command::new(&exe)
                 .args(prog_args)
@@ -285,7 +316,7 @@ fn run_command(opts: &Options) -> Result<u8, String> {
         let tmp = std::env::temp_dir().join(format!("kode-build-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         let linked =
-            runtime_lib(&tmp).and_then(|rt| kode_link::link(&object, &out, &rt, opts.release));
+            runtime_libs(&tmp).and_then(|libs| link_runtime(&object, &out, &libs, opts.release));
         let _ = std::fs::remove_dir_all(&tmp);
         linked?;
         let on = style::on_stderr();

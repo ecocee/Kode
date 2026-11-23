@@ -50,6 +50,20 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **The runtime is linked in two halves.** At build time the embedded archive is
+  split into a core archive and a network archive (rustls, aws-lc, TLS, PostgreSQL,
+  `sha256`, `base64`). `kode build` links core alone and retries with both only if
+  the linker asks for a symbol core does not define, so nothing can go missing:
+  programs that never reach the network stop paying for it. hello world drops from
+  983,464 to **302,024 bytes** stripped, the `tasks` example from 1,101,736 to
+  420,312, and a plaintext HTTP server from 1,135,768 to 454,328. TLS servers
+  (2,786,472) and PostgreSQL programs (2,967,752) link the network half and are
+  unchanged. The split needs `ar` and `nm`; without them the build copies the whole
+  archive into core and every program links exactly as before. `KODE_RT_LIB` still
+  overrides the runtime with a single archive.
+
+### Added
+
 - **MIR removes provably redundant retain/release pairs.** `rc_elim` in
   `crates/kode-mir/src/opt.rs` drops `release x` when the block has only set `x` to
   `null` (releasing null is a no-op), and drops `retain x` … `release x` when nothing
