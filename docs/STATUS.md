@@ -24,10 +24,12 @@ verified from the repository, it says so instead of guessing.
 and small HTTP services on macOS/Linux, but it is not safe to offer as a
 general-purpose language. Blockers, in the order they hurt:
 
-1. Every program is over the 1 MB binary budget: hello world is **1,077,600
-   bytes stripped**, and a TLS server program is 5,431,968 bytes, because
-   optional runtime components (`rustls`, `webpki-roots`, the PostgreSQL client
-   and the server-side crypto) are linked wholesale into every binary (§2, §10).
+1. Programs that use TLS or PostgreSQL pay for them in full: hello world is
+   **983,376 bytes stripped** with the release compiler, under the 1 MB budget,
+   but a plaintext server is 1,068,744 bytes and a TLS server 5,431,968 bytes
+   (2026-11-09), because optional runtime components (`rustls`, `webpki-roots`,
+   the PostgreSQL client and the server-side crypto) are linked as one unit
+   (§2, §10). `examples/db/postgres.kode` builds to 3,088,800 bytes.
 2. TLS servers pay one thread per connection (ADR 0034) and do not use the epoll
    loop, so 1,024 concurrent TLS connections is the practical ceiling and RSS
    grows with connections, not with request rate. Plaintext capacity is measured
@@ -69,18 +71,21 @@ and a faster memory story for token/AST graphs. The first two now have designs
 | `kode fmt examples tests/run-pass --check` | passes |
 | `kode check` on every example and run-pass program | passes, 54 files |
 | `kode doctor` | all ok: kode 0.3.6, macos-aarch64, runtime ABI 0004, clang 2100 |
-| hello world, debug build | 1,252,288 bytes |
-| hello world, `--release` | 1,233,472 bytes |
-| hello world, `--release` + `strip -x` | **1,077,600 bytes — over the 1 MB budget** |
-| plaintext benchmark server, stripped | 1,484,136 bytes |
-| TLS benchmark server (`serve_tls`), stripped | 5,431,968 bytes |
-| embedded runtime archive | 59,649 KB (`kode doctor`) |
+| hello world, default build | 1,094,776 bytes |
+| hello world, `--release` | 1,073,176 bytes |
+| hello world, `--release` + `strip -x` | **983,376 bytes — under the 1 MB budget** |
+| plaintext benchmark server, stripped | 1,068,744 bytes |
+| TLS benchmark server (`serve_tls`), stripped | 5,431,968 bytes (2026-11-09, debug compiler; not re-measured) |
+| embedded runtime archive | 12,204 KB, ABI 0006 (`kode doctor`) |
 
-The hello-world measurements above are the reason the 1 MB stripped budget in
-PLAN-v1 §3 is currently **missed**: the PostgreSQL client's `rustls` and
-`webpki-roots` are linked into every program, even one that never opens a socket.
-This was recorded on 2026-11-09 and must be fixed or budgeted before any size
-claim is published (§10).
+The hello-world rows were re-measured on 2026-11-24 with the release compiler;
+an earlier pass used a debug-built compiler, which embeds an unoptimized runtime
+archive and quoted 1,077,600 bytes stripped — that is why this section used to
+record the 1 MB budget as missed. What remains true is that the runtime's
+optional components are linked as one unit: a program that opens a TLS or
+PostgreSQL connection pays for all of it (a TLS server is 5.4 MB,
+`examples/db/postgres.kode` 3.1 MB). That is the size work in §10, not a
+hello-world problem.
 
 Version history: `Cargo.toml` says `0.3.6`, and `v0.3.6` is the tag for that
 commit. The earlier `v0.3.5` tag points at `ae2ce27`, a 0.3.0 tree, which is why
@@ -191,9 +196,11 @@ the code contradicts today.
 3. **Two cheat sheets.** `README.md` links `docs/agents/cheatsheet.md` in the
    status paragraph and `docs/cheatsheet.md` at the end. Both exist, with
    different content and different command lists.
-4. **Binary size.** Resolved: `README.md` and `benchmarks/report.md` now quote
-   one measurement of `examples/hello.kode` — 1,233,464 bytes, 1,077,600 after
-   `strip -x`, which the budget row below records as missed.
+4. **Binary size.** Resolved: `README.md` and `benchmarks/report.md` quote one
+   measurement, made with the release compiler — 1,073,176 bytes, 983,376 after
+   `strip -x`, which the budget row below records as met. The 1.2 MB figure
+   quoted earlier came from a debug-built compiler, which embeds an unoptimized
+   runtime archive.
 5. **Memory model is atomic now.**
    `docs/design/memory-model.md` says "Counts are not atomic yet; concurrency
    (M6) will make them atomic". Channels set `THREADED` and the object header
@@ -233,24 +240,24 @@ plan targets). Wall clock: best of 3; RSS: peak of one run. Compiler: debug
 
 | Target | Goal | Measured | Verdict |
 |---|---|---|---|
-| `fib(35)` wall clock | within 2× of C `-O2` | 93 ms vs 58 ms = **1.62×** | met |
-| `loop_mod` wall clock | within 2× of C `-O2` | 32 ms vs 14 ms = **2.40×** | **missed** |
-| `sieve` wall clock | within 2× of C `-O2` | 30 ms vs 15 ms = **1.94×** | met (thin margin) |
-| `mandel` wall clock | within 3× of C `-O2` | 17 ms vs 12 ms = **1.41×** | met |
-| idle HTTP server RSS | under 3 MB above the binary | 2,080 KB total, binary 1,892 KB → **233 KB above** (macOS arm64, 2026-11-24) | met |
+| `fib(38)` wall clock | within 2× of C `-O2` | **58.5 ms** with optimization off vs C `-O2` 61 ms = **0.96×**; like for like (`-O0` both sides) 58.5 vs 106.8 ms. The optimized pair is not a comparison: clang rewrites only the Kode build | met |
+| `loop_mod` wall clock | within 2× of C `-O2` | 13 ms vs 12 ms = **1.13×** | met |
+| `sieve` wall clock | within 2× of C `-O2` | 31 ms vs 12 ms = **2.64×** | **missed** |
+| `mandel` wall clock | within 3× of C `-O2` | 13 ms vs 11 ms = **1.17×** | met |
+| idle HTTP server RSS | under 3 MB above the binary | 2,080 KB total, binary 1,848 KB → **232 KB above** (macOS arm64, 2026-11-24) | met |
 | echo server RSS at 1000 requests | flat | 2,080 → 2,336 KB at 1,000; 2,352 KB at 10,000 (+256 KB, then +16 KB for ten times the load) | met |
-| hello world binary | under 1 MB stripped | **1,073,176 bytes** (`kode build --release`, measured 2026-11-11 after the TLS runtime landed) | **missed** |
+| hello world binary | under 1 MB stripped | **983,376 bytes** stripped, 1,073,176 unstripped (`kode build --release` with the release compiler at `461c406`, measured 2026-11-24) | met |
 | `kode check` | under 100 ms on 5k lines | 4,802-line file: **9–12 ms** | met |
 
-Re-measured 2026-11-23 (`benchmarks/run.sh`, LLVM backend): the `fib(35)` row
-above predates the backend rewrite that let clang rewrite the recursion, so its
-93 ms no longer describes the benchmark — the program measures `fib(38)`, which
-takes 3.9 ms against C's 60.1 ms. The medians for every program are in
-`benchmarks/report.md`. The two RSS rows were re-measured on 2026-11-24: the
-server above is 1,892 KB, sits 233 KB above its own binary when idle, and grows
-256 KB over the first thousand requests — measured natively on macOS arm64,
-because the container harness (`benchmarks/http/run.sh`) needs Docker, which is
-not installed here. The old container numbers are not directly comparable.
+Re-measured 2026-11-24 with the release compiler at `461c406`
+(`benchmarks/run.sh`, LLVM backend); every row above quotes that run, and
+`benchmarks/report.md` holds the medians, the provenance and the method. `fib`
+is the awkward one: clang rewrites the recursion in the Kode build and leaves
+C's plain, so the optimized pair measures two different programs and only the
+unoptimized pair is a comparison. The RSS rows are native macOS arm64 numbers —
+the container harness (`benchmarks/http/run.sh`) needs Docker, which was not
+available — so they are not directly comparable with the container runs quoted
+in older notes.
 
 Not measured, and why:
 
@@ -266,9 +273,12 @@ Not measured, and why:
 - **RSS comparison with Node/Python** for the same server: not built.
 - **100,000 requests** (the flat-RSS target): ran 10,000 instead; a 10k run takes
   minutes with `curl` per request and a keep-alive client is the right tool.
-- **`fib(35)` in a `--release` build of the *program*** is included, but the
-  harness uses the debug `kode` compiler (the compiler's own build profile does
-  not change the backend's optimisation, but the report should say so explicitly).
+- **`fib`** is measured twice: optimized, where clang rewrites the Kode build's
+  recursion and leaves C's alone, so the ratio is not a language comparison; and
+  unoptimized on both sides, which is. The report now records the compiler
+  profile, the source commit and the build command, and the harness uses the
+  release compiler — it stops with an error rather than falling back to the
+  debug one.
 
 ## 6. CI status
 

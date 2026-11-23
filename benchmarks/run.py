@@ -28,7 +28,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-KODE = ROOT / "target" / "debug" / "kode"
+# The report measures what users ship, so it builds every program with the
+# release compiler. That compiler embeds the release-profile runtime archive, the
+# one a released `kode` would link; the debug compiler embeds an unoptimized one.
+KODE = ROOT / "target" / "release" / "kode"
 BUILD = HERE / "build"
 RUNS = int(os.environ.get("RUNS", "3"))
 PROGRAMS = ["fib", "loop_mod", "sieve", "mandel", "collatz"]
@@ -119,6 +122,55 @@ def have(tool: str) -> bool:
     return shutil.which(tool) is not None
 
 
+def git(*args: str) -> str:
+    try:
+        r = subprocess.run(
+            ["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=20
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def provenance_lines() -> list[str]:
+    """Which compiler, which source, which flags produced these numbers."""
+    commit = git("rev-parse", "--short", "HEAD") or "unknown"
+    branch = git("rev-parse", "--abbrev-ref", "HEAD") or "unknown"
+    dirty = " (working tree had uncommitted changes)" if git("status", "--porcelain") else ""
+    version = subprocess.run(
+        [str(KODE), "--version"], capture_output=True, text=True
+    ).stdout.strip()
+    return [
+        "## Provenance",
+        "",
+        f"- source: `{commit}` on `{branch}`{dirty}",
+        f"- compiler: `{KODE.relative_to(ROOT)}` — {version}",
+        "- compiler profile: the workspace `release` profile (`Cargo.toml`: opt-level 3,",
+        "  LTO, one codegen unit, `panic = \"abort\"`, stripped), built with",
+        "  `cargo build --release -p kode-cli`",
+        "- program builds: `kode build <file> --release`; C is `cc -O2`, Go is a plain",
+        "  `go build`, Node and Python run their source",
+        "- the unoptimized pair: `kode build --debug` and `cc -O0`",
+        f"- target: {platform.system()} {platform.release()} / {platform.machine()}",
+        "",
+    ]
+
+
+def require_compiler() -> int | None:
+    """Refuse to measure rather than quietly measure a different compiler."""
+    if KODE.exists():
+        return None
+    print(
+        f"benchmarks: {KODE} is missing, and the report measures release binaries.",
+        file=sys.stderr,
+    )
+    print(
+        "benchmarks: build it first: cargo build --release -p kode-cli",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def build(program: str, sources: dict[str, Path]) -> dict[str, list[str]]:
     """Build every available variant; return name -> command line."""
     out = BUILD / program
@@ -177,6 +229,82 @@ def measure(cmd: list[str], cwd: Path):
         stats = {"median": ms, "min": ms, "max": ms, "sd": 0.0, "best_only": True}
     rss = stats.pop("rss_kb", None) or peak_rss_kb(cmd, cwd)
     return stats, rss
+
+
+def unoptimized_recursion_section() -> list[str]:
+    """`fib(38)` with the optimizer off on both sides.
+
+    The optimized table compares two different programs: clang rewrites the Kode
+    build's recursion and leaves C's alone. With optimization disabled on both
+    sides both binaries run the same call tree, so the comparison is like for
+    like. The two outputs are checked against each other before either is timed.
+    """
+    source = HERE / "fib" / "main.kode"
+    c_source = HERE / "fib" / "main.c"
+    if not source.exists() or not c_source.exists() or not have("cc"):
+        return []
+    out = BUILD / "fib-unoptimized"
+    out.mkdir(parents=True, exist_ok=True)
+    kode_exe = out / "kode-debug"
+    c_exe = out / "c-O0"
+    r = subprocess.run(
+        [str(KODE), "build", str(source), "-o", str(kode_exe), "--debug"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return [
+            "## Unoptimized recursion", "",
+            f"`{source.name}` did not build with `--debug`:", "",
+            "```", r.stderr.strip()[:500], "```", "",
+        ]
+    built_c = subprocess.run(
+        ["cc", "-O0", "-o", str(c_exe), str(c_source)], capture_output=True, text=True
+    )
+    if built_c.returncode != 0:
+        return []
+
+    kode_run = subprocess.run([str(kode_exe)], capture_output=True, text=True)
+    c_run = subprocess.run([str(c_exe)], capture_output=True, text=True)
+    if (
+        kode_run.returncode != 0
+        or c_run.returncode != 0
+        or kode_run.stdout != c_run.stdout
+    ):
+        return [
+            "## Unoptimized recursion", "",
+            "The two builds did not agree, so neither was timed:", "",
+            f"- Kode `--debug`: `{kode_run.stdout.strip()}` (exit {kode_run.returncode})",
+            f"- C `-O0`: `{c_run.stdout.strip()}` (exit {c_run.returncode})", "",
+        ]
+
+    rows = []
+    for label, cmd in (("Kode `--debug`", [str(kode_exe)]), ("C `-O0`", [str(c_exe)])):
+        m = measure(cmd, out)
+        if m is None:
+            return []
+        rows.append((label, m[0], m[1]))
+    base = rows[0][1]["median"]
+    lines = [
+        "## Unoptimized recursion (`fib(38)`, like for like)",
+        "",
+        "The same source with optimization off on both sides, so neither compiler",
+        f"rewrites the call tree. Both print `{kode_run.stdout.strip()}` before timing.",
+        "",
+        "| build | median (ms) | peak RSS | vs Kode |",
+        "|---|---:|---:|---:|",
+    ]
+    for label, stats, rss in rows:
+        rss_txt = f"{rss} KB" if rss else "—"
+        lines.append(
+            f"| {label} | {stats['median']:.1f} | {rss_txt} | {stats['median'] / base:.2f}× |"
+        )
+    lines += [
+        "",
+        "This pair measures the language on a naive call tree. The table above",
+        "measures what the two optimizers did to that tree, and nothing more.",
+        "",
+    ]
+    return lines
 
 
 def hello_sizes() -> dict[str, int]:
@@ -242,9 +370,9 @@ def string_build_section() -> list[str]:
 
 
 def main() -> int:
-    if not KODE.exists():
-        print(f"build the compiler first: cargo build --workspace ({KODE} is missing)", file=sys.stderr)
-        return 1
+    missing = require_compiler()
+    if missing is not None:
+        return missing
     if "--string-build" in sys.argv[1:]:
         section = string_build_section()
         print("\n".join(section) if section else "no StringBuilder sources to measure", file=sys.stderr if not section else sys.stdout)
@@ -295,6 +423,8 @@ def main() -> int:
         f"- Rust: {platform.python_version() if False else subprocess.run(['rustc', '--version'], capture_output=True, text=True).stdout.strip()}",
     ]
     lines += tool_versions()
+    lines += [""]
+    lines += provenance_lines()
     lines += [
         "",
         "Wall clock is the median of `hyperfine` runs (2 warmups, 5 to 20 runs), with",
@@ -315,6 +445,17 @@ def main() -> int:
         if "Kode" in stats and "C" in stats:
             ratio = f"{stats['Kode']['median'] / stats['C']['median']:.2f}×"
         lines.append(f"| {row['program']} | " + " | ".join(cells) + f" | {ratio} |")
+
+    lines += [
+        "",
+        "`fib` is optimizer-dependent and is not a language comparison: clang rewrites",
+        "the Kode build's recursion into fewer, deeper calls, while the C build keeps",
+        "the plain tree. Disassemble `benchmarks/build/fib/program` beside",
+        "`benchmarks/build/fib/c` to see the difference; the unoptimized pair below",
+        "runs the same tree on both sides.",
+        "",
+    ]
+    lines += unoptimized_recursion_section()
 
     lines += ["", "## Full statistics and peak RSS", ""]
     for row in rows:

@@ -72,16 +72,19 @@ skipped. For current measurements and known gaps, see [docs/STATUS.md](docs/STAT
 
 ## Performance
 
-Measured on one development machine (macOS arm64, Apple silicon), medians from
-[benchmarks/report.md](benchmarks/report.md):
+Measured on one development machine (macOS arm64, Apple silicon) with the
+release compiler; the exact medians, the provenance and the method are in
+[benchmarks/report.md](benchmarks/report.md).
 
-- `fib(38)` in 4 ms, against C's 60 ms and Python's 4,988 ms. That ratio is not a
-  speed claim: clang rewrites this recursion for the LLVM backend
-  ([benchmarks/report-archive.md](benchmarks/report-archive.md)), so the
-  benchmark no longer measures the same call tree. The loop-heavy rows are the
-  honest ones — `collatz` 1.3× slower than C, `sieve` 2.5×.
-- `examples/hello.kode` builds to a 1,233,464-byte binary, 1,077,600 bytes after
-  `strip -x`: just over the 1 MB budget `AGENTS.md` sets for a typical server.
+- `fib(38)` optimized finishes in a few milliseconds, but that is **not** a
+  language comparison: clang rewrites the recursion in the Kode build and leaves
+  C's plain, so the two run different call trees. Unoptimized, where both do the
+  same work, Kode takes about 59 ms against C's about 107 ms.
+- Loop-heavy programs land between parity and about 2.6× behind C: `loop_mod`
+  and `collatz` around 1.1–1.3×, `sieve` about 2.6×.
+- `examples/hello.kode` builds to a release binary of about 1.05 MB, about
+  960 KB after `strip -x`: under the 1 MB budget `AGENTS.md` sets for a typical
+  server.
 
 Full numbers, targets and the rows that still miss are in [benchmarks/report.md](benchmarks/report.md).
 
