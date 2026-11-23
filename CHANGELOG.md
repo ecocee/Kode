@@ -50,6 +50,15 @@ language: a patch release fixes bugs, a minor release may add syntax.
 
 ### Added
 
+- **`KODE_LINK_MAP` for tests that need to know what the linker pulled.** Setting it
+  to a path passes a linker map to `cc` (`-Wl,-map,<path>` on macOS,
+  `-Wl,-Map=<path>` elsewhere); unset, linking is unchanged. The runtime-split CI
+  step uses it to assert hello world selects **no** members of `libkode_rt_net.a`
+  and a TLS server does select them, which `nm` on a stripped binary could not show
+  and generic Rust glue made unreliable.
+
+### Added
+
 - **The runtime is linked in two halves.** At build time the embedded archive is
   split into a core archive and a network archive (rustls, aws-lc, TLS, PostgreSQL,
   `sha256`, `base64`). `kode build` links core alone and retries with both only if

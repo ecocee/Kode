@@ -186,6 +186,26 @@ jobs:
           strip -x "$tmp/stripped" 2>/dev/null || strip "$tmp/stripped"
           echo "hello: $raw raw, $(stat -c %s "$tmp/stripped") stripped"
           test "$(stat -c %s "$tmp/stripped")" -lt 600000
+          # Which archive members were actually pulled in, straight from the
+          # linker: generic Rust glue in `nm` output gave false positives, and a
+          # stripped binary has no symbol table at all.
+          KODE_LINK_MAP="$tmp/hello.map" ./target/release/kode build \
+            examples/hello.kode -o "$tmp/mapped" --release
+          test -s "$tmp/hello.map"
+          net_refs="$(grep -c 'libkode_rt_net\.a' "$tmp/hello.map" || true)"
+          core_refs="$(grep -c 'libkode_rt_core\.a' "$tmp/hello.map" || true)"
+          echo "hello map: $core_refs core members, $net_refs network members"
+          test "$core_refs" -gt 0
+          test "$net_refs" -eq 0
+          # The network half must be selected when it is needed: a TLS server is
+          # the smallest program that provably cannot link without it.
+          sed 's/^serve(port, routes)$/serve_tls(port, "cert.der", "key.der", routes)/' \
+            examples/api.kode > "$tmp/api_tls.kode"
+          KODE_LINK_MAP="$tmp/tls.map" ./target/release/kode build "$tmp/api_tls.kode" \
+            -o "$tmp/tls" --release
+          tls_net_refs="$(grep -c 'libkode_rt_net\.a' "$tmp/tls.map" || true)"
+          echo "tls map: $tls_net_refs network members"
+          test "$tls_net_refs" -gt 0
           # A failed link must not leave a binary behind for a later step to run.
           if KODE_RT_LIB="$tmp/missing.a" ./target/release/kode build \
               examples/hello.kode -o "$tmp/broken" --release; then

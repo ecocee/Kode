@@ -30,6 +30,20 @@ pub fn link(
         .arg(&obj_path)
         .args(runtime_libs)
         .args(platform_args(strip));
+    // Opt-in linker map, for tests that need to know which archive members were
+    // pulled in. Never on by default: the map is large and only a diagnostic.
+    if let Ok(map) = std::env::var("KODE_LINK_MAP") {
+        if map.is_empty() {
+            return Err("KODE_LINK_MAP names an empty path".to_string());
+        }
+        if cfg!(target_os = "windows") {
+            cmd.arg(format!("-Wl,-Map={map}"));
+        } else if cfg!(target_os = "macos") {
+            cmd.arg(format!("-Wl,-map,{map}"));
+        } else {
+            cmd.arg(format!("-Wl,-Map={map}"));
+        }
+    }
     // A missing or non-executable linker must be reported as such, never as a
     // child that "ran" and exited 127.
     crate::force_fork_exec(&mut cmd);
