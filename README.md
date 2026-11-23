@@ -72,10 +72,16 @@ skipped. For current measurements and known gaps, see [docs/STATUS.md](docs/STAT
 
 ## Performance
 
-Measured on one development machine (macOS arm64, Apple silicon):
+Measured on one development machine (macOS arm64, Apple silicon), medians from
+[benchmarks/report.md](benchmarks/report.md):
 
-- `fib(35)` in 93 ms against Python's 4,658 ms and C's 58 ms.
-- `examples/hello.kode` builds to a 450,696-byte binary, 373,336 bytes after `strip -x`.
+- `fib(38)` in 4 ms, against C's 60 ms and Python's 4,988 ms. That ratio is not a
+  speed claim: clang rewrites this recursion for the LLVM backend
+  ([benchmarks/report-archive.md](benchmarks/report-archive.md)), so the
+  benchmark no longer measures the same call tree. The loop-heavy rows are the
+  honest ones — `collatz` 1.3× slower than C, `sieve` 2.5×.
+- `examples/hello.kode` builds to a 1,233,464-byte binary, 1,077,600 bytes after
+  `strip -x`: just over the 1 MB budget `AGENTS.md` sets for a typical server.
 
 Full numbers, targets and the rows that still miss are in [benchmarks/report.md](benchmarks/report.md).
 

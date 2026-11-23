@@ -191,9 +191,9 @@ the code contradicts today.
 3. **Two cheat sheets.** `README.md` links `docs/agents/cheatsheet.md` in the
    status paragraph and `docs/cheatsheet.md` at the end. Both exist, with
    different content and different command lists.
-4. **Binary size.** `README.md` says "release binary about 330 KB".
-   `benchmarks/report.md` says 440 KB, and `kode build --release` of
-   `examples/hello.kode` here is 450,696 bytes, 373,336 bytes after `strip -x`.
+4. **Binary size.** Resolved: `README.md` and `benchmarks/report.md` now quote
+   one measurement of `examples/hello.kode` — 1,233,464 bytes, 1,077,600 after
+   `strip -x`, which the budget row below records as missed.
 5. **Memory model is atomic now.**
    `docs/design/memory-model.md` says "Counts are not atomic yet; concurrency
    (M6) will make them atomic". Channels set `THREADED` and the object header
@@ -241,6 +241,14 @@ plan targets). Wall clock: best of 3; RSS: peak of one run. Compiler: debug
 | echo server RSS at 1000 requests | flat | 2,144 → 2,432 KB at 1,000; 2,160 → 2,464 KB at 10,000 | provisionally met (+0.3 MB, no growth with load) |
 | hello world binary | under 1 MB stripped | **1,073,176 bytes** (`kode build --release`, measured 2026-11-11 after the TLS runtime landed) | **missed** |
 | `kode check` | under 100 ms on 5k lines | 4,802-line file: **9–12 ms** | met |
+
+Re-measured 2026-11-23 (`benchmarks/run.sh`, LLVM backend): the `fib(35)` row
+above predates the backend rewrite that let clang rewrite the recursion, so its
+93 ms no longer describes the benchmark — the program measures `fib(38)`, which
+takes 3.9 ms against C's 60.1 ms. The medians for every program are in
+`benchmarks/report.md`. The `idle HTTP server RSS` row still quotes the 440 KB
+binary from before the TLS runtime, so its "above the binary" figure needs the
+server re-measured.
 
 Not measured, and why:
 

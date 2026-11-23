@@ -179,6 +179,30 @@ def measure(cmd: list[str], cwd: Path):
     return stats, rss
 
 
+def hello_sizes() -> dict[str, int]:
+    """`examples/hello.kode`, because README quotes its binary size.
+
+    Measuring it here keeps that quote reproducible: the same command, the same
+    machine block, the same report.
+    """
+    source = ROOT / "examples" / "hello.kode"
+    if not source.exists():
+        return {}
+    exe = BUILD / "hello"
+    r = subprocess.run(
+        [str(KODE), "build", str(source), "-o", str(exe), "--release"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0 or not exe.exists():
+        return {}
+    sizes = {"hello (examples/hello.kode)": exe.stat().st_size}
+    stripped = BUILD / "hello.stripped"
+    shutil.copy2(exe, stripped)
+    if subprocess.run(["strip", "-x", str(stripped)], capture_output=True).returncode == 0:
+        sizes["hello (examples/hello.kode, stripped)"] = stripped.stat().st_size
+    return sizes
+
+
 def string_build_section() -> list[str]:
     """WP-09: the same text built with `+` and with StringBuilder (ADR 0044)."""
     sources = [("`+`", STRING_BUILD / "plus.kode"), ("StringBuilder", STRING_BUILD / "builder.kode")]
@@ -315,10 +339,16 @@ def main() -> int:
 
     lines += string_build_section()
 
+    sizes.update(hello_sizes())
     if sizes:
-        lines += ["## Binary size (`--release`, stripped)", ""]
+        lines += [
+            "## Binary size (`--release`)",
+            "",
+            "Kode binaries are not stripped unless a row says so.",
+            "",
+        ]
         for program, size in sizes.items():
-            lines.append(f"- `{program}`: {size / 1024:.0f} KB")
+            lines.append(f"- `{program}`: {size / 1024:.0f} KB ({size} bytes)")
         lines.append("")
 
     lines += [
