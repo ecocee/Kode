@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Branch layout.** `main` is the Rust compiler and the only source of releases;
+  the Kode-hosted compiler lives on `next/selfhost` (renamed from
+  `selfhost/harness-tier1`, whose history and commits are preserved under both
+  names). Feature work uses short-lived `feat/`, `fix/`, `perf/`, `test/`, `docs/`
+  and `ci/` branches; `CONTRIBUTING.md` records the rule.
+
 Release notes for the `kode` compiler. Versions follow the binary, not the
 language: a patch release fixes bugs, a minor release may add syntax.
 
